@@ -98,6 +98,16 @@ type InteractionSnapshot = {
     appearanceIcon: string | null
     appearanceColor: string | null
     source: string | null
+    durationMinutes: number | null
+    location: string | null
+    allDay: boolean | null
+    recurrenceRule: string | null
+    recurrenceEnd: Date | null
+    participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+    reminderMinutes: number | null
+    visibility: string | null
+    linkedEntities: Array<{ id: string; type: string; label: string }> | null
+    guestPermissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   }
   custom?: Record<string, unknown>
 }
@@ -140,6 +150,16 @@ async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<I
       appearanceIcon: interaction.appearanceIcon ?? null,
       appearanceColor: interaction.appearanceColor ?? null,
       source: interaction.source ?? null,
+      durationMinutes: interaction.durationMinutes ?? null,
+      location: interaction.location ?? null,
+      allDay: interaction.allDay ?? null,
+      recurrenceRule: interaction.recurrenceRule ?? null,
+      recurrenceEnd: interaction.recurrenceEnd ?? null,
+      participants: interaction.participants ?? null,
+      reminderMinutes: interaction.reminderMinutes ?? null,
+      visibility: interaction.visibility ?? null,
+      linkedEntities: interaction.linkedEntities ?? null,
+      guestPermissions: interaction.guestPermissions ?? null,
     },
     custom,
   }
@@ -225,13 +245,31 @@ async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
 ): Promise<TResult> {
-  const transactionalEm = em as EntityManager & {
-    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  // Mirrors the SPEC-018 fix applied to withAtomicFlush: use explicit begin/commit/rollback
+  // so the outer EntityManager stays bound to the transaction, and closures over `em` inside
+  // `operation` participate in the same transaction. This avoids the em.transactional(cb)
+  // hazard where the callback receives a child EM whose flushes can silently race against
+  // subsequent queries on the original `em`.
+  const supportsBegin =
+    typeof (em as unknown as { begin?: () => Promise<void> }).begin === 'function' &&
+    typeof (em as unknown as { commit?: () => Promise<void> }).commit === 'function' &&
+    typeof (em as unknown as { rollback?: () => Promise<void> }).rollback === 'function'
+  if (!supportsBegin) {
+    return operation(em)
   }
-  if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
+  await em.begin()
+  try {
+    const result = await operation(em)
+    await em.commit()
+    return result
+  } catch (err) {
+    try {
+      await em.rollback()
+    } catch {
+      // rollback failure should not mask the original error; intentionally swallowed
+    }
+    throw err
   }
-  return operation(em)
 }
 
 async function emitNextInteractionUpdatedEvent(
@@ -290,6 +328,16 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         source: parsed.source ?? null,
         appearanceIcon: parsed.appearanceIcon ?? null,
         appearanceColor: parsed.appearanceColor ?? null,
+        durationMinutes: parsed.durationMinutes ?? null,
+        location: parsed.location ?? null,
+        allDay: parsed.allDay ?? null,
+        recurrenceRule: parsed.recurrenceRule ?? null,
+        recurrenceEnd: parsed.recurrenceEnd ?? null,
+        participants: parsed.participants ?? null,
+        reminderMinutes: parsed.reminderMinutes ?? null,
+        visibility: parsed.visibility ?? null,
+        linkedEntities: parsed.linkedEntities ?? null,
+        guestPermissions: parsed.guestPermissions ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -423,6 +471,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.appearanceIcon !== undefined) interaction.appearanceIcon = parsed.appearanceIcon ?? null
       if (parsed.appearanceColor !== undefined) interaction.appearanceColor = parsed.appearanceColor ?? null
       if (parsed.pinned !== undefined) interaction.pinned = parsed.pinned
+      if (parsed.durationMinutes !== undefined) interaction.durationMinutes = parsed.durationMinutes ?? null
+      if (parsed.location !== undefined) interaction.location = parsed.location ?? null
+      if (parsed.allDay !== undefined) interaction.allDay = parsed.allDay ?? null
+      if (parsed.recurrenceRule !== undefined) interaction.recurrenceRule = parsed.recurrenceRule ?? null
+      if (parsed.recurrenceEnd !== undefined) interaction.recurrenceEnd = parsed.recurrenceEnd ?? null
+      if (parsed.participants !== undefined) interaction.participants = parsed.participants ?? null
+      if (parsed.reminderMinutes !== undefined) interaction.reminderMinutes = parsed.reminderMinutes ?? null
+      if (parsed.visibility !== undefined) interaction.visibility = parsed.visibility ?? null
+      if (parsed.linkedEntities !== undefined) interaction.linkedEntities = parsed.linkedEntities ?? null
+      if (parsed.guestPermissions !== undefined) interaction.guestPermissions = parsed.guestPermissions ?? null
 
       await trx.flush()
 
@@ -518,6 +576,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           source: before.interaction.source,
           appearanceIcon: before.interaction.appearanceIcon,
           appearanceColor: before.interaction.appearanceColor,
+          durationMinutes: before.interaction.durationMinutes,
+          location: before.interaction.location,
+          allDay: before.interaction.allDay,
+          recurrenceRule: before.interaction.recurrenceRule,
+          recurrenceEnd: before.interaction.recurrenceEnd,
+          participants: before.interaction.participants,
+          reminderMinutes: before.interaction.reminderMinutes,
+          visibility: before.interaction.visibility,
+          linkedEntities: before.interaction.linkedEntities,
+          guestPermissions: before.interaction.guestPermissions,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -537,6 +605,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.source = before.interaction.source
         interaction.appearanceIcon = before.interaction.appearanceIcon
         interaction.appearanceColor = before.interaction.appearanceColor
+        interaction.durationMinutes = before.interaction.durationMinutes
+        interaction.location = before.interaction.location
+        interaction.allDay = before.interaction.allDay
+        interaction.recurrenceRule = before.interaction.recurrenceRule
+        interaction.recurrenceEnd = before.interaction.recurrenceEnd
+        interaction.participants = before.interaction.participants
+        interaction.reminderMinutes = before.interaction.reminderMinutes
+        interaction.visibility = before.interaction.visibility
+        interaction.linkedEntities = before.interaction.linkedEntities
+        interaction.guestPermissions = before.interaction.guestPermissions
       }
 
       await trx.flush()
@@ -945,6 +1023,16 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
             source: before.interaction.source,
             appearanceIcon: before.interaction.appearanceIcon,
             appearanceColor: before.interaction.appearanceColor,
+            durationMinutes: before.interaction.durationMinutes,
+            location: before.interaction.location,
+            allDay: before.interaction.allDay,
+            recurrenceRule: before.interaction.recurrenceRule,
+            recurrenceEnd: before.interaction.recurrenceEnd,
+            participants: before.interaction.participants,
+            reminderMinutes: before.interaction.reminderMinutes,
+            visibility: before.interaction.visibility,
+            linkedEntities: before.interaction.linkedEntities,
+            guestPermissions: before.interaction.guestPermissions,
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -965,6 +1053,16 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           interaction.source = before.interaction.source
           interaction.appearanceIcon = before.interaction.appearanceIcon
           interaction.appearanceColor = before.interaction.appearanceColor
+          interaction.durationMinutes = before.interaction.durationMinutes
+          interaction.location = before.interaction.location
+          interaction.allDay = before.interaction.allDay
+          interaction.recurrenceRule = before.interaction.recurrenceRule
+          interaction.recurrenceEnd = before.interaction.recurrenceEnd
+          interaction.participants = before.interaction.participants
+          interaction.reminderMinutes = before.interaction.reminderMinutes
+          interaction.visibility = before.interaction.visibility
+          interaction.linkedEntities = before.interaction.linkedEntities
+          interaction.guestPermissions = before.interaction.guestPermissions
         }
         await trx.flush()
 

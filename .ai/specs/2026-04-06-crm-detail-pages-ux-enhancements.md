@@ -879,8 +879,10 @@ This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol
 | API routes | `/api/customers/companies/[id]/people`, `/api/customers/deals/[id]/companies`, `/api/customers/deals/[id]/people`, `/api/customers/deals/[id]/stats`, `/api/customers/assignable-staff`, `/api/customers/interactions/conflicts`, `/api/customers/interactions/counts`, `/api/customers/people/[id]/companies/*` | New read endpoints |
 | API routes | `/api/customers/dictionaries/kind-settings` | New |
 | API routes | `/api/dictionaries/[dictionaryId]/entries/reorder`, `/api/dictionaries/[dictionaryId]/entries/set-default` | New (POST) |
+| API routes | `/api/audit_logs/audit-logs/actions/export` | New GET — CSV export of projected action-log entries, gated by `audit_logs.view_self`/`audit_logs.view_tenant` |
 | DB tables | `customer_entity_roles`, `customer_person_company_links`, `customer_person_company_roles`, `customer_dictionary_kind_settings`, `customer_labels`, `customer_label_assignments`, `customer_company_billing`, `customer_deal_stage_transitions` | All new; not referenced by existing third-party module code |
 | DB columns | `dictionary_entries.position`, `dictionary_entries.is_default` | Added with defaults (`0` / `false`) + partial unique index on `is_default WHERE deleted_at IS NULL` |
+| DB columns | `action_logs.action_type`, `action_logs.changed_fields` (text[]), `action_logs.primary_changed_field`, `action_logs.source_key` | All added with `null` defaults; existing rows backfilled by the projection CLI; new indexes are additive |
 | ACL features | `customers.roles.view`, `customers.roles.manage` | New; mirrored in `setup.ts` `defaultRoleFeatures` |
 
 No existing event IDs, spot IDs, API URLs, DB columns, DI names, ACL features, import paths, or type fields were removed or renamed. Additive response fields on `companies/[id]` and `people/[id]` (e.g. `counts`, `kpis`, `plannedActivitiesPreview`, `companies[]`, `isPrimary`, `temperature`, `renewalQuarter`, new `deals[].pipelineId`/`pipelineStageId`/`closureOutcome`/`lossReasonId`/`lossNotes`) preserve all pre-existing fields.
@@ -900,6 +902,20 @@ Prior static metadata (`requireFeatures: ['customers.people.manage']`) mismatche
 ### Deal-closure notification moved to a subscriber
 
 The deals update command previously called `resolveNotificationService(...)` + `buildNotificationFromType(...)` directly for won/lost status changes — a cross-module import violating the "commands emit, subscribers react" rule. The command now emits `customers.deal.{won,lost}` events; two new subscribers under `packages/core/src/modules/customers/subscribers/` translate each event into the same notification payload. The notification contract (recipient, body, link, source-entity metadata) is unchanged.
+
+### Audit-log projections for the CRM Changelog tab (new, additive)
+
+The CRM detail pages add a **Changelog tab** (`packages/core/src/modules/customers/components/detail/ChangelogTab.tsx` + `ChangelogFilters`, `ChangelogEntryRow`, `ChangelogKpiCards`) that must filter audit-log entries by action type (`create|edit|delete|assign|system`), source (`ui|api|system`), and changed field. The existing `action_logs` table had no columns to drive those filters efficiently, so the following additive changes were made to the `audit_logs` module under the scope of SPEC-072:
+
+- **Schema (Migration20260412160533)**: added 4 columns to `action_logs` (all nullable, no default value rewrites on existing rows): `action_type text`, `changed_fields text[]`, `primary_changed_field text`, `source_key text`. Added 4 additive indexes: GIN on `changed_fields`, and btree on `(tenant_id, organization_id, <col>, created_at)` for `primary_changed_field`, `source_key`, `action_type`.
+- **Projection helpers** (`packages/core/src/modules/audit_logs/lib/projections.ts`, `packages/core/src/modules/audit_logs/lib/changeRows.ts`): derive the projection columns from existing `command_id`, `action_label`, `changes_json`, and `context_json`. Pure functions; no DB I/O.
+- **Service updates** (`packages/core/src/modules/audit_logs/services/actionLogService.ts`): writes populate the new columns on every `ActionLog.create(...)`. The list query accepts additional filters (`actionType`, `sourceKey`, `fieldName`) mapped to the new columns. A `backfillProjections({ batchSize, force, organizationId, tenantId })` method re-projects existing rows in pages; runnable via the new CLI.
+- **CLI** (`packages/core/src/modules/audit_logs/cli.ts`): new `audit_logs projection:backfill [--force] [--batch-size N] [--tenant …] [--organization …]` command to backfill historical data.
+- **Export route** (`packages/core/src/modules/audit_logs/api/audit-logs/actions/export/route.ts`): new GET that accepts the same projection filters as the list endpoint and emits a CSV via the existing `serializeExport` helper. Gate matches the list route (`audit_logs.view_self` + `audit_logs.view_tenant` for cross-user access).
+
+**Backward compatibility**: all columns are nullable and additive, so existing third-party readers of `action_logs` continue to work. Queries that do not supply the new filters behave exactly as before. The projection CLI is idempotent and safe to rerun. No existing rows are rewritten except by explicit `backfillProjections` invocation, and the backfill is scoped by tenant/organization filters.
+
+**Why this lives in SPEC-072**: the Changelog tab is an in-scope deliverable of SPEC-072 Phase 5, and the audit-log projections are the minimum persistence work required to drive the tab's filters. Splitting into a separate spec would have produced two PRs that could not be merged independently (the UI has no data source without the columns; the columns have no consumer without the UI).
 
 ### Entity-role per-org feature check
 
@@ -921,6 +937,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |
 | 2026-04-06 | Rev 2: Applied technical review — added Scope Classification, Out of Scope, form ownership contracts, stage transition rules, domain effects boundaries, v1 constraints, UMES extension boundary, Decisions to Confirm, additional risks, accessibility fixes |
 | 2026-04-06 | Initial draft based on UX/UI meeting (2 April 2026) |

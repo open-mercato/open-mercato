@@ -139,7 +139,14 @@ type InteractionListRow = {
   source: string | null
   duration_minutes: number | null
   location: string | null
+  all_day: boolean | null
+  recurrence_rule: string | null
+  recurrence_end: Date | null
   participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  reminder_minutes: number | null
+  visibility: string | null
+  linked_entities: Array<{ id: string; type: string; label: string }> | null
+  guest_permissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   pinned: boolean
   organization_id: string
   tenant_id: string
@@ -339,7 +346,14 @@ export async function GET(req: Request) {
         'source',
         'duration_minutes',
         'location',
+        'all_day',
+        'recurrence_rule',
+        'recurrence_end',
         'participants',
+        'reminder_minutes',
+        'visibility',
+        'linked_entities',
+        'guest_permissions',
         'pinned',
         'organization_id',
         'tenant_id',
@@ -475,8 +489,16 @@ export async function GET(req: Request) {
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
       duration: row.duration_minutes ?? null,
+      durationMinutes: row.duration_minutes ?? null,
       location: row.location ?? null,
+      allDay: row.all_day ?? null,
+      recurrenceRule: row.recurrence_rule ?? null,
+      recurrenceEnd: toIsoString(row.recurrence_end),
       participants: row.participants ?? null,
+      reminderMinutes: row.reminder_minutes ?? null,
+      visibility: row.visibility ?? null,
+      linkedEntities: row.linked_entities ?? null,
+      guestPermissions: row.guest_permissions ?? null,
       pinned: row.pinned ?? false,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
@@ -541,7 +563,11 @@ const interactionListItemSchema = z
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
     duration: z.number().nullable().optional(),
+    durationMinutes: z.number().nullable().optional(),
     location: z.string().nullable().optional(),
+    allDay: z.boolean().nullable().optional(),
+    recurrenceRule: z.string().nullable().optional(),
+    recurrenceEnd: z.string().nullable().optional(),
     participants: z.array(
       z.object({
         userId: z.string().uuid(),
@@ -550,6 +576,23 @@ const interactionListItemSchema = z
         status: z.string().optional(),
       }),
     ).nullable().optional(),
+    reminderMinutes: z.number().nullable().optional(),
+    visibility: z.string().nullable().optional(),
+    linkedEntities: z.array(
+      z.object({
+        id: z.string().uuid(),
+        type: z.string(),
+        label: z.string(),
+      }),
+    ).nullable().optional(),
+    guestPermissions: z
+      .object({
+        canInviteOthers: z.boolean().optional(),
+        canModify: z.boolean().optional(),
+        canSeeList: z.boolean().optional(),
+      })
+      .nullable()
+      .optional(),
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     createdAt: z.string().nullable(),

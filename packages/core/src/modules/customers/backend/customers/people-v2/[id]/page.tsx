@@ -183,19 +183,30 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   })
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+    const raw = activity as Record<string, unknown>
+    const durationValue = typeof raw.duration === 'number'
+      ? raw.duration
+      : typeof raw.durationMinutes === 'number'
+        ? raw.durationMinutes as number
+        : null
     setScheduleEditData({
       id: activity.id,
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
-      durationMinutes: typeof activity.duration === 'number' ? activity.duration : null,
-      location: typeof (activity as Record<string, unknown>).location === 'string' ? (activity as Record<string, unknown>).location as string : null,
-      allDay: typeof (activity as Record<string, unknown>).allDay === 'boolean' ? (activity as Record<string, unknown>).allDay as boolean : null,
-      recurrenceRule: typeof (activity as Record<string, unknown>).recurrenceRule === 'string' ? (activity as Record<string, unknown>).recurrenceRule as string : null,
-      participants: Array.isArray((activity as Record<string, unknown>).participants) ? (activity as Record<string, unknown>).participants as ScheduleActivityEditData['participants'] : null,
-      reminderMinutes: typeof (activity as Record<string, unknown>).reminderMinutes === 'number' ? (activity as Record<string, unknown>).reminderMinutes as number : null,
-      visibility: typeof (activity as Record<string, unknown>).visibility === 'string' ? (activity as Record<string, unknown>).visibility as string : null,
+      durationMinutes: durationValue,
+      location: typeof raw.location === 'string' ? raw.location as string : null,
+      allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
+      recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
+      recurrenceEnd: typeof raw.recurrenceEnd === 'string' ? raw.recurrenceEnd as string : null,
+      participants: Array.isArray(raw.participants) ? raw.participants as ScheduleActivityEditData['participants'] : null,
+      reminderMinutes: typeof raw.reminderMinutes === 'number' ? raw.reminderMinutes as number : null,
+      visibility: typeof raw.visibility === 'string' ? raw.visibility as string : null,
+      linkedEntities: Array.isArray(raw.linkedEntities) ? raw.linkedEntities as ScheduleActivityEditData['linkedEntities'] : null,
+      guestPermissions: raw.guestPermissions && typeof raw.guestPermissions === 'object'
+        ? raw.guestPermissions as ScheduleActivityEditData['guestPermissions']
+        : null,
     })
     setScheduleDialogOpen(true)
   }, [])

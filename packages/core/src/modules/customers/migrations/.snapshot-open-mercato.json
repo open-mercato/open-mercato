@@ -3402,6 +3402,15 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "customer_entity_roles_active_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"customer_entity_roles_active_unique\" on \"customer_entity_roles\" (\"entity_type\", \"entity_id\", \"role_type\") where \"deleted_at\" is null"
+        },
+        {
           "keyName": "customer_entity_roles_scope_idx",
           "columnNames": [
             "organization_id",
@@ -3422,15 +3431,6 @@
           "constraint": false,
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "customer_entity_roles_active_unique",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"customer_entity_roles_active_unique\" on \"customer_entity_roles\" (\"entity_type\", \"entity_id\", \"role_type\") where \"deleted_at\" is null"
         },
         {
           "keyName": "customer_entity_roles_pkey",
@@ -3832,6 +3832,38 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "linked_entities": {
+          "name": "linked_entities",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "guest_permissions": {
+          "name": "guest_permissions",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
         },
         "pinned": {
           "name": "pinned",
@@ -4487,6 +4519,15 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "customer_person_company_links_active_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"customer_person_company_links_active_unique\" on \"customer_person_company_links\" (\"person_entity_id\", \"company_entity_id\") where \"deleted_at\" is null"
+        },
+        {
           "keyName": "customer_person_company_links_scope_idx",
           "columnNames": [
             "organization_id",
@@ -4516,15 +4557,6 @@
           "constraint": false,
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "customer_person_company_links_active_unique",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"customer_person_company_links_active_unique\" on \"customer_person_company_links\" (\"person_entity_id\", \"company_entity_id\") where \"deleted_at\" is null"
         },
         {
           "keyName": "customer_person_company_links_pkey",

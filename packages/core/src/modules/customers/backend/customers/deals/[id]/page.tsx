@@ -107,15 +107,29 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     void Promise.all([loadData(), loadPlannedActivities()])
   }, [loadData, loadPlannedActivities])
 
-  const defaultActivityEntity = React.useMemo(
-    () => {
-      const firstPerson = data?.people[0]
-      if (firstPerson) return { id: firstPerson.id, label: firstPerson.label, kind: 'person' as const }
-      const firstCompany = data?.companies[0]
-      if (firstCompany) return { id: firstCompany.id, label: firstCompany.label, kind: 'company' as const }
+  const activityEntities = React.useMemo(
+    () => (data
+      ? [...data.people, ...data.companies].map((entry) => ({
+          id: entry.id,
+          label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
+          kind: entry.kind,
+        }))
+      : []),
+    [data],
+  )
+  const [selectedActivityEntityId, setSelectedActivityEntityId] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setSelectedActivityEntityId((current) => {
+      if (activityEntities.length === 1) return activityEntities[0].id
+      if (current && activityEntities.some((entry) => entry.id === current)) return current
       return null
-    },
-    [data?.companies, data?.people],
+    })
+  }, [activityEntities])
+
+  const selectedActivityEntity = React.useMemo(
+    () => activityEntities.find((entry) => entry.id === selectedActivityEntityId) ?? null,
+    [activityEntities, selectedActivityEntityId],
   )
 
   const dealOptions = React.useMemo(
@@ -123,13 +137,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [data, t],
   )
 
-  const entityOptions = React.useMemo(() => {
-    if (!data) return []
-    return [...data.people, ...data.companies].map((entry) => ({
-      id: entry.id,
-      label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
-    }))
-  }, [data])
+  const entityOptions = React.useMemo(
+    () => activityEntities.map(({ id, label }) => ({ id, label })),
+    [activityEntities],
+  )
 
   const confirmDiscardIfDirty = React.useCallback(async () => {
     if (!isDirty) return true
@@ -206,6 +217,9 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   })
 
   const handleEditActivity = React.useCallback((activity: InteractionSummary) => {
+    if (activity.entityId && activityEntities.some((entry) => entry.id === activity.entityId)) {
+      setSelectedActivityEntityId(activity.entityId)
+    }
     openScheduleEdit({
       id: activity.id,
       interactionType: activity.interactionType,
@@ -220,9 +234,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       participants: activity.participants ?? null,
       reminderMinutes: activity.reminderMinutes ?? null,
       visibility: activity.visibility ?? null,
-      linkedEntities: null,
+      linkedEntities: activity.linkedEntities ?? null,
+      guestPermissions: activity.guestPermissions ?? null,
     })
-  }, [openScheduleEdit])
+  }, [activityEntities, openScheduleEdit])
 
   const handleViewDashboard = React.useCallback(() => {
     closeWonPopup()
@@ -236,7 +251,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   }, [closeLostPopup, closeWonPopup, router])
 
   const handleScheduleLostFollowUp = React.useCallback(() => {
-    if (!data || !defaultActivityEntity) return
+    if (!data || !selectedActivityEntity) return
     const nextQuarterDate = startOfNextQuarter(new Date())
     closeLostPopup()
     openScheduleEdit({
@@ -263,7 +278,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         },
       ],
     })
-  }, [closeLostPopup, data, defaultActivityEntity, openScheduleEdit, t])
+  }, [closeLostPopup, data, openScheduleEdit, selectedActivityEntity, t])
 
   if (isLoading) {
     return (
@@ -337,18 +352,40 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         if (injected) return injected()
 
         if (activeTab === 'activities') {
+          const activityEntitySelection = activityEntities.length > 1 ? (
+            <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
+              <label htmlFor="deal-activity-entity" className="text-sm font-semibold text-foreground">
+                {t('customers.deals.detail.activities.selectEntityLabel', 'Choose customer record')}
+              </label>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {t(
+                  'customers.deals.detail.activities.selectEntityDescription',
+                  'Pick the person or company that should own new deal activities and follow-ups.',
+                )}
+              </div>
+              <select
+                id="deal-activity-entity"
+                aria-label={t('customers.deals.detail.activities.selectEntityLabel', 'Choose customer record')}
+                className="mt-4 h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                value={selectedActivityEntityId ?? ''}
+                onChange={(event) => setSelectedActivityEntityId(event.target.value || null)}
+              >
+                <option value="">
+                  {t('customers.deals.detail.activities.selectEntityPlaceholder', 'Select a person or company')}
+                </option>
+                {activityEntities.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null
+
           return (
             <div className="space-y-4">
-              {defaultActivityEntity ? (
-                <InlineActivityComposer
-                  entityType={defaultActivityEntity.kind}
-                  entityId={defaultActivityEntity.id}
-                  dealId={data.deal.id}
-                  onActivityCreated={() => { void handleActivityCreated() }}
-                  runGuardedMutation={runMutationWithContext}
-                  onScheduleRequested={openSchedule}
-                />
-              ) : (
+              {activityEntities.length > 1 ? activityEntitySelection : null}
+              {activityEntities.length === 0 ? (
                 <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
                   <div className="text-sm font-semibold text-foreground">
                     {t('customers.deals.detail.activities.linkEntityTitle', 'Link a person or company first')}
@@ -365,31 +402,54 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     </Button>
                   </div>
                 </div>
+              ) : selectedActivityEntity ? (
+                <InlineActivityComposer
+                  entityType={selectedActivityEntity.kind}
+                  entityId={selectedActivityEntity.id}
+                  dealId={data.deal.id}
+                  onActivityCreated={() => { void handleActivityCreated() }}
+                  runGuardedMutation={runMutationWithContext}
+                  onScheduleRequested={openSchedule}
+                />
+              ) : (
+                <div className="rounded-[10px] border border-dashed border-border bg-muted/10 px-5 py-5">
+                  <div className="text-sm font-semibold text-foreground">
+                    {t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {t(
+                      'customers.deals.detail.activities.selectEntityRequiredDescription',
+                      'Select the customer record that should receive new deal activities before logging or scheduling anything.',
+                    )}
+                  </div>
+                </div>
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
-                onSchedule={defaultActivityEntity ? openSchedule : undefined}
+                onSchedule={selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
                 onCancel={(interactionId) => { void handleCancelActivity(interactionId) }}
               />
-              <ActivitiesSection
-                entityId={defaultActivityEntity?.id ?? null}
-                entityName={defaultActivityEntity?.label ?? null}
-                dealId={data.deal.id}
-                dealOptions={dealOptions}
-                entityOptions={entityOptions}
-                defaultEntityId={defaultActivityEntity?.id ?? null}
-                addActionLabel={t('customers.deals.detail.activitiesAdd', 'Log activity')}
-                emptyState={{
-                  title: t('customers.deals.detail.activitiesEmptyTitle', 'No activities yet'),
-                  actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Log activity'),
-                }}
-                runGuardedMutation={runMutationWithContext}
-                onDataRefresh={() => { void handleActivityCreated() }}
-                refreshKey={activityRefreshKey}
-                onEditActivity={handleEditActivity}
-              />
+              {selectedActivityEntity ? (
+                <ActivitiesSection
+                  entityId={selectedActivityEntity.id}
+                  entityName={selectedActivityEntity.label}
+                  dealId={data.deal.id}
+                  dealOptions={dealOptions}
+                  entityOptions={entityOptions}
+                  defaultEntityId={selectedActivityEntity.id}
+                  addActionLabel={t('customers.deals.detail.activitiesAdd', 'Log activity')}
+                  emptyState={{
+                    title: t('customers.deals.detail.activitiesEmptyTitle', 'No activities yet'),
+                    actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Log activity'),
+                  }}
+                  runGuardedMutation={runMutationWithContext}
+                  onDataRefresh={() => { void handleActivityCreated() }}
+                  refreshKey={activityRefreshKey}
+                  onEditActivity={handleEditActivity}
+                />
+              ) : null}
             </div>
           )
         }
@@ -547,15 +607,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         {ConfirmDialogElement}
 
-        {defaultActivityEntity ? (
+        {selectedActivityEntity ? (
           <ScheduleActivityDialog
             open={scheduleDialogOpen}
             onClose={closeSchedule}
-            entityId={defaultActivityEntity.id}
+            entityId={selectedActivityEntity.id}
             dealId={data.deal.id}
-            entityType={defaultActivityEntity.kind}
-            entityName={defaultActivityEntity.label}
-            companyName={data.companies[0]?.label ?? null}
+            entityType={selectedActivityEntity.kind}
+            entityName={selectedActivityEntity.label}
+            companyName={selectedActivityEntity.kind === 'company' ? selectedActivityEntity.label : data.companies[0]?.label ?? null}
             onActivityCreated={() => { void handleActivityCreated() }}
             editData={scheduleEditData}
           />
@@ -586,7 +646,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           lossNotes={data.deal.lossNotes}
           stats={lostStats}
           onBackToPipeline={handleBackToPipeline}
-          onScheduleFollowUp={defaultActivityEntity ? handleScheduleLostFollowUp : undefined}
+          onScheduleFollowUp={selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
         />
       </PageBody>
     </Page>

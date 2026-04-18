@@ -1,6 +1,6 @@
 /**
  * TC-UX-001: Collapsible CrudForm Groups
- * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 1
+ * Source: 2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 1
  *
  * Verifies:
  * - CrudForm groups have collapsible headers with aria-expanded

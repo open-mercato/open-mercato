@@ -1,9 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
-import { pathToFileURL } from 'url'
 
 const moduleRequire = createRequire(path.join(process.cwd(), 'package.json'))
+const pdfJsPackageRoot = path.dirname(moduleRequire.resolve('pdfjs-dist/package.json'))
+const cMapUrl = `${path.join(pdfJsPackageRoot, 'cmaps')}${path.sep}`
+const standardFontDataUrl = `${path.join(pdfJsPackageRoot, 'standard_fonts')}${path.sep}`
 
 const MIN_RENDER_SCALE = 2
 const MAX_RENDER_SCALE = 4
@@ -44,15 +46,6 @@ export type PdfPageOcrInput = {
 export type PdfOcrPreparationResult = {
   pageCount: number
   pages: PdfPageOcrInput[]
-}
-
-type PdfJsModule = {
-  getDocument: (input: {
-    data: Uint8Array
-    cMapUrl: string
-    cMapPacked: boolean
-    standardFontDataUrl: string
-  }) => { promise: Promise<PdfDocumentProxyLike> }
 }
 
 function normalizePdfText(rawText: string): string | null {
@@ -108,20 +101,8 @@ async function renderPdfPageToImageBuffer(
 }
 
 export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPreparationResult> {
-  let pdfJsPackageRoot: string
-  let pdfJsEntryPath: string
-
-  try {
-    pdfJsPackageRoot = path.dirname(moduleRequire.resolve('pdfjs-dist/package.json'))
-    pdfJsEntryPath = moduleRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs')
-  } catch {
-    throw new Error('[attachments.ocr] pdfjs-dist is not installed. Reinstall dependencies to process PDF attachments.')
-  }
-
-  const { getDocument } = await import(pathToFileURL(pdfJsEntryPath).href) as PdfJsModule
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const data = new Uint8Array(await fs.readFile(filePath))
-  const cMapUrl = `${path.join(pdfJsPackageRoot, 'cmaps')}${path.sep}`
-  const standardFontDataUrl = `${path.join(pdfJsPackageRoot, 'standard_fonts')}${path.sep}`
   const loadingTask = getDocument({
     data,
     cMapUrl,

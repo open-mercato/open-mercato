@@ -11,6 +11,28 @@ const updateCrudMock = jest.fn()
 const deleteCrudMock = jest.fn()
 const replaceMock = jest.fn()
 const pushMock = jest.fn()
+const inlineActivityComposerMock = jest.fn(
+  ({
+    entityType,
+    entityId,
+    onScheduleRequested,
+  }: {
+    entityType: string
+    entityId: string
+    onScheduleRequested?: () => void
+  }) => (
+    <div data-testid="inline-activity-composer">
+      {entityType}:{entityId}:{onScheduleRequested ? 'schedule-enabled' : 'schedule-disabled'}
+    </div>
+  ),
+)
+const plannedActivitiesSectionMock = jest.fn(
+  ({ onSchedule }: { onSchedule?: () => void }) => (
+    <div data-testid="planned-activities-section">
+      {onSchedule ? 'schedule-enabled' : 'schedule-disabled'}
+    </div>
+  ),
+)
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 
@@ -211,15 +233,25 @@ jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
 }))
 
 jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
-  InlineActivityComposer: () => <div>composer</div>,
+  InlineActivityComposer: (props: {
+    entityType: string
+    entityId: string
+    onScheduleRequested?: () => void
+  }) => inlineActivityComposerMock(props),
 }))
 
 jest.mock('../../../../../components/detail/PlannedActivitiesSection', () => ({
-  PlannedActivitiesSection: () => <div>planned</div>,
+  PlannedActivitiesSection: (props: { onSchedule?: () => void }) => plannedActivitiesSectionMock(props),
 }))
 
 jest.mock('../../../../../components/detail/ScheduleActivityDialog', () => ({
-  ScheduleActivityDialog: () => null,
+  ScheduleActivityDialog: ({
+    entityType,
+    entityId,
+  }: {
+    entityType: string
+    entityId: string
+  }) => <div data-testid="schedule-activity-dialog">{entityType}:{entityId}</div>,
 }))
 
 jest.mock('../../../../../components/detail/ChangelogTab', () => ({
@@ -324,6 +356,8 @@ describe('DealDetailPage', () => {
     deleteCrudMock.mockReset()
     replaceMock.mockReset()
     pushMock.mockReset()
+    inlineActivityComposerMock.mockClear()
+    plannedActivitiesSectionMock.mockClear()
 
     updateCrudMock.mockResolvedValue(undefined)
     deleteCrudMock.mockResolvedValue(undefined)
@@ -448,5 +482,62 @@ describe('DealDetailPage', () => {
     })
 
     expect(detailRequestCount).toBe(1)
+  })
+
+  it('requires an explicit entity selection before quick activity actions bind to a linked customer', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/deals/deal-1/stats')) {
+        return {
+          dealValue: 12000,
+          dealCurrency: 'USD',
+          closureOutcome: 'won',
+          closedAt: '2026-04-14T16:30:00.000Z',
+          pipelineName: 'Enterprise pipeline',
+          dealsClosedThisPeriod: 4,
+          salesCycleDays: 13,
+          dealRankInQuarter: 3,
+          lossReason: null,
+        }
+      }
+      if (url.startsWith('/api/customers/deals/deal-123')) {
+        detailRequestCount += 1
+        const payload = createDealPayload()
+        payload.people = [
+          {
+            id: 'person-1',
+            label: 'Ada Lovelace',
+            subtitle: 'VP Partnerships',
+            kind: 'person' as const,
+          },
+          {
+            id: 'person-2',
+            label: 'Grace Hopper',
+            subtitle: 'Procurement lead',
+            kind: 'person' as const,
+          },
+        ]
+        payload.linkedPersonIds = ['person-1', 'person-2']
+        payload.counts.people = 2
+        return payload
+      }
+      if (url.startsWith('/api/customers/interactions')) {
+        return { items: [] }
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    const selector = await screen.findByLabelText('Choose customer record')
+
+    expect(screen.queryByTestId('inline-activity-composer')).not.toBeInTheDocument()
+    expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-disabled')
+
+    fireEvent.change(selector, { target: { value: 'company-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('company:company-1:schedule-enabled')
+    })
+    expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-enabled')
   })
 })

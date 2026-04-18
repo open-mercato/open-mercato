@@ -37,8 +37,8 @@ export default function InboxSettingsPage() {
       try {
         const result = await apiCall<{ settings: { inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null }>('/api/inbox_ops/settings')
         if (!cancelled) {
-          if (result?.ok) {
-            setSettings(result.result?.settings ?? null)
+          if (result?.ok && result.result?.settings) {
+            setSettings(result.result.settings)
           } else {
             setError(t('inbox_ops.settings.load_failed', 'Failed to load settings'))
           }

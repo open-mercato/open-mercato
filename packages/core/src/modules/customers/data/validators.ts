@@ -317,6 +317,40 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
 export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 export type InteractionStatus = typeof interactionStatusValues[number]
 
+const interactionParticipantSchema = z.object({
+  userId: z.string().uuid(),
+  name: z.string().trim().max(200).optional(),
+  email: z.string().trim().max(320).optional(),
+  status: z.string().trim().max(50).optional(),
+})
+
+const interactionLinkedEntitySchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(['company', 'deal', 'offer']),
+  label: z.string().trim().max(500),
+})
+
+const interactionGuestPermissionsSchema = z
+  .object({
+    canInviteOthers: z.boolean().optional(),
+    canModify: z.boolean().optional(),
+    canSeeList: z.boolean().optional(),
+  })
+  .strict()
+
+const interactionExtendedFields = {
+  durationMinutes: z.number().int().min(0).optional().nullable(),
+  location: z.string().trim().max(500).optional().nullable(),
+  allDay: z.boolean().optional().nullable(),
+  recurrenceRule: z.string().trim().max(500).optional().nullable(),
+  recurrenceEnd: z.coerce.date().optional().nullable(),
+  participants: z.array(interactionParticipantSchema).optional().nullable(),
+  reminderMinutes: z.number().int().min(0).optional().nullable(),
+  visibility: z.string().trim().max(50).optional().nullable(),
+  linkedEntities: z.array(interactionLinkedEntitySchema).optional().nullable(),
+  guestPermissions: interactionGuestPermissionsSchema.optional().nullable(),
+} as const
+
 export const interactionCreateSchema = scopedSchema.extend({
   id: z.string().uuid().optional(),
   entityId: z.string().uuid(),
@@ -333,6 +367,7 @@ export const interactionCreateSchema = scopedSchema.extend({
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
   appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
   source: z.string().trim().max(100).optional().nullable(),
+  ...interactionExtendedFields,
 })
 
 export type InteractionCreateInput = z.infer<typeof interactionCreateSchema>
@@ -357,6 +392,7 @@ export const interactionUpdateSchema = z
         appearanceIcon: z.string().trim().max(100).optional().nullable(),
         appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
         pinned: z.boolean().optional(),
+        ...interactionExtendedFields,
       })
       .partial(),
   )

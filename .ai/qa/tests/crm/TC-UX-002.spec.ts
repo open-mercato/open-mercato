@@ -1,6 +1,6 @@
 /**
  * TC-UX-002: Inline Activity Composer
- * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 2
+ * Source: 2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 2
  *
  * Verifies:
  * - 4 activity type icons visible (Call, Email, Meeting, Note)

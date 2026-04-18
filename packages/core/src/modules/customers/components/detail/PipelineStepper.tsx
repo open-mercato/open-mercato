@@ -95,11 +95,32 @@ export function PipelineStepper({
   const currentIndex = currentVisibleStage ? sortedStages.findIndex((stage) => stage.id === currentVisibleStage.id) : -1
   const compactStage = currentVisibleStage ?? sortedStages[0] ?? null
   const renderClosedProgress = closureOutcome !== null
+  const progressValue = currentIndex >= 0 ? currentIndex + 1 : 0
+  const progressValueText = renderClosedProgress
+    ? closureOutcome === 'won'
+      ? t('customers.deals.detail.pipeline.ariaClosedWon', 'Pipeline closed — deal won.')
+      : t('customers.deals.detail.pipeline.ariaClosedLost', 'Pipeline closed — deal lost.')
+    : t('customers.deals.detail.pipeline.ariaValueText', 'Stage {{current}} of {{total}}: {{label}}', {
+        current: progressValue,
+        total: sortedStages.length,
+        label: currentVisibleStage?.label ?? t('customers.deals.detail.pipeline.noCurrent', 'no current stage'),
+      })
+  const progressLabel = pipelineName
+    ? t('customers.deals.detail.pipeline.ariaLabelNamed', 'Pipeline progress — {{name}}', { name: pipelineName })
+    : t('customers.deals.detail.pipeline.ariaLabel', 'Pipeline progress')
 
   if (!sortedStages.length) return null
 
   return (
-    <div className="rounded-[10px] border border-border bg-card px-5 py-[14px] sm:px-6">
+    <div
+      className="rounded-[10px] border border-border bg-card px-5 py-[14px] sm:px-6"
+      role="progressbar"
+      aria-label={progressLabel}
+      aria-valuemin={0}
+      aria-valuemax={sortedStages.length}
+      aria-valuenow={progressValue}
+      aria-valuetext={progressValueText}
+    >
       <div className="mb-5 flex flex-wrap items-center gap-2 text-xs leading-none">
         <p className="font-semibold uppercase tracking-[0.02em] text-muted-foreground">
           {t('customers.deals.detail.pipeline.label', 'Pipeline stages')}
@@ -119,7 +140,10 @@ export function PipelineStepper({
 
       <div className="space-y-4 sm:hidden">
         {compactStage ? (
-          <div className="rounded-[10px] border border-border bg-muted/20 px-4 py-4">
+          <div
+            className="rounded-[10px] border border-border bg-muted/20 px-4 py-4"
+            aria-current={!renderClosedProgress && compactStage.id === currentVisibleStage?.id ? 'step' : undefined}
+          >
             <div className="flex items-center gap-3">
               <div
                 className={cn(
@@ -160,8 +184,12 @@ export function PipelineStepper({
           const afterFilled = renderClosedProgress ? index < currentIndex : index < currentIndex
 
           return (
-            <div key={stage.id} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[8px]">
-              <div className="flex w-full items-center">
+            <div
+              key={stage.id}
+              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[8px]"
+              aria-current={isCurrent ? 'step' : undefined}
+            >
+              <div className="flex w-full items-center" aria-hidden="true">
                 <div
                   className={cn(
                     'h-[2px] flex-1',

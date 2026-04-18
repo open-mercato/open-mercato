@@ -552,7 +552,7 @@ export class CustomerActivity {
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -625,6 +625,12 @@ export class CustomerInteraction {
 
   @Property({ name: 'visibility', type: 'text', nullable: true })
   visibility?: string | null
+
+  @Property({ name: 'linked_entities', type: 'jsonb', nullable: true })
+  linkedEntities?: Array<{ id: string; type: string; label: string }> | null
+
+  @Property({ name: 'guest_permissions', type: 'jsonb', nullable: true })
+  guestPermissions?: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
 
   @Property({ name: 'pinned', type: 'boolean', default: false })
   pinned: boolean = false

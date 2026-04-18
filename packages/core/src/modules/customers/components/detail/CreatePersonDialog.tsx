@@ -121,9 +121,19 @@ export function CreatePersonDialog({
     onClose()
   }, [onClose, onPersonCreated, organizationId, runGuardedMutation, t])
 
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      const form = event.currentTarget.querySelector('form')
+      if (form) {
+        event.preventDefault()
+        form.requestSubmit()
+      }
+    }
+  }, [])
+
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1028px]">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1028px]" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{t('customers.people.createDialog.title', 'Add new person')}</DialogTitle>
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">

@@ -49,4 +49,49 @@ describe('PipelineStepper', () => {
     expect(screen.getByText('Contract')).toBeInTheDocument()
     expect(screen.getByText('—')).toBeInTheDocument()
   })
+
+  it('exposes progressbar semantics and marks the current stage with aria-current', () => {
+    const { container } = renderWithProviders(
+      <PipelineStepper
+        stages={[
+          { id: 'stage-1', label: 'Qualification', order: 1 },
+          { id: 'stage-2', label: 'Proposal', order: 2 },
+          { id: 'stage-3', label: 'Negotiation', order: 3 },
+          { id: 'stage-4', label: 'Contract', order: 4 },
+        ]}
+        transitions={[
+          { stageId: 'stage-1', stageLabel: 'Qualification', stageOrder: 1, transitionedAt: '2026-03-12T09:00:00.000Z' },
+          { stageId: 'stage-2', stageLabel: 'Proposal', stageOrder: 2, transitionedAt: '2026-03-20T09:00:00.000Z' },
+        ]}
+        currentStageId="stage-2"
+        pipelineName="Enterprise Sales"
+      />,
+    )
+
+    const progressbar = screen.getByRole('progressbar')
+    expect(progressbar).toHaveAttribute('aria-valuemin', '0')
+    expect(progressbar).toHaveAttribute('aria-valuemax', '4')
+    expect(progressbar).toHaveAttribute('aria-valuenow', '2')
+    expect(progressbar).toHaveAttribute('aria-valuetext', expect.stringContaining('Proposal'))
+    expect(progressbar.getAttribute('aria-label')).toContain('Enterprise Sales')
+
+    const currentSteps = container.querySelectorAll('[aria-current="step"]')
+    expect(currentSteps.length).toBeGreaterThan(0)
+  })
+
+  it('announces the closure outcome in aria-valuetext when the deal is closed', () => {
+    renderWithProviders(
+      <PipelineStepper
+        stages={[
+          { id: 'stage-1', label: 'Qualification', order: 1 },
+          { id: 'stage-2', label: 'Proposal', order: 2 },
+        ]}
+        transitions={[]}
+        currentStageId="stage-2"
+        closureOutcome="won"
+      />,
+    )
+    const progressbar = screen.getByRole('progressbar')
+    expect(progressbar.getAttribute('aria-valuetext')).toMatch(/won/i)
+  })
 })

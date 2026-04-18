@@ -179,11 +179,18 @@ export function ScheduleActivityDialog({
     }
     const timer = setTimeout(async () => {
       try {
+        const localStart = new Date(`${state.date}T${state.startTime}:00`)
         const params = new URLSearchParams({
           date: state.date,
           startTime: state.startTime,
           duration: String(state.duration),
         })
+        if (editData?.id) {
+          params.set('excludeId', editData.id)
+        }
+        if (!Number.isNaN(localStart.getTime())) {
+          params.set('timezoneOffsetMinutes', String(-localStart.getTimezoneOffset()))
+        }
         const data = await readApiResultOrThrow<{
           hasConflicts: boolean
           conflicts: Array<{ id: string; title: string | null; startTime: string; endTime: string; type: string }>
@@ -203,7 +210,7 @@ export function ScheduleActivityDialog({
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [open, state.date, state.startTime, state.duration, state.allDay, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editData?.id, open, state.date, state.startTime, state.duration, state.allDay, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = React.useCallback(async () => {
     if (!state.title.trim()) return

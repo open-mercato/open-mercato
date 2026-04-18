@@ -125,7 +125,6 @@ const addJsExtension = {
             return `import "${path}.js";`
           }
         )
-
         writeFileSync(file, content)
       }
     })

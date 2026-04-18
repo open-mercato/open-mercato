@@ -146,6 +146,8 @@ export type InteractionSummary = {
   participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
   reminderMinutes?: number | null
   visibility?: string | null
+  linkedEntities?: Array<{ id: string; type: string; label: string }> | null
+  guestPermissions?: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   customer?: {
     id: string | null
     displayName: string | null
