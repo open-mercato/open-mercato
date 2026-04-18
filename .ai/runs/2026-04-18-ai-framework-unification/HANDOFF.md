@@ -1,144 +1,124 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T14:55:00Z
+**Last updated:** 2026-04-18T16:10:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 3 WS-B progressing (Step 3.5 landed).
-Next: Step 3.6 (contract tests for chat-mode + object-mode parity —
-shared policy checks).
-**Last commit:** `56d06f921` —
-`feat(ai-assistant): add runAiAgentObject structured-output helper`
+**Current phase/step:** Phase 3 WS-B **closed** (Steps 3.4 / 3.5 / 3.6
+all landed). Phase 3 WS-C **opens** next with Step 3.7.
+**Last commit:** `34e50e455` —
+`test(ai-assistant): add chat/object runtime parity contract tests`
 
 ## What just happened
 
-- Executor landed **Step 3.5** as one code commit (`56d06f921`) plus
+- Executor landed **Step 3.6** as one code commit (`34e50e455`) plus
   this docs-flip commit (PLAN row + HANDOFF rewrite + NOTIFY append).
-- `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts`
-  gained a `runAiAgentObject` sibling to `runAiAgentText`. Kept in the
-  same file on purpose — reuses `resolveAgentModel` (module-private)
-  and `composeSystemPrompt` (exported) directly, no duplication.
-  Public surface is identical shape to the source spec §1149–1160:
-  `{ agentId, input, attachmentIds?, pageContext?, authContext,
-  modelOverride?, output?, debug?, container? }`.
-- `resolveAiAgentTools` input gained an optional
-  `requestedExecutionMode?: 'chat' | 'object'`, defaulting to `'chat'`
-  (preserves the chat dispatcher contract). `runAiAgentObject` passes
-  `'object'`, so chat-only agents get rejected at the same agent-level
-  policy check the chat pipeline uses — chat-mode and object-mode can
-  never diverge on execution-mode validation.
-- Object mode calls the AI SDK `generateObject` / `streamObject`
-  directly (they accept `schema` + `schemaName` as named args, a 1:1
-  match to the spec). Both entries are marked `@deprecated` in `ai@6`
-  but remain fully supported; a future Step can migrate to
-  `generateText`/`streamText` + `Output.object` without changing the
-  public helper shape. Tools are still resolved (the policy gate is
-  the whole point) but not threaded into the object-mode SDK calls —
-  AI SDK v6's object entries don't accept a `tools` map. See
-  `step-3.5-checks.md` for the full rationale.
-- Input accepts `string | UIMessage[]` per spec. Strings are wrapped
-  into a single user-message `UIMessage`. Arrays flow through
-  `convertToModelMessages` untouched (same as chat).
-- `mode: 'generate'` (default) returns `{ mode, object, finishReason,
-  usage }`. `mode: 'stream'` returns `{ mode, object:
-  Promise<TSchema>, partialObjectStream, textStream, finishReason,
-  usage }` — the full SDK handle so callers can consume progressive
-  hydration, raw text deltas, or just the final parsed object.
-- Public surface: `@open-mercato/ai-assistant` now re-exports
-  `runAiAgentObject`, `RunAiAgentObjectInput`, `RunAiAgentObjectResult`
-  (+ its two concrete variants) and `RunAiAgentObjectOutputOverride`.
-- Unit tests: 20 suites / 239 tests in `packages/ai-assistant`
-  (baseline 19/231 after Step 3.4; delta **+1 suite, +8 tests**). New
-  file: `agent-runtime-object.test.ts`:
-  - Happy path — agent-declared `output` + `executionMode: 'object'` +
-    `mutationPolicy: 'read-only'` → `generateObject` mock →
-    helper returns `{ object, finishReason, usage }`; composed system
-    prompt matches the base prompt.
-  - Runtime `output` override wins over agent-level `output`.
-  - No `output` anywhere → `AgentPolicyError('execution_mode_not_supported')`.
-  - Chat-mode agent called via `runAiAgentObject` →
-    `execution_mode_not_supported`.
-  - Missing `agent.requiredFeatures` → `agent_features_denied`.
-  - `modelOverride` wins.
-  - `resolvePageContext` hydration appends to the composed system
-    prompt.
-  - `mode: 'stream'` calls `streamObject` and returns a stream handle;
-    iterators yield partial objects + text chunks.
+  Closes Phase 3 WS-B.
+- New test file:
+  `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-runtime-parity.test.ts`.
+  Tests-only Step — no production code touched.
+- Parity invariants guarded (all paired via `describe.each` unless
+  noted):
+  1. `agent_unknown` deny on both helpers.
+  2. `agent_features_denied` on both helpers.
+  3. Super-admin bypass symmetric on both helpers.
+  4. `readOnly` agent with `isMutation` tool in `allowedTools` is
+     filtered out with `console.warn` + continue — identical on both
+     helpers. Mutation tool never adapted for the model on either
+     path.
+  5. `resolvePageContext` invocation, skip, and throw-survival all
+     identical on both helpers.
+  6. `modelOverride` precedence + `agent.defaultModel` fallback
+     identical on both helpers.
+  7. `attachmentIds` pass-through to `resolveAiAgentTools` identical
+     (Phase-1 behavior — Step 3.7 owns media-type resolution).
+  8. Non-whitelisted tools never reach either path.
+  9. Inverse-pair: object-mode agent → `runAiAgentText` AND chat-mode
+     agent → `runAiAgentObject` both yield
+     `execution_mode_not_supported`.
+  10. `AgentPolicyError` structural parity (same class, same `code`
+      field shape).
+- **No production divergence found.** Every invariant observes the
+  same behavior across both helpers with the existing Step 3.4 + 3.5
+  code as-is. Zero source-file patches in this Step.
+- No shared-fixture module extracted — duplication between 3.4 / 3.5
+  / 3.6 suites is under the 50-line threshold, so the Step brief
+  opts-out is triggered.
+- Unit tests: 21 suites / 265 tests in `packages/ai-assistant`
+  (baseline 20/239 after Step 3.5; delta **+1 suite, +26 tests**).
 - Typecheck: `yarn turbo run typecheck --filter=@open-mercato/core
   --filter=@open-mercato/app` carries the same pre-existing
   `app:typecheck` error on `agent-registry.ts` (Step 3.1 carryover).
-  Grep of the typecheck output for `agent-runtime`, `agent-tools`, and
-  `agent-runtime-object` returned **no new diagnostics**.
-- `yarn generate` NOT run — Step 3.5 only touches library helpers, no
-  route / OpenAPI / module-discovery surface changed. (Step brief
-  permits skipping regeneration in this case.)
+  Grep of the typecheck output for `agent-runtime-parity` returned
+  **no new diagnostics**.
+- `yarn generate` NOT run — Step 3.6 only adds a test file, no
+  route / OpenAPI / module-discovery surface changed.
 
 ## Next concrete action
 
-- **Step 3.6** — Spec Phase 1 WS-B — Contract tests for chat-mode +
-  object-mode parity (shared policy checks).
-  - Expected file: `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-parity.test.ts`
-    (or similar) — a dedicated suite that exercises BOTH `runAiAgentText`
-    and `runAiAgentObject` and asserts they share the same deny
-    behavior on:
-    - `agent_unknown`
-    - `agent_features_denied`
-    - `tool_not_whitelisted` (via the tool-resolution path)
-    - `tool_features_denied`
-    - `mutation_blocked_by_readonly` / `mutation_blocked_by_policy`
-      (only triggers when a write tool is whitelisted — fixture with
-      `isMutation: true` tool)
-    - `execution_mode_not_supported` (chat agent → object helper AND
-      object agent → chat helper)
-    - `attachment_type_not_accepted` — deferred? Step 3.7 owns the
-      attachment bridge; either parity-test that both paths currently
-      skip the attachment check OR add a TODO for Step 3.13.
-  - MUST NOT duplicate existing policy-gate tests from
-    `agent-policy.test.ts` — this Step's purpose is to prove the two
-    helpers share a single enforcement path. A parameterized describe
-    block (`describe.each([runAiAgentText, runAiAgentObject])`) is a
-    clean way to express this.
-  - After 3.6, Phase 3 WS-B closes and Phase 3 WS-C (attachment bridge
-    + tool packs) opens.
+- **Step 3.7** — Spec Phase 1 WS-C — Attachment-to-model conversion
+  bridge (images / PDFs / text-like / metadata-only).
+  - Expected file: new
+    `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts`
+    (spec line 77) plus wiring into `runAiAgentText` +
+    `runAiAgentObject` so the resolved `AiResolvedAttachmentPart[]`
+    from Step 2.4 actually reaches the model-message layer.
+  - The existing `attachmentIds` pass-through (Step 3.4 / 3.5 / 3.6
+    invariant #10) becomes the load-bearing bridge: Step 3.7 wires
+    the resolver into both helpers with the same API surface.
+  - Scope:
+    1. New module `attachment-parts.ts` that loads attachments by id,
+       classifies media type per `AiAgentAcceptedMediaType`
+       (`image` / `pdf` / `file`), and emits the contract-typed parts
+       from Step 2.4 (`bytes` / `signed-url` / `text` /
+       `metadata-only`).
+    2. Thread the resolver into `runAiAgentText` (chat message parts)
+       AND `runAiAgentObject` (system prompt / message parts per SDK
+       v6 object-mode capabilities) with the same code path —
+       preserves the parity guarantee Step 3.6 just locked in.
+    3. Unit tests for all four source kinds; integration-test is
+       Step 3.13.
+  - First Phase 3 WS-C Step — opens the "Files + tool packs"
+    workstream.
+  - After 3.7 comes 3.8 (general-purpose tool packs) and the
+    customers / catalog tool packs in 3.9–3.12.
 
 ## Blockers / open questions
 
 - **`packages/ai-assistant` typecheck script**: still missing — same
   caveat as earlier Steps.
 - **`apps/mercato` stale generated import**: `agent-registry.ts(43,7)`
-  still references `@/.mercato/generated/ai-agents.generated` which is
-  not emitted yet (Step 3.1 carryover). Runtime try/catch hides it;
-  TS flags it as a compile-time diagnostic. Still a drive-by
+  still references `@/.mercato/generated/ai-agents.generated` which
+  is not emitted yet (Step 3.1 carryover). Runtime try/catch hides
+  it; TS flags it as a compile-time diagnostic. Still a drive-by
   candidate.
+- **Attachment bridge**: Step 3.7 is the load-bearing bridge (new
+  file `attachment-parts.ts`). All three WS-B helpers currently pass
+  `attachmentIds` through to the tool resolver untouched.
 - **Object-mode HTTP dispatcher**: intentionally deferred to Phase 4
-  (playground) per the Step brief. Phase 3 only needs the helper to
-  work standalone; contract tests in Step 3.6 exercise the helper
-  directly.
+  (playground). Phase 3 only needs the helpers to work standalone;
+  contract tests in this Step exercise the helpers directly.
 - **Tools in object mode**: the AI SDK v6 object entries
   (`generateObject` / `streamObject`) don't accept a `tools` map, so
   the object-mode pipeline currently resolves tools (for the policy
   gate) but does NOT pass them to the SDK. Migration to
-  `generateText` + `Output.object` would close this gap but was out of
-  scope for Step 3.5. Flag for Phase 4 if a concrete agent needs
-  tool-backed object mode.
+  `generateText` + `Output.object` would close this gap but remains
+  out of scope for Phase 3. Flag for Phase 4 if a concrete agent
+  needs tool-backed object mode.
 - **User's unstaged spec edit** (~280 lines on
   `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`) still
   out-of-scope.
 - **`authContext` on the public helper surface**: intentional Phase-1
-  shim — same caveat as `runAiAgentText`. Phase 4 may wrap both
-  helpers behind a thinner API once a global request-context resolver
-  lands.
-- **Attachment bridge**: `runAiAgentObject` accepts `attachmentIds`
-  and passes them to the tool resolver untouched; Step 3.7 owns media
-  type resolution + model-part conversion (same carry-forward as
-  Step 3.4).
+  shim on both helpers. Phase 4 may wrap them behind a thinner API
+  once a global request-context resolver lands.
 
 ## Environment caveats
 
-- Dev runtime runnable: unknown. Phase 3 remains runtime + tests only.
+- Dev runtime runnable: unknown. Phase 3 remains runtime + tests
+  only.
 - Database/migration state: clean, untouched.
-- `yarn generate` NOT re-run this Step (library-only change).
+- `yarn generate` NOT re-run this Step (tests-only change).
   Regenerating would be a no-op for the API path count.
 
 ## Worktree

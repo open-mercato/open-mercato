@@ -33,7 +33,7 @@
 | 3 | 3.3 | Spec Phase 1 WS-A — `POST /api/ai/chat?agent=<module>.<agent>` route with `metadata` + `openApi` | done | aae4fc6f5 |
 | 3 | 3.4 | Spec Phase 1 WS-B — AI SDK helpers: `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText` | done | e20c80c1e |
 | 3 | 3.5 | Spec Phase 1 WS-B — Structured-output (`executionMode: 'object'`) support + `runAiAgentObject` helper | done | 56d06f921 |
-| 3 | 3.6 | Spec Phase 1 WS-B — Contract tests for chat-mode + object-mode parity (shared policy checks) | todo | — |
+| 3 | 3.6 | Spec Phase 1 WS-B — Contract tests for chat-mode + object-mode parity (shared policy checks) | done | 34e50e455 |
 | 3 | 3.7 | Spec Phase 1 WS-C — Attachment-to-model conversion bridge (images/PDFs/text-like/metadata-only) | todo | — |
 | 3 | 3.8 | Spec Phase 1 WS-C — General-purpose tool packs (`search.*`, `attachments.*`, `meta.*`) | todo | — |
 | 3 | 3.9 | Spec Phase 1 WS-C — Customers tool pack (people / companies / deals / activities / tasks / addresses / tags / settings) | todo | — |

@@ -367,3 +367,22 @@
   - **Tools in object mode.** Tools are resolved (policy gate runs) but NOT passed to `generateObject`/`streamObject` — the AI SDK v6 object entries do not accept a `tools` map. Variable is referenced via `void tools` to suppress lint without dropping the side effect. Gap closes when/if the object path migrates to `generateText` + `Output.object`.
   - **`maxSteps`/`stopWhen` in object mode.** Forwarded as an untyped field on `generateObject`'s args (`generateArgs as Record<string, unknown>`). The SDK's object-mode signature doesn't declare `stopWhen`; most providers ignore it harmlessly, but any that respect the hint get it.
 - Phase 3 WS-B is now 2/3 landed. Next: Step 3.6 closes WS-B with parity contract tests across both helpers.
+
+## 2026-04-18T16:10:00Z — Step 3.6 committed (34e50e455)
+- `test(ai-assistant): add chat/object runtime parity contract tests`
+- Files touched (code commit): **tests only**, no production code changes.
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-runtime-parity.test.ts` (new, 26 tests).
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **21 suites / 265 tests** (baseline 20/239 after Step 3.5; delta +1 suite / +26 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`: same pre-existing `app:typecheck` diagnostic on `agent-registry.ts` (Step 3.1 carryover). No new diagnostics on `agent-runtime-parity.test.ts`.
+  - `yarn generate` NOT run — tests-only change.
+  - i18n / Playwright: N/A.
+- BC: additive only. No production-code change, no public surface touched.
+- Decisions:
+  - **No production divergence between helpers.** Every parity invariant observes the same behavior across `runAiAgentText` and `runAiAgentObject` with the Step 3.4 / 3.5 code as-is. Zero source-file patches in this Step — the shared `resolveAiAgentTools` + `composeSystemPrompt` path already enforces every invariant uniformly.
+  - **`describe.each` pattern** for 11 paired invariants, plus a sibling `describe` block for the execution-mode inverse pair (chat-mode agent → `runAiAgentObject` AND object-mode agent → `runAiAgentText` both yield `execution_mode_not_supported`). Makes the "shared rule across both paths" property visible at the source-code level.
+  - **Shared agent fixture with `output` declared.** Every fixture agent in the `describe.each` block declares `output: parityOutput` (no `executionMode`) so the same agent satisfies BOTH helpers — chat-mode ignores `output`, object-mode consumes it. Declaring `executionMode: 'object'` would have forced the chat path to fail `execution_mode_not_supported`; declaring neither would force the object path to fail the same way. See `agent-policy.ts` lines 128–146 for the gate math.
+  - **No shared-helper module extracted.** Duplication between Step 3.4 / 3.5 / 3.6 suites (`makeAgent`, `makeTool`, `baseAuth`, `baseMessages`, SDK-mock setup) is under 50 lines — the Step brief's >50-line threshold is not met. Extracting would churn two existing test files without a real maintenance win.
+  - **Helper-specific SDK assertion gating.** Parity tests that inspect tool-map contents through the SDK use `if (helper === 'text')` to skip the assertion for the object helper (AI SDK v6 object entries don't accept `tools`). The `resolveAiAgentTools` return shape is still asserted for both paths, so the parity check is meaningful on both without asserting a contract the SDK doesn't support.
+  - **Attachment ID pass-through** invariant locks in the Phase-1 behavior: `attachmentIds` flow into `resolveAiAgentTools` unchanged on both paths. Step 3.7's attachment bridge will thread resolved parts onto the model messages without breaking this surface.
+- Phase 3 WS-B is now **3/3 landed — closed**. Phase 3 WS-C opens next with Step 3.7 (attachment-to-model conversion bridge, new file `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` per spec line 77).
