@@ -11,11 +11,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders | done | bacbc59ec |
-| 1 | 1.2 | Fix placeholder timestamps in NOTIFY.md / HANDOFF.md with real UTC times | done | 4a782bbd1 |
-| 1 | 1.3 | Tighten `in-progress` label discipline in auto-create-pr and dogfood on PR #1593 | done | 98ec6abb2 |
-| 1 | 1.4 | Flatten verification layout: replace `proofs/<step>/` with `step-<X.Y>-checks.md` + optional `step-<X.Y>-artifacts/` next to PLAN.md | done | 6a1afab69 |
-| 1 | 1.5 | Require a top-of-file Tasks table in PLAN.md as the single source of truth for Step status; update skills and this plan | done | 93440ec79 |
+| 1 | 1.1 | Skill harness foundation: per-spec run folders, flat `step-<X.Y>-checks.md`, three-signal in-progress lock, top-of-file Tasks table | done | 93440ec79 |
+| 1 | 1.2 | Compact Phase 1 plan to a single step and rename PR to the `ai-framework-unification` main goal | todo | — |
 | 2 | 2.1 | Placeholder — expand once user provides direction | todo | — |
 
 ## Goal
@@ -25,31 +22,39 @@ capability (skills, MCP tools, AI assistant, automation runbooks, and
 supporting specs) hangs off one coherent contract instead of the current
 scatter of ad-hoc skills, separate MCP tools, and one-off scripts.
 
-The precise scope of Phase 2+ will be defined once the user provides
-direction after the Phase 1 skill-harness refresh lands. Until then Phase 2+
-is a placeholder — it MUST be expanded before any code-changing work.
+Phase 1 lays the process/runbook foundation that every subsequent AI-framework
+change will flow through: a single, resumable, auditable way for autonomous
+agents to deliver PRs. Phase 2+ is the actual AI-framework unification work —
+scope pending user direction.
 
-## Scope (Phase 1 only, confirmed)
+## Scope (Phase 1, confirmed and landed)
 
-- Rework `auto-create-pr` and `auto-continue-pr` to use per-spec run folders
-  (`.ai/runs/<date>-<slug>/`) with `PLAN.md`, `HANDOFF.md`, `NOTIFY.md`, and
-  flat `step-<X.Y>-checks.md` (+ optional `step-<X.Y>-artifacts/`) verification
-  files.
-- Enforce a 1:1 step-to-commit discipline and per-commit verification
-  (typecheck, unit tests, Playwright + screenshot when UI-facing **and** env
-  is runnable — never a dev-blocking requirement).
-- Require live `HANDOFF.md` + append-only `NOTIFY.md` maintenance.
-- Cap subagent parallelism at 2 (dev + reviewer) with conflict avoidance as
-  the priority.
-- Tighten the `in-progress` label discipline in `auto-create-pr` so the
-  three-signal lock (assignee + label + claim comment) is held throughout
-  the run and released in a trap/finally.
-- Add a top-of-file Tasks table to `PLAN.md` as the authoritative Step-status
-  source, replacing the bottom-of-file Progress checkbox section.
-- Migrate sibling skills (`auto-sec-report`, `auto-qa-scenarios`,
-  `auto-update-changelog`) to the new folder layout or confirm their existing
-  filters remain correct.
-- Refresh `.ai/runs/README.md` to document the new contract.
+Phase 1 was a single, unified piece of foundation work — delivered as a
+sequence of small commits, now rolled up into one Step in this table for
+clarity. The concrete outcomes:
+
+- `.ai/runs/<date>-<slug>/` per-spec run folder layout with `PLAN.md`,
+  `HANDOFF.md`, and append-only `NOTIFY.md` as a uniform contract.
+- Flat verification layout: `step-<X.Y>-checks.md` next to `PLAN.md` (required
+  per Step) + optional `step-<X.Y>-artifacts/` only when real artifacts exist.
+  No `proofs/` subfolder. Full-gate output under `final-gate-checks.md`.
+- 1:1 step-to-commit discipline with per-commit verification (typecheck + unit
+  tests always; Playwright + screenshot when UI-facing **and** env runnable —
+  never a dev-blocking requirement).
+- `HANDOFF.md` rewritten after every Step so a fresh agent can resume in
+  <30 seconds; `NOTIFY.md` is append-only UTC-timestamped log.
+- Subagent parallelism capped at 2 (dev + reviewer), conflict avoidance over
+  speed.
+- Three-signal `in-progress` lock in `auto-create-pr` (assignee + label +
+  claim comment) held throughout the run, temporarily released around
+  `auto-review-pr`, and released in a trap/finally.
+- Top-of-file `## Tasks` markdown table in `PLAN.md` (Phase | Step | Title |
+  Status | Commit) as the authoritative status source, replacing the legacy
+  bottom-of-file `## Progress` checklist. Legacy Progress section tolerated
+  as a one-shot fallback for pre-migration PRs.
+- Sibling skills (`auto-sec-report`, `auto-qa-scenarios`,
+  `auto-update-changelog`) migrated or confirmed compatible with the new
+  layout. `.ai/runs/README.md` documents the full contract.
 
 ## Non-goals (Phase 1)
 
@@ -59,17 +64,15 @@ is a placeholder — it MUST be expanded before any code-changing work.
 
 ## Risks
 
-- **Back-compat of tracking plans**: existing open PRs may still use the
-  legacy `.ai/runs/<date>-<slug>.md` flat-file layout or the bottom-of-file
-  Progress checkbox format. Mitigated by documenting both fallbacks in
-  `auto-continue-pr` and migrating on first resume.
-- **Dogfooding deviation**: this run is being executed inside the user's
-  primary worktree at the user's explicit request (they want to continue
-  in-place). The new skill forbids that by default; this is a one-time
-  deviation documented in `NOTIFY.md`.
-- **Phase 2+ under-specified**: the actual `ai-framework unification`
-  scope has not yet been provided. The plan MUST be expanded before any
-  Phase 2 commits.
+- **Back-compat of tracking plans**: pre-migration PRs used the flat-file
+  layout and/or the bottom-of-file Progress checklist. Mitigated by explicit
+  fallbacks in `auto-continue-pr`, which migrates stragglers on first resume.
+- **Dogfooding deviation**: this run was executed in the user's primary
+  worktree at the user's explicit request. The new skill forbids that by
+  default; documented as a one-time exception in `NOTIFY.md`.
+- **Phase 2+ under-specified**: the actual `ai-framework unification` scope
+  has not yet been provided. The plan MUST be expanded before any Phase 2
+  commits.
 
 ## External References
 
@@ -77,28 +80,35 @@ is a placeholder — it MUST be expanded before any code-changing work.
 
 ## Source spec
 
-- None — this is a runbook/process change, not an architectural spec. If
+- None — Phase 1 is a runbook/process change, not an architectural spec. If
   Phase 2+ requires an architectural decision, a spec under `.ai/specs/`
   will be added and linked here.
 
 ## Implementation Plan
 
-### Phase 1 — Skill harness refresh
+### Phase 1 — Skill harness foundation
 
-- **Step 1.1** Rework `auto-create-pr`, `auto-continue-pr`, sibling skills
-  (`auto-sec-report`, `auto-qa-scenarios`, `auto-update-changelog`), and
-  `.ai/runs/README.md` to adopt per-spec run folders with PLAN/HANDOFF/NOTIFY.
-- **Step 1.2** Repair placeholder UTC timestamps in `NOTIFY.md` and
-  `HANDOFF.md` derived from the real session timeline.
-- **Step 1.3** Add the three-signal `in-progress` lock (assignee + label +
-  claim comment) to `auto-create-pr` and dogfood it on PR #1593.
-- **Step 1.4** Flatten the verification layout: `step-<X.Y>-checks.md` (and
-  optional `step-<X.Y>-artifacts/`) sit next to `PLAN.md`; no `proofs/`
-  subfolder, no per-Step subfolders for checks.
-- **Step 1.5** Introduce a top-of-file `## Tasks` table in `PLAN.md` as the
-  authoritative Step-status source. Replace the old bottom-of-file
-  `## Progress` checklist, update `auto-create-pr` and `auto-continue-pr` to
-  read/write the table, update `.ai/runs/README.md`.
+- **Step 1.1** Skill harness foundation. Landed as five incremental commits
+  to keep review easy; rolled up as one Step in the Tasks table for
+  readability. Commit breadcrumbs (newest last):
+  - `bacbc59ec` — initial rework of `auto-create-pr` / `auto-continue-pr` and
+    sibling skills to per-spec run folders.
+  - `4a782bbd1` — repair placeholder UTC timestamps in `NOTIFY.md` /
+    `HANDOFF.md` to match real session time.
+  - `98ec6abb2` — add three-signal `in-progress` lock discipline to
+    `auto-create-pr`; dogfooded on this PR.
+  - `6a1afab69` — flatten verification layout: `step-<X.Y>-checks.md` +
+    optional `step-<X.Y>-artifacts/` replace the `proofs/<step-id>/` nesting.
+  - `93440ec79` — introduce the top-of-file `## Tasks` table in `PLAN.md` as
+    the authoritative Step-status source; update both skills to read/write
+    the table.
+  - Per-commit verification notes remain as `step-1.1-checks.md`,
+    `step-1.2-checks.md`, `step-1.3-checks.md`, `step-1.4-checks.md`,
+    `step-1.5-checks.md` in this run folder for audit.
+- **Step 1.2** Compact Phase 1 in `PLAN.md` to a single Step row, rewrite
+  the Implementation Plan to reflect that rollup, and rename the PR so the
+  title names the overall `ai-framework-unification` goal (the skill harness
+  was the first step of it, not the whole goal).
 
 ### Phase 2 — `ai-framework` unification (to be defined)
 
