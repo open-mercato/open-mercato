@@ -74,3 +74,21 @@
 
 ## 2026-04-18T08:45:00Z — Phase 1 complete (third pass)
 - Steps 1.1 / 1.2 / 1.3 / 1.4 all [x]. Next: push and release lock on #1593, wait for Phase 2 scope.
+
+## 2026-04-18T08:50:00Z — user asked: top-of-file Tasks table in PLAN.md
+- Request: keep a table at the top of `PLAN.md` showing task status (done / not done) as the authoritative source; modify all skills to enforce it.
+- Decision: promote to Step 1.5 under Phase 1. Replace the bottom-of-file `## Progress` checkbox section with a top-of-file `## Tasks` markdown table (Phase | Step | Title | Status | Commit) using only `todo` / `done` statuses. Keep a legacy `## Progress` fallback in `auto-continue-pr` so pre-migration PRs still resume and migrate to the table on the first resume commit.
+
+## 2026-04-18T08:50:30Z — dogfood: reclaimed in-progress on PR #1593
+- Applied `in-progress` label and posted claim comment, per the three-signal rule added in Step 1.3.
+
+## 2026-04-18T08:52:00Z — note: unrelated spec edit observed in working tree
+- `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` showed up as modified during Step 1.5 staging. The edit looks like user-authored content (adds a `catalog.merchandising_assistant` bulk-edit demo section to the AI tooling spec) and is not part of this run's scope. Left unstaged on purpose so the user's work is not folded into this PR.
+
+## 2026-04-18T08:54:00Z — Step 1.5 committed (93440ec79)
+- `docs(skills): make PLAN.md's top-of-file Tasks table the authoritative status source`
+- `PLAN.md` now opens with the `## Tasks` table (6 rows: 1.1–1.5 + 2.1). Old `## Progress` section removed.
+- `.ai/runs/README.md`, `auto-create-pr`, `auto-continue-pr` updated. Sibling skills inherit by reference.
+
+## 2026-04-18T08:55:00Z — Phase 1 complete (fourth pass)
+- Steps 1.1 / 1.2 / 1.3 / 1.4 / 1.5 all done. Next: push and release lock on #1593, wait for Phase 2 scope.

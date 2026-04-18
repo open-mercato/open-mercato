@@ -15,7 +15,7 @@
 | 1 | 1.2 | Fix placeholder timestamps in NOTIFY.md / HANDOFF.md with real UTC times | done | 4a782bbd1 |
 | 1 | 1.3 | Tighten `in-progress` label discipline in auto-create-pr and dogfood on PR #1593 | done | 98ec6abb2 |
 | 1 | 1.4 | Flatten verification layout: replace `proofs/<step>/` with `step-<X.Y>-checks.md` + optional `step-<X.Y>-artifacts/` next to PLAN.md | done | 6a1afab69 |
-| 1 | 1.5 | Require a top-of-file Tasks table in PLAN.md as the single source of truth for Step status; update skills and this plan | todo | — |
+| 1 | 1.5 | Require a top-of-file Tasks table in PLAN.md as the single source of truth for Step status; update skills and this plan | done | 93440ec79 |
 | 2 | 2.1 | Placeholder — expand once user provides direction | todo | — |
 
 ## Goal

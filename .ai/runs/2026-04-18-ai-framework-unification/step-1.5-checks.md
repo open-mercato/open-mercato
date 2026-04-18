@@ -2,7 +2,7 @@
 
 **Step:** 1.5 Require a top-of-file Tasks table in PLAN.md as the single source of truth for Step status; update skills and this plan.
 **Scope:** docs-only.
-**Commit:** _filled in at commit time_.
+**Commit:** `93440ec79`.
 
 ## What changed
 
