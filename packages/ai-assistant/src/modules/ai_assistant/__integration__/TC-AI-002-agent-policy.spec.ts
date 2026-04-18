@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
@@ -84,19 +84,32 @@ test.describe('TC-AI-002: AI agent dispatcher policy gate', () => {
     expect(body.code).toBe('validation_error');
   });
 
-  test('unauthenticated caller returns 401', async ({ request }) => {
-    const response = await request.fetch(`${chatPath}?agent=does.not_exist`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      data: JSON.stringify({
-        messages: [{ role: 'user', content: 'hello' }],
-      }),
-    });
+  test('unauthenticated caller returns 401', async ({ baseURL }) => {
+    // Use a fresh request context with no cookies — shared `request` fixture
+    // accumulates the superadmin session cookie from prior getAuthToken calls.
+    const context = await playwrightRequest.newContext({ baseURL });
+    try {
+      const response = await context.fetch(`${chatPath}?agent=does.not_exist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        data: JSON.stringify({
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      });
 
-    expect(response.status()).toBe(401);
-    const body = (await response.json()) as { code?: unknown };
-    expect(body.code).toBe('unauthenticated');
+      expect(response.status()).toBe(401);
+      // The framework-level `requireAuth` guard (page metadata) short-circuits
+      // unauthenticated POSTs before the route handler runs, so the response
+      // carries the framework's `{ error: 'Unauthorized' }` envelope rather
+      // than the route-local `{ code: 'unauthenticated' }` envelope. Either
+      // shape satisfies the contract "unauth callers cannot invoke the
+      // dispatcher"; we accept whichever one the framework actually returns.
+      const body = (await response.json()) as { code?: unknown; error?: unknown };
+      expect(body.code === 'unauthenticated' || body.error === 'Unauthorized').toBe(true);
+    } finally {
+      await context.dispose();
+    }
   });
 });

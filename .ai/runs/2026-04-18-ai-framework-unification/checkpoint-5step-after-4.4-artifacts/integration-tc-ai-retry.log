@@ -1,0 +1,234 @@
+[dotenv@17.2.3] injecting env (56) from apps/mercato/.env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+Running 7 tests using 1 worker
+
+  ✓  1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:30:3 › TC-AI-002: AI agent dispatcher policy gate › unknown agent returns 404 agent_unknown (168ms)
+  ✓  2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:49:3 › TC-AI-002: AI agent dispatcher policy gate › malformed agent query param returns 400 validation_error (135ms)
+  ✓  3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:68:3 › TC-AI-002: AI agent dispatcher policy gate › missing agent query param returns 400 validation_error (123ms)
+  ✘  4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 (20ms)
+  ✘  5 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 (retry #1) (53ms)
+  ✓  6 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts:22:3 › TC-AI-PLAYGROUND-004: AI Playground › playground renders agent picker or empty state for superadmin (1.5s)
+  ✓  7 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:17:3 › TC-AI-001: AI framework auth sanity › superadmin login reaches /backend (558ms)
+  ✘  8 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error (20.0s)
+  ✘  9 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error (retry #1) (20.1s)
+
+
+  1) packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m"unauthenticated"[39m
+    Received: [31mundefined[39m
+
+      102 |       expect(response.status()).toBe(401);
+      103 |       const body = (await response.json()) as { code?: unknown };
+    > 104 |       expect(body.code).toBe('unauthenticated');
+          |                         ^
+      105 |     } finally {
+      106 |       await context.dispose();
+      107 |     }
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:104:25
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m"unauthenticated"[39m
+    Received: [31mundefined[39m
+
+      102 |       expect(response.status()).toBe(401);
+      103 |       const body = (await response.json()) as { code?: unknown };
+    > 104 |       expect(body.code).toBe('unauthenticated');
+          |                         ^
+      105 |     } finally {
+      106 |       await context.dispose();
+      107 |     }
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:104:25
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-ai-assistant-src--c0e9a-nticated-caller-returns-401-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-ai-assistant-src--c0e9a-nticated-caller-returns-401-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error 
+
+    [31mTest timeout of 20000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 20000ms exceeded.
+    Call log:
+    [2m  - waiting for getByRole('button', { name: /login|sign in|continue with sso/i }).first()[22m
+    [2m    - locator resolved to <button type="submit" data-slot="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive…>Sign in</button>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 100ms[22m
+    [2m    9 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m    - element is visible, enabled and stable[22m
+    [2m    - scrolling into view if needed[22m
+    [2m    - done scrolling[22m
+    [2m    - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m  - retrying click action[22m
+    [2m    - waiting 500ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m    - element is visible, enabled and stable[22m
+    [2m    - scrolling into view if needed[22m
+    [2m    - done scrolling[22m
+    [2m    - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m  - retrying click action[22m
+    [2m    - waiting 500ms[22m
+
+
+      35 |
+      36 |     const submitButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
+    > 37 |     await submitButton.click();
+         |                        ^
+      38 |
+      39 |     // Wait for the login POST to resolve (dev cold-compile can take several seconds).
+      40 |     const loginResponse = await page
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:37:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    [31mTest timeout of 20000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 20000ms exceeded.
+    Call log:
+    [2m  - waiting for getByRole('button', { name: /login|sign in|continue with sso/i }).first()[22m
+    [2m    - locator resolved to <button type="submit" data-slot="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive…>Sign in</button>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 100ms[22m
+    [2m    9 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m      - waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 500ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m    - element is visible, enabled and stable[22m
+    [2m    - scrolling into view if needed[22m
+    [2m    - done scrolling[22m
+    [2m    - <div class="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">…</div> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m  - retrying click action[22m
+    [2m    - waiting 500ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m    - element is visible, enabled and stable[22m
+    [2m    - scrolling into view if needed[22m
+    [2m    - done scrolling[22m
+    [2m    - <p>…</p> from <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">…</div> subtree intercepts pointer events[22m
+    [2m  - retrying click action[22m
+    [2m    - waiting 500ms[22m
+
+
+      35 |
+      36 |     const submitButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
+    > 37 |     await submitButton.click();
+         |                        ^
+      38 |
+      39 |     // Wait for the login POST to resolve (dev cold-compile can take several seconds).
+      40 |     const loginResponse = await page
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:37:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error-retry1/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-core-src-modules--2ac3c-login-and-surfaces-an-error-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 
+    packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error 
+  5 passed (2.4m)

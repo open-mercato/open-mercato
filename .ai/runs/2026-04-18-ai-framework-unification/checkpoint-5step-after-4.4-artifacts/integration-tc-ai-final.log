@@ -1,0 +1,16 @@
+[dotenv@17.2.3] injecting env (56) from apps/mercato/.env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+
+Running 7 tests using 1 worker
+
+  ✓  1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:30:3 › TC-AI-002: AI agent dispatcher policy gate › unknown agent returns 404 agent_unknown (190ms)
+  ✓  2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:49:3 › TC-AI-002: AI agent dispatcher policy gate › malformed agent query param returns 400 validation_error (153ms)
+  ✓  3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:68:3 › TC-AI-002: AI agent dispatcher policy gate › missing agent query param returns 400 validation_error (155ms)
+  ✓  4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 (22ms)
+  ✓  5 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts:22:3 › TC-AI-PLAYGROUND-004: AI Playground › playground renders agent picker or empty state for superadmin (1.5s)
+  ✓  6 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:17:3 › TC-AI-001: AI framework auth sanity › superadmin login reaches /backend (568ms)
+  ✓  7 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error (602ms)
+
+  7 passed (1.7m)
