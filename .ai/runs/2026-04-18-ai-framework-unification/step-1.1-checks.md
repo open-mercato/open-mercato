@@ -1,7 +1,8 @@
-# Step 1.1 proofs — skill harness refresh
+# Step 1.1 checks — skill harness refresh
 
-**Step:** 1.1 Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders
+**Step:** 1.1 Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders.
 **Scope:** docs-only — `.ai/skills/auto-create-pr/SKILL.md`, `.ai/skills/auto-continue-pr/SKILL.md`, `.ai/skills/auto-sec-report/SKILL.md`, `.ai/skills/auto-qa-scenarios/SKILL.md`, `.ai/skills/auto-update-changelog/SKILL.md`, `.ai/runs/README.md`.
+**Commit:** `bacbc59ec`.
 
 ## Verification
 
@@ -17,8 +18,8 @@
 
 - No `yarn typecheck`, `yarn test`, `yarn build:*`, `yarn i18n:*` were run because the Step does not change build inputs.
 - No Playwright MCP check was run because there is no UI to exercise.
-- Per the new skill rules, skipping UI verification on a non-UI Step is expected and does not block development.
+- Per the skill rules, skipping UI verification on a non-UI Step is expected and does not block development.
 
-## Artifact
+## Artifacts
 
-- Diff: see commit `docs(skills): ...` immediately following commit `docs(runs): add execution plan for ai-framework-unification`.
+- None. Docs-only diff is the artifact; see commit `bacbc59ec`.

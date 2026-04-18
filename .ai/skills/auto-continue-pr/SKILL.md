@@ -1,6 +1,6 @@
 ---
 name: auto-continue-pr
-description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the run folder (.ai/runs/<date>-<slug>/) linked from the PR body, read HANDOFF.md first for session context, then PLAN.md's Progress checklist, continue execution from the first unchecked step one commit at a time with per-commit verification proofs (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) stored under proofs/, rewrite HANDOFF.md after each Step and append every important decision to NOTIFY.md, and run the same full validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
+description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the run folder (.ai/runs/<date>-<slug>/) linked from the PR body, read HANDOFF.md first for session context, then PLAN.md's Progress checklist, continue execution from the first unchecked step one commit at a time writing step-<X.Y>-checks.md verification logs next to PLAN.md (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) and step-<X.Y>-artifacts/ folders only when the step produced real artifacts, rewrite HANDOFF.md after each Step and append every important decision to NOTIFY.md, and run the same full validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
 ---
 
 # Auto Continue PR
@@ -85,7 +85,8 @@ RUN_DIR=".ai/runs/<date>-<slug>"
 PLAN_PATH="${RUN_DIR}/PLAN.md"
 HANDOFF_PATH="${RUN_DIR}/HANDOFF.md"
 NOTIFY_PATH="${RUN_DIR}/NOTIFY.md"
-PROOFS_DIR="${RUN_DIR}/proofs"
+# Per-Step verification lives at ${RUN_DIR}/step-<X.Y>-checks.md;
+# per-Step artifacts (only when real artifacts exist) live at ${RUN_DIR}/step-<X.Y>-artifacts/.
 ```
 
 ### 2. Create an isolated worktree from the PR head
@@ -187,12 +188,13 @@ From the resume point forward, apply the **same per-Step loop** documented in `.
 
 1. Implement only the work described by the current Step (one Step = one commit).
 2. Add or update tests for anything that changed behavior. Unit tests mandatory for code changes; escalate to integration tests for risky flows.
-3. Run targeted validation for affected packages and capture proofs under `$PROOFS_DIR/<step-id>/`:
-   - `yarn typecheck` → `typecheck.log`
-   - `yarn test` → `unit-tests.log`
+3. Run targeted validation for affected packages and record the outcome in `${RUN_DIR}/step-<X.Y>-checks.md`:
+   - `yarn typecheck`
+   - `yarn test`
    - `yarn i18n:check-sync` / `yarn i18n:check-usage` when locale/text changed
    - `yarn generate` / `yarn build:packages` / `yarn db:generate` when module structure or generated files changed
-4. **UI verification (conditional)** — when the Step is UI-facing AND the dev env is runnable, exercise the change via Playwright and save `playwright.log` + at least one `screenshot-<desc>.png` into `$PROOFS_DIR/<step-id>/`. If the dev env cannot be started or the scenario is not reachable, skip and log the reason in `NOTIFY.md`. **UI proofs MUST NEVER block development.**
+   - When raw command output is worth keeping, create `${RUN_DIR}/step-<X.Y>-artifacts/` and save `typecheck.log`, `unit-tests.log`, `i18n.log`, etc. Never create an empty artifacts folder.
+4. **UI verification (conditional)** — when the Step is UI-facing AND the dev env is runnable, exercise the change via Playwright, create `${RUN_DIR}/step-<X.Y>-artifacts/` if it does not yet exist, and save `playwright.log` + at least one `screenshot-<desc>.png` there. Reference them from `step-<X.Y>-checks.md`. If the dev env cannot be started or the scenario is not reachable, skip and log the reason in both `step-<X.Y>-checks.md` and `NOTIFY.md`. **UI checks MUST NEVER block development.**
 5. Re-read the diff to remove scope creep.
 6. Grep changed non-test files for raw `em.findOne(` / `em.find(` and replace with `findOneWithDecryption` / `findWithDecryption`.
 7. **Commit** with a conventional-commit message for that single Step.
@@ -214,7 +216,7 @@ Subagent parallelism (optional, capped at 2):
 
 ### 5. Full validation gate
 
-Before flipping the PR to `complete`, run the full gate (same as `auto-create-pr` / `code-review` / `auto-fix-github`) and drop the logs into `$PROOFS_DIR/_final-gate/`:
+Before flipping the PR to `complete`, run the full gate (same as `auto-create-pr` / `code-review` / `auto-fix-github`) and record the outcome in `${RUN_DIR}/final-gate-checks.md`. Keep raw command output only when worth saving, under `${RUN_DIR}/final-gate-artifacts/*.log`:
 
 - `yarn build:packages`
 - `yarn generate`
@@ -256,7 +258,7 @@ Invoke `.ai/skills/auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode
 1. Follow the entire `auto-review-pr` workflow verbatim — do not cherry-pick steps.
 2. Apply fixes directly in the same worktree used for this resume. Never rewrite earlier commits; always add new commits under a new Step id (e.g. `X.Y-review-fix`) with its own proofs subfolder.
 3. After each batch of fixes:
-   - Re-run targeted validation for the changed packages and capture proofs under `$PROOFS_DIR/<step-id>/`.
+   - Re-run targeted validation for the changed packages and record the outcome in `${RUN_DIR}/step-<X.Y-review-fix>-checks.md`; only create a `step-<X.Y-review-fix>-artifacts/` folder when there is captured output worth keeping.
    - Re-run the full validation gate from step 5 whenever a fix touches code outside a single module/test file.
    - Update `PLAN.md` Progress: flip the Step checkbox if the fix corresponds to a plan Step; otherwise add `- [x] Post-review fix: {one-line summary} — {sha}` under the relevant Phase heading.
    - Rewrite `HANDOFF.md` and append a NOTIFY entry.
@@ -289,7 +291,7 @@ Minimum comment structure:
 - {reminder of URLs already recorded in the plan's External References, plus anything newly consulted during this resume, with adopt/reject notes}  <!-- omit section if none -->
 
 ### Verification phases completed (this resume)
-- **Per-step proofs:** `{run-folder}/proofs/<step-id>/` — typecheck + unit tests for every Step, Playwright + screenshots where UI was exercised.
+- **Per-step verification:** `{run-folder}/step-<X.Y>-checks.md` for every Step; optional `step-<X.Y>-artifacts/` when real artifacts exist.
 - **Targeted validation (per Step):** {which packages ran unit tests / typecheck / i18n / generate / build}
 - **Full validation gate:** {yarn build:packages ✓, yarn generate ✓, yarn i18n:check-sync ✓, yarn i18n:check-usage ✓, yarn typecheck ✓, yarn test ✓, yarn build:app ✓ — or explicit blocker}
 - **Self code-review:** {applied `.ai/skills/code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
@@ -383,7 +385,7 @@ If the resume still did not reach `complete`, leave `Status: in-progress` in the
 - Do not rewrite history on the PR branch. Do not alter earlier commits' behavior.
 - **Every Step is 1:1 with a commit.** If you need more than one commit for a Step, split the Step in `PLAN.md` first, then proceed.
 - Every new code change MUST include tests; docs-only changes are exempt from the unit-test rule but still run relevant lint/checks.
-- `proofs/<step-id>/` MUST contain typecheck and unit-test logs for every code-changing commit. Playwright logs and screenshots MUST be captured when the Step is UI-facing AND the dev env is runnable; when not runnable, skip them and log the reason in `NOTIFY.md`. UI verification MUST NEVER block development.
+- `step-<X.Y>-checks.md` MUST exist for every commit-landing Step and record the outcome of typecheck + unit tests (or explicit N/A). `step-<X.Y>-artifacts/` is optional and only created when the Step produced real artifacts (Playwright transcripts, screenshots, captured command output). Playwright + screenshots MUST be captured when the Step is UI-facing AND the dev env is runnable; when not runnable, skip them and log the reason in both `step-<X.Y>-checks.md` and `NOTIFY.md`. UI verification MUST NEVER block development.
 - Rewrite `HANDOFF.md` after every Step. Append (never rewrite) to `NOTIFY.md` for: resume start, resume end, every completed Step, every skipped UI check (with reason), every blocker, every important decision, and every subagent delegation.
 - Run the full validation gate and the code-review + BC self-review before flipping `Status: in-progress` to `Status: complete`.
 - After the resume's targeted/full validation passes, run the `auto-review-pr` skill against the PR in autofix mode and keep applying fixes (as new commits, never as history rewrites) until it returns a clean verdict or only non-actionable findings remain. Do this before posting the summary comment, pushing the final changes, and reporting back.

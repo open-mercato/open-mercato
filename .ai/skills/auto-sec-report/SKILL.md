@@ -75,7 +75,7 @@ NOTIFY_PATH="${RUN_DIR}/NOTIFY.md"
 BRANCH="feat/${SLUG}"
 ```
 
-Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim — including creating `HANDOFF.md` and `NOTIFY.md` alongside `PLAN.md`, and using `proofs/<step-id>/` per Step.
+Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim — including creating `HANDOFF.md` and `NOTIFY.md` alongside `PLAN.md`, writing `step-<X.Y>-checks.md` next to `PLAN.md` for each Step, and creating an optional `step-<X.Y>-artifacts/` folder only when the Step produced real artifacts.
 
 ### 1. Build the unit queue
 
