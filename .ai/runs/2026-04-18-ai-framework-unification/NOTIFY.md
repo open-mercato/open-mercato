@@ -612,3 +612,20 @@
   - **No new i18n keys**: hook surfaces only `UploadFailureReason` codes; consumers translate via `useT()` at render time. Keeps the `ai_assistant.chat.*` namespace unchanged pending Step 4.6 keyboard/debug work.
   - **Playwright skipped** — same rationale as Step 4.1. Step 4.4 (playground) is the first natural integration point for an end-to-end drag-and-drop proof.
 - Phase 4 WS-A now **2/3 landed** (4.1 + 4.2 done; 4.3 registry expansion remains). Phase 4 overall **2/11**. Next: Step 4.3 — client-side UI-part registry formalization (expands the minimal Step 4.1 registry with scoped-registry props + richer `AiUiPartProps` envelope for Phase 3 approval cards).
+
+## 2026-04-18T14:55:00Z — Step 4.3 committed (59f23edac)
+- `feat(ui): formalize AiChat UI-part registry with Phase 3 slot reservations (Phase 2 WS-A)`
+- Files touched (code commit): `packages/ui/src/ai/{ui-part-registry.ts,ui-part-slots.ts,AiChat.tsx,index.ts}`, `packages/ui/src/ai/ui-parts/pending-phase3-placeholder.tsx`, `packages/ui/src/ai/__tests__/{AiChat.registry,ui-part-slots}.test.*`, `packages/ui/src/ai/__tests__/ui-part-registry.test.ts`, `packages/ui/__integration__/TC-AI-UI-003-aichat-registry.spec.tsx`, `packages/ui/jest.config.cjs`, and 4-locale i18n updates under `packages/ai-assistant/src/modules/ai_assistant/i18n/`.
+- Verification:
+  - `npx jest --config=packages/ui/jest.config.cjs --testPathPatterns="ai/"`: **6 suites / 45 tests** passing.
+  - `yarn turbo run typecheck --filter=@open-mercato/ui --filter=@open-mercato/ai-assistant --filter=@open-mercato/app`: all cache-hits, no new diagnostics.
+  - `yarn i18n:check-sync`: green (46 modules × 4 locales).
+  - `yarn generate`: N/A (no module-discovery surface change).
+- Decisions:
+  - **Functional registry factory** (`createAiUiPartRegistry`) over class inheritance; scoped prop (`registry`) on `<AiChat>` for isolation, default global singleton for convenience.
+  - **Seed reserved Phase 3 slots** by default so consumers see a humane placeholder instead of a raw debug chip; Phase 5 Step 5.10's real cards will replace them via `register(...)`.
+  - **Slot ids in `const` tuple** — `RESERVED_AI_UI_PART_IDS` + `ReservedAiUiPartId` string-literal type make the Phase 3 contract statically visible to consumers.
+  - **Integration test placement** under `packages/ui/__integration__/` per the per-module feedback memory. Integration-test discovery caveat flagged in HANDOFF as a 4.4 verification checkbox.
+- BC: additive only. Step-4.1 `registerAiUiPart` / `resolveAiUiPart` preserved as shims over `defaultAiUiPartRegistry`. `<AiChat>` props contract extended (optional `registry`), never narrowed.
+- Phase 2 WS-A is now **3/3 landed — closed**. Phase 2 WS-B opens next with Step 4.4 (backend playground page). First real browser surface for `<AiChat>`; UI-step cadence rule (memory: feedback_integration_tests_per_module.md) requires a Playwright smoke + integration spec under `packages/ai-assistant/src/modules/ai_assistant/__integration__/`.
+

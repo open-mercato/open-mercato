@@ -43,7 +43,7 @@
 | 3 | 3.13 | Spec Phase 1 WS-C — Integration tests: unknown agent / forbidden agent / invalid attachment / allowed-tool filtering / tool-pack coverage | done | f1cc6be3d |
 | 4 | 4.1 | Spec Phase 2 WS-A — `packages/ui/src/ai/AiChat.tsx` (embeddable chat component) | done | aae5bdac8 |
 | 4 | 4.2 | Spec Phase 2 WS-A — Upload adapter reusing attachments API, returns `attachmentIds` | done | 6acaa8487 |
-| 4 | 4.3 | Spec Phase 2 WS-A — Client-side UI-part registry with Phase 3 approval-card slots reserved | todo | — |
+| 4 | 4.3 | Spec Phase 2 WS-A — Client-side UI-part registry with Phase 3 approval-card slots reserved | done | 59f23edac |
 | 4 | 4.4 | Spec Phase 2 WS-B — Backend playground page (`/backend/config/ai-assistant/playground`) with agent picker + debug panel + object-mode | todo | — |
 | 4 | 4.5 | Spec Phase 2 WS-B — Backend agent settings page (`/backend/config/ai-assistant/agents`) with prompt overrides + tool toggles + attachment policy | todo | — |
 | 4 | 4.6 | Spec Phase 2 WS-B — i18n keys, keyboard shortcuts (`Cmd/Ctrl+Enter`, `Escape`), debug support | todo | — |
