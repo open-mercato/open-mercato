@@ -90,6 +90,15 @@ export {
 // Tool loader
 export { loadAllModuleTools, indexToolsForSearch } from './modules/ai_assistant/lib/tool-loader'
 
+// Agent registry (Phase 1 WS-A — read-side lookup API, no policy / dispatch)
+export {
+  loadAgentRegistry,
+  getAgent,
+  listAgents,
+  listAgentsByModule,
+  resetAgentRegistryForTests,
+} from './modules/ai_assistant/lib/agent-registry'
+
 // OpenCode client
 export {
   OpenCodeClient,
