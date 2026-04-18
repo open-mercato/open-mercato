@@ -307,3 +307,35 @@
   - **ACL load path** — reused `createRequestContainer()` + `rbacService.loadAcl(auth.sub, { tenantId, organizationId })` exactly the way `api/tools/execute/route.ts` already does. No new DI surface.
   - **Message cap** — `messages.length > 100` → 400 with `code: 'validation_error'`. Chosen as a pragmatic guardrail for Phase 3; Phase 5 agent settings UI (Step 5.4) MAY replace it with a per-agent `maxSteps`/`maxMessages` cap.
   - Phase 3 WS-A is now **complete** (3/3 Steps: 3.1 registry, 3.2 policy, 3.3 dispatcher). Next up: Phase 3 WS-B opens with Step 3.4 AI SDK helpers.
+
+## 2026-04-18T14:10:00Z — Step 3.4 committed (e20c80c1e)
+- `feat(ai-assistant): add AI SDK helpers — runAiAgentText, resolveAiAgentTools, createAiAgentTransport`
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts` (new — `resolveAiAgentTools` + `AgentPolicyError`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts` (new — `runAiAgentText` + `composeSystemPrompt`; returns SDK `toTextStreamResponse`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-transport.ts` (new — thin `DefaultChatTransport` wrapper binding `?agent=<id>`).
+  - `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/route.ts` (placeholder stream removed; delegates to `runAiAgentText`; maps `AgentPolicyError` via existing `statusForDenyCode`).
+  - `packages/ai-assistant/src/index.ts` (additive re-exports).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/{agent-tools,agent-runtime,agent-transport}.test.ts` (new; 17 tests).
+  - `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/__tests__/route.test.ts` (placeholder-stream test rewritten to delegation assertion; new `AgentPolicyError`-mapping test).
+  - `.ai/runs/2026-04-18-ai-framework-unification/step-3.4-checks.md`.
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **19 suites / 231 tests** (baseline 16 / 213 after Step 3.3; delta +3 suites / +18 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`: one pre-existing app diagnostic on `agent-registry.ts` (missing generated import — Step 3.1 carryover). No new diagnostics from any of the four new files or the updated route.
+  - `yarn generate` → 310 API paths (unchanged). `aiAssistantChatAgent` still emitted.
+  - i18n / Playwright: N/A (library-only Step, no new strings or UI).
+- BC: additive only.
+  - Surface 2 (Types): new public `RunAiAgentTextInput`, `ResolveAiAgentToolsInput`, `ResolvedAgentTools`, `AgentRequestPageContext`, `CreateAiAgentTransportInput`, and the `AgentPolicyError` class — all new names, no existing type altered.
+  - Surface 3 (Function signatures): three new functions added to `@open-mercato/ai-assistant`. No existing function renamed or reordered.
+  - Surface 4 (Import paths): additive re-exports only. `./ai-sdk.ts`, `./tool-loader.ts`, `./mcp-tool-adapter.ts` untouched.
+  - Surface 7 (API route URLs): the `/api/ai_assistant/ai/chat` path is unchanged. Behavior upgrade: placeholder SSE replaced with real AI SDK stream. Response Content-Type preserved; error codes preserved.
+- Decisions:
+  - **`authContext` on the public helper surface** — Phase-1 shim. Source spec's public shape (spec lines 1133–1168) omits `authContext` on `RunAiAgentTextInput`, but Phase 1 has no global request-context resolver. Exposing it explicitly keeps the helper usable today; Phase 4 may wrap this behind a thinner public API once the resolver exists.
+  - **Attachment ids pass through unchanged** — both `resolveAiAgentTools` and `runAiAgentText` accept `attachmentIds` but do not resolve media types. Media-type resolution and model-part conversion land in Step 3.7 (attachment-to-model bridge). The dispatcher's pre-existing `TODO(step-3.7)` comment remains in place.
+  - **`resolvePageContext` runs opportunistically** — `composeSystemPrompt` invokes the callback when (a) the agent declares it, (b) the request carries both `entityType` and `recordId`, and (c) a DI container was passed in. Throwing callbacks are caught and logged without failing the request. No production agent declares a callback today — Step 5.2 backfills that.
+  - **`maxSteps → stopWhen`** — AI SDK v6 replaced the `maxSteps` field with a `stopWhen` condition. The runtime maps `agent.maxSteps` to `stopWhen: stepCountIs(n)` only when `maxSteps > 0`; otherwise the SDK default (20 steps) applies.
+  - **Model resolution** — reused existing `llmProviderRegistry.resolveFirstConfigured()` + `provider.createModel({ modelId, apiKey })`. No new model-factory indirection. Agent `defaultModel` (or caller-supplied `modelOverride`) wins over the provider default. The shared model-factory extraction is Step 5.1.
+  - **Tool-level deny handling** — `resolveAiAgentTools` skips tools the caller lacks features for with a `console.warn` instead of throwing. The agent author whitelisted those tools at design time but the current caller is not permitted to execute them; the remaining tools still reach the model. Matches the spec's "deterministic non-failure" behavior.
+  - **Transport wrapper** — `createAiAgentTransport` is a thin wrapper over `DefaultChatTransport` with a TODO noting that when the AI SDK standardizes agent-binding as a first-class input the helper can shrink. Chose a subclass-free wrapper (factory function returning `DefaultChatTransport`) over a custom class to stay close to the SDK contract.
+  - **Dispatcher delegation** — route still runs the top-level `checkAgentPolicy` (so the HTTP error model does not change), then calls `runAiAgentText`. The helper re-runs the same agent-level policy check internally; the double check is cheap and preserves the invariant that the helper can never be bypassed from a non-HTTP call site.
+  - Phase 3 WS-B is now 1/3 landed. Step 3.5 opens with `runAiAgentObject` for `executionMode: 'object'`; Step 3.6 closes WS-B with contract tests.

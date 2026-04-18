@@ -31,7 +31,7 @@
 | 3 | 3.1 | Spec Phase 1 WS-A — `agent-registry.ts` loads `ai-agents.generated.ts` and exposes a typed lookup API | done | a87bd19f6 |
 | 3 | 3.2 | Spec Phase 1 WS-A — Runtime policy checks: `requiredFeatures`, `allowedTools`, `readOnly`, attachment access, `executionMode` | done | 4f3b8b737 |
 | 3 | 3.3 | Spec Phase 1 WS-A — `POST /api/ai/chat?agent=<module>.<agent>` route with `metadata` + `openApi` | done | aae4fc6f5 |
-| 3 | 3.4 | Spec Phase 1 WS-B — AI SDK helpers: `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText` | todo | — |
+| 3 | 3.4 | Spec Phase 1 WS-B — AI SDK helpers: `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText` | done | e20c80c1e |
 | 3 | 3.5 | Spec Phase 1 WS-B — Structured-output (`executionMode: 'object'`) support + `runAiAgentObject` helper | todo | — |
 | 3 | 3.6 | Spec Phase 1 WS-B — Contract tests for chat-mode + object-mode parity (shared policy checks) | todo | — |
 | 3 | 3.7 | Spec Phase 1 WS-C — Attachment-to-model conversion bridge (images/PDFs/text-like/metadata-only) | todo | — |

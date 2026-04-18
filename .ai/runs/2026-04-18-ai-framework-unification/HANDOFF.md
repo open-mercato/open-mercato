@@ -1,122 +1,125 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T12:10:00Z
+**Last updated:** 2026-04-18T14:10:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 3 WS-A complete (Steps 3.1, 3.2, 3.3).
-Phase 3 WS-B opens with Step 3.4 (AI SDK helpers).
-**Last commit:** `aae4fc6f5` —
-`feat(ai-assistant): add POST /api/ai/chat?agent=<id> dispatcher route`
+**Current phase/step:** Phase 3 WS-B partially landed (Step 3.4).
+Next: Step 3.5 (structured-output / `executionMode: 'object'` +
+`runAiAgentObject`).
+**Last commit:** `e20c80c1e` —
+`feat(ai-assistant): add AI SDK helpers — runAiAgentText, resolveAiAgentTools, createAiAgentTransport`
 
 ## What just happened
 
-- Executor landed **Step 3.3** as a single code commit (`aae4fc6f5`)
-  plus this docs-flip commit.
-- New file
-  `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/route.ts`:
-  - Exports `metadata` with `requireAuth: true` +
-    `requireFeatures: ['ai_assistant.view']` (POST).
-  - Exports `openApi` with `operationId: aiAssistantChatAgent`,
-    required query param `agent` (pattern `^[a-z0-9_]+\.[a-z0-9_]+$`),
-    zod-validated `AiChatRequest` body (`messages` 1..100, optional
-    `attachmentIds`, `debug`, `pageContext`), and typed 200/400/401/403/404/409/500
-    responses.
-  - Resolves auth via `getAuthFromRequest`, loads ACL via
-    `rbacService.loadAcl()` (from the DI container), then consumes
-    Step 3.2's `checkAgentPolicy` with `requestedExecutionMode: 'chat'`.
-  - Maps deny codes to HTTP status per HANDOFF carryover:
-    `agent_unknown` → 404, `agent_features_denied` / `tool_features_denied` → 403,
-    `tool_not_whitelisted` / `tool_unknown` / `mutation_blocked_by_*` /
-    `execution_mode_not_supported` → 409,
-    `attachment_type_not_accepted` → 400.
-  - On allow: returns `text/event-stream` with a single
-    `data: {"type":"text","content":"..."}` placeholder chunk followed
-    by `data: [DONE]`. The placeholder is marked with a
-    `TODO(step-3.4): wire streamText via createAiAgentTransport` comment —
-    a permissible WHY-comment because Step 3.4 is the concrete successor.
-- Attachment media-type resolution is deferred to Step 3.7 — the call site
-  explicitly passes `attachmentMediaTypes: undefined` with a
-  `TODO(step-3.7)` comment; the policy gate still runs but skips the
-  attachment branch. Acceptable for Phase 3.3: `attachmentIds` are still
-  validated as `string[]` by zod and will be bound to media types only
-  once the attachment-to-model bridge lands.
-- Effective route URL after `yarn generate` is
-  `/api/ai_assistant/ai/chat` (module-id-prefixed discipline — all
-  ai-assistant routes follow this convention). The spec's `/api/ai/chat`
-  label remains as shorthand; the file layout is exactly what the plan
-  called for (`api/ai/chat/route.ts`).
-- Unit tests: 16 suites / 213 tests in `packages/ai-assistant`
-  (baseline 15/204 after Step 3.2; delta +1 suite, +9 tests). New file
-  `api/ai/chat/__tests__/route.test.ts` covers 401, 400-missing-agent,
-  400-malformed-agent, 400-invalid-body, 400-message-overflow, 404-unknown,
-  403-missing-feature, 409-object-mode-over-chat, and 200-placeholder-stream.
-- `yarn generate` regenerated the OpenAPI spec: 310 API paths (previously
-  309). `operationId: aiAssistantChatAgent` is present and the
-  `x-require-auth` / `x-require-features` extensions are emitted
-  correctly.
+- Executor landed **Step 3.4** as one code commit (`e20c80c1e`) plus the
+  docs-flip commit for this HANDOFF rewrite + PLAN row flip +
+  NOTIFY append.
+- Three new public helpers live under
+  `packages/ai-assistant/src/modules/ai_assistant/lib/`:
+  - `agent-tools.ts` — exports `resolveAiAgentTools` + `AgentPolicyError`.
+    Re-runs `checkAgentPolicy` at the agent level AND per tool,
+    adapts each whitelisted tool via `mcp-tool-adapter.ts` (single
+    adapter stack per D10), and skips tool-level denies with a
+    `console.warn` so the remaining tools still reach the model.
+  - `agent-runtime.ts` — exports `runAiAgentText` + `composeSystemPrompt`.
+    Resolves a model via `llmProviderRegistry.resolveFirstConfigured()`
+    (agent `defaultModel` or caller-supplied override wins over the
+    provider default), composes the system prompt with opportunistic
+    `resolvePageContext` hydration, converts UI messages via
+    `convertToModelMessages` (awaited — the v6 API is async), and
+    streams through `streamText` with `stopWhen: stepCountIs(maxSteps)`
+    when the agent declared a budget. Returns the SDK's
+    `toTextStreamResponse()` with the existing `text/event-stream`
+    headers so the dispatcher keeps its content-type contract.
+  - `agent-transport.ts` — exports `createAiAgentTransport` — a thin
+    `DefaultChatTransport` subclass-free wrapper that binds the agent
+    id as a query param and merges extra body fields for `useChat`.
+- Dispatcher `api/ai/chat/route.ts` now delegates to `runAiAgentText`
+  after the same agent-level policy check. The placeholder SSE body is
+  gone; the `TODO(step-3.4)` comment and `buildPlaceholderStream` helper
+  were removed. `AgentPolicyError` thrown by the helper is caught and
+  mapped via the existing `statusForDenyCode` switch so HTTP status
+  parity is preserved.
+- Public surface: `@open-mercato/ai-assistant` now re-exports
+  `resolveAiAgentTools`, `runAiAgentText`, `composeSystemPrompt`,
+  `createAiAgentTransport`, `AgentPolicyError`,
+  `ResolveAiAgentToolsInput`, `ResolvedAgentTools`, `RunAiAgentTextInput`,
+  `AgentRequestPageContext`, `CreateAiAgentTransportInput`.
+- Unit tests: 19 suites / 231 tests in `packages/ai-assistant`
+  (baseline 16/213 after Step 3.3; delta +3 suites / +18 tests). New
+  files:
+  - `agent-tools.test.ts` (5 tests)
+  - `agent-runtime.test.ts` (8 tests; mocks `streamText`,
+    `convertToModelMessages`, `stepCountIs`, and the llm-provider
+    registry so the pipeline shape is asserted without hitting an LLM)
+  - `agent-transport.test.ts` (4 tests)
+  - `api/ai/chat/__tests__/route.test.ts` — placeholder-stream test
+    rewritten to assert delegation to `runAiAgentText`; new
+    `AgentPolicyError` mapping test.
+- Typecheck: `yarn turbo run typecheck --filter=@open-mercato/core
+  --filter=@open-mercato/app` carries one pre-existing `app:typecheck`
+  error on `agent-registry.ts` (missing `ai-agents.generated.ts` at
+  import-time — the runtime path is wrapped in try/catch; carried over
+  from Step 3.1). No new diagnostics from any of the four files
+  delivered in this Step.
+- `yarn generate` ran clean: 310 API paths unchanged, `aiAssistantChatAgent`
+  still present (this Step did not change the route's OpenAPI surface).
 
 ## Next concrete action
 
-- **Step 3.4** — Spec Phase 1 WS-B — AI SDK helpers:
-  `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText`.
-  - Expected file: `packages/ai-assistant/src/modules/ai_assistant/lib/ai-sdk-helpers.ts`
-    (or split across `lib/agent-transport.ts` + `lib/agent-tools.ts` if the
-    executor prefers a cleaner fan-out — but keep the public symbols on
-    `@open-mercato/ai-assistant` package boundary).
-  - `createAiAgentTransport(agent, { model, ... })` MUST return an
-    AI SDK-compatible chat transport so future API-route consumers can
-    plug it into `streamText` / `streamUI` without glue code.
-  - `resolveAiAgentTools(agent, context)` MUST convert the agent's
-    `allowedTools` whitelist into an AI-SDK `tools` map by reusing
-    `mcp-tool-adapter.ts` (do NOT introduce a second adapter stack —
-    see BC surface 4 and the Phase 0 D1 decision).
-  - `runAiAgentText({ agentId, messages, ... })` MUST share the same
-    policy gate (`checkAgentPolicy`) as the HTTP route so chat-mode and
-    helper-call paths cannot diverge.
-  - The new route from Step 3.3 MAY be updated in Step 3.4 to replace
-    its placeholder stream body with `createAiAgentTransport()` output.
-    That replacement is in-scope for 3.4 (finalizing the dispatch body
-    is the whole point of WS-B); keep the `metadata` + `openApi`
-    exports untouched.
+- **Step 3.5** — Spec Phase 1 WS-B — Structured-output (`executionMode:
+  'object'`) support + `runAiAgentObject` helper.
+  - Expected file: `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts`
+    gains a sibling `runAiAgentObject` export (or a new file
+    `agent-runtime-object.ts` if the executor prefers a cleaner
+    fan-out — keep the public symbol on the `@open-mercato/ai-assistant`
+    package boundary).
+  - MUST reuse `resolveAiAgentTools`, the same system-prompt composer,
+    and the same `llmProviderRegistry` model resolution path. Object
+    helpers and chat helpers must share the tool-filtering + prompt
+    composition path so chat-mode / object-mode can never diverge.
+  - MUST call AI SDK `generateObject` (or `streamObject` if the spec
+    calls for streaming structured output — double-check §4.3 in the
+    source spec) with the agent's `output.schema` and `schemaName`.
+  - The dispatcher (POST route) MAY branch on
+    `requestedExecutionMode: 'object'` in a later Step; for 3.5 the
+    helper must work standalone so Step 3.6 (contract tests) can
+    exercise chat-mode / object-mode parity.
   - Phase 3 WS-B closes after Step 3.6 (contract tests for chat/object
-    parity). Step 3.5 is the `runAiAgentObject` structured-output path.
+    parity).
 
 ## Blockers / open questions
 
-- **`packages/ai-assistant` typecheck script**: still missing. Same
-  caveat as Step 3.2 — lean on focused standalone typecheck projects
-  (no regressions via monorepo typecheck grep).
-- **`apps/mercato` stale generated route** (`example/backend/customer-tasks/page`):
-  still blocks `@open-mercato/app:typecheck`. Unrelated; `yarn generate`
-  at Phase 3 boundary cleaned our own route but did not purge the legacy
-  entry. Drive-by candidate if it surfaces during Step 3.4.
+- **`packages/ai-assistant` typecheck script**: still missing — same
+  caveat as earlier Steps.
+- **`apps/mercato` stale generated import**: `agent-registry.ts(43,7)`
+  still references `@/.mercato/generated/ai-agents.generated` which is
+  not yet emitted (Step 3.1 carryover). Runtime try/catch hides it; TS
+  flags it as a compile-time diagnostic. Drive-by candidate for Step
+  3.5 if the executor adds a generated-file emission anywhere.
 - **User's unstaged spec edit** (~280 lines on
   `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`) still
   out-of-scope.
-- **Route URL vs spec shorthand**: spec says `/api/ai/chat`; routing
-  convention emits `/api/ai_assistant/ai/chat`. The file layout from
-  the plan is correct (`api/ai/chat/route.ts`); the spec shorthand
-  stays as-is and downstream consumers (Step 3.4 helpers + Phase 4 UI)
-  should use the generated route registry rather than a hard-coded
-  URL literal.
-- **Tool-registry additive-field loss** (from Step 2.5): Step 3.3 does
-  not exercise `isMutation` — the dispatcher passes `toolName`
-  undefined at the top level, so the tool-features + mutation branch of
-  `checkAgentPolicy` is NOT triggered. Each individual tool call inside
-  the Step 3.4 transport WILL need a second `checkAgentPolicy({ toolName })`
-  invocation; that's where the `isMutation` cast carries its weight.
+- **`authContext` on the public helper surface**: intentional Phase-1
+  shim — the source spec's public shape omits it, but no global
+  request-context resolver exists yet. Phase 4 can wrap this once the
+  resolver lands. Any Step that builds on `runAiAgentText` from now on
+  should accept this until then.
+- **Attachment bridge**: `runAiAgentText` accepts `attachmentIds` and
+  passes them to the tool resolver untouched; no media-type resolution
+  yet. Step 3.7 owns that.
+- **`resolvePageContext` hydration**: implemented opportunistically in
+  `composeSystemPrompt`, but no production agent declares a callback
+  today. Step 5.2 backfills that.
 
 ## Environment caveats
 
 - Dev runtime runnable: unknown. Phase 3 remains runtime + tests only.
 - Database/migration state: clean, untouched.
-- `yarn generate` ran successfully in this Step. Step 3.4 MAY skip
-  regeneration if it only touches library helpers (no auto-discovery
-  surface); if the Step 3.4 executor updates the route body to drop the
-  placeholder, regeneration MAY or MAY NOT be necessary (no new API
-  surface — the OpenAPI doc for this route already exists).
+- `yarn generate` ran successfully. Step 3.5 MAY skip regeneration if
+  it only touches library helpers.
 
 ## Worktree
 
