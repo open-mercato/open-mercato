@@ -12,6 +12,8 @@
   "ai_assistant.chat.example.show": "Show me recent orders",
   "ai_assistant.chat.idleExamples": "Examples:",
   "ai_assistant.chat.idleTitle": "Ask me anything or describe what you want to do.",
+  "ai_assistant.chat.pending_phase3.body": "This interactive card will land in Phase 3 of the unified AI framework.",
+  "ai_assistant.chat.pending_phase3.title": "Mutation approval card pending",
   "ai_assistant.chat.placeholder": "Ask me anything...",
   "ai_assistant.chat.regionLabel": "AI chat",
   "ai_assistant.chat.send": "Send message",

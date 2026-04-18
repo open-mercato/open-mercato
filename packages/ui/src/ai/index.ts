@@ -5,12 +5,20 @@ export {
   resolveAiUiPart,
   unregisterAiUiPart,
   resetAiUiPartRegistryForTests,
+  listAiUiParts,
+  createAiUiPartRegistry,
+  defaultAiUiPartRegistry,
   RESERVED_AI_UI_PART_IDS,
+  isReservedAiUiPartId,
   type AiUiPartComponent,
   type AiUiPartComponentId,
   type AiUiPartProps,
+  type AiUiPartRegistry,
+  type AiUiPartRegistryEntry,
+  type CreateAiUiPartRegistryOptions,
   type ReservedAiUiPartId,
 } from './ui-part-registry'
+export { PendingPhase3Placeholder } from './ui-parts/pending-phase3-placeholder'
 export {
   uploadAttachmentsForChat,
   type UploadAttachmentsForChatOptions,

@@ -12,6 +12,8 @@
   "ai_assistant.chat.example.show": "Pokaż ostatnie zamówienia",
   "ai_assistant.chat.idleExamples": "Przykłady:",
   "ai_assistant.chat.idleTitle": "Zapytaj mnie o cokolwiek lub opisz, co chcesz zrobić.",
+  "ai_assistant.chat.pending_phase3.body": "Ta interaktywna karta pojawi się w Fazie 3 zunifikowanego frameworku AI.",
+  "ai_assistant.chat.pending_phase3.title": "Karta zatwierdzania mutacji oczekuje",
   "ai_assistant.chat.placeholder": "Zapytaj mnie o cokolwiek...",
   "ai_assistant.chat.regionLabel": "Czat AI",
   "ai_assistant.chat.send": "Wyślij wiadomość",

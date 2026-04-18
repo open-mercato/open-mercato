@@ -21,6 +21,9 @@ module.exports = {
     ],
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
+  testMatch: [
+    '<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)',
+    '<rootDir>/__integration__/**/*.spec.(ts|tsx)',
+  ],
   passWithNoTests: true,
 }

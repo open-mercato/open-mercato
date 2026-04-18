@@ -12,6 +12,8 @@
   "ai_assistant.chat.example.show": "Aktuelle Bestellungen anzeigen",
   "ai_assistant.chat.idleExamples": "Beispiele:",
   "ai_assistant.chat.idleTitle": "Stellen Sie eine Frage oder beschreiben Sie, was Sie tun möchten.",
+  "ai_assistant.chat.pending_phase3.body": "Diese interaktive Karte kommt in Phase 3 des vereinheitlichten KI-Frameworks.",
+  "ai_assistant.chat.pending_phase3.title": "Mutations-Freigabe-Karte ausstehend",
   "ai_assistant.chat.placeholder": "Fragen Sie mich etwas...",
   "ai_assistant.chat.regionLabel": "KI-Chat",
   "ai_assistant.chat.send": "Nachricht senden",

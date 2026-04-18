@@ -12,6 +12,8 @@
   "ai_assistant.chat.example.show": "Mostrar pedidos recientes",
   "ai_assistant.chat.idleExamples": "Ejemplos:",
   "ai_assistant.chat.idleTitle": "Pregunte lo que necesite o describa lo que desea hacer.",
+  "ai_assistant.chat.pending_phase3.body": "Esta tarjeta interactiva se integrará en la Fase 3 del marco unificado de IA.",
+  "ai_assistant.chat.pending_phase3.title": "Tarjeta de aprobación de mutación pendiente",
   "ai_assistant.chat.placeholder": "Pregunte lo que necesite...",
   "ai_assistant.chat.regionLabel": "Chat de IA",
   "ai_assistant.chat.send": "Enviar mensaje",

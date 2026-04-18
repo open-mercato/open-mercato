@@ -9,7 +9,12 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
-import { resolveAiUiPart, type AiUiPartComponentId } from './ui-part-registry'
+import {
+  defaultAiUiPartRegistry,
+  isReservedAiUiPartId,
+  type AiUiPartComponentId,
+  type AiUiPartRegistry,
+} from './ui-part-registry'
 import { useAiChat, type AiChatMessage } from './useAiChat'
 
 export interface AiChatProps {
@@ -23,6 +28,24 @@ export interface AiChatProps {
   placeholder?: string
   onMutationRequested?: (pendingActionId: string) => void
   onError?: (err: { code?: string; message: string }) => void
+  /**
+   * Optional UI-part registry. Defaults to the module-global
+   * {@link defaultAiUiPartRegistry}. Pass a scoped registry from
+   * {@link createAiUiPartRegistry} when embedding multiple `<AiChat>`
+   * instances that should not share registrations (playground, tests).
+   */
+  registry?: AiUiPartRegistry
+  /**
+   * Optional list of server-emitted UI parts to render inside the chat
+   * transcript. The registry resolves each part via `componentId`. Phase 3
+   * will populate this from the streamed dispatcher response; Phase 2 WS-A
+   * leaves the wiring exposed so hosts can preview the registry path.
+   */
+  uiParts?: Array<{
+    componentId: AiUiPartComponentId
+    payload?: unknown
+    pendingActionId?: string
+  }>
 }
 
 interface ServerEmittedUiPartRef {
@@ -97,14 +120,18 @@ function UnknownUiPartPlaceholder({ componentId }: { componentId: AiUiPartCompon
 
 function AiUiPartRenderer({
   part,
+  registry,
   onMutationRequested,
 }: {
   part: ServerEmittedUiPartRef
+  registry: AiUiPartRegistry
   onMutationRequested?: (pendingActionId: string) => void
 }) {
-  const Component = resolveAiUiPart(part.componentId)
+  const Component = registry.resolve(part.componentId)
+  const isReserved = isReservedAiUiPartId(part.componentId)
   React.useEffect(() => {
     if (Component) return
+    if (isReserved) return
     try {
       // eslint-disable-next-line no-console
       console.warn(
@@ -113,7 +140,7 @@ function AiUiPartRenderer({
     } catch {
       // noop
     }
-  }, [Component, part.componentId])
+  }, [Component, part.componentId, isReserved])
   React.useEffect(() => {
     if (part.pendingActionId) {
       onMutationRequested?.(part.pendingActionId)
@@ -154,6 +181,8 @@ export function AiChat({
   placeholder,
   onMutationRequested,
   onError,
+  registry,
+  uiParts: uiPartsProp,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -174,10 +203,20 @@ export function AiChat({
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
 
+  const activeRegistry = registry ?? defaultAiUiPartRegistry
+
   // Reserved UI parts. Phase 3 will populate this from the streamed response;
-  // for Phase 2 WS-A it stays empty so the registry resolution path is still
-  // exercised once a mutation card is registered by a host app at boot.
-  const uiParts: ServerEmittedUiPartRef[] = React.useMemo(() => [], [])
+  // for Phase 2 WS-A it stays empty unless the host surfaces test/debug parts
+  // via the optional `uiParts` prop so the registry resolution path can be
+  // exercised without waiting for the runtime emitter.
+  const uiParts: ServerEmittedUiPartRef[] = React.useMemo(
+    () => (uiPartsProp ?? []).map((part) => ({
+      componentId: part.componentId,
+      payload: part.payload,
+      pendingActionId: part.pendingActionId,
+    })),
+    [uiPartsProp],
+  )
 
   const handleSubmit = React.useCallback(() => {
     const value = input
@@ -248,6 +287,7 @@ export function AiChat({
           <AiUiPartRenderer
             key={`${part.componentId}-${index}`}
             part={part}
+            registry={activeRegistry}
             onMutationRequested={onMutationRequested}
           />
         ))}
