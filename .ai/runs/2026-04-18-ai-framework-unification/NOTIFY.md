@@ -128,3 +128,26 @@
 - Files touched: `PLAN.md` (rewritten end to end), `step-1.2-checks.md` (rewritten to describe the rephasing rather than the old PR-rename-only outcome).
 - PR title renamed via `gh pr edit 1593 --title …` so the title names the overall `ai-framework-unification` goal (Phase 1 was the first step of it, not the whole goal).
 - No code, no migrations, no user-facing surface. Typecheck / unit tests / Playwright all N/A; verification in `step-1.2-checks.md` = diff re-read + Tasks-table schema sanity + spec cross-reference spot-check + PR metadata confirmation.
+
+## 2026-04-18T09:30:00Z — auto-continue-pr resume
+- Resumed by: @pkarw
+- Resume point: Step 2.1 (Tasks table first `todo` row; HANDOFF named the same point).
+- PR head SHA: 8654922f1
+- Claim posted on #1593 (assignee + `in-progress` label + comment), per the three-signal protocol.
+
+## 2026-04-18T09:35:00Z — Step 2.1 committed (a6191c741)
+- `feat(ai-assistant): add AiAgentDefinition type and defineAiTool() helper`
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/ai-agent-definition.ts` (new, 57 lines)
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/ai-tool-definition.ts` (new, 8 lines)
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/types.ts` (extended `AiToolDefinition` with five optional focused-agent fields; `McpToolDefinition` unchanged)
+  - `packages/ai-assistant/src/index.ts` (re-exports `defineAiAgent`, `defineAiTool`, 8 `AiAgent*` types)
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/ai-agent-definition.test.ts` (new, 7 cases)
+- Verification:
+  - `npx jest --config=jest.config.cjs --forceExit` in `packages/ai-assistant/` — **10 suites, 150 tests, all passing** (new suite in 0.237s).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — pre-existing failures only (`sanitize-html`, `pdfjs-dist`, `mammoth`, `@dnd-kit/*`, `@tanstack/react-virtual`, `DataTable.tsx` implicit-anys). Reproduced by stashing the diff and re-running. No new diagnostics on the changed files (greps for `ai-agent-definition|ai-tool-definition|ai-assistant.*lib/types|ai_assistant` returned empty).
+  - i18n / Playwright / generate / build: N/A (types + identity builders only).
+- BC: `AiToolDefinition` is now an interface extending `McpToolDefinition` with optional additive fields. Existing `aiTools: AiToolDefinition[]` exports remain valid (confirmed by dedicated test `plain-object AiToolDefinition authored without defineAiTool() still type-checks`).
+
+## 2026-04-18T09:40:00Z — decision: do not inflate Step 2.1 scope
+- Considered folding a `typecheck` script into `packages/ai-assistant/package.json` since the package currently has no CI typecheck gate. Rejected because it is unrelated to the spec deliverable, would widen the diff, and Step 2.1 specifically scopes to "add type + helper + exports + tests." Logged as a follow-up candidate in the Step 2.1 HANDOFF "Blockers / open questions" section.
