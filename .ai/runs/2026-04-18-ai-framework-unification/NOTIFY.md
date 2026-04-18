@@ -213,3 +213,20 @@
   - `PromptSection` is deliberately minimal (no rendering logic, no compile step). This Step ships the primitive only; the composer is Phase 3 work.
   - `AiResolvedAttachmentPart.data` accepts `Uint8Array | string | null` exactly as spec line 992 shows. `textContent`, `url`, and `data` are all optional so a metadata-only attachment can be constructed with just the four required fields — verified by a dedicated test case.
   - `definePromptTemplate()` provided as an identity builder symmetric with `defineAiTool()` / `defineAiAgent()` so Phase 3 authors can rely on the same pattern.
+
+## 2026-04-18T10:00:12Z — Step 2.5 committed (1e8e9d134) — Phase 2 complete
+- `test(ai-assistant): add phase 0 additive-contract regression suite`.
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/phase-0-additive-contract.test.ts` (new, 255 lines; 12 tests across 4 `describe` blocks).
+  - `.ai/runs/2026-04-18-ai-framework-unification/step-2.5-checks.md` (new, audit notes).
+- Verification:
+  - `npx jest --config=jest.config.cjs --forceExit` in `packages/ai-assistant/` — **13 suites, 179 tests, all passing** (baseline was 12/167; delta +1 suite, +12 tests, no regressions).
+  - `npx jest --config=jest.config.cjs --forceExit` in `packages/cli/` — 33 suites, 787 tests, unchanged from baseline.
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — `@open-mercato/core` green (cache hit); `@open-mercato/app` still fails on the pre-existing stale `example/customer-tasks/page` entry (unrelated). `grep` of typecheck output for `phase-0-additive` matched zero lines — new file contributes no diagnostics.
+  - i18n / Playwright / generate / build: N/A (tests-only).
+- BC: no production-code edits — tests only. Surfaces 2, 4, 13 touched only in the sense that the test *asserts* their additivity.
+- Decisions:
+  - Used fixture-based plain-object tools rather than relying on any specific business module's `ai-tools.ts` — keeps the regression suite stable as real modules migrate to `defineAiTool()` later.
+  - Kept the whole closeout suite in ONE file per the Step spec. The generator-stability describe imports `createAiAgentsExtension()` via a relative path into `packages/cli/src/lib/generators/extensions/ai-agents.ts` rather than duplicating the test into the cli package — the whole-fixture idempotency case is already covered by `packages/cli/.../output-snapshots.test.ts`, so this only adds the focused additive assertion.
+  - Documented finding: `registerGeneratedAiToolEntries` maps to `McpToolDefinition` and drops the additive `AiToolDefinition` fields (`displayName`, `tags`, `isMutation`, `maxCallsPerTurn`, `supportsAttachments`) at registration time. Current behavior is preserved (BC-safe). Step 3.1 (`agent-registry.ts`) is the right place to either widen the registered shape or introduce a parallel agent-aware registration path, with the decision recorded in step-3.1-checks.md.
+  - Phase 2 is now fully landed (all of spec Phase 0 Alignment Prerequisite). Next is Phase 3 / Step 3.1 — Phase 3 is UI-less through Step 3.10, so Playwright remains N/A for the next ten Steps.

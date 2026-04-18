@@ -27,7 +27,7 @@
 | 2 | 2.2 | Spec Phase 0 — Generator extension for `ai-agents.ts`, emit additive `ai-agents.generated.ts` | done | 89cbbe56a |
 | 2 | 2.3 | Spec Phase 0 — Restore loading of generated `ai-tools.generated.ts` contributions in the runtime tool-loader | done | dc5d865fa |
 | 2 | 2.4 | Spec Phase 0 — Attachment-bridge contract types + prompt-composition primitive types in `@open-mercato/ai-assistant` | done | b3ea44b0c |
-| 2 | 2.5 | Spec Phase 0 — Unit tests: existing `ai-tools.ts` modules still register and execute; new discovery paths are additive | todo | — |
+| 2 | 2.5 | Spec Phase 0 — Unit tests: existing `ai-tools.ts` modules still register and execute; new discovery paths are additive | done | 1e8e9d134 |
 | 3 | 3.1 | Spec Phase 1 WS-A — `agent-registry.ts` loads `ai-agents.generated.ts` and exposes a typed lookup API | todo | — |
 | 3 | 3.2 | Spec Phase 1 WS-A — Runtime policy checks: `requiredFeatures`, `allowedTools`, `readOnly`, attachment access, `executionMode` | todo | — |
 | 3 | 3.3 | Spec Phase 1 WS-A — `POST /api/ai/chat?agent=<module>.<agent>` route with `metadata` + `openApi` | todo | — |
