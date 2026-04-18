@@ -1,119 +1,131 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T23:05:00Z
+**Last updated:** 2026-04-18T15:45:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 3 WS-C — Steps 3.7, 3.8, 3.9, 3.10, 3.11
-landed. Next up is Step 3.12 (D18 catalog AI-authoring tools).
-**Last commit:** `6e0beccb8` —
-`feat(catalog): add D18 merchandising read tools (search_products, get_product_bundle, list_selected_products, get_product_media, get_attribute_schema, get_category_brief, list_price_kinds)`
+**Current phase/step:** Phase 3 WS-C — Steps 3.7–3.12 landed. Next up
+is Step 3.13 (Phase 1 WS-C integration tests).
+**Last commit:** `14249bc68` —
+`feat(catalog): add D18 authoring tools (draft/extract/suggest) as structured-output helpers`
 
 ## What just happened
 
-- Executor landed **Step 3.11** as one code commit (`6e0beccb8`) plus a
+- Executor landed **Step 3.12** as one code commit (`14249bc68`) plus a
   docs-flip commit (PLAN row + HANDOFF rewrite + NOTIFY append +
-  step-3.11-checks.md).
-- Seven new D18 merchandising read tools shipped under
-  `packages/core/src/modules/catalog/ai-tools/merchandising-pack.ts`:
-  - `catalog.search_products` — hybrid search + filter. Routes through
-    `searchService.search(q, { entityTypes: ['catalog:catalog_product'] })`
-    when `q` is non-empty, falling back to the query engine with filters
-    (category / tags / price bounds / active) when `q` is empty OR the
-    search service is not registered in DI. Output carries
-    `source: 'search_service' | 'query_engine'` so callers can tell
-    which path ran.
-  - `catalog.get_product_bundle` — aggregate bundle (core fields,
-    categories, tags, variants, prices all + best, media metadata,
-    custom-field values, merged attribute schema). `translations: null`
-    is surfaced explicitly — no `translations.ts` exists for catalog
-    yet; flagged as a non-blocking follow-up.
-  - `catalog.list_selected_products` — bulk variant (1..50 ids,
-    deduplicated). Cross-tenant / missing ids drop into `missingIds`
-    with a `console.warn`. No 403 surface.
-  - `catalog.get_product_media` — attachment metadata + `attachmentId`
-    strings only. Does NOT invoke the Step 3.7 bridge; the runtime
-    bridge converts ids into model file parts when the chat/object
-    helper dispatches the tool in-context.
-  - `catalog.get_attribute_schema` — merged module + category +
-    product-level schema via the shared
-    `loadCustomFieldDefinitionIndex` resolver.
-  - `catalog.get_category_brief` — category snapshot reusing the same
-    resolver; `{ found: false }` on miss / cross-tenant.
-  - `catalog.list_price_kinds` — D18 spec-named enumerator. Coexists
-    with Step 3.10's `catalog.list_price_kinds_base`; both tools route
-    through the new shared `listPriceKindsCore` helper in
-    `ai-tools/_shared.ts` so they cannot drift.
-- New shared helper at
-  `packages/core/src/modules/catalog/ai-tools/_shared.ts` extracts the
-  tenant-scoped `CatalogPriceKind` enumeration. Step 3.10's
-  `list_price_kinds_base` was refactored to use it (output shape
-  preserved; `createdAt` / `updatedAt` added — additive only).
-- Aggregator updated: module-root `ai-tools.ts` now imports and
-  concats `merchandisingAiTools`. Total catalog read-only tools:
-  **19** (12 base + 7 D18). `aggregator.test.ts` extended with a
-  coexistence assertion (both `list_price_kinds_base` and
-  `list_price_kinds` registered) and a spec-name fidelity assertion
-  (every D18 name matches verbatim).
-- Tenant isolation: every query routes through `findWithDecryption` /
-  `findOneWithDecryption` with `tenantId` + (when set)
-  `organizationId` in both the `where` map and the scope tuple, plus
-  a defensive `row.tenantId === ctx.tenantId` post-filter. Pre-commit
-  grep confirmed zero raw `em.find(` / `em.findOne(` in the new
-  production files.
-- Policy + ACL: every new tool whitelists existing feature IDs from
-  `catalog/acl.ts`:
-  - search / bundle / list_selected / media / attribute_schema →
+  step-3.12-checks.md).
+- Five new D18 catalog AI-authoring tools shipped under
+  `packages/core/src/modules/catalog/ai-tools/authoring-pack.ts`:
+  - `catalog.draft_description_from_attributes` — tonePreference-aware
+    description draft. Proposal: `{ description, rationale,
+    attributesUsed[] }`. Gate: `catalog.products.view`.
+  - `catalog.extract_attributes_from_description` —
+    `descriptionOverride?` wins when present. Proposal:
+    `{ attributes: Record<string, unknown> (additionalProperties: true),
+    confidence: 0..1, unmapped[] }`. Gate: `catalog.products.view`.
+    The `additionalProperties: true` surface is intentional because
+    tenant attribute schemas are heterogeneous; Step 5.14
+    `apply_attribute_extraction` re-validates authoritatively before
+    any DB write.
+  - `catalog.draft_description_from_media` — attachment metadata only
+    (`{ attachmentId, fileName, mediaType, size, altText?, sortOrder? }`).
+    NO bytes, NO signed URLs. Cross-tenant
+    `userUploadedAttachmentIds` drop with `console.warn` and do NOT
+    leak into `userMedia`. Gate: `catalog.products.view`. The Step
+    3.7 attachment bridge intercepts attachment references at the
+    agent-turn boundary.
+  - `catalog.suggest_title_variants` — `targetStyle` enum
+    (`short | seo | marketplace`); `maxVariants` defaults to 3, zod
+    caps at 5. Proposal: `{ variants[] }`. Gate:
     `catalog.products.view`.
-  - category_brief → `catalog.categories.view`.
-  - list_price_kinds (D18) → `catalog.settings.manage` (same gate as
-    the base `_base` tool).
-- No mutation tools. Every tool is explicitly read-only; mutations
-  land in Step 5.14 under the pending-action contract.
-- Detail tools (`get_product_bundle`, `get_category_brief`) emit
-  `{ found: false }` instead of throwing on miss / cross-tenant —
-  matches the pattern Steps 3.8–3.10 established.
+  - `catalog.suggest_price_adjustment` — explicit `isMutation: false`
+    per spec §7 line 536 callout. `currentPrice` resolves via
+    `catalogPricingService.selectBestPrice`; falls back to `null`
+    on DI-resolve-throw, service-throw, or null return. Proposal:
+    `{ currentPrice | null, proposedPrice, rationale, constraints:
+    { respectedPriceKindScope, respectedCurrency } }`. Gate:
+    `catalog.pricing.manage`.
+- All five tools set `isMutation: false` **explicitly** in their
+  definitions (spec §7 line 536 callout for
+  `suggest_price_adjustment`; whole pack mirrors the flag for
+  consistency). Test suite asserts the flag on every tool.
+- Structured-output contract: each handler validates input + loads
+  tenant-scoped context (product bundle, attribute schema, media
+  refs, current price) and returns
+  `{ found: true, proposal, context, outputSchemaDescriptor: {
+  schemaName, jsonSchema } }` — NEVER opens a model call from
+  inside the handler. The surrounding agent turn uses
+  `runAiAgentObject` (Step 3.5) with the emitted JSON-Schema to
+  populate `proposal`. Tool's own `proposal` field is a typed
+  placeholder (empty strings / empty arrays / null numbers) matching
+  the eventual output schema.
+- `_shared.ts` expanded: Step 3.11's `buildProductBundle`,
+  `toProductSummary`, `resolveAttributeSchema`, `toPriceNumeric`,
+  and bundle types promoted from `merchandising-pack.ts` into
+  `_shared.ts` so the authoring pack and the merchandising pack
+  consume the same loader. Behavior-preserving —
+  `merchandising-pack.ts` now re-imports the helpers unchanged. A
+  `description` field was added to the product summary (additive
+  only) so `extract_attributes_from_description` can seed the
+  model's description input without a second lookup.
+- Aggregator: module-root `ai-tools.ts` imports and concats
+  `authoringAiTools`. Total catalog AI tools: **24** (12 base + 7
+  merchandising + 5 authoring). `aggregator.test.ts` extended to
+  cover the new total and pin spec-name fidelity for all five D18
+  authoring names.
+- RBAC: four describe/extract/media/title tools gate on
+  `catalog.products.view`; `suggest_price_adjustment` gates on
+  `catalog.pricing.manage`. All existing feature IDs verified
+  against `packages/core/src/modules/catalog/acl.ts` — no new IDs
+  invented.
+- Tenant scoping: all product / attachment / price-kind lookups
+  route through `findWithDecryption` /
+  `findOneWithDecryption` / `resolveAttributeSchema` with
+  `tenantId` + (when set) `organizationId` in both the `where` map
+  and the scope tuple. Cross-tenant ids behave as not-found /
+  dropped; cross-tenant `userUploadedAttachmentIds` drop with a
+  `console.warn` that does NOT leak which ids belonged to which
+  tenant (the warn just logs the dropped id without a source
+  tenant). Pre-commit grep confirmed zero raw `em.find(` /
+  `em.findOne(` in the new production files.
 - New unit-test suite at
-  `packages/core/src/modules/catalog/__tests__/ai-tools/merchandising-pack.test.ts`:
-  **1 suite / 21 tests**. Coverage includes:
-  - RBAC mandate (all 7 tools declare non-empty
-    `requiredFeatures` and none is a mutation).
-  - `search_products` routing — searchService-present → service path,
-    `q` empty → query engine; cross-tenant leak drop; zero-hit short
-    circuit; limit cap ≤ 100.
-  - `get_product_bundle` — missing returns `{ found: false }`;
-    cross-tenant same; hit surfaces the full aggregate with
-    `translations: null` and `prices: { all: [], best: null }`.
-  - `list_selected_products` — input dedup (3 copies → 1 fetch);
-    cross-tenant ids appear in `missingIds` (not as an error);
-    `productIds` bounds `1..50` enforced.
-  - `get_product_media` — `attachmentId` strings only; no `bytes`,
-    no `content`, no `signedUrl` keys.
-  - `get_attribute_schema` — calls `loadCustomFieldDefinitionIndex`;
-    `resolvedFor` is correct for product / category / empty cases.
-  - `get_category_brief` — missing + hit paths with attribute schema.
-  - `list_price_kinds` (D18) — coexistence with `_base` in the
-    aggregator; D18 output shape `{ id, code, name, scope, currency,
-    appliesTo }`; tenant-null rejection.
-- Aggregator test updated from 3 tests to 4 (coexistence assertion
-  replaces the reservation assertion; spec-name fidelity assertion
-  added).
-- Catalog ai-tools scope: **8 suites / 57 tests** (was 7 / 36; +1
-  suite / +21 tests matches the new test file). Full core suite:
-  **332 suites / 3013 tests** (was 331 / 2992; +1 / +21 exactly
-  matches the new suite). `ai-assistant` regression: **25 / 316**
-  (preserved — zero regression).
+  `packages/core/src/modules/catalog/__tests__/ai-tools/authoring-pack.test.ts`:
+  **1 suite / 20 tests**. Coverage includes:
+  - `isMutation: false` mandate on every tool.
+  - `requiredFeatures` non-empty and every feature present in the
+    module's `acl.ts`.
+  - `draft_description_from_attributes` product-not-found returns
+    `{ found: false }` (never throws).
+  - `extract_attributes_from_description` `descriptionOverride` path
+    and `context.attributeSchema` population.
+  - `draft_description_from_media` cross-tenant
+    `userUploadedAttachmentIds` drop + `console.warn` spy.
+  - `suggest_title_variants` default 3 / zod cap 5 (input
+    `{ maxVariants: 10 }` rejected).
+  - `suggest_price_adjustment` explicit `isMutation: false` callout
+    + `currentPrice: null` on service-throw + populated on happy
+    path.
+  - `outputSchemaDescriptor.jsonSchema` shape plain JSON-Schema
+    object (no zod internals leak).
+  - Aggregator test: all five new tool names coexist with prior
+    catalog tools (24 total).
+- Catalog ai-tools scope: **9 suites / 77 tests** (was 8 / 57; +1
+  suite / +20 tests matches the new test file). Full core suite:
+  **333 suites / 3033 tests** (was 332 / 3013; +1 / +20 exactly
+  matches). `ai-assistant` regression: **25 / 316** (preserved —
+  zero regression).
 - Typecheck:
   `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`
   — `@open-mercato/core` passes cleanly. `@open-mercato/app` still
-  carries the pre-existing diagnostics (Step 3.8 handler-variance in
-  `ai-assistant/ai-tools/{search,attachments,meta}-pack.ts` +
-  Step 3.1 `agent-registry.ts(43,7)`). Zero new diagnostics on the
-  new catalog files (verified — the output references neither
-  `merchandising-pack.ts` nor `_shared.ts`).
-- `yarn generate` — re-run as a smoke test; succeeded in ~5s and the
-  existing `catalog` module entry in
+  carries the pre-existing diagnostics (Step 3.1 `agent-registry.ts(43,7)`
+  + Step 3.8 handler-variance on
+  `ai-assistant/ai-tools/{search,attachments,meta}-pack.ts`). Zero
+  new diagnostics on the new / modified catalog files (verified —
+  the output references neither `authoring-pack.ts` nor the
+  promoted `_shared.ts` surface).
+- `yarn generate` — re-run as a smoke test; succeeded in ~5s and
+  the existing `catalog` module entry in
   `apps/mercato/.mercato/generated/ai-tools.generated.ts` remains
   unchanged (generator discovers `aiTools` via the existing
   module-root `ai-tools.ts`, so no new entry was required). Post-step
@@ -122,40 +134,31 @@ landed. Next up is Step 3.12 (D18 catalog AI-authoring tools).
 
 ## Next concrete action
 
-- **Step 3.12** — Spec §7 (D18) — Catalog AI-authoring tools
-  (`draft_description_from_attributes`,
-  `extract_attributes_from_description`, `draft_description_from_media`,
-  `suggest_title_variants`, `suggest_price_adjustment`). These are
-  structured-output helpers (not classic read tools): they compose
-  `runAiAgentObject` from Step 3.5 with tenant-scoped context, and
-  their handlers return zod-typed proposals rather than database rows.
-  - Placement: new file
-    `packages/core/src/modules/catalog/ai-tools/authoring-pack.ts`
-    alongside the existing packs; aggregator gets a seventh `...`
-    entry.
-  - Reuse `resolveAttributeSchema` and the bundle-building helpers
-    from `merchandising-pack.ts` — factor into `_shared.ts` if the
-    reuse surface grows past two callers.
-  - Still read-only at the surface (no `isMutation: true`); any
-    eventual write flows through Step 5.14 mutation tools plus the
-    pending-action contract.
-  - RBAC: same `catalog.products.view` gate for describe-style tools;
-    `catalog.pricing.manage` for `suggest_price_adjustment` since it
-    previews pricing deltas.
-  - Unit tests: per-tool shape assertion, tenant scope, feature
-    gating, and mock of the `runAiAgentObject` call surface so the
-    tests don't hit a real model endpoint.
-- After 3.12, Step 3.13 closes WS-C with integration coverage for
-  auth / attachment / allowed-tool filtering.
+- **Step 3.13** — Phase 1 WS-C integration tests covering:
+  - unknown agent → 404 / refusal path
+  - forbidden agent (missing feature ID on the calling user) → 403
+  - invalid attachment (missing, cross-tenant, expired) → refusal
+    path with safe error surface
+  - allowed-tool filtering: agent's `allowedTools` whitelist
+    enforces and tools outside the list cannot be invoked
+  - tool-pack coverage: every catalog read + authoring tool is
+    reachable under the `catalog.merchandising_assistant` agent
+    (Step 4.9 wiring permitting) OR the generic `ai_assistant`
+    agent.
+  - Placement: Playwright TypeScript tests under `.ai/qa/` per
+    `.ai/skills/integration-tests/SKILL.md`.
+  - Follow the module's existing integration-test conventions:
+    tenant / org fixtures via API, cleanup in finally, no reliance
+    on seeded data.
+- Step 3.13 closes Phase 1 WS-C. Phase 2 (UI surface) starts at
+  Step 4.1.
 
 ## Blockers / open questions
 
 - **`translations: null` on `catalog.get_product_bundle`**: catalog
-  does not ship a `translations.ts` module file yet, so the bundle
-  returns `translations: null` with an explicit doc-comment flag.
-  Non-blocking for Step 3.11; a future Step (Phase 4 or Phase 5) can
-  add the translations resolver and the bundle output will start
-  populating the field without contract change.
+  still has no `translations.ts` module file. Non-blocking for Step
+  3.12; Phase 4 / Phase 5 can add the resolver. No contract change
+  required.
 - **`packages/ai-assistant` typecheck script**: still missing.
 - **`apps/mercato` stale generated import**: `agent-registry.ts(43,7)`
   Step 3.1 carryover — runtime try/catch hides it.
@@ -172,18 +175,21 @@ landed. Next up is Step 3.12 (D18 catalog AI-authoring tools).
   out-of-scope.
 - **`authContext` on the public helper surface**: intentional Phase-1
   shim on both helpers.
+- **Step 3.12 `_shared.ts` promotion**: executed as part of the code
+  commit. Future non-authoring / non-merchandising packs can reuse
+  `buildProductBundle`, `toProductSummary`, `resolveAttributeSchema`,
+  `toPriceNumeric` without further refactor. No contract change.
 
 ## Environment caveats
 
 - Dev runtime runnable: unknown. Phase 3 remains runtime + tests only.
 - Database/migration state: clean, untouched.
-- `yarn generate` — Step 3.11 did NOT add a new module-root file,
-  only a new pack and the aggregator import. The generator entry for
-  catalog was already present since Step 3.10; re-running `yarn
-  generate` confirmed the existing entry still resolves correctly.
-  Step 3.12 likewise will NOT need a new generator entry unless it
-  adds a new module-root file — which is not the plan (a new pack
-  file under `ai-tools/` is sufficient).
+- `yarn generate` — Step 3.12 did NOT add a new module-root file;
+  only a new pack, the aggregator import, and shared-helper
+  promotions. Generator entry for catalog was already present since
+  Step 3.10; re-running `yarn generate` confirmed the existing entry
+  still resolves. Step 3.13 is integration tests only — no generator
+  entry expected.
 
 ## Worktree
 
