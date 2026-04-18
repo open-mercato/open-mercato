@@ -111,3 +111,20 @@
 
 ## 2026-04-18T09:05:00Z — Phase 1 fully complete (fifth pass)
 - Steps 1.1 and 1.2 both done. Next: push and release lock on #1593, wait for Phase 2 scope.
+
+## 2026-04-18T09:10:00Z — auto-continue-pr resume
+- Resumed by: @pkarw
+- Resume point: Step 1.2 (Tasks table had `todo` on 1.2 "Compact Phase 1 plan and rename PR"). HANDOFF described the same point; lock already held by current user (no re-claim needed).
+- PR head SHA: 9a5682ad4
+- User request: "properly phase out and divide the spec at hand into tasks". Reinterpreted Step 1.2 from a narrow "compact Phase 1 + rename PR" to a broader "rephase PLAN.md to cover the full ai-tooling spec (Phases 2–5)". Old Step 1.2 outcome (PR rename) kept; Tasks table grew from 3 rows to 46 rows mapping one-to-one to the source spec's Phase 0–3 Workstream A/B/C/D deliverables.
+
+## 2026-04-18T09:15:00Z — decision: broaden Step 1.2 scope
+- Old Step 1.2 was sufficient for the "skill harness only" framing; the new framing makes Phase 2+ actionable today without a second planning round.
+- Alternatives considered: (a) keep Step 1.2 narrow + add Step 1.3 for the big rephasing, (b) broaden 1.2 in place. Picked (b) because (a) would have produced two near-identical commits touching the same file and split the audit trail. The Step 1.2 checks file calls out the broadened scope explicitly.
+- Impact on Step 2.1 and downstream: none — Phase 2 was a placeholder before, so there is no commit to reconcile against.
+
+## 2026-04-18T09:20:00Z — Step 1.2 committed (80b335707)
+- `docs(runs): rephase PLAN.md to cover full ai-tooling spec`
+- Files touched: `PLAN.md` (rewritten end to end), `step-1.2-checks.md` (rewritten to describe the rephasing rather than the old PR-rename-only outcome).
+- PR title renamed via `gh pr edit 1593 --title …` so the title names the overall `ai-framework-unification` goal (Phase 1 was the first step of it, not the whole goal).
+- No code, no migrations, no user-facing surface. Typecheck / unit tests / Playwright all N/A; verification in `step-1.2-checks.md` = diff re-read + Tasks-table schema sanity + spec cross-reference spot-check + PR metadata confirmation.

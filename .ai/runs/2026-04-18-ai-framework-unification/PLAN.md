@@ -22,7 +22,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Skill harness foundation: per-spec run folders, flat `step-<X.Y>-checks.md`, three-signal in-progress lock, top-of-file Tasks table | done | 93440ec79 |
-| 1 | 1.2 | Rephase PLAN.md to cover the full ai-tooling spec (Phases 2–5) and rename the PR title to the `ai-framework-unification` main goal | todo | — |
+| 1 | 1.2 | Rephase PLAN.md to cover the full ai-tooling spec (Phases 2–5) and rename the PR title to the `ai-framework-unification` main goal | done | 80b335707 |
 | 2 | 2.1 | Spec Phase 0 — Add `AiAgentDefinition` type and `defineAiTool()` helper; export both from `@open-mercato/ai-assistant` | todo | — |
 | 2 | 2.2 | Spec Phase 0 — Generator extension for `ai-agents.ts`, emit additive `ai-agents.generated.ts` | todo | — |
 | 2 | 2.3 | Spec Phase 0 — Restore loading of generated `ai-tools.generated.ts` contributions in the runtime tool-loader | todo | — |
