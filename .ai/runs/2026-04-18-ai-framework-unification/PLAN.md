@@ -83,7 +83,7 @@ is a placeholder — it MUST be expanded before any code-changing work.
 
 ### Phase 1: Skill harness refresh
 
-- [ ] 1.1 Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders
+- [x] 1.1 Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders — bacbc59ec
 
 ### Phase 2: ai-framework unification (to be defined)
 

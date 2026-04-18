@@ -1,30 +1,30 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T00:00:00Z (placeholder — rewritten after each Step)
+**Last updated:** 2026-04-18T00:10:00Z
 **Branch:** `feat/ai-framework-unification`
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1 (in progress — skill edits staged, awaiting commit)
-**Last commit:** _none yet on this branch_
+**PR:** to be opened immediately after this commit is pushed
+**Current phase/step:** Phase 1 complete; Phase 2 awaiting scope from user.
+**Last commit:** `bacbc59ec` — `docs(skills): rework auto-create-pr/auto-continue-pr around per-spec run folders`
 
 ## What just happened
 - Branch `feat/ai-framework-unification` created off `develop`.
-- Skill rewrites for `auto-create-pr`, `auto-continue-pr`, `auto-sec-report`, `auto-qa-scenarios`, `auto-update-changelog`, and `.ai/runs/README.md` are sitting in the working tree, unstaged.
-- Run folder `.ai/runs/2026-04-18-ai-framework-unification/` with `PLAN.md`, `HANDOFF.md`, `NOTIFY.md` being created now.
+- Run folder `.ai/runs/2026-04-18-ai-framework-unification/` seeded with PLAN.md + HANDOFF.md + NOTIFY.md in commit `6dd2d909d`.
+- Skill rewrites + `.ai/runs/README.md` + proofs/1.1 notes landed in commit `bacbc59ec`.
+- Phase 1 Step 1.1 flipped to `- [x]` in `PLAN.md`.
 
 ## Next concrete action
-- Commit `.ai/runs/2026-04-18-ai-framework-unification/` as the first commit on the branch (`docs(runs): add execution plan for ai-framework-unification`).
-- Then commit the skill-suite rewrite as Step 1.1 with a clear conventional-commit subject.
-- Then commit the Progress flip + HANDOFF/NOTIFY refresh.
-- Push and open the PR against `develop`.
+- Push the branch to `origin` and open a PR against `develop` titled `docs(skills): rework auto-create-pr around per-spec run folders`.
+- Wait for user to define Phase 2 scope for the actual ai-framework unification.
+- On resume, start by expanding Phase 2 in `PLAN.md` into concrete 1:1 step↔commit Steps before touching any code.
 
 ## Blockers / open questions
-- Phase 2+ scope is undefined. User will provide direction after this PR's Phase 1 lands.
+- Phase 2+ scope undefined. User said "ok update the skills first then i'll tell you what to do next". Wait for direction before adding Phase 2 Steps.
 
 ## Environment caveats
-- Dev runtime runnable: unknown (not started this session — Phase 1 is docs-only, no Playwright checks needed).
-- Playwright / browser checks: skipped this phase because every Step 1.x change is docs-only (no UI surface).
+- Dev runtime runnable: unknown (not started this session). Phase 1 was docs-only so no dev env was needed.
+- Playwright / browser checks: N/A for Phase 1 (docs-only). Will be required for any Phase 2 Step that touches UI surfaces.
 - Database/migration state: clean, untouched.
 
 ## Worktree
 - Path: `/Users/piotrkarwatka/Projects/mercato-development` (user's primary worktree)
-- Created this run: no — user explicitly asked to continue in the primary worktree. Documented as a one-time deviation in `NOTIFY.md`.
+- Created this run: no — documented deviation, see `NOTIFY.md`.
