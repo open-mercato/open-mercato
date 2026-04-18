@@ -2,7 +2,7 @@
 
 **Step:** 1.2 Compact Phase 1 plan to a single step and rename PR to the `ai-framework-unification` main goal.
 **Scope:** docs-only — `.ai/runs/2026-04-18-ai-framework-unification/PLAN.md` and GitHub PR #1593 metadata.
-**Commit:** _filled in at commit time_.
+**Commit:** `61b655eac`.
 
 ## What changed
 

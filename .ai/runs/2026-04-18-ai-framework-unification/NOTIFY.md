@@ -92,3 +92,22 @@
 
 ## 2026-04-18T08:55:00Z — Phase 1 complete (fourth pass)
 - Steps 1.1 / 1.2 / 1.3 / 1.4 / 1.5 all done. Next: push and release lock on #1593, wait for Phase 2 scope.
+
+## 2026-04-18T09:00:00Z — user asked: compact Phase 1 and rename PR
+- Request: compact Phase 1's five historical Steps into a single Step in PLAN.md; rename the PR so it reflects the ai-framework-unification main goal rather than the docs that were only Step 1.1's delivery.
+- Decision: keep the per-Step `step-1.<N>-checks.md` files as the historical audit trail (no history rewrite). Roll up the Tasks table to one Phase 1 row plus a compaction Step 1.2; rewrite the Implementation Plan section to match, preserving the five commit SHAs as a breadcrumb list. Rename the PR title and rewrite its body.
+
+## 2026-04-18T09:01:00Z — dogfood: reclaimed in-progress on PR #1593
+- Applied `in-progress` label + claim comment per the three-signal rule.
+
+## 2026-04-18T09:03:00Z — PR #1593 renamed
+- Title: `feat(ai-framework): AI framework unification — Phase 1 skill harness foundation`.
+- Body rewritten to describe Phase 1 as a single unified foundation with a commit breadcrumb list, and to name Phase 2+ as pending user scope.
+
+## 2026-04-18T09:04:00Z — Step 1.2 committed (61b655eac)
+- `docs(runs): compact Phase 1 plan to single step and rename PR to main goal`
+- PLAN.md Tasks table now has three rows: compacted Phase 1 Step 1.1 (done, rolled-up SHA `93440ec79`), this compaction Step 1.2, and the Phase 2 placeholder.
+- No history rewrite: historical commits and `step-1.<N>-checks.md` audit files stay intact.
+
+## 2026-04-18T09:05:00Z — Phase 1 fully complete (fifth pass)
+- Steps 1.1 and 1.2 both done. Next: push and release lock on #1593, wait for Phase 2 scope.

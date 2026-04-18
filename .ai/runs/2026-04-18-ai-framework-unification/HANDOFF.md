@@ -1,27 +1,24 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T08:55:00Z
+**Last updated:** 2026-04-18T09:05:00Z
 **Branch:** `feat/ai-framework-unification`
-**PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by `auto-create-pr` dogfood `in-progress` lock — release queued after Step 1.5 push)
-**Current phase/step:** Phase 1 complete (Steps 1.1 / 1.2 / 1.3 / 1.4 / 1.5 landed). Phase 2 awaiting user scope.
-**Last commit:** `93440ec79` — `docs(skills): make PLAN.md's top-of-file Tasks table the authoritative status source`
+**PR:** https://github.com/open-mercato/open-mercato/pull/1593 — title `feat(ai-framework): AI framework unification — Phase 1 skill harness foundation`. Currently held by `auto-create-pr` dogfood `in-progress` lock; release queued after the Step 1.2 push.
+**Current phase/step:** Phase 1 complete (compacted Step 1.1 rollup + Step 1.2 compaction). Phase 2 awaiting user scope.
+**Last commit:** `61b655eac` — `docs(runs): compact Phase 1 plan to single step and rename PR to main goal`
 
 ## What just happened
-- Step 1.1 (`bacbc59ec`): skill harness rework + per-spec run folders + 1:1 step↔commit discipline.
-- Step 1.2 (`4a782bbd1`): NOTIFY.md / HANDOFF.md placeholder timestamps repaired to real UTC.
-- Step 1.3 (`98ec6abb2`): three-signal `in-progress` lock discipline added to `auto-create-pr`. Dogfooded on #1593.
-- Step 1.4 (`6a1afab69`): verification layout flattened. `proofs/<step>/` removed in favor of `step-<X.Y>-checks.md` (required per Step) + optional `step-<X.Y>-artifacts/` next to `PLAN.md`.
-- Step 1.5 (`93440ec79`): `PLAN.md` now opens with a `## Tasks` markdown table (Phase | Step | Title | Status | Commit) as the authoritative `todo`/`done` status source; old `## Progress` checklist removed. `auto-create-pr` and `auto-continue-pr` SKILL.md files updated to read/write the table. `auto-continue-pr` keeps a legacy `## Progress` fallback and migrates on first resume commit. `.ai/runs/README.md` documents the contract.
+- Phase 1 rolled up from five incremental Steps (historical SHAs `bacbc59ec`, `4a782bbd1`, `98ec6abb2`, `6a1afab69`, `93440ec79`) into one Step 1.1 row in `PLAN.md`'s Tasks table; the commit breadcrumbs are preserved in the Implementation Plan section. The per-Step `step-1.<N>-checks.md` files remain on disk as the verification audit trail.
+- Step 1.2 (this commit, `61b655eac`) applied the rollup and renamed PR #1593 to `feat(ai-framework): AI framework unification — Phase 1 skill harness foundation`, with the PR body rewritten to match the compacted plan.
 
 ## Next concrete action
-- Commit this Progress flip + HANDOFF/NOTIFY refresh (this commit).
+- Commit this Progress flip + HANDOFF/NOTIFY refresh.
 - Push to `origin/feat/ai-framework-unification`.
-- Release the `in-progress` lock on PR #1593.
+- Release the `in-progress` lock on #1593.
 - Wait for user direction on Phase 2 (`ai-framework` unification scope).
 
 ## Blockers / open questions
-- Phase 2+ scope undefined. User has not yet provided direction; the Phase 2 placeholder in `PLAN.md` must be expanded before any code-changing work begins.
-- A separate, unrelated edit to `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` appeared in the working tree mid-session (not authored by this run). It was deliberately left unstaged so the user's work is not folded into this PR; see NOTIFY.md entry 2026-04-18T08:52:00Z.
+- Phase 2+ scope undefined. User has not yet provided direction; the Phase 2 placeholder (Step 2.1) must be expanded before any code-changing work.
+- Unrelated in-flight edit to `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` (user-authored, adds `catalog.merchandising_assistant` bulk-edit demo) still sits unstaged in the working tree and is intentionally excluded from this PR.
 
 ## Environment caveats
 - Dev runtime runnable: unknown (not started — Phase 1 is docs-only, no Playwright checks needed).

@@ -12,7 +12,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Skill harness foundation: per-spec run folders, flat `step-<X.Y>-checks.md`, three-signal in-progress lock, top-of-file Tasks table | done | 93440ec79 |
-| 1 | 1.2 | Compact Phase 1 plan to a single step and rename PR to the `ai-framework-unification` main goal | todo | — |
+| 1 | 1.2 | Compact Phase 1 plan to a single step and rename PR to the `ai-framework-unification` main goal | done | 61b655eac |
 | 2 | 2.1 | Placeholder — expand once user provides direction | todo | — |
 
 ## Goal
