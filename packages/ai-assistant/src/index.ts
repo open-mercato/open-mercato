@@ -134,6 +134,16 @@ export {
   type CreateAiAgentTransportInput,
 } from './modules/ai_assistant/lib/agent-transport'
 
+// Attachment-to-model bridge (Phase 1 WS-C — Step 3.7)
+export {
+  resolveAttachmentParts,
+  resolveAttachmentPartsForAgent,
+  attachmentPartsToUiFileParts,
+  summarizeAttachmentPartsForPrompt,
+  type ResolveAttachmentPartsInput,
+  type AttachmentSigner,
+} from './modules/ai_assistant/lib/attachment-parts'
+
 // OpenCode client
 export {
   OpenCodeClient,

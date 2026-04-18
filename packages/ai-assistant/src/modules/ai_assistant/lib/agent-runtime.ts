@@ -14,8 +14,16 @@ import type {
   AiAgentPageContextInput,
   AiAgentStructuredOutput,
 } from './ai-agent-definition'
-import type { AiChatRequestContext } from './attachment-bridge-types'
+import type {
+  AiChatRequestContext,
+  AiResolvedAttachmentPart,
+} from './attachment-bridge-types'
 import { resolveAiAgentTools, AgentPolicyError } from './agent-tools'
+import {
+  attachmentPartsToUiFileParts,
+  resolveAttachmentPartsForAgent,
+  summarizeAttachmentPartsForPrompt,
+} from './attachment-parts'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -136,38 +144,95 @@ export async function composeSystemPrompt(
 }
 
 /**
+ * Appends AI SDK v6 `FileUIPart` entries to the last user message in the
+ * request so resolved attachment bytes / signed URLs reach the model. Pure
+ * helper so chat-mode and object-mode share identical behavior — any
+ * divergence here breaks the Step 3.6 parity contract.
+ */
+function attachAttachmentsToMessages(
+  messages: UIMessage[],
+  parts: readonly AiResolvedAttachmentPart[],
+): UIMessage[] {
+  if (parts.length === 0) return messages
+  const fileParts = attachmentPartsToUiFileParts(parts)
+  if (fileParts.length === 0) return messages
+  const next = messages.slice()
+  let lastUserIndex = -1
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const candidate = next[index] as unknown as { role?: string }
+    if (candidate?.role === 'user') {
+      lastUserIndex = index
+      break
+    }
+  }
+  if (lastUserIndex === -1) {
+    next.push({
+      id: 'ai-runtime-attachments',
+      role: 'user',
+      parts: fileParts as unknown as UIMessage['parts'],
+    } as unknown as UIMessage)
+    return next
+  }
+  const source = next[lastUserIndex] as unknown as { parts?: unknown[] }
+  const existingParts = Array.isArray(source.parts) ? source.parts : []
+  next[lastUserIndex] = {
+    ...(next[lastUserIndex] as object),
+    parts: [...existingParts, ...fileParts],
+  } as UIMessage
+  return next
+}
+
+function appendAttachmentSummary(
+  systemPrompt: string,
+  parts: readonly AiResolvedAttachmentPart[],
+): string {
+  const summary = summarizeAttachmentPartsForPrompt(parts)
+  if (!summary) return systemPrompt
+  return `${systemPrompt}\n\n${summary}`
+}
+
+/**
  * Server-side helper that runs an Open Mercato agent in chat mode via the
  * Vercel AI SDK and returns a streaming `Response` ready to be emitted from a
  * route handler. Shares the same policy gate and tool resolution path as the
  * HTTP dispatcher — a caller using this helper can never bypass the agent's
  * `requiredFeatures`, `allowedTools`, `executionMode`, or `mutationPolicy`.
  *
- * Structured-output mode (`executionMode: 'object'`) lands in Step 3.5 via
- * `runAiAgentObject`. Attachment-to-model conversion lands in Step 3.7 — this
- * helper accepts `attachmentIds` and passes them through to the tool-resolver
- * but does not yet materialize them into model parts.
+ * Attachment-to-model conversion (Step 3.7): resolved
+ * {@link AiResolvedAttachmentPart}s are materialized inline as AI SDK v6
+ * `FileUIPart` entries on the last user message (images/PDFs) and as a
+ * structured `[ATTACHMENTS]` block appended to the system prompt (text
+ * extracts + metadata-only summaries). The existing `attachmentIds`
+ * pass-through into `resolveAiAgentTools` is preserved — Step 3.6 parity
+ * invariant #7 still holds.
  */
 export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Response> {
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
-    // TODO(step-3.7): pass resolved attachment media types to the policy gate
-    // once the attachment-to-model bridge lands. Until then the tool resolver
-    // relays ids untouched and the policy gate skips the attachment branch.
     attachmentIds: input.attachmentIds,
   })
 
-  const systemPrompt = await composeSystemPrompt(
+  const resolvedAttachments = await resolveAttachmentPartsForAgent({
+    agent,
+    attachmentIds: input.attachmentIds,
+    authContext: input.authContext,
+    container: input.container,
+  })
+
+  const baseSystemPrompt = await composeSystemPrompt(
     agent,
     input.pageContext,
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
   )
+  const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
-  const modelMessages = await convertToModelMessages(input.messages)
+  const hydratedMessages = attachAttachmentsToMessages(input.messages, resolvedAttachments)
+  const modelMessages = await convertToModelMessages(hydratedMessages)
   const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
     ? stepCountIs(agent.maxSteps)
     : undefined
@@ -297,8 +362,12 @@ function resolveStructuredOutput<TSchema>(
  * system-prompt composition, and model resolution as {@link runAiAgentText} —
  * object-mode and chat-mode CANNOT diverge.
  *
- * Attachment-to-model conversion is Step 3.7 — attachment ids are passed
- * through to the tool resolver but not yet materialized into model parts.
+ * Attachment-to-model conversion (Step 3.7): resolved
+ * {@link AiResolvedAttachmentPart}s are materialized inline as AI SDK v6
+ * `FileUIPart` entries on the last user message (images/PDFs) and as a
+ * structured `[ATTACHMENTS]` block appended to the system prompt (text
+ * extracts + metadata-only summaries). Matches {@link runAiAgentText} byte-
+ * for-byte so the Step 3.6 parity contract is preserved.
  */
 export async function runAiAgentObject<TSchema = unknown>(
   input: RunAiAgentObjectInput<TSchema>,
@@ -313,16 +382,28 @@ export async function runAiAgentObject<TSchema = unknown>(
 
   const resolvedOutput = resolveStructuredOutput(agent, input.output)
 
-  const systemPrompt = await composeSystemPrompt(
+  const resolvedAttachments = await resolveAttachmentPartsForAgent({
+    agent,
+    attachmentIds: input.attachmentIds,
+    authContext: input.authContext,
+    container: input.container,
+  })
+
+  const baseSystemPrompt = await composeSystemPrompt(
     agent,
     input.pageContext,
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
   )
+  const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
-  const modelMessages = await convertToModelMessages(normalizeObjectMessages(input.input))
+  const hydratedMessages = attachAttachmentsToMessages(
+    normalizeObjectMessages(input.input),
+    resolvedAttachments,
+  )
+  const modelMessages = await convertToModelMessages(hydratedMessages)
   const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
     ? stepCountIs(agent.maxSteps)
     : undefined
