@@ -99,6 +99,15 @@ export {
   resetAgentRegistryForTests,
 } from './modules/ai_assistant/lib/agent-registry'
 
+// Agent runtime policy gate (Phase 1 WS-A — pure policy decisions, no HTTP or AI SDK wiring)
+export {
+  checkAgentPolicy,
+  type AgentPolicyDenyCode,
+  type AgentPolicyDecision,
+  type AgentPolicyAuthContext,
+  type AgentPolicyCheckInput,
+} from './modules/ai_assistant/lib/agent-policy'
+
 // OpenCode client
 export {
   OpenCodeClient,
