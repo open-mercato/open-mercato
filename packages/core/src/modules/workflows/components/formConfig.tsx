@@ -14,8 +14,8 @@ export type WorkflowDefinitionFormValues = {
   description?: string | null
   version: number
   enabled: boolean
-  effectiveFrom?: Date | null
-  effectiveTo?: Date | null
+  effectiveFrom?: string | null
+  effectiveTo?: string | null
   metadata?: {
     tags?: string[]
     category?: string
@@ -43,8 +43,8 @@ export const workflowDefinitionFormSchema = z.object({
     .nullable(),
   version: z.number().int().min(1),
   enabled: z.boolean(),
-  effectiveFrom: z.date().optional().nullable(),
-  effectiveTo: z.date().optional().nullable(),
+  effectiveFrom: z.string().optional().nullable(),
+  effectiveTo: z.string().optional().nullable(),
   metadata: z.object({
     tags: z.array(z.string()).optional(),
     category: z.string().max(50).optional(),
@@ -224,6 +224,8 @@ export function createFormGroups(
   ]
 }
 
+import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
+
 /**
  * Parse workflow definition to form values
  */
@@ -234,8 +236,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     description: workflow.description || null,
     version: workflow.version || 1,
     enabled: workflow.enabled ?? true,
-    effectiveFrom: workflow.effectiveFrom ? new Date(workflow.effectiveFrom) : null,
-    effectiveTo: workflow.effectiveTo ? new Date(workflow.effectiveTo) : null,
+    effectiveFrom: toDateInputValue(workflow.effectiveFrom),
+    effectiveTo: toDateInputValue(workflow.effectiveTo),
     metadata: workflow.metadata || { tags: [], category: '', icon: '' },
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
@@ -252,8 +254,8 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     description: values.description || null,
     version: values.version,
     enabled: values.enabled,
-    effectiveFrom: values.effectiveFrom ? values.effectiveFrom.toISOString() : null,
-    effectiveTo: values.effectiveTo ? values.effectiveTo.toISOString() : null,
+    effectiveFrom: values.effectiveFrom || null,
+    effectiveTo: values.effectiveTo || null,
     metadata: values.metadata || null,
     definition: {
       steps: values.steps,

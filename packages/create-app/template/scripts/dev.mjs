@@ -22,6 +22,7 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
@@ -317,6 +318,7 @@ function printDevLogLocation() {
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
+  const resolvedSpawn = resolveSpawnCommand(command, commandArgs)
   const teeRequested = options.mirrorOutput === true
   const teeActive = teeRequested && !devLogTeeDisabled
   const logFile = devLogTeeDisabled ? null : (options.logFile ?? null)
@@ -334,7 +336,7 @@ function spawnCommand(command, commandArgs, options = {}) {
     stdio = options.stdio ?? 'pipe'
   }
 
-  const child = spawn(command, commandArgs, {
+  const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
@@ -343,6 +345,7 @@ function spawnCommand(command, commandArgs, options = {}) {
       ...options.env,
     },
     stdio,
+    ...resolvedSpawn.spawnOptions,
   })
 
   const label = options.label ?? command
@@ -942,19 +945,15 @@ function closeSplashServer() {
 
 function openBrowser(url) {
   try {
+    let child
     if (process.platform === 'darwin') {
-      const child = spawn('open', [url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
+      child = spawn('open', [url], { detached: true, stdio: 'ignore' })
+    } else if (process.platform === 'win32') {
+      child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
+    } else {
+      child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
     }
-
-    if (process.platform === 'win32') {
-      const child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
-    }
-
-    const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
+    child.on('error', () => { /* best-effort: browser open is non-critical */ })
     child.unref()
   } catch { /* best-effort: browser open is non-critical */ }
 }

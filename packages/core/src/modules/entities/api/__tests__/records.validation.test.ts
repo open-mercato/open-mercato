@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { POST, PUT } from '@open-mercato/core/modules/entities/api/records'
+import { CustomEntity, CustomFieldDef } from '../../data/entities'
 
 const mockEm = {
   find: jest.fn(async () => [] as Array<Record<string, unknown>>),
@@ -22,9 +23,15 @@ describe('Records API validation (custom fields)', () => {
 
   it('POST rejects invalid custom fields with 400 and fields map', async () => {
     // Emulate definition with required + integer
-    mockEm.find.mockResolvedValueOnce([
-      { key: 'priority', kind: 'integer', configJson: { validation: [ { rule: 'required', message: 'priority required' }, { rule: 'integer', message: 'priority int' } ] }, organizationId: 'org', tenantId: 't1' }
-    ])
+    mockEm.find.mockImplementation(async (entityClass: unknown) => {
+      if (entityClass === CustomFieldDef) {
+        return [
+          { key: 'priority', kind: 'integer', configJson: { validation: [ { rule: 'required', message: 'priority required' }, { rule: 'integer', message: 'priority int' } ] }, organizationId: 'org', tenantId: 't1' },
+        ]
+      }
+      if (entityClass === CustomEntity) return []
+      return []
+    })
     const req = new Request('http://x/api/entities/records', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -38,9 +45,15 @@ describe('Records API validation (custom fields)', () => {
   })
 
   it('PUT accepts valid input', async () => {
-    mockEm.find.mockResolvedValueOnce([
-      { key: 'priority', kind: 'integer', configJson: { validation: [ { rule: 'integer', message: 'priority int' } ] }, organizationId: null, tenantId: null }
-    ])
+    mockEm.find.mockImplementation(async (entityClass: unknown) => {
+      if (entityClass === CustomFieldDef) {
+        return [
+          { key: 'priority', kind: 'integer', configJson: { validation: [ { rule: 'integer', message: 'priority int' } ] }, organizationId: null, tenantId: null },
+        ]
+      }
+      if (entityClass === CustomEntity) return []
+      return []
+    })
     const req = new Request('http://x/api/entities/records', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },

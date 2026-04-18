@@ -89,6 +89,7 @@ function isMfaVerificationServiceError(error: unknown): error is MfaVerification
 export function issueVerifiedMfaToken(auth: MfaRequestContext['auth'], methods: string[]): string {
   const nextPayload: Record<string, unknown> = {
     sub: auth.sub,
+    sid: typeof auth.sid === 'string' ? auth.sid : undefined,
     tenantId: auth.tenantId ?? null,
     orgId: auth.orgId ?? null,
     email: typeof auth.email === 'string' ? auth.email : null,

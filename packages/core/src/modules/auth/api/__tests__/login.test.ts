@@ -12,7 +12,7 @@ const authServiceMock = {
   verifyPassword: jest.fn(async () => true),
   getUserRoles: jest.fn(async () => ['admin']),
   updateLastLoginAt: jest.fn(async () => undefined),
-  createSession: jest.fn(async () => ({ token: 'session-token' })),
+  createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'session-token' })),
 }
 
 const containerMock = {
@@ -35,6 +35,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
+
+jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
+  checkAuthRateLimit: jest.fn(async () => ({ error: null, compoundKey: null })),
+  resetAuthRateLimit: jest.fn(async () => undefined),
+}))
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
   emitAuthEvent: jest.fn(async () => undefined),
@@ -118,6 +123,60 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=jwt-token')
     expect(setCookie).toContain('session_token=session-token')
+  })
+
+  test('rejects raw // bypass in the redirect parameter (issue #1560)', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({
+        email: 'user@example.com',
+        password: 'secret',
+        redirect: '/backend//evil.com',
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.redirect).toBe('/backend')
+  })
+
+  test('rejects URL-encoded // bypass once the body parser decodes the value (issue #1560)', async () => {
+    // Raw body uses %2F%2Fevil.com → URLSearchParams decodes to //evil.com before sanitization.
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'email=user%40example.com&password=secret&redirect=%2F%2Fevil.com',
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.redirect).toBe('/backend')
+  })
+
+  test('rotates the browser session cookie even when remember me is disabled', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      token: 'jwt-token',
+      redirect: '/backend',
+    })
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=jwt-token')
+    expect(setCookie).toContain('session_token=session-token')
+    expect(authServiceMock.createSession).toHaveBeenCalledTimes(1)
   })
 
   test('applies body merge from matched after interceptor', async () => {

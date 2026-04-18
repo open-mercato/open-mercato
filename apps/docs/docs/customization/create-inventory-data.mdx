@@ -10,12 +10,12 @@ Inventory data lives in a module-scoped MikroORM entity. Keep multi-tenancy in m
 ## 1. Define the entity
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/data
-touch packages/inventory/src/modules/inventory/data/entities.ts
-touch packages/inventory/src/modules/inventory/data/validators.ts
+mkdir -p apps/mercato/src/modules/inventory/data
+touch apps/mercato/src/modules/inventory/data/entities.ts
+touch apps/mercato/src/modules/inventory/data/validators.ts
 ```
 
-```ts title="data/entities.ts"
+```ts title="apps/mercato/src/modules/inventory/data/entities.ts"
 import { Entity, Property, PrimaryKey } from '@mikro-orm/core';
 import { v4 as uuid } from 'uuid';
 
@@ -55,14 +55,16 @@ export class InventoryItemEntity {
 
 Each column follows the multi-tenant conventions: `tenant_id`, `organization_id`, timestamps, and `deleted_at` for soft deletes.
 
+:::info Entity field naming
+Database columns use `snake_case` (`tenant_id`, `organization_id`, `created_at`). The `makeCrudRoute` factory expects the corresponding ORM field names in its configuration -- MikroORM handles the mapping automatically when the entity property name differs from the column name. If you use camelCase property names in your entity class, set `columnType` explicitly and MikroORM will derive the snake_case column name.
+:::
+
 ## 2. Add validators
 
-```ts title="data/validators.ts"
+```ts title="apps/mercato/src/modules/inventory/data/validators.ts"
 import { z } from 'zod';
 
 export const upsertInventoryItemSchema = z.object({
-  tenantId: z.string().uuid(),
-  organizationId: z.string().uuid(),
   sku: z.string().min(1).max(64),
   name: z.string().min(1).max(128),
   quantity: z.number().int().min(0),
@@ -72,15 +74,24 @@ export const upsertInventoryItemSchema = z.object({
 export type UpsertInventoryItemInput = z.infer<typeof upsertInventoryItemSchema>;
 ```
 
-Use the same schema for create and update flows—call it from API handlers, CLI commands, and forms to guarantee consistent validation.
+Use the same schema for create and update flows -- call it from API handlers, CLI commands, and forms to guarantee consistent validation.
+
+:::tip Validator best practices
+- Do **not** include `tenantId` or `organizationId` in your request validator. These are derived from the authenticated session by the CRUD factory and injected automatically -- accepting them from user input would be a security risk.
+- Derive TypeScript types with `z.infer<typeof schema>` to keep types and runtime validation in sync.
+:::
 
 ## 3. Generate migrations
 
-Register the entity in `packages/inventory/tsconfig.json` (or rely on path aliases already defined for the package), then run:
+Run the generators and create a migration for the new entity:
 
 ```bash
 yarn generate
 yarn db:generate
 ```
 
-Migrations appear under `packages/inventory/src/modules/inventory/migrations`. Commit them alongside your entity. When you run `yarn db:migrate`, the new table will be created across environments.
+Migrations appear under `apps/mercato/src/modules/inventory/migrations/` (for app-level modules with `from: '@app'`). Commit them alongside your entity. When you run `yarn db:migrate`, the new table will be created across environments.
+
+```bash
+yarn db:migrate
+```

@@ -22,6 +22,21 @@ function resolveSplashHelpersImport() {
   throw new Error('Unable to resolve dev splash helpers module')
 }
 
+function resolveSpawnUtilsImport() {
+  const candidates = [
+    new URL('./dev-spawn-utils.mjs', import.meta.url),
+    new URL('../../../scripts/dev-spawn-utils.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev spawn utils module')
+}
+
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
@@ -40,6 +55,7 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
+const { resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -363,13 +379,15 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const child = spawn(command, args, {
+  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
     },
+    ...resolvedSpawn.spawnOptions,
   })
 
   children.add(child)
@@ -429,6 +447,14 @@ function resolveWarmupCredentials() {
   return {
     email: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com',
     password: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret',
+  }
+}
+
+class LoginError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'LoginError'
+    this.status = status
   }
 }
 
@@ -684,7 +710,7 @@ async function runTargetedRouteWarmup() {
           throw createWarmupTransientError('login warmup required tenant selection')
         }
       }
-      throw new Error(`login warmup failed: ${failure}`)
+      throw new LoginError(`login warmup failed: ${failure}`, loginResponse.status)
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
@@ -793,21 +819,44 @@ async function runTargetedRouteWarmup() {
       return
     }
 
-    const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
+    const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    const isCredentialsFailure = error instanceof LoginError && error.status === 401
+    const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
+    const loginUrl = runtimeWarmupState.baseUrl
+      ? `${runtimeWarmupState.baseUrl}/login`
+      : null
+    const failureLines = isCredentialsFailure
+      ? [
+          'Warmup login failed with HTTP 401 — the app is running but warmup credentials are invalid.',
+          'Set OM_INIT_SUPERADMIN_EMAIL and OM_INIT_SUPERADMIN_PASSWORD in .env,',
+          'or run: yarn initialize  (to seed demo data with default credentials).',
+        ]
+      : []
+    runtimeWarmupState.completed = true
+    runtimeWarmupState.failed = false
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
       failed: false,
-      failureLines: [],
+      failureLines,
       failureCommand: null,
       ready: true,
+      loginUrl,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
       progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: warmupWarning,
     })
-    console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    if (isCredentialsFailure) {
+      console.log(formatStatusOutput(
+        '⚠️ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        runtimeReadyProgressCurrent,
+        'App is ready',
+      ))
+    } else {
+      console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    }
   }
 }
 

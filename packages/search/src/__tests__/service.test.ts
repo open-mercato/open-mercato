@@ -231,6 +231,50 @@ describe('SearchService', () => {
       expect(results).toHaveLength(1)
       expect(results[0].source).toBe('fallback')
     })
+
+    it('should enrich results when navigation metadata is missing even if presenter title exists', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({
+            presenter: { title: 'Needs Link' },
+            url: undefined,
+            links: [],
+          }),
+        ]),
+      })
+      const presenterEnricher = jest.fn().mockResolvedValue([
+        createMockResult({
+          presenter: { title: 'Needs Link' },
+          url: '/backend/test/rec-123',
+          links: [{ href: '/backend/test/rec-123/edit', label: 'Edit', kind: 'secondary' }],
+        }),
+      ])
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+        presenterEnricher,
+      })
+
+      const results = await service.search('test', { tenantId: 'tenant-123' })
+
+      expect(presenterEnricher).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            recordId: 'rec-123',
+            presenter: { title: 'Needs Link' },
+            url: undefined,
+            links: [],
+          }),
+        ]),
+        'tenant-123',
+        undefined,
+      )
+      expect(results[0].url).toBe('/backend/test/rec-123')
+      expect(results[0].links).toEqual([
+        { href: '/backend/test/rec-123/edit', label: 'Edit', kind: 'secondary' },
+      ])
+    })
   })
 
   describe('index', () => {
@@ -305,6 +349,36 @@ describe('SearchService', () => {
 
       expect(strategy.bulkIndex).not.toHaveBeenCalled()
       expect(strategy.index).not.toHaveBeenCalled()
+    })
+
+    it('should throw error when strategy bulkIndex fails', async () => {
+      const strategy = createMockStrategy({
+        id: 'failing-strategy',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('Index strategy failed')),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+      const records = [createMockRecord({ recordId: 'rec-1' })]
+
+      await expect(service.bulkIndex(records)).rejects.toThrow(
+        'Bulk indexing failed for 1 strategy(ies): failing-strategy (Index strategy failed)'
+      )
+    })
+
+    it('should throw error when multiple strategies fail', async () => {
+      const strategy1 = createMockStrategy({
+        id: 'failing1',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('First failure')),
+      })
+      const strategy2 = createMockStrategy({
+        id: 'failing2',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('Second failure')),
+      })
+      const service = new SearchService({ strategies: [strategy1, strategy2] })
+      const records = [createMockRecord({ recordId: 'rec-1' })]
+
+      await expect(service.bulkIndex(records)).rejects.toThrow(
+        'Bulk indexing failed for 2 strategy(ies): failing1 (First failure), failing2 (Second failure)'
+      )
     })
   })
 

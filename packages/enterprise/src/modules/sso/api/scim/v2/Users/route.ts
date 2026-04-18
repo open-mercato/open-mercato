@@ -6,7 +6,7 @@ import { handleScimApiError } from '../../../error-handler'
 import { scimUserPayloadSchema } from '../../../../data/validators'
 import { buildScimError, scimJson as scimJsonResponse } from '../../../../lib/scim-response'
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 export async function POST(req: Request) {
   try {

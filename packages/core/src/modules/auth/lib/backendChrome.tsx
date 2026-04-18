@@ -337,13 +337,12 @@ export async function resolveBackendChromePayload({
   let userPreference: SidebarPreferencesSettings | null = null
 
   if (Array.isArray(auth.roles) && auth.roles.length > 0) {
-    const roleScope: FilterQuery<Role> = scopedTenantId
-      ? { $or: [{ tenantId: scopedTenantId }, { tenantId: null }] }
-      : { tenantId: null }
-    const roleRecords = await em.find(Role, {
-      name: { $in: auth.roles },
-      ...roleScope,
-    })
+    const roleRecords = scopedTenantId
+      ? await em.find(Role, {
+          name: { $in: auth.roles },
+          tenantId: scopedTenantId,
+        })
+      : []
     const roleIds = Array.isArray(roleRecords) ? roleRecords.map((role) => role.id) : []
     if (roleIds.length > 0) {
       rolePreference = await loadFirstRoleSidebarPreference(em, {

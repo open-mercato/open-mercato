@@ -2,7 +2,6 @@
 
 import { Node } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -58,7 +57,6 @@ export interface NodeEditDialogCrudFormProps {
  * - decision: Basic fields only
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
 
@@ -94,18 +92,10 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     }
   }, [node, onSave, onClose])
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
-    const confirmed = await confirm({
-      title: 'Delete Step',
-      text: 'Are you sure you want to delete this step?',
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-
     onDelete(node.id)
-    onClose()
-  }, [confirm, node, onDelete, onClose])
+  }, [node, onDelete])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -518,7 +508,6 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
             }
           />
         </div>
-        {ConfirmDialogElement}
       </DialogContent>
     </Dialog>
   )

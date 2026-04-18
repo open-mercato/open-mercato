@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 const FALSE_TOKENS = new Set(['0', 'false', 'no', 'off', 'disabled'])
 const GITHUB_REMOTE_PATTERNS = [
@@ -65,10 +66,12 @@ function spawnResult(command, args, options = {}) {
     const stdio = options.interactive
       ? 'inherit'
       : ['ignore', 'pipe', 'pipe']
-    const child = spawn(command, args, {
+    const resolvedSpawn = resolveSpawnCommand(command, args)
+    const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
       cwd: options.cwd ?? process.cwd(),
       env: options.env ?? process.env,
       stdio,
+      ...resolvedSpawn.spawnOptions,
     })
 
     let stdout = ''

@@ -6,6 +6,7 @@ import {
   createRuntimeNoiseFilter,
   isStatelessRuntimeNoiseLine,
 } from './dev-runtime-log-policy.mjs'
+import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -363,13 +364,15 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const child = spawn(command, args, {
+  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
     },
+    ...resolvedSpawn.spawnOptions,
   })
 
   children.add(child)
@@ -429,6 +432,14 @@ function resolveWarmupCredentials() {
   return {
     email: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com',
     password: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret',
+  }
+}
+
+class LoginError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'LoginError'
+    this.status = status
   }
 }
 
@@ -684,7 +695,7 @@ async function runTargetedRouteWarmup() {
           throw createWarmupTransientError('login warmup required tenant selection')
         }
       }
-      throw new Error(`login warmup failed: ${failure}`)
+      throw new LoginError(`login warmup failed: ${failure}`, loginResponse.status)
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
@@ -793,21 +804,44 @@ async function runTargetedRouteWarmup() {
       return
     }
 
-    const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
+    const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    const isCredentialsFailure = error instanceof LoginError && error.status === 401
+    const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
+    const loginUrl = runtimeWarmupState.baseUrl
+      ? `${runtimeWarmupState.baseUrl}/login`
+      : null
+    const failureLines = isCredentialsFailure
+      ? [
+          'Warmup login failed with HTTP 401 — the app is running but warmup credentials are invalid.',
+          'Set OM_INIT_SUPERADMIN_EMAIL and OM_INIT_SUPERADMIN_PASSWORD in .env,',
+          'or run: yarn initialize  (to seed demo data with default credentials).',
+        ]
+      : []
+    runtimeWarmupState.completed = true
+    runtimeWarmupState.failed = false
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
       failed: false,
-      failureLines: [],
+      failureLines,
       failureCommand: null,
       ready: true,
+      loginUrl,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
       progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: warmupWarning,
     })
-    console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    if (isCredentialsFailure) {
+      console.log(formatStatusOutput(
+        '⚠️ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        runtimeReadyProgressCurrent,
+        'App is ready',
+      ))
+    } else {
+      console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    }
   }
 }
 

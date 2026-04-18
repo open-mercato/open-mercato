@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
-import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 
 export interface CustomerAuthContext {
   sub: string
+  sid: string
   type: 'customer'
   tenantId: string
   orgId: string
@@ -12,6 +15,23 @@ export interface CustomerAuthContext {
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]
+}
+
+async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+  try {
+    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
+      import('@open-mercato/shared/lib/di/container'),
+      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
+    ])
+    const container = await createRequestContainer()
+    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+    const session = await service.findActiveSessionById(sessionId)
+    return session !== null
+  } catch {
+    // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
+    // replay of leaked JWTs when the backend is partially degraded.
+    return false
+  }
 }
 
 export function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
@@ -24,6 +44,40 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
     }
   }
   return undefined
+}
+
+export type UserValidationResult =
+  | { valid: false }
+  | { valid: true; resolvedFeatures: string[] }
+
+export async function validateUserState(
+  sub: string,
+  tenantId: string,
+  orgId: string,
+  iat: unknown,
+): Promise<UserValidationResult> {
+  const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/data/entities'),
+  ])
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, {
+    fields: ['sessionsRevokedAt', 'deletedAt', 'isActive'],
+  })
+  if (!user) return { valid: false }
+  if (user.deletedAt) return { valid: false }
+  if (!user.isActive) return { valid: false }
+  if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
+    return { valid: false }
+  }
+
+  const { CustomerRbacService } = await import(
+    '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+  )
+  const rbac = container.resolve('customerRbacService') as InstanceType<typeof CustomerRbacService>
+  const acl = await rbac.loadAcl(sub, { tenantId, organizationId: orgId })
+  return { valid: true, resolvedFeatures: acl.isPortalAdmin ? ['*'] : acl.features }
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -48,12 +102,30 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
   if (!token) return null
 
   try {
-    const payload = verifyJwt(token) as Record<string, unknown> | null
+    let payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
+    // Legacy fallback: try raw JWT_SECRET for pre-migration customer tokens
+    if (!payload) {
+      payload = verifyJwt(token) as Record<string, unknown> | null
+      if (payload) payload._legacyToken = true
+    }
     if (!payload) return null
     if (payload.type !== 'customer') return null
+    const sid = typeof payload.sid === 'string' ? payload.sid : ''
+    if (!sid && payload._legacyToken !== true) return null
+    const stillActive = sid ? await assertSessionStillActive(sid) : true
+    if (!stillActive) return null
+
+    const userState = await validateUserState(
+      String(payload.sub),
+      String(payload.tenantId),
+      String(payload.orgId),
+      payload.iat,
+    )
+    if (!userState.valid) return null
 
     return {
       sub: String(payload.sub),
+      sid,
       type: 'customer',
       tenantId: String(payload.tenantId),
       orgId: String(payload.orgId),
@@ -61,7 +133,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
-      resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],
+      resolvedFeatures: userState.resolvedFeatures,
     }
   } catch {
     // Invalid or expired JWT — treat as unauthenticated
@@ -77,9 +149,18 @@ export async function requireCustomerAuth(req: Request): Promise<CustomerAuthCon
   return auth
 }
 
-export function requireCustomerFeature(auth: CustomerAuthContext, features: string[]): void {
+export async function requireCustomerFeature(
+  auth: CustomerAuthContext,
+  features: string[],
+  rbac: CustomerRbacService,
+): Promise<void> {
   if (!features.length) return
-  if (!hasAllFeatures(features, auth.resolvedFeatures)) {
+  const ok = await rbac.userHasAllFeatures(
+    auth.sub,
+    features,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+  if (!ok) {
     throw NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 }
