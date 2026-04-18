@@ -652,3 +652,29 @@
   - **Browser smoke deferred to Playwright**: an unrelated pre-session `next-server` process (pid 48131, 47-minute wall clock at ~120% CPU) saturated port :3000, so MCP browser navigation timed out. The integration spec provides equivalent coverage against its own Playwright-managed dev server.
 - BC: additive only (2 new URLs, 1 new page, 32 new i18n keys, explicit `./ai` subpath export in `packages/ui/package.json`). `useAiChat` import path change is internal — `<AiChat>` / `useAiChat` public contracts unchanged.
 - Phase 4 WS-B now **1/3 landed** (4.4 done). Phase 4 overall **4/11**. Next: Step 4.5 — backend agent settings page.
+
+## 2026-04-18T18:15:00Z — Step 4.5 done (ce011a9e5)
+- Title: Spec Phase 2 WS-B — Backend agent settings page + prompt-override placeholder route (closes 2/3 in WS-B; only 4.6 remains).
+- Commit (code): `ce011a9e5` — `feat(ai-assistant): add backend AI agent settings page + prompt-override placeholder route (Phase 2 WS-B)`.
+- Files touched (code commit):
+  - New page: `packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/agents/{page.tsx,page.meta.ts,AiAgentSettingsPageClient.tsx}`.
+  - New placeholder route + tests: `packages/ai-assistant/src/modules/ai_assistant/api/ai/agents/[agentId]/prompt-override/{route.ts,__tests__/route.test.ts}`.
+  - Additive extension: `packages/ai-assistant/src/modules/ai_assistant/api/ai/agents/route.ts` now returns `systemPrompt`, `readOnly`, `maxSteps`, and `tools[]` alongside existing fields.
+  - Integration spec: `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts`.
+  - i18n: 50 new `ai_assistant.agents.*` keys synced across en/pl/es/de.
+- Verification:
+  - `packages/ai-assistant` jest: **30 suites / 353 tests** (was 29/346 — new prompt-override route suite adds 1/7).
+  - `packages/ui` jest: **58 / 317** preserved.
+  - `packages/core` jest: **333 / 3033** preserved.
+  - `yarn turbo run typecheck --filter=@open-mercato/ai-assistant --filter=@open-mercato/core --filter=@open-mercato/app`: clean (2 cache-hit + 1 cache-miss).
+  - `apps/mercato && npx tsc --noEmit`: 0 errors.
+  - `yarn generate`: 313 API routes (was 312); new `/api/ai_assistant/ai/agents/{agentId}/prompt-override` present in `openapi.generated.json`.
+  - `yarn i18n:check-sync`: green (46 modules × 4 locales).
+- Browser smoke: logged in as `superadmin@acme.com`, navigated to `/backend/config/ai-assistant/agents`, confirmed empty-state alert + sidebar entries (both "AI Playground" and "AI Agents" visible). Screenshot: `step-4.5-artifacts/browser-smoke.png`. Reused the pre-existing dev server on :3000 (`yarn dev:app` task `bk93jo24j`); rebuilt `@open-mercato/ai-assistant` once so the `dist/modules/.../agents/` path resolves through the package-exports fallback.
+- Decisions:
+  - **Agent-picker extraction**: duplicated the `<select>` block once between playground (4.4) and settings (4.5). Explicit `TODO(step 4.6)` comment at the top of `AiAgentSettingsPageClient.tsx` flags the extraction point. Duplicated block is < 50 lines per the brief.
+  - **Prompt-override placeholder semantics**: route validates the agent + feature gate, then returns `200 { pending: true, agentId, message: 'Persistence lands in Phase 3 Step 5.3.' }`. No DB writes, no events. UI holds override drafts in React state only and resets them when the picker selection changes.
+  - **Zero new feature IDs**: the existing `ai_assistant.settings.manage` gates both the page and the route.
+  - **Metadata export shape**: switched the placeholder route to flat `metadata = { requireAuth, requireFeatures }` to silence the generator warning that specifically fires on per-method metadata on dynamic-segment routes (`[agentId]`).
+- BC: additive only. 1 new URL, 1 new backend page, 4 additive fields on the existing agents-list response, 50 new i18n keys, 0 ACL features, 0 migrations.
+- Phase 4 WS-B now **2/3 landed** (4.4, 4.5). Phase 4 overall **5/11**. Next: Step 4.6 — i18n keys, keyboard shortcuts, debug support polish.

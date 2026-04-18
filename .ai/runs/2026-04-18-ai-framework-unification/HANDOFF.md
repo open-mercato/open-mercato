@@ -1,106 +1,101 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T17:10:00Z
+**Last updated:** 2026-04-18T18:15:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 4 WS-B Step 4.4 **complete** (backend
-playground page + `run-object` HTTP route + `agents` list route). Next:
-Phase 4 WS-B Step 4.5 — backend agent settings page (prompt overrides,
-tool toggles, attachment policy).
-**Last commit:** `f62aead47` — `feat(ai-assistant): add backend AI playground page + run-object route (Phase 2 WS-B)`
+**Current phase/step:** Phase 4 WS-B Step 4.5 **complete** (backend AI agent
+settings page + prompt-override placeholder route). Next: Phase 4 WS-B
+Step 4.6 — i18n keys, keyboard shortcuts, debug support polish; closes
+Phase 2 WS-B.
+**Last commit:** `ce011a9e5` — `feat(ai-assistant): add backend AI agent settings page + prompt-override placeholder route (Phase 2 WS-B)`
 
 ## What just happened
 
-- Step 4.4 shipped the first real user-facing embedding of `<AiChat>`:
-  - New backend page `/backend/config/ai-assistant/playground` guarded
-    by `ai_assistant.settings.manage`.
-  - Two-tab UX (Chat + Object mode) driven by a single agent picker.
-    The chat lane embeds `<AiChat key={agent.id}>` so switching agents
-    resets transcript state; the object lane calls the new scoped
-    one-shot route.
-  - Debug toggle flips `<AiChat debug>` on/off. Empty-state alert when
-    no agents are registered. Lane-level disabled alerts when the
-    selected agent's `executionMode` does not match the current tab.
-- New HTTP routes (both additive):
-  - `POST /api/ai_assistant/ai/run-object` — reuses the chat
-    dispatcher's auth + policy gate but with
-    `requestedExecutionMode: 'object'`, returns `{ object, finishReason?, usage? }`
-    via `runAiAgentObject`. Streaming-mode is rejected with 422.
-  - `GET /api/ai_assistant/ai/agents` — mirrors the
-    `meta.list_agents` tool so the client picker can populate without
-    going through the MCP tool transport.
-- 32 new `ai_assistant.playground.*` i18n keys, synced across en/pl/es/de.
+- Step 4.5 shipped the operator-facing agent configuration page at
+  `/backend/config/ai-assistant/agents`, guarded by
+  `ai_assistant.settings.manage`:
+  - Agent picker + metadata panel with `StatusBadge`s for `executionMode`
+    and `mutationPolicy`, plus `readOnly` / `maxSteps` display.
+  - Prompt-sections editor covering all eight `PromptSectionName` ids
+    from spec §8 (`role`, `scope`, `data`, `tools`, `attachments`,
+    `mutationPolicy`, `responseStyle`, `overrides`). Each section has a
+    Default/Override toggle; Override drafts live in React state only.
+  - Persistent info `Alert` pointing at the Phase-3 roadmap (Step 5.3 owns
+    the versioned persistence).
+  - Read-only allowed-tools list with `Mutation`/`Read` `StatusBadge`, an
+    always-on disabled `Enabled` switch, and a `Tooltip` explaining
+    "Editable after Phase 3 lands mutation policy controls."
+  - Attachment media-type badges driven by `acceptedMediaTypes`.
+- New placeholder route `POST /api/ai_assistant/ai/agents/:agentId/prompt-override`:
+  - Validates the agent via the registry. 401 / 403 / 404 / 400 error paths.
+  - Returns `200 { pending: true, agentId, message: 'Persistence lands in
+    Phase 3 Step 5.3.' }`. No DB writes, no events.
+- `GET /api/ai_assistant/ai/agents` extended **additively** with
+  `systemPrompt`, `readOnly`, `maxSteps`, and `tools[]` (each entry
+  exposing `{ name, displayName, isMutation, registered }`). The playground
+  client still compiles unchanged.
+- Sidebar now shows both "AI Playground" (431) and "AI Agents" (432) under
+  the Module Configs section — confirmed live in the browser smoke at
+  `step-4.5-artifacts/browser-smoke.png`.
+- 50 new `ai_assistant.agents.*` i18n keys, synced across `en/pl/es/de`.
 - Integration spec
-  `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts`
-  stubs `/api/ai_assistant/ai/{agents,chat,run-object}` so CI never
-  hits a real LLM provider; asserts picker + debug toggle + composer
-  wiring.
-- 8 new unit tests under the new route's `__tests__/` (401/400/404/403/422
-  happy+sad paths + `AgentPolicyError` mapping + stream-mode rejection).
-- **Build fix (also in the same commit):** narrowed
-  `packages/ui/src/ai/useAiChat.ts`'s import of `createAiAgentTransport`
-  from the `@open-mercato/ai-assistant` root barrel to the subpath
-  `@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport`.
-  Without this the playground page (first app consumer of the
-  `@open-mercato/ui/ai` module from a Next.js page) failed `yarn build:app`
-  because the barrel transitively pulls `opencode-handlers` and the
-  server-only DI container into the client bundle. Three AiChat test
-  mock paths updated to match; no public contract change. Also added
-  an explicit `./ai` entry to `packages/ui/package.json` exports.
+  `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts`
+  stubs `/api/ai_assistant/ai/agents` + `/prompt-override`; asserts both
+  the empty-state branch and the unauthenticated-redirect contract.
+- 7 new unit tests for the placeholder route (401/403/404/400×2/200/superadmin).
+- Deliberate duplication: the `<select>` agent picker is duplicated once
+  between the playground (4.4) and the settings page (4.5). A `TODO(step 4.6)`
+  comment in `AiAgentSettingsPageClient.tsx` flags the extraction point
+  once the duplication grows. Step 4.5 brief authorized this decision
+  because the duplicated block is under 50 lines.
 
 ## Next concrete action
 
-- **Step 4.5** — Backend agent settings page at
-  `/backend/config/ai-assistant/agents`:
-  - Per-agent prompt override editor (versioned, additive merge
-    — see spec Phase 3 WS-B rules; Phase 2 may ship UI-only with a
-    local-state placeholder pending Phase 3 persistence in Step 5.3).
-  - Tool whitelist toggles (`allowedTools` per agent) — read-only
-    until Phase 3, but surface the list so operators see what each
-    agent invokes.
-  - Attachment media-type policy view.
-  - Guarded by `ai_assistant.settings.manage`.
-  - Reuse the agent picker UX from Step 4.4 (candidate for extracting
-    to a shared `<AgentPicker>` primitive under
-    `packages/ai-assistant/src/modules/ai_assistant/components/` if
-    scope stays small; otherwise duplicate once and extract in 4.6).
-  - Integration spec under
-    `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-*.spec.ts`.
-  - Update `packages/ai-assistant/AGENTS.md` / `.ai/specs/...` as the
-    spec requires when the prompt-override contract is first exposed.
+- **Step 4.6** — i18n keys, keyboard shortcuts, debug support polish
+  (closes Phase 2 WS-B):
+  - Extract the shared `<AgentPicker>` primitive so the playground and
+    settings page stop duplicating the `<select>` markup (the TODO comment
+    in `AiAgentSettingsPageClient.tsx` names the extraction spot).
+  - Expand keyboard-shortcut coverage across the playground + settings
+    page (Cmd/Ctrl+S as save alias, Escape behavior on the settings
+    drawer / picker, consistent Cmd+K behavior with the command palette).
+  - Consolidate the debug-panel surface so it's a sibling panel instead
+    of forcing `<AiChat>` re-mount on toggle (decision deferred from 4.4).
+  - Promote any playground- or settings-only i18n keys into shared
+    namespaces if 4.6 finds overlap; otherwise leave per-page keys as-is.
+  - Integration spec under `TC-AI-UI-POLISH-006-*.spec.ts`.
 
 ## Blockers / open questions
 
-- **Prompt-override persistence.** Spec Phase 3 WS-B (Step 5.3) owns
-  the versioned prompt-override storage. Step 4.5 may need to land a
-  UI-only surface that POSTs to a TODO endpoint or manages override
-  state in local component state pending 5.3. Flag the split when the
-  Step 4.5 subagent runs.
-- **Agent picker reuse.** Playground's picker is currently a plain
-  `<select>` inline in `AiPlaygroundPageClient.tsx`. If Step 4.5
-  rebuilds the same UI, extract to a shared primitive before a third
-  caller appears.
-- **Dev-runtime browser smoke caveat.** This Step's browser-smoke was
-  constrained by an unrelated pre-session `next-server` process
-  saturating port :3000. The Playwright integration spec (which runs
-  against its own Playwright-managed dev server) provides equivalent
-  coverage. If this recurs for Step 4.5, document and keep moving.
+- **Prompt-override persistence is still stubbed.** Step 5.3 (Phase 3 WS-B)
+  owns the versioned storage. Until 5.3 lands, the settings page's "Save
+  overrides" button POSTs to the placeholder route and relies on the
+  local-state React drafts. No regression risk because no prior consumers
+  exist.
+- **Agent-definition does not yet expose `PromptTemplate.sections`.** The
+  Default panel quotes `systemPrompt` once (under the `role` section) and
+  shows a Phase-3-deferred placeholder for the other seven slots. When
+  5.3 lands, the settings page will want to wire real per-section copy —
+  track as a Phase 3 follow-up.
 
 ## Environment caveats
 
-- Dev runtime nominally runnable (the build chain is green). The
-  primary-worktree's dev server was stuck at ~120% CPU during the
-  Step 4.4 session — if this persists, Step 4.5 should either target
-  a different port or ask the user to recycle the dev runtime before
-  starting.
+- Dev runtime reachable. Reused the pre-existing `yarn dev:app` background
+  task on port 3000 (task id `bk93jo24j`) for the browser smoke — no
+  second dev server spawned.
+- Had to run `node build.mjs` inside `packages/ai-assistant` once to
+  hydrate `dist/modules/.../agents/` so the package-exports `./*/*/*/*/*/*/*`
+  fallback can resolve the new page route at runtime. Future Phase-2
+  Steps that add new backend pages MAY need the same rebuild step until
+  the ai-assistant package ships a dev-mode fallback that resolves to
+  `src/` directly.
 - Database / migration state: clean, untouched.
-- `yarn i18n:check-sync` green (46 modules × 4 locales including the
-  32 new `ai_assistant.playground.*` keys).
+- `yarn i18n:check-sync` green (46 modules × 4 locales, 50 new
+  `ai_assistant.agents.*` keys).
 - Typecheck clean; pre-existing `@open-mercato/app`
-  `agent-registry.ts(43,7)` diagnostic (Step 3.1 carryover) is
-  tolerated.
+  `agent-registry.ts(43,7)` diagnostic (Step 3.1 carryover) is tolerated.
 
 ## Worktree
 

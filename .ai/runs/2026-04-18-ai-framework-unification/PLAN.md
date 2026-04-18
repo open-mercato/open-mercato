@@ -45,7 +45,7 @@
 | 4 | 4.2 | Spec Phase 2 WS-A — Upload adapter reusing attachments API, returns `attachmentIds` | done | 6acaa8487 |
 | 4 | 4.3 | Spec Phase 2 WS-A — Client-side UI-part registry with Phase 3 approval-card slots reserved | done | 59f23edac |
 | 4 | 4.4 | Spec Phase 2 WS-B — Backend playground page (`/backend/config/ai-assistant/playground`) with agent picker + debug panel + object-mode | done | f62aead47 |
-| 4 | 4.5 | Spec Phase 2 WS-B — Backend agent settings page (`/backend/config/ai-assistant/agents`) with prompt overrides + tool toggles + attachment policy | todo | — |
+| 4 | 4.5 | Spec Phase 2 WS-B — Backend agent settings page (`/backend/config/ai-assistant/agents`) with prompt overrides + tool toggles + attachment policy | done | ce011a9e5 |
 | 4 | 4.6 | Spec Phase 2 WS-B — i18n keys, keyboard shortcuts (`Cmd/Ctrl+Enter`, `Escape`), debug support | todo | — |
 | 4 | 4.7 | Spec Phase 2 WS-C — First customers agent with prompt template (read-only) | todo | — |
 | 4 | 4.8 | Spec Phase 2 WS-C — First catalog agent with prompt template (read-only) | todo | — |
