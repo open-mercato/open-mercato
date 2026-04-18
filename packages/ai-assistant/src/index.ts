@@ -108,6 +108,26 @@ export {
   type AgentPolicyCheckInput,
 } from './modules/ai_assistant/lib/agent-policy'
 
+// AI SDK helpers (Phase 1 WS-B — chat-mode runtime + transport glue)
+export {
+  resolveAiAgentTools,
+  AgentPolicyError,
+  type ResolveAiAgentToolsInput,
+  type ResolvedAgentTools,
+} from './modules/ai_assistant/lib/agent-tools'
+
+export {
+  runAiAgentText,
+  composeSystemPrompt,
+  type RunAiAgentTextInput,
+  type AgentRequestPageContext,
+} from './modules/ai_assistant/lib/agent-runtime'
+
+export {
+  createAiAgentTransport,
+  type CreateAiAgentTransportInput,
+} from './modules/ai_assistant/lib/agent-transport'
+
 // OpenCode client
 export {
   OpenCodeClient,

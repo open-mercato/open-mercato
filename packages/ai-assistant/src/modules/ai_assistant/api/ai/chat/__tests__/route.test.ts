@@ -10,6 +10,7 @@ import { toolRegistry, registerMcpTool } from '../../../../lib/tool-registry'
 const authMock = jest.fn()
 const loadAclMock = jest.fn()
 const createRequestContainerMock = jest.fn()
+const runAiAgentTextMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -17,6 +18,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
+}))
+
+jest.mock('../../../../lib/agent-runtime', () => ({
+  runAiAgentText: (...args: unknown[]) => runAiAgentTextMock(...args),
 }))
 
 import { POST } from '../route'
@@ -63,20 +68,6 @@ function buildRequest(options: {
   return new Request(url, init)
 }
 
-async function readResponseText(response: Response): Promise<string> {
-  if (!response.body) return ''
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let out = ''
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    if (value) out += decoder.decode(value, { stream: true })
-  }
-  out += decoder.decode()
-  return out
-}
-
 describe('POST /api/ai/chat', () => {
   let consoleErrorSpy: jest.SpyInstance
 
@@ -97,6 +88,12 @@ describe('POST /api/ai/chat', () => {
         return null
       },
     })
+    runAiAgentTextMock.mockResolvedValue(
+      new Response('data: {"type":"text","content":"ok"}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    )
   })
 
   afterEach(() => {
@@ -218,7 +215,7 @@ describe('POST /api/ai/chat', () => {
     expect(json.code).toBe('execution_mode_not_supported')
   })
 
-  it('streams a placeholder SSE response on successful policy check', async () => {
+  it('delegates to runAiAgentText with the resolved auth and body payload', async () => {
     registerMcpTool(
       makeTool({ name: 'customers.list_people', requiredFeatures: ['customers.people.view'] }),
       { moduleId: 'customers' },
@@ -244,10 +241,42 @@ describe('POST /api/ai/chat', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/event-stream')
-    const body = await readResponseText(response)
-    expect(body).toContain('Agent runtime for')
-    expect(body).toContain('customers.assistant')
-    expect(body).toContain('is not yet implemented')
-    expect(body).toContain('[DONE]')
+    expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
+    const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+      agentId: string
+      messages: unknown
+      debug?: boolean
+      pageContext?: { pageId?: string }
+      authContext: { tenantId: string | null; organizationId: string | null; userId: string }
+      container: unknown
+    }
+    expect(callArg.agentId).toBe('customers.assistant')
+    expect(callArg.debug).toBe(true)
+    expect(callArg.pageContext).toEqual({ pageId: 'customers.people' })
+    expect(callArg.authContext.userId).toBe('user-1')
+    expect(callArg.authContext.tenantId).toBe('tenant-1')
+    expect(callArg.authContext.organizationId).toBe('org-1')
+    expect(callArg.container).toBeDefined()
+  })
+
+  it('maps AgentPolicyError thrown by the runtime to the canonical HTTP status', async () => {
+    const { AgentPolicyError } = await import('../../../../lib/agent-tools')
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+    ])
+    runAiAgentTextMock.mockRejectedValueOnce(
+      new AgentPolicyError('tool_not_whitelisted', 'Tool not whitelisted'),
+    )
+
+    const response = await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+      }) as any,
+    )
+
+    expect(response.status).toBe(409)
+    const json = await response.json()
+    expect(json.code).toBe('tool_not_whitelisted')
   })
 })

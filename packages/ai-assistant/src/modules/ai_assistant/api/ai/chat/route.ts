@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import type { UIMessage } from 'ai'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -6,6 +7,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
+import { runAiAgentText } from '../../../lib/agent-runtime'
+import { AgentPolicyError } from '../../../lib/agent-tools'
 
 const MAX_MESSAGES = 100
 
@@ -108,34 +111,6 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
   }
 }
 
-function buildPlaceholderStream(agentId: string): Response {
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      // TODO(step-3.4): wire streamText via createAiAgentTransport — Phase 1 WS-B
-      // owns the AI SDK transport. Step 3.3 only proves the HTTP contract.
-      const placeholder = {
-        type: 'text',
-        content:
-          `Agent runtime for "${agentId}" is not yet implemented. ` +
-          'Step 3.4 wires the AI SDK transport (createAiAgentTransport / runAiAgentText).',
-      }
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(placeholder)}\n\n`))
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-      controller.close()
-    },
-  })
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  })
-}
-
 export async function POST(req: NextRequest): Promise<Response> {
   const auth = await getAuthFromRequest(req)
   if (!auth) {
@@ -195,8 +170,25 @@ export async function POST(req: NextRequest): Promise<Response> {
       return jsonError(statusForDenyCode(decision.code), decision.message, decision.code)
     }
 
-    return buildPlaceholderStream(agentId)
+    return await runAiAgentText({
+      agentId,
+      messages: bodyResult.data.messages as unknown as UIMessage[],
+      attachmentIds: bodyResult.data.attachmentIds,
+      pageContext: bodyResult.data.pageContext,
+      debug: bodyResult.data.debug,
+      authContext: {
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub,
+        features: acl.features,
+        isSuperAdmin: acl.isSuperAdmin,
+      },
+      container,
+    })
   } catch (error) {
+    if (error instanceof AgentPolicyError) {
+      return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
     console.error('[AI Chat Agent] Dispatch failure:', error)
     return jsonError(
       500,
