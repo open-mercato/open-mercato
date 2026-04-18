@@ -12,7 +12,16 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { AiChat, createAiUiPartRegistry } from '@open-mercato/ui/ai'
+import { AiChat, createAiUiPartRegistry, useAiShortcuts } from '@open-mercato/ui/ai'
+import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
+
+type PlaygroundAgentTool = {
+  name: string
+  displayName?: string
+  isMutation?: boolean
+  registered?: boolean
+  requiredFeatures?: string[]
+}
 
 type PlaygroundAgent = {
   id: string
@@ -25,6 +34,10 @@ type PlaygroundAgent = {
   requiredFeatures: string[]
   acceptedMediaTypes: string[]
   hasOutputSchema: boolean
+  systemPrompt?: string
+  readOnly?: boolean
+  maxSteps?: number | null
+  tools?: PlaygroundAgentTool[]
 }
 
 type AgentsResponse = {
@@ -131,10 +144,47 @@ function AgentDetails({ agent }: { agent: PlaygroundAgent }) {
   )
 }
 
+function buildDebugTools(agent: PlaygroundAgent): AiChatDebugTool[] {
+  if (agent.tools && agent.tools.length > 0) {
+    return agent.tools.map((tool) => ({
+      name: tool.name,
+      displayName: tool.displayName ?? tool.name,
+      isMutation: Boolean(tool.isMutation),
+      requiredFeatures: tool.requiredFeatures ?? [],
+    }))
+  }
+  return agent.allowedTools.map((toolName) => ({ name: toolName }))
+}
+
+function buildDebugPromptSections(agent: PlaygroundAgent): AiChatDebugPromptSection[] {
+  const sections: AiChatDebugPromptSection[] = []
+  if (agent.systemPrompt) {
+    sections.push({ id: 'role', source: 'default', text: agent.systemPrompt })
+  }
+  const placeholderIds = [
+    'scope',
+    'data',
+    'tools',
+    'attachments',
+    'mutationPolicy',
+    'responseStyle',
+    'overrides',
+  ] as const
+  for (const id of placeholderIds) {
+    sections.push({ id, source: 'placeholder' })
+  }
+  return sections
+}
+
 function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) {
   const t = useT()
   // Scoped registry so repeated mounts do not share state with other pages.
   const registry = React.useMemo(() => createAiUiPartRegistry(), [])
+  const debugTools = React.useMemo(() => buildDebugTools(agent), [agent])
+  const debugPromptSections = React.useMemo(
+    () => buildDebugPromptSections(agent),
+    [agent],
+  )
 
   if (agent.executionMode !== 'chat') {
     return (
@@ -163,6 +213,8 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
       debug={debug}
       registry={registry}
       className="min-h-[360px]"
+      debugTools={debugTools}
+      debugPromptSections={debugPromptSections}
     />
   )
 }
@@ -213,15 +265,14 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
     }
   }, [agent.id, canRun, prompt])
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        void runObject()
-      }
+  const { handleKeyDown } = useAiShortcuts({
+    onSubmit: () => {
+      void runObject()
     },
-    [runObject],
-  )
+    onCancel: () => {
+      setError(null)
+    },
+  })
 
   if (!isSupported) {
     return (

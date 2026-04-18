@@ -1,5 +1,10 @@
-export { AiChat, type AiChatProps } from './AiChat'
+export { AiChat, type AiChatProps, type AiChatDebugTool, type AiChatDebugPromptSection } from './AiChat'
 export { useAiChat, type AiChatMessage, type UseAiChatInput, type UseAiChatResult } from './useAiChat'
+export {
+  useAiShortcuts,
+  type UseAiShortcutsOptions,
+  type UseAiShortcutsResult,
+} from './useAiShortcuts'
 export {
   registerAiUiPart,
   resolveAiUiPart,

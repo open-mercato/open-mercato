@@ -105,6 +105,25 @@ test.describe('TC-AI-PLAYGROUND-004: AI Playground', () => {
       await expect(composer).toBeVisible();
       await composer.fill('Hello from Playwright');
       await expect(composer).toHaveValue('Hello from Playwright');
+
+      // Step 4.6: toggling the debug panel should reveal the three collapsible
+      // sections (tool map / prompt sections / last request), each addressable
+      // by its `data-ai-chat-debug-section` attribute.
+      const debugPanel = page.locator('[data-ai-chat-debug="true"]');
+      const initiallyVisible = await debugPanel.isVisible().catch(() => false);
+      if (!initiallyVisible) {
+        await debugToggle.click();
+      }
+      await expect(debugPanel).toBeVisible({ timeout: 5_000 });
+      await expect(
+        page.locator('[data-ai-chat-debug-section="tools"]'),
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-ai-chat-debug-section="promptSections"]'),
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-ai-chat-debug-section="lastRequest"]'),
+      ).toBeVisible();
     } else if (await empty.isVisible().catch(() => false)) {
       // Empty branch: agent registry is empty in this environment.
       await expect(empty).toBeVisible();

@@ -32,9 +32,11 @@ import {
   TooltipTrigger,
 } from '@open-mercato/ui/primitives/tooltip'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { useAiShortcuts } from '@open-mercato/ui/ai'
 
-// TODO(step 4.6): extract the shared <AgentPicker> primitive so the playground and settings
-// page stop duplicating this select — deferred because the duplicated block is < 50 lines today.
+// Step 4.6: the <select>-based agent picker is deliberately duplicated between the
+// playground and this settings page. Duplicated markup is under the 50-line
+// threshold, so extraction stays deferred per the Step 4.6 brief.
 
 type AgentTool = {
   name: string
@@ -170,17 +172,13 @@ function PromptSectionEditor({
   )
   const textareaId = `ai-agent-prompt-${sectionId}`
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        onSaveShortcut()
-      } else if (event.key === 'Escape') {
-        event.currentTarget.blur()
-      }
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const { handleKeyDown } = useAiShortcuts({
+    onSubmit: onSaveShortcut,
+    onCancel: () => {
+      textareaRef.current?.blur()
     },
-    [onSaveShortcut],
-  )
+  })
 
   return (
     <div
@@ -220,6 +218,7 @@ function PromptSectionEditor({
       {override ? (
         <Textarea
           id={textareaId}
+          ref={textareaRef}
           rows={4}
           value={overrideText}
           onChange={(event) => onOverrideChange(event.target.value)}

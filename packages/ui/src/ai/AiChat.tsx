@@ -16,6 +16,31 @@ import {
   type AiUiPartRegistry,
 } from './ui-part-registry'
 import { useAiChat, type AiChatMessage } from './useAiChat'
+import { useAiShortcuts } from './useAiShortcuts'
+
+/**
+ * Optional resolved-tool snapshot the host can feed into the debug panel.
+ * Step 4.6 wires this from the `GET /api/ai_assistant/ai/agents` response
+ * (`tools[]`). Step 5.3+ will replace the manual wiring with a streamed
+ * `debug` part once the dispatcher emits one.
+ */
+export interface AiChatDebugTool {
+  name: string
+  displayName?: string
+  isMutation?: boolean
+  requiredFeatures?: string[]
+}
+
+/**
+ * Resolved prompt-section snapshot for the debug panel. Until Phase 3 Step
+ * 5.3 lands structured `PromptTemplate.sections`, hosts synthesise this
+ * from the agent's `systemPrompt` + additive overrides.
+ */
+export interface AiChatDebugPromptSection {
+  id: string
+  source?: 'default' | 'override' | 'placeholder'
+  text?: string
+}
 
 export interface AiChatProps {
   agent: string
@@ -46,6 +71,16 @@ export interface AiChatProps {
     payload?: unknown
     pendingActionId?: string
   }>
+  /**
+   * Optional resolved-tool map for the debug panel. Ignored when
+   * `debug` is falsy.
+   */
+  debugTools?: AiChatDebugTool[]
+  /**
+   * Optional resolved prompt sections for the debug panel. Ignored when
+   * `debug` is falsy.
+   */
+  debugPromptSections?: AiChatDebugPromptSection[]
 }
 
 interface ServerEmittedUiPartRef {
@@ -183,6 +218,8 @@ export function AiChat({
   onError,
   registry,
   uiParts: uiPartsProp,
+  debugTools,
+  debugPromptSections,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -225,24 +262,18 @@ export function AiChat({
     void chat.sendMessage(value)
   }, [chat, input, isBusy])
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        handleSubmit()
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        if (isBusy) {
-          chat.cancel()
-          return
-        }
-        textareaRef.current?.blur()
-      }
-    },
-    [chat, handleSubmit, isBusy],
-  )
+  const cancelOrBlur = React.useCallback(() => {
+    if (isBusy) {
+      chat.cancel()
+      return
+    }
+    textareaRef.current?.blur()
+  }, [chat, isBusy])
+
+  const { handleKeyDown } = useAiShortcuts({
+    onSubmit: handleSubmit,
+    onCancel: cancelOrBlur,
+  })
 
   React.useEffect(() => {
     const node = transcriptRef.current
@@ -373,27 +404,205 @@ export function AiChat({
       </form>
 
       {debug ? (
-        <div
-          className="rounded-md border border-border bg-muted/60 p-2 text-xs"
-          data-ai-chat-debug="true"
-        >
-          <div className="mb-1 font-semibold">
-            {t('ai_assistant.chat.debugPanelTitle', 'Debug panel')}
-          </div>
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono">
-            {JSON.stringify(
-              {
-                request: chat.lastRequestDebug,
-                response: chat.lastResponseDebug,
-                status: chat.status,
-              },
-              null,
-              2,
-            )}
-          </pre>
-        </div>
+        <AiChatDebugPanel
+          tools={debugTools}
+          promptSections={debugPromptSections}
+          lastRequestDebug={chat.lastRequestDebug}
+          lastResponseDebug={chat.lastResponseDebug}
+          status={chat.status}
+          errorCode={chat.error?.code}
+        />
       ) : null}
     </section>
+  )
+}
+
+interface DebugPanelProps {
+  tools?: AiChatDebugTool[]
+  promptSections?: AiChatDebugPromptSection[]
+  lastRequestDebug: { url: string; body: unknown } | null
+  lastResponseDebug: { status: number; text: string } | null
+  status: 'idle' | 'submitting' | 'streaming'
+  errorCode?: string
+}
+
+function AiChatDebugPanel({
+  tools,
+  promptSections,
+  lastRequestDebug,
+  lastResponseDebug,
+  status,
+  errorCode,
+}: DebugPanelProps) {
+  const t = useT()
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border border-border bg-muted/60 p-2 text-xs"
+      data-ai-chat-debug="true"
+    >
+      <div className="font-semibold">
+        {t('ai_assistant.chat.debug.panelTitle', 'Debug panel')}
+      </div>
+
+      <details className="rounded border border-border bg-background" data-ai-chat-debug-section="tools" open>
+        <summary className="cursor-pointer px-2 py-1 font-semibold">
+          {t('ai_assistant.chat.debug.toolsSection', 'Resolved tools')}
+          {tools ? (
+            <span className="ml-2 font-mono text-muted-foreground">({tools.length})</span>
+          ) : null}
+        </summary>
+        <div className="px-2 pb-2">
+          {tools && tools.length > 0 ? (
+            <ul className="flex flex-col gap-1" data-ai-chat-debug-tools>
+              {tools.map((tool) => (
+                <li
+                  key={tool.name}
+                  className="flex flex-col rounded border border-border bg-muted/40 px-2 py-1"
+                  data-ai-chat-debug-tool={tool.name}
+                >
+                  <span className="font-mono">{tool.name}</span>
+                  {tool.displayName ? (
+                    <span className="text-muted-foreground">{tool.displayName}</span>
+                  ) : null}
+                  <span className="mt-1 flex flex-wrap gap-2 text-muted-foreground">
+                    <span>
+                      {tool.isMutation
+                        ? t('ai_assistant.chat.debug.toolMutation', 'mutation')
+                        : t('ai_assistant.chat.debug.toolRead', 'read')}
+                    </span>
+                    {tool.requiredFeatures && tool.requiredFeatures.length > 0 ? (
+                      <span className="font-mono">
+                        [{tool.requiredFeatures.join(', ')}]
+                      </span>
+                    ) : (
+                      <span>
+                        {t('ai_assistant.chat.debug.toolNoFeatures', 'no required features')}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground">
+              {t(
+                'ai_assistant.chat.debug.toolsEmpty',
+                'No tools resolved for this agent yet.',
+              )}
+            </p>
+          )}
+        </div>
+      </details>
+
+      <details
+        className="rounded border border-border bg-background"
+        data-ai-chat-debug-section="promptSections"
+      >
+        <summary className="cursor-pointer px-2 py-1 font-semibold">
+          {t('ai_assistant.chat.debug.promptSection', 'Prompt sections')}
+          {promptSections ? (
+            <span className="ml-2 font-mono text-muted-foreground">({promptSections.length})</span>
+          ) : null}
+        </summary>
+        <div className="px-2 pb-2">
+          {promptSections && promptSections.length > 0 ? (
+            <ul className="flex flex-col gap-1" data-ai-chat-debug-prompt-sections>
+              {promptSections.map((section) => (
+                <li
+                  key={section.id}
+                  className="rounded border border-border bg-muted/40 px-2 py-1"
+                  data-ai-chat-debug-prompt-section-id={section.id}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono">{section.id}</span>
+                    <span className="text-muted-foreground">
+                      {section.source === 'override'
+                        ? t('ai_assistant.chat.debug.promptOverride', 'override')
+                        : section.source === 'placeholder'
+                          ? t('ai_assistant.chat.debug.promptPlaceholder', 'placeholder')
+                          : t('ai_assistant.chat.debug.promptDefault', 'default')}
+                    </span>
+                  </div>
+                  {section.text ? (
+                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-muted-foreground">
+                      {section.text}
+                    </pre>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground">
+              {t(
+                'ai_assistant.chat.debug.promptEmpty',
+                'No prompt sections resolved for this agent.',
+              )}
+            </p>
+          )}
+        </div>
+      </details>
+
+      <details
+        className="rounded border border-border bg-background"
+        data-ai-chat-debug-section="lastRequest"
+      >
+        <summary className="cursor-pointer px-2 py-1 font-semibold">
+          {t('ai_assistant.chat.debug.lastRequestSection', 'Last request')}
+        </summary>
+        <div className="px-2 pb-2">
+          {lastRequestDebug ? (
+            <pre
+              className="max-h-40 overflow-auto whitespace-pre-wrap font-mono"
+              data-ai-chat-debug-last-request
+            >
+              {JSON.stringify(lastRequestDebug, null, 2)}
+            </pre>
+          ) : (
+            <p className="text-muted-foreground">
+              {t(
+                'ai_assistant.chat.debug.lastRequestEmpty',
+                'No request has been sent yet.',
+              )}
+            </p>
+          )}
+        </div>
+      </details>
+
+      <details
+        className="rounded border border-border bg-background"
+        data-ai-chat-debug-section="lastResponse"
+      >
+        <summary className="cursor-pointer px-2 py-1 font-semibold">
+          {t('ai_assistant.chat.debug.lastResponseSection', 'Last response')}
+        </summary>
+        <div className="px-2 pb-2">
+          {lastResponseDebug ? (
+            <pre
+              className="max-h-40 overflow-auto whitespace-pre-wrap font-mono"
+              data-ai-chat-debug-last-response
+            >
+              {JSON.stringify(
+                { status: lastResponseDebug.status, text: lastResponseDebug.text, errorCode },
+                null,
+                2,
+              )}
+            </pre>
+          ) : (
+            <p className="text-muted-foreground">
+              {t(
+                'ai_assistant.chat.debug.lastResponseEmpty',
+                'No response received yet.',
+              )}
+            </p>
+          )}
+        </div>
+      </details>
+
+      <div className="text-muted-foreground" data-ai-chat-debug-status={status}>
+        {t('ai_assistant.chat.debug.statusLabel', 'Status:')}{' '}
+        <span className="font-mono">{status}</span>
+      </div>
+    </div>
   )
 }
 
