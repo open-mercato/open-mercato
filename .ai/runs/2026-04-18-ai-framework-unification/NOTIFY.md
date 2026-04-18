@@ -678,3 +678,16 @@
   - **Metadata export shape**: switched the placeholder route to flat `metadata = { requireAuth, requireFeatures }` to silence the generator warning that specifically fires on per-method metadata on dynamic-segment routes (`[agentId]`).
 - BC: additive only. 1 new URL, 1 new backend page, 4 additive fields on the existing agents-list response, 50 new i18n keys, 0 ACL features, 0 migrations.
 - Phase 4 WS-B now **2/3 landed** (4.4, 4.5). Phase 4 overall **5/11**. Next: Step 4.6 — i18n keys, keyboard shortcuts, debug support polish.
+
+## 2026-04-18T18:45:00Z — Step 4.6 landed (Phase 2 WS-B closed)
+- Code commit `ee68a0030` — `feat(ai-assistant): polish Phase 2 WS-B (i18n audit, shared keyboard shortcuts, debug panel)`.
+- New `useAiShortcuts` hook in `packages/ui/src/ai/` owns `Cmd/Ctrl+Enter` + `Escape` for `<AiChat>`, the playground's object-mode prompt textarea, and every prompt-override textarea on the settings page. No surface-specific listeners remain.
+- `<AiChat>` debug panel rewritten as four collapsible `<details>` sections (Resolved tools, Prompt sections, Last request, Last response) plus a Status footer. Two new additive props: `debugTools?: AiChatDebugTool[]` and `debugPromptSections?: AiChatDebugPromptSection[]`. The playground wires both from the selected agent's `tools[]` + `systemPrompt`.
+- Agent picker extraction deliberately left inline — duplicated `<select>` block is under the 50-line threshold per the Step 4.6 brief. Step 4.5's `TODO(step 4.6)` comment rewritten to document the decision.
+- i18n audit: every user-facing literal in Phase-2 UI routes through `useT()`. Remaining non-translatable strings (network fallbacks, dev-only error messages, stubbed API metadata) justified in `step-4.6-checks.md`'s audit table.
+- 19 new i18n keys under `ai_assistant.chat.debug.*` / `ai_assistant.chat.shortcuts.*`, synced across `en/pl/es/de`. `yarn i18n:check-sync` green.
+- Unit tests: +2 suites (`useAiShortcuts`, `AiChat.debug`), +11 tests. UI is now 60 suites / 328 tests. ai-assistant 30/353 and core 333/3033 baselines preserved.
+- Integration specs: TC-AI-PLAYGROUND-004 toggles the debug panel and asserts the three new sections; TC-AI-AGENT-SETTINGS-005 adds a `Cmd/Ctrl+Enter` test that fires the placeholder save route.
+- Browser smoke: `step-4.6-artifacts/playground.png` + `step-4.6-artifacts/agents.png` captured against the user-held `yarn dev:app` task on port 3000. Rebuilt both `@open-mercato/ui` and `@open-mercato/ai-assistant` and touched `apps/mercato/next.config.ts` to bust Turbopack's cached module graph; the dev server itself was never restarted.
+- BC: additive only. 5 new exports, 2 new optional props on `<AiChat>`, 19 new i18n keys × 4 locales. Zero removed or renamed surfaces, zero new routes, zero ACL features, zero migrations.
+- Phase 4 WS-B now **3/3 landed** (4.4, 4.5, 4.6). Phase 4 overall **6/11**. Next: Step 4.7 — first customers agent read-only prompt template (opens Phase 2 WS-C).
