@@ -1,6 +1,6 @@
 ---
 name: ds-guardian
-description: "Design System Guardian for Open Mercato. Enforces DS compliance, migrates hardcoded colors and typography, scaffolds DS-compliant pages, and reviews code against design principles. Activates on: 'design system', 'DS', 'migrate colors', 'fix colors', 'hardcoded colors', 'semantic tokens', 'scaffold page', 'new page', 'create page', 'DS review', 'DS check', 'DS health', 'health check', 'design system compliance', 'StatusBadge', 'FormField', 'SectionHeader', 'text-red-', 'bg-green-', 'text-[11px]', 'arbitrary text', 'empty state', 'loading state', or when a developer is building UI, creating new modules, reviewing PRs, or fixing DS violations in Open Mercato. Always use this skill when working on frontend UI in Open Mercato — it ensures every change follows the design system."
+description: "Design System Guardian for Open Mercato. Use for frontend UI work, design-system compliance reviews, semantic token migration, hardcoded color or typography cleanup, DS-compliant page scaffolding, and common DS violations such as arbitrary text sizes, raw color classes, or missing shared states. Prefer this skill whenever you are building or reviewing Open Mercato UI."
 ---
 
 # DS Guardian — Design System Enforcement Agent

@@ -1,6 +1,6 @@
 ---
-name: backend-ui-design
-description: Design and implement consistent, production-grade backend/backoffice interfaces using the @open-mercato/ui component library. Use this skill when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI components. Ensures visual consistency and UX patterns across all application modules.
+name: backend-ui-design-codex
+description: Internal Codex-flavored copy of the backend UI design guidance for `@open-mercato/ui`. Prefer the main `backend-ui-design` skill for normal backend page, CRUD, table, and form work.
 metadata:
   short-description: Backend UI design using @open-mercato/ui
   author: Open Mercato
