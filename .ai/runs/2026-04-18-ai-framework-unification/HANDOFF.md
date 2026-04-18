@@ -1,99 +1,109 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T18:45:00Z
+**Last updated:** 2026-04-18T19:05:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 4 WS-B Step 4.6 **complete** (closes Phase 2
-WS-B polish: shared keyboard-shortcut hook, collapsible `<AiChat>` debug
-panel, i18n audit). Next: Phase 4 WS-C Step 4.7 — first customers agent
-read-only prompt template.
-**Last commit:** `ee68a0030` — `feat(ai-assistant): polish Phase 2 WS-B (i18n audit, shared keyboard shortcuts, debug panel)`
+**Current phase/step:** Phase 4 WS-C Step 4.7 **complete** (opens Phase 2
+WS-C: first customers production agent with structured prompt template,
+read-only). Next: Step 4.8 — first catalog agent with prompt template,
+read-only.
+**Last commit:** `c4cba55ad` — `feat(customers): add customers.account_assistant read-only AI agent (Phase 2 WS-C)`
 
 ## What just happened
 
-- **Shared `useAiShortcuts` hook** under `packages/ui/src/ai/useAiShortcuts.ts`.
-  Owns `Cmd/Ctrl+Enter` + `Escape` for every Phase-2 AI surface. Consumed by
-  `<AiChat>` (4.1), `AiPlaygroundPageClient` (4.4), and
-  `AiAgentSettingsPageClient` (4.5). No per-surface listeners remain.
-- **`<AiChat>` debug panel expansion** — collapsible `<details>` sections
-  for Resolved tools, Prompt sections, Last request, Last response + a
-  persistent Status footer. Two new optional props: `debugTools` and
-  `debugPromptSections`. Every section addressable via
-  `data-ai-chat-debug-section="…"`.
-- **Playground wires the debug data** — converts the selected agent's
-  `tools[]` + `systemPrompt` into `AiChatDebugTool[]` + `AiChatDebugPromptSection[]`
-  and passes them to `<AiChat>`.
-- **Agent picker stays inline** — duplicated `<select>` block in
-  playground + settings is under the 50-line threshold. The Step 4.5
-  `TODO(step 4.6)` comment was rewritten to document the ongoing
-  decision instead of flagging a TODO.
-- **i18n audit (Step 4.6 deliverable)** — see `step-4.6-checks.md`. Every
-  user-facing literal in Phase-2 UI routes through `useT()`. The few
-  remaining non-translatable strings (network error fallbacks, dev-only
-  error messages, stubbed API metadata) are justified row-by-row in the
-  audit table.
-- **19 new i18n keys** under `ai_assistant.chat.debug.*` and
-  `ai_assistant.chat.shortcuts.*`, synced across `en/pl/es/de`.
-  `yarn i18n:check-sync` green.
-- **Unit tests** — 7 for `useAiShortcuts`, 4 for the AiChat debug panel.
-  ui package is now 60 suites / 328 tests (baseline 58/317). ai-assistant
-  and core baselines preserved (30/353 and 333/3033).
-- **Integration tests** — TC-AI-PLAYGROUND-004 toggles the debug panel
-  and asserts the three new sections render; TC-AI-AGENT-SETTINGS-005
-  adds a `Cmd/Ctrl+Enter` test that fires the placeholder save route.
-- **Browser smoke** — `step-4.6-artifacts/playground.png` and
-  `step-4.6-artifacts/agents.png` captured against the running
-  `yarn dev:app` task on port 3000 (reused, not restarted).
+- **First production `ai-agents.ts` landed** under
+  `packages/core/src/modules/customers/ai-agents.ts`. Declares a single
+  agent `customers.account_assistant` (module `customers`). Picks up the
+  Step 2.1 `defineAiAgent` contract (but uses plain-object assignment
+  since the customers module is not declared as a dependent of
+  `@open-mercato/ai-assistant`). 16-tool whitelist, `readOnly: true`,
+  `mutationPolicy: 'read-only'`, `executionMode: 'chat'`,
+  `acceptedMediaTypes: ['image', 'pdf', 'file']`, `requiredFeatures`
+  covering people / companies / deals view.
+- **Structured prompt template** (`promptTemplate`) exports the seven
+  §8 sections (ROLE, SCOPE, DATA, TOOLS, ATTACHMENTS, MUTATION POLICY,
+  RESPONSE STYLE) and is additionally compiled into the string
+  `systemPrompt` the runtime consumes. Phase 5.3 prompt overrides can
+  address sections by name without renaming anything.
+- **`resolvePageContext` stub** — async function that returns `null`.
+  Step 5.2 will replace the body with real record hydration.
+- **Types redeclared locally** to avoid pulling `@open-mercato/ai-assistant`
+  into the `@open-mercato/core` module graph (mirrors the existing
+  pattern in `customers/ai-tools/types.ts`). `@open-mercato/core` does
+  not list `@open-mercato/ai-assistant` in its `package.json`, so the
+  indirect import surfaced as a hard typecheck failure until the
+  aliases moved in-file.
+- **Generated agent registry populated.** `yarn generate` emits
+  `apps/mercato/.mercato/generated/ai-agents.generated.ts` with the
+  `AI_AGENTS_customers_144` import alias referencing the new file.
+  Playground and settings pages both leave the empty-state branch and
+  surface the agent in their picker.
+- **Unit tests (9)**
+  `packages/core/src/modules/customers/__tests__/ai-agents.test.ts`
+  assert: the `readOnly` flag, execution metadata (no defaultModel /
+  maxSteps / output), tool-whitelist membership (customers pack +
+  general-purpose), no mutation tool slipped in from the pack, every
+  `requiredFeatures` id exists in `acl.ts`, the seven §8 sections are
+  present in canonical order, the systemPrompt compiles from the
+  template, and `resolvePageContext` is an async identity stub.
+- **Integration spec** `TC-AI-CUSTOMERS-006` under the customers module
+  (`packages/core/src/modules/customers/__integration__/`) covers the
+  three entry points: `GET /api/ai_assistant/ai/agents`,
+  `meta.describe_agent` via `POST /api/ai_assistant/tools/execute`, and
+  the playground picker DOM.
+- **Browser smoke** captured as
+  `step-4.7-artifacts/playground-customers-agent.png`. Reused the
+  pre-existing `yarn dev:app` background task on port 3000; rebuilt
+  `@open-mercato/core` and touched `apps/mercato/next.config.ts` to
+  bust the Turbopack module graph cache.
 
 ## Next concrete action
 
-- **Step 4.7** — First customers agent with prompt template (read-only).
-  Opens Phase 2 WS-C. Lands the first production `ai-agents.ts` in
-  `packages/core/src/modules/customers/ai-agents.ts` against the new
-  `defineAiAgent()` helper from 2.1. `yarn generate` should surface the
-  agent in `ai-agents.generated.ts` so the playground + settings pages
-  stop rendering the empty state.
-- Keep the agent read-only (`readOnly: true`, `mutationPolicy:
-  'read-only'`) and wire it to the customers tool pack shipped in 3.9
-  (`customers.list_people`, `customers.list_companies`, `customers.list_deals`,
-  `customers.list_activities`, `customers.list_tasks`, `customers.get_person`,
-  `customers.get_company`, etc.).
-- Include a unit test asserting the agent registers under the expected
-  id and that its `allowedTools` resolve against `toolRegistry`.
+- **Step 4.8** — First catalog agent with prompt template (read-only).
+  Scaffold `packages/core/src/modules/catalog/ai-agents.ts` with the
+  same `PromptTemplate` shape and a read-only whitelist covering the
+  catalog tool packs (Steps 3.10 + 3.11). Reuse the local-type pattern
+  introduced here since `@open-mercato/core` is still off the
+  `@open-mercato/ai-assistant` dependency graph.
+- Step 4.9 will then add `catalog.merchandising_assistant` with the
+  D18 demo embed on `/backend/catalog/catalog/products`, selection-aware
+  `pageContext`, and structured-output proposals only.
 
 ## Blockers / open questions
 
-- **Dev server HMR did not pick up the new `@open-mercato/ui/ai` export
-  automatically** — had to rebuild both `@open-mercato/ui` and
-  `@open-mercato/ai-assistant` (`node build.mjs` in each) AND touch
-  `apps/mercato/next.config.ts` to bust Turbopack's cached module graph.
-  User-held background task on port 3000 (`bk93jo24j`) was reused per
-  the brief; the dev server was never restarted. Future Phase-2+ Steps
-  that add new exports to `@open-mercato/ui` subpath packages SHOULD
-  follow the same rebuild-plus-touch pattern.
-- **Resolved-tool `requiredFeatures`** are not yet surfaced by the
-  agents list endpoint. The debug panel already renders
-  `requiredFeatures` when present — wiring is one `requiredFeatures`
-  field away in `GET /api/ai_assistant/ai/agents/route.ts`. Tracked as a
-  Phase-3 follow-up in `tool-registry.ts` so the playground and settings
-  UIs can display real features once they exist.
-- **Old i18n keys kept for BC** — `ai_assistant.chat.debugPanelTitle`
-  and `ai_assistant.chat.shortcutHint` still exist in all four locale
-  files. The AiChat debug heading now uses
-  `ai_assistant.chat.debug.panelTitle`; the old key is retained so any
-  third-party consumers referencing it keep working.
+- **Core → ai-assistant dependency direction.** `@open-mercato/core`
+  does NOT declare `@open-mercato/ai-assistant` in `package.json`, so
+  `import type { AiAgentDefinition } from '@open-mercato/ai-assistant'`
+  fails typecheck. Worked around by redeclaring the shapes locally,
+  matching the existing pattern in `customers/ai-tools/types.ts`.
+  Step 4.8 should take the same path. If that dependency direction is
+  ever intentionally added, the local aliases can be replaced with a
+  single `import type` line without any contract change.
+- **Turbopack cache invalidation.** Adding a new module-root file that
+  the generator discovers and imports through
+  `.mercato/generated/ai-agents.generated.ts` required
+  `cd packages/core && node build.mjs` + touching
+  `apps/mercato/next.config.ts` before the dev server could resolve
+  `@open-mercato/core/modules/customers/ai-agents`. Document in Step
+  4.8 so the next executor doesn't waste time on the same trap.
+- **Integration test not executed.** `yarn test:integration` was NOT
+  run for this Step because the full suite is not part of the
+  unit-gate baselines the brief tracks. `TC-AI-CUSTOMERS-006` is
+  deterministic superadmin + API + DOM; it will be exercised as part
+  of Step 4.11 cross-cutting coverage.
 
 ## Environment caveats
 
-- Dev runtime reachable. Reused the pre-existing `yarn dev:app` background
-  task on port 3000 (task id `bk93jo24j`). No second dev server spawned.
+- Dev runtime reachable. Reused the pre-existing `yarn dev:app`
+  background task on port 3000 (task id `bk93jo24j`). No second dev
+  server spawned.
 - Database / migration state: clean, untouched.
-- `yarn i18n:check-sync` green (46 modules × 4 locales, 163 keys per
-  locale for the `ai_assistant` module).
-- Typecheck clean; pre-existing `@open-mercato/app`
-  `agent-registry.ts(43,7)` diagnostic (Step 3.1 carryover) is tolerated.
+- `yarn i18n:check-sync` green (46 modules × 4 locales). No new i18n
+  keys introduced in Step 4.7.
+- Typecheck clean (`@open-mercato/core` rebuild cache-busted; app
+  cached).
 
 ## Worktree
 

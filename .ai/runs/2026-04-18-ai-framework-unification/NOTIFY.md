@@ -691,3 +691,19 @@
 - Browser smoke: `step-4.6-artifacts/playground.png` + `step-4.6-artifacts/agents.png` captured against the user-held `yarn dev:app` task on port 3000. Rebuilt both `@open-mercato/ui` and `@open-mercato/ai-assistant` and touched `apps/mercato/next.config.ts` to bust Turbopack's cached module graph; the dev server itself was never restarted.
 - BC: additive only. 5 new exports, 2 new optional props on `<AiChat>`, 19 new i18n keys × 4 locales. Zero removed or renamed surfaces, zero new routes, zero ACL features, zero migrations.
 - Phase 4 WS-B now **3/3 landed** (4.4, 4.5, 4.6). Phase 4 overall **6/11**. Next: Step 4.7 — first customers agent read-only prompt template (opens Phase 2 WS-C).
+
+## 2026-04-18T19:05:00Z — Step 4.7 landed (Phase 2 WS-C opened)
+- Code commit `c4cba55ad` — `feat(customers): add customers.account_assistant read-only AI agent (Phase 2 WS-C)`.
+- First production `ai-agents.ts` in the repo. `packages/core/src/modules/customers/ai-agents.ts` declares `customers.account_assistant` with `readOnly: true`, `mutationPolicy: 'read-only'`, `executionMode: 'chat'`, `acceptedMediaTypes: ['image','pdf','file']`, and a 16-tool whitelist covering the customers read pack + `search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`.
+- Structured `promptTemplate` exports the seven §8 sections (ROLE / SCOPE / DATA / TOOLS / ATTACHMENTS / MUTATION POLICY / RESPONSE STYLE) and is compiled into the agent's `systemPrompt` so the Phase 5.3 override pipeline can address sections by name without renaming anything.
+- `resolvePageContext` stub returns `null`; Step 5.2 will replace the body with real record hydration.
+- Agent-definition types are redeclared locally to keep `@open-mercato/core` off the `@open-mercato/ai-assistant` import graph (matches the existing pattern in `customers/ai-tools/types.ts`). If that dependency direction ever lands, the local aliases can be deleted in favor of a single `import type` line.
+- Unit tests (9) under `packages/core/src/modules/customers/__tests__/ai-agents.test.ts` cover read-only flag, execution metadata, tool-whitelist membership, ACL feature existence, seven-section order, systemPrompt compilation, and `resolvePageContext` stub. Core: **334 suites / 3042 tests** (was 333 / 3033; delta is the new suite).
+- Integration spec `TC-AI-CUSTOMERS-006` under `packages/core/src/modules/customers/__integration__/` asserts `/api/ai_assistant/ai/agents`, `meta.describe_agent` via `/api/ai_assistant/tools/execute`, and the playground picker DOM.
+- `yarn generate`: 313 routes (no drift). `ai-agents.generated.ts` now imports `@open-mercato/core/modules/customers/ai-agents` (was empty before).
+- `yarn i18n:check-sync`: green (no new keys).
+- Typecheck: clean (`core` rebuilt, `app` cached).
+- Browser smoke: `step-4.7-artifacts/playground-customers-agent.png` shows the playground picker populated with "Customers Account Assistant (customers.account_assistant)", mutation policy `read-only`, allowed tools `16`. Reused the existing `yarn dev:app` task on port 3000; rebuilt `@open-mercato/core` once and touched `apps/mercato/next.config.ts` to bust Turbopack's cached module graph. The dev server itself was never restarted.
+- BC: additive only. 1 new file, 1 new agent id, 0 removed exports, 0 new routes, 0 new ACL features, 0 new i18n keys, 0 migrations.
+- Phase 4 WS-C now **1/5 landed** (4.7). Phase 4 overall **7/11**. Next: Step 4.8 — first catalog agent read-only prompt template.
+
