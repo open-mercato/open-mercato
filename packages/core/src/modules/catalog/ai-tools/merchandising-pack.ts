@@ -24,37 +24,42 @@
  * `missingIds` output (not an error), so a chat agent receives a uniform
  * not-found signal whether the product is missing, deleted, or out of scope.
  *
- * Shared helper:
+ * Shared helpers:
  *  `list_price_kinds` + Step 3.10's `list_price_kinds_base` both route
  *  through `listPriceKindsCore` in `./_shared.ts`; there is no duplicate
  *  query path.
+ *
+ *  Step 3.12 (authoring pack) promoted the product-bundle builder plus
+ *  `toProductSummary` / `resolveAttributeSchema` into `./_shared.ts` so
+ *  both packs consume the same loader. This file now just wires the
+ *  shared helpers into tool handlers.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import {
-  loadCustomFieldDefinitionIndex,
-  loadCustomFieldValues,
-  type CustomFieldDefinitionSummary,
-} from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
-  CatalogOffer,
   CatalogProduct,
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
   CatalogProductPrice,
   CatalogProductTag,
   CatalogProductTagAssignment,
-  CatalogProductUnitConversion,
-  CatalogProductVariant,
 } from '../data/entities'
-import type { CatalogPricingService } from '../services/catalogPricingService'
-import type { PriceRow, PricingContext } from '../lib/pricing'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
-import { listPriceKindsCore } from './_shared'
+import {
+  buildProductBundle,
+  buildScope,
+  listPriceKindsCore,
+  resolveAttributeSchema,
+  resolveEm,
+  toPriceNumeric,
+  toProductSummary,
+  type ProductBundle,
+  type ProductBundleResult,
+} from './_shared'
 
 type SearchServiceLike = {
   search: (query: string, options: {
@@ -74,48 +79,11 @@ type SearchServiceLike = {
 
 const CATALOG_PRODUCT_ENTITY = 'catalog:catalog_product'
 
-function resolveEm(ctx: CatalogToolContext): EntityManager {
-  return ctx.container.resolve<EntityManager>('em')
-}
-
-function buildScope(ctx: CatalogToolContext, tenantId: string) {
-  return { tenantId, organizationId: ctx.organizationId }
-}
-
 function resolveSearchService(ctx: CatalogToolContext): SearchServiceLike | null {
   try {
     return ctx.container.resolve<SearchServiceLike>('searchService')
   } catch {
     return null
-  }
-}
-
-function resolvePricingService(ctx: CatalogToolContext): CatalogPricingService | null {
-  try {
-    return ctx.container.resolve<CatalogPricingService>('catalogPricingService')
-  } catch {
-    return null
-  }
-}
-
-function toProductSummary(row: CatalogProduct) {
-  return {
-    id: row.id,
-    title: row.title,
-    subtitle: row.subtitle ?? null,
-    sku: row.sku ?? null,
-    handle: row.handle ?? null,
-    productType: row.productType,
-    statusEntryId: row.statusEntryId ?? null,
-    primaryCurrencyCode: row.primaryCurrencyCode ?? null,
-    defaultMediaId: row.defaultMediaId ?? null,
-    defaultMediaUrl: row.defaultMediaUrl ?? null,
-    isActive: !!row.isActive,
-    isConfigurable: !!row.isConfigurable,
-    organizationId: row.organizationId ?? null,
-    tenantId: row.tenantId ?? null,
-    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   }
 }
 
@@ -137,12 +105,6 @@ const searchProductsInput = z
   .passthrough()
 
 type SearchProductsInput = z.infer<typeof searchProductsInput>
-
-function toPriceNumeric(value: string | null | undefined): number | null {
-  if (value === null || value === undefined) return null
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
 
 async function queryProductsWithFilters(
   em: EntityManager,
@@ -304,6 +266,7 @@ const searchProductsTool: CatalogAiToolDefinition = {
   inputSchema: searchProductsInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = searchProductsInput.parse(rawInput)
@@ -349,289 +312,6 @@ const searchProductsTool: CatalogAiToolDefinition = {
 /*  catalog.get_product_bundle / catalog.list_selected_products                 */
 /* -------------------------------------------------------------------------- */
 
-type AttributeSchemaField = {
-  key: string
-  label: string | null
-  type: string | null
-  required: boolean
-  options: unknown | null
-  scope: 'module' | 'category' | 'product'
-}
-
-type AttributeSchemaResult = {
-  fields: AttributeSchemaField[]
-  resolvedFor: { productId?: string; categoryId?: string }
-}
-
-function summarizeDefinitionAsField(
-  summary: CustomFieldDefinitionSummary,
-  scope: AttributeSchemaField['scope'],
-): AttributeSchemaField {
-  return {
-    key: summary.key,
-    label: summary.label ?? null,
-    type: summary.kind ?? null,
-    required: false,
-    options: null,
-    scope,
-  }
-}
-
-async function resolveAttributeSchema(
-  ctx: CatalogToolContext,
-  tenantId: string,
-  productId?: string,
-  categoryId?: string,
-): Promise<AttributeSchemaResult> {
-  const em = resolveEm(ctx)
-  const organizationIds = ctx.organizationId ? [ctx.organizationId] : []
-  const moduleDefs = await loadCustomFieldDefinitionIndex({
-    em,
-    entityIds: [E.catalog.catalog_product, E.catalog.catalog_product_category],
-    tenantId,
-    organizationIds,
-  })
-  const fields: AttributeSchemaField[] = []
-  moduleDefs.forEach((entries) => {
-    const pick = entries[0]
-    if (!pick) return
-    const scope: AttributeSchemaField['scope'] = pick.organizationId ? 'product' : 'module'
-    fields.push(summarizeDefinitionAsField(pick, scope))
-  })
-
-  // Category-level + product-level specialization reads the catalog_product_category /
-  // catalog_product config slots through the same loader (already filtered by
-  // the entity-id set). Any category/product-level override defers to the
-  // shared custom-fields helper: this is the canonical resolver and we reuse
-  // it rather than inventing a merged schema path. If productId / categoryId
-  // is supplied we simply annotate `resolvedFor` so the caller knows what
-  // scope was used; the loader already considers tenant + organization rules.
-  return {
-    fields,
-    resolvedFor: {
-      ...(productId ? { productId } : {}),
-      ...(categoryId ? { categoryId } : {}),
-    },
-  }
-}
-
-type ProductBundle = {
-  found: true
-  id: string
-  product: ReturnType<typeof toProductSummary>
-  categories: Array<{ id: string; name: string | null; slug: string | null; path: string | null }>
-  tags: Array<{ id: string; label: string; slug: string }>
-  variants: Array<Record<string, unknown>>
-  prices: {
-    all: Array<Record<string, unknown>>
-    best: Record<string, unknown> | null
-  }
-  media: Array<Record<string, unknown>>
-  customFields: Record<string, unknown>
-  attributeSchema: AttributeSchemaResult
-  translations: null
-}
-
-async function buildProductBundle(
-  em: EntityManager,
-  ctx: CatalogToolContext,
-  tenantId: string,
-  productId: string,
-): Promise<ProductBundle | { found: false; productId: string }> {
-  const where: Record<string, unknown> = {
-    id: productId,
-    tenantId,
-    deletedAt: null,
-  }
-  if (ctx.organizationId) where.organizationId = ctx.organizationId
-  const product = await findOneWithDecryption<CatalogProduct>(
-    em,
-    CatalogProduct,
-    where as any,
-    undefined,
-    buildScope(ctx, tenantId),
-  )
-  if (!product || product.tenantId !== tenantId) {
-    return { found: false as const, productId }
-  }
-  const scope = buildScope(ctx, tenantId)
-  const [
-    categoryAssignments,
-    tagAssignments,
-    variants,
-    prices,
-    mediaAttachments,
-    unitConversions,
-    customFieldValues,
-    attributeSchema,
-  ] = await Promise.all([
-    findWithDecryption<CatalogProductCategoryAssignment>(
-      em,
-      CatalogProductCategoryAssignment,
-      { tenantId, product: product.id } as any,
-      { limit: 100, populate: ['category'] as any } as any,
-      scope,
-    ),
-    findWithDecryption<CatalogProductTagAssignment>(
-      em,
-      CatalogProductTagAssignment,
-      { tenantId, product: product.id } as any,
-      { limit: 100, populate: ['tag'] as any } as any,
-      scope,
-    ),
-    findWithDecryption<CatalogProductVariant>(
-      em,
-      CatalogProductVariant,
-      { tenantId, product: product.id, deletedAt: null } as any,
-      { limit: 100, orderBy: { createdAt: 'asc' } as any } as any,
-      scope,
-    ),
-    findWithDecryption<CatalogProductPrice>(
-      em,
-      CatalogProductPrice,
-      { tenantId, product: product.id } as any,
-      { limit: 100, orderBy: { createdAt: 'asc' } as any } as any,
-      scope,
-    ),
-    findWithDecryption<Attachment>(
-      em,
-      Attachment,
-      { tenantId, entityId: E.catalog.catalog_product, recordId: product.id } as any,
-      { limit: 100, orderBy: { createdAt: 'asc' } as any } as any,
-      scope,
-    ),
-    findWithDecryption<CatalogProductUnitConversion>(
-      em,
-      CatalogProductUnitConversion,
-      { tenantId, product: product.id, deletedAt: null } as any,
-      { limit: 100, orderBy: { sortOrder: 'asc', createdAt: 'asc' } as any } as any,
-      scope,
-    ),
-    loadCustomFieldValues({
-      em,
-      entityId: E.catalog.catalog_product,
-      recordIds: [product.id],
-      tenantIdByRecord: { [product.id]: product.tenantId ?? null },
-      organizationIdByRecord: { [product.id]: product.organizationId ?? null },
-      tenantFallbacks: [product.tenantId ?? tenantId].filter((value): value is string => !!value),
-    }),
-    resolveAttributeSchema(ctx, tenantId, product.id, undefined),
-  ])
-
-  const categories = categoryAssignments
-    .map((assignment) => {
-      const category = (assignment as any).category
-      if (!category || typeof category === 'string') {
-        const fallbackId = typeof category === 'string' ? category : null
-        return fallbackId ? { id: fallbackId, name: null, slug: null, path: null } : null
-      }
-      return {
-        id: category.id,
-        name: category.name ?? null,
-        slug: category.slug ?? null,
-        path: category.treePath ?? null,
-      }
-    })
-    .filter((value): value is { id: string; name: string | null; slug: string | null; path: string | null } => value !== null)
-
-  const tags = tagAssignments
-    .map((assignment) => {
-      const tag = (assignment as any).tag as CatalogProductTag | string | null
-      if (!tag || typeof tag === 'string') return null
-      return { id: tag.id, label: tag.label, slug: tag.slug }
-    })
-    .filter((value): value is { id: string; label: string; slug: string } => value !== null)
-
-  const priceRows = prices.map((row) => ({
-    id: row.id,
-    priceKindId: (row as any).priceKind && typeof (row as any).priceKind === 'object'
-      ? (row as any).priceKind.id
-      : (row as any).priceKind ?? null,
-    currencyCode: row.currencyCode,
-    kind: row.kind,
-    minQuantity: row.minQuantity,
-    maxQuantity: row.maxQuantity ?? null,
-    unitPriceNet: row.unitPriceNet ?? null,
-    unitPriceGross: row.unitPriceGross ?? null,
-    taxRate: row.taxRate ?? null,
-    taxAmount: row.taxAmount ?? null,
-    channelId: row.channelId ?? null,
-    offerId: (row as any).offer && typeof (row as any).offer === 'object'
-      ? (row as any).offer.id
-      : (row as any).offer ?? null,
-    variantId: (row as any).variant && typeof (row as any).variant === 'object'
-      ? (row as any).variant.id
-      : (row as any).variant ?? null,
-    startsAt: row.startsAt ? new Date(row.startsAt).toISOString() : null,
-    endsAt: row.endsAt ? new Date(row.endsAt).toISOString() : null,
-  }))
-
-  let bestPrice: Record<string, unknown> | null = null
-  const pricingService = resolvePricingService(ctx)
-  if (pricingService && prices.length > 0) {
-    // `PricingContext` in `lib/pricing.ts` requires `quantity` + `date`.
-    // Merchandising read tools do not carry cart state, so we default to
-    // the single-unit + "now" context — enough for the pricing service to
-    // pick a representative base/promo row for previewing.
-    const pricingContext: PricingContext = {
-      quantity: 1,
-      date: new Date(),
-    }
-    try {
-      const resolved = await pricingService.resolvePrice(prices as unknown as PriceRow[], pricingContext)
-      if (resolved) {
-        bestPrice = {
-          id: (resolved as any).id,
-          currencyCode: (resolved as any).currencyCode,
-          kind: (resolved as any).kind,
-          unitPriceNet: (resolved as any).unitPriceNet ?? null,
-          unitPriceGross: (resolved as any).unitPriceGross ?? null,
-        }
-      }
-    } catch (error) {
-      console.warn('[catalog.get_product_bundle] resolvePrice failed, omitting best price', error)
-    }
-  }
-
-  return {
-    found: true,
-    id: product.id,
-    product: toProductSummary(product),
-    categories,
-    tags,
-    variants: variants.map((variant) => ({
-      id: variant.id,
-      name: variant.name ?? null,
-      sku: variant.sku ?? null,
-      barcode: variant.barcode ?? null,
-      optionValues: variant.optionValues ?? null,
-      defaultMediaId: variant.defaultMediaId ?? null,
-      defaultMediaUrl: variant.defaultMediaUrl ?? null,
-      isDefault: !!variant.isDefault,
-      isActive: !!variant.isActive,
-    })),
-    prices: {
-      all: priceRows,
-      best: bestPrice,
-    },
-    media: mediaAttachments.map((attachment) => ({
-      mediaId: attachment.id,
-      attachmentId: attachment.id,
-      fileName: attachment.fileName,
-      mediaType: attachment.mimeType,
-      size: attachment.fileSize,
-      altText: null,
-      sortOrder: 0,
-    })),
-    customFields: customFieldValues[product.id] ?? {},
-    attributeSchema,
-    // No translation resolver exists for catalog (no `translations.ts` at
-    // module root yet); returning null is an explicit null-surface contract
-    // and a hint for Step 5+ to add the translations resolver.
-    translations: null,
-  }
-}
-
 const getProductBundleInput = z.object({
   productId: z.string().uuid().describe('Catalog product id (UUID).'),
 })
@@ -644,6 +324,7 @@ const getProductBundleTool: CatalogAiToolDefinition = {
   inputSchema: getProductBundleInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = getProductBundleInput.parse(rawInput)
@@ -668,6 +349,7 @@ const listSelectedProductsTool: CatalogAiToolDefinition = {
   inputSchema: listSelectedProductsInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = listSelectedProductsInput.parse(rawInput)
@@ -708,6 +390,7 @@ const getProductMediaTool: CatalogAiToolDefinition = {
   inputSchema: getProductMediaInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = getProductMediaInput.parse(rawInput)
@@ -766,6 +449,7 @@ const getAttributeSchemaTool: CatalogAiToolDefinition = {
   inputSchema: getAttributeSchemaInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = getAttributeSchemaInput.parse(rawInput)
@@ -785,6 +469,7 @@ const getCategoryBriefTool: CatalogAiToolDefinition = {
   inputSchema: getCategoryBriefInput,
   requiredFeatures: ['catalog.categories.view'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = getCategoryBriefInput.parse(rawInput)
@@ -836,6 +521,7 @@ const listPriceKindsTool: CatalogAiToolDefinition = {
   inputSchema: listPriceKindsInput,
   requiredFeatures: ['catalog.settings.manage'],
   tags: ['read', 'catalog', 'merchandising'],
+  isMutation: false,
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = listPriceKindsInput.parse(rawInput)

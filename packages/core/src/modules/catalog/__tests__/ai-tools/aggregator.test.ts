@@ -1,6 +1,7 @@
 /**
- * Steps 3.10 + 3.11 — verifies the module-root catalog ai-tools aggregator
- * (base coverage + D18 merchandising read tools).
+ * Steps 3.10 + 3.11 + 3.12 — verifies the module-root catalog ai-tools
+ * aggregator (base coverage + D18 merchandising read tools + D18 AI
+ * authoring tools).
  */
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -41,6 +42,12 @@ describe('catalog module-root ai-tools aggregator', () => {
         'catalog.get_attribute_schema',
         'catalog.get_category_brief',
         'catalog.list_price_kinds',
+        // D18 authoring (Step 3.12)
+        'catalog.draft_description_from_attributes',
+        'catalog.extract_attributes_from_description',
+        'catalog.draft_description_from_media',
+        'catalog.suggest_title_variants',
+        'catalog.suggest_price_adjustment',
       ].sort(),
     )
   })
@@ -71,6 +78,19 @@ describe('catalog module-root ai-tools aggregator', () => {
       'catalog.get_attribute_schema',
       'catalog.get_category_brief',
       'catalog.list_price_kinds',
+    ]) {
+      expect(names.has(expected)).toBe(true)
+    }
+  })
+
+  it('every D18 authoring tool name matches the spec exactly (Step 3.12)', () => {
+    const names = new Set(aiTools.map((tool) => tool.name))
+    for (const expected of [
+      'catalog.draft_description_from_attributes',
+      'catalog.extract_attributes_from_description',
+      'catalog.draft_description_from_media',
+      'catalog.suggest_title_variants',
+      'catalog.suggest_price_adjustment',
     ]) {
       expect(names.has(expected)).toBe(true)
     }
