@@ -48,7 +48,10 @@ corrective change):
 ```bash
 DATE=$(date -u +%Y-%m-%d)
 SLUG="${SLUG_OVERRIDE:-auto-qa-scenarios-${DATE}}"
-PLAN_PATH=".ai/runs/${DATE}-${SLUG}.md"
+RUN_DIR=".ai/runs/${DATE}-${SLUG}"
+PLAN_PATH="${RUN_DIR}/PLAN.md"
+HANDOFF_PATH="${RUN_DIR}/HANDOFF.md"
+NOTIFY_PATH="${RUN_DIR}/NOTIFY.md"
 BRANCH="feat/${SLUG}"
 ```
 
@@ -279,7 +282,7 @@ Follow `.ai/skills/auto-create-pr/SKILL.md` step 9 with these specifics:
 
 - Title: `docs(analysis): add auto-qa-scenarios report for {window caption}`.
 - Base: `develop`. Never merge directly.
-- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and
+- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}/PLAN.md` and `Tracking run folder: .ai/runs/${DATE}-${SLUG}/` plus
   `Status: complete` (or `in-progress` if phases remain).
 - Body MUST link both artifacts under `.ai/analysis/` and summarize the
   window and the total PR count.

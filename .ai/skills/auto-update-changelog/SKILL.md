@@ -47,7 +47,7 @@ gh pr list \
   --limit 250
 ```
 
-Filter to PRs whose `baseRefName` is the default branch (`develop`). Exclude PRs that touched only `.ai/runs/` (these are execution-plan commits, not release work) unless the entire body says `Update CHANGELOG.md for vX.Y.Z` (those are prior runs of this skill — also exclude).
+Filter to PRs whose `baseRefName` is the default branch (`develop`). Exclude PRs that touched only `.ai/runs/` (these are execution-plan commits, not release work — the prefix matches both the legacy flat-file layout `.ai/runs/<date>-<slug>.md` and the current per-spec folder layout `.ai/runs/<date>-<slug>/`) unless the entire body says `Update CHANGELOG.md for vX.Y.Z` (those are prior runs of this skill — also exclude).
 
 ### 2. Categorize each PR
 
