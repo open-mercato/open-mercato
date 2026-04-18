@@ -1,123 +1,124 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T17:20:00Z
+**Last updated:** 2026-04-18T18:45:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 4 WS-A Step 4.1 **complete**. Next: Phase 4
-Step 4.2 — upload adapter that reuses the attachments API and returns
-`attachmentIds` (opens the second commit of Phase 2 WS-A).
-**Last commit:** `aae5bdac8` —
-`feat(ui): add AiChat component + client-side UI-part registry (Phase 2 WS-A)`
+**Current phase/step:** Phase 4 WS-A Step 4.2 **complete**. Next: Phase 4
+Step 4.3 — client-side UI-part registry formalization with Phase 3
+approval-card slots reserved. Step 4.1 already shipped a minimal
+`ui-part-registry.ts`; Step 4.3 expands the registry API shape.
+**Last commit:** `6acaa8487` —
+`feat(ui): add AiChat upload adapter + useAiChatUpload hook (Phase 2 WS-A)`
 
 ## What just happened
 
-- Executor landed **Step 4.1** as one code commit (`aae5bdac8`) plus a
-  docs-flip commit. Step 4.1 opens Phase 4 WS-A by delivering the
-  canonical embeddable `<AiChat>` React component under
-  `packages/ui/src/ai/`. The component is framework-agnostic inside
-  `packages/ui` (no Next.js-only imports, no `@open-mercato/core` coupling)
-  so both the backend playground (Step 4.4) and the portal example (Step
-  4.10) can consume it without reshaping.
+- Executor landed **Step 4.2** as one code commit (`6acaa8487`) plus a
+  docs-flip commit. Step 4.2 delivers the upload adapter that the
+  `<AiChat>` composer (Step 4.1) will call when the user drops files
+  into the chat, threading the resulting `attachmentIds` into the Step
+  3.3 dispatcher (`POST /api/ai_assistant/ai/chat?agent=<id>` reads
+  `attachmentIds` from the JSON body).
+- **Target endpoint.** The adapter reuses the canonical attachments
+  upload route `POST /api/attachments` (multipart form-data;
+  `packages/core/src/modules/attachments/api/route.ts`). Fields sent per
+  file: `entityId`, `recordId`, `file`, optional `partitionCode`. The
+  other attachments routes (`/api/attachments/library`, `/file`,
+  `/image`, `/partitions`, `/transfer`) are library/read/transfer
+  surfaces — the write path is `POST /api/attachments`.
 - New files under `packages/ui/src/ai/`:
-  - `AiChat.tsx` — main component. `"use client"`. Binds to
-    `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` via the same
-    URL convention as `createAiAgentTransport` (Step 3.4). Renders a
-    transcript (`role="log"` + `aria-live="polite"`) and a labelled
-    `<Textarea>` composer. `Cmd/Ctrl+Enter` submits, `Escape` aborts an
-    in-flight stream or blurs the composer when idle. Error envelopes
-    from the dispatcher surface as `<Alert variant="destructive|warning">`
-    plus the `onError` callback. Debug panel behind a `debug?: boolean`
-    prop.
-  - `useAiChat.ts` — thin hook: manages `messages`, `status`, `error`,
-    and last-request/response debug state. Consumes the dispatcher's
-    plain-text streaming body via `apiFetch` from
-    `packages/ui/src/backend/utils/api.ts` so scoped headers + 401/403
-    redirects are honored. Reuses `createAiAgentTransport` for the
-    endpoint URL shape so the dispatcher path stays single-source.
-  - `ui-part-registry.ts` — client-side registry with
-    `registerAiUiPart` / `resolveAiUiPart` / `unregisterAiUiPart` +
-    `RESERVED_AI_UI_PART_IDS` for the four Phase 3 approval-card slots
-    (`mutation-preview-card`, `field-diff-card`, `confirmation-card`,
-    `mutation-result-card`). Global-scoped Map survives HMR; unknown ids
-    return `null` and the component renders a neutral placeholder chip
-    with a `console.warn` instead of throwing.
-  - `index.ts` — barrel re-export.
-  - `__tests__/AiChat.test.tsx` — renders composer with i18n placeholder,
-    `Cmd+Enter` submit streams assistant text into transcript, dispatcher
-    error envelope surfaces as Alert + `onError`, `Escape` aborts stream
-    cleanly.
-  - `__tests__/ui-part-registry.test.ts` — register/resolve round-trip,
-    unknown id null, unregister, overwrite semantics, reserved-ids
-    contract.
+  - `upload-adapter.ts` — framework-agnostic pure function
+    `uploadAttachmentsForChat(files, options)`. Bounded parallelism via
+    a hand-rolled semaphore (default 3, clamped to `max(1,
+    min(files.length, concurrency))`). `AbortSignal` support: queued
+    files short-circuit as `failed[].reason === 'aborted'`, in-flight
+    fetches map `AbortError` to the same reason. Server outcomes
+    normalize through a `mapStatusToReason(status, message)` helper:
+    `413` → `size_exceeded`, `403/415` → `mime_rejected`,
+    `400 + ('file type'|'active content')` → `mime_rejected`,
+    `400 + ('size'|'quota')` → `size_exceeded`, everything else →
+    `server`. Network failures → `network`. Items preserve input order
+    by indexing into `outcomes[]` before flattening. Response JSON
+    parsing goes through `response.text()` + `JSON.parse` because
+    jsdom's `Response.clone().json()` is unreliable in the test harness.
+    `recordId` defaults to `crypto.randomUUID()` when present,
+    otherwise `ai-chat-<base36time>-<random>`; shared across the batch
+    so every file in a drop groups cleanly.
+  - `useAiChatUpload.ts` — React hook wrapping the adapter. Exposes
+    `{ files, overallProgress, busy, upload, reset }` with per-file
+    `{ fileName, size, progress, status, attachmentId?, reason?,
+    error? }`. `overallProgress` is the arithmetic mean of per-file
+    `progress` ∈ [0,1]. `busy` toggles on/off around the batch. Caller
+    `onProgress` is forwarded without swallowing consumer exceptions.
+    Adapter promise is coerced to a failure envelope so the hook never
+    throws at consumers.
+  - `__tests__/upload-adapter.test.ts` — 8 tests: empty list short-
+    circuit, successful multi-file upload + default endpoint, mixed
+    success/failure reason mapping, network error → `network`, abort
+    → remaining files `aborted` (concurrency=1 ensures the ordering
+    assertion), concurrency cap honored at 3 via counter semaphore,
+    entityType/recordId/partitionCode forwarding, fallback recordId
+    generation + batch-scoped sharing.
+  - `__tests__/useAiChatUpload.test.tsx` — 4 tests: busy toggle + done
+    status, overallProgress averaging across mixed outcomes, reset()
+    clears state, abort propagation.
 - Touched files (additive-only):
-  - `packages/ui/src/index.ts` — one new `export * from './ai'` line.
-  - `packages/ai-assistant/src/modules/ai_assistant/i18n/{en,pl,es,de}.json`
-    — 14 new keys under `ai_assistant.chat.*` (`assistantRoleLabel`,
-    `cancel`, `composerLabel`, `composerPlaceholder`, `debugPanelTitle`,
-    `emptyTranscript`, `errorTitle`, `regionLabel`, `send`,
-    `shortcutHint`, `thinking`, `transcriptLabel`, `uiPartPending`,
-    `userRoleLabel`). Alphabetically sorted + parity across locales.
+  - `packages/ui/src/ai/index.ts` — barrel exports for
+    `uploadAttachmentsForChat`, `useAiChatUpload`, and their types.
+  - `packages/ui/src/index.ts` — unchanged; `export * from './ai'`
+    already surfaces the new names.
 - Validation gate (all green):
-  - New ai/ tests:
+  - ai/ scope:
     `cd packages/ui && npx jest --config=jest.config.cjs --forceExit --testPathPatterns="ai/"`
-    → 2 suites / **10 tests** / 0.46s.
-  - `packages/ui` full regression: 53 suites / **279 tests** (was 51 /
-    269; delta +2 suites / +10 tests matches exactly). No pre-existing
-    failures introduced.
-  - `packages/ai-assistant` regression: 28 / **338** preserved exactly.
-  - `packages/core` regression: 333 / **3033** preserved exactly.
+    → 4 suites / **22 tests** (was 2 / 10; delta +2 suites / +12 tests).
+  - `packages/ui` full regression: 55 / **291** (was 53 / 279; delta
+    +2 suites / +12 tests — matches new coverage exactly).
+  - `packages/ai-assistant` regression: 28 / **338** preserved.
+  - `packages/core` regression: 333 / **3033** preserved.
   - Typecheck (`yarn turbo run typecheck --filter=@open-mercato/ui
     --filter=@open-mercato/core --filter=@open-mercato/app`): 3/3
-    successful. Only the Step 3.1 `agent-registry.ts(43,7)` carryover
-    remains (unchanged).
-  - `yarn generate`: ran clean — no generator drift against the new
-    files (only in-scope edits are the new UI sources + i18n JSONs).
-  - `yarn i18n:check-sync`: green (46 modules, 4 locales).
-  - `yarn build:packages`: 18/18 successful; ui picked up 256 entry
-    points.
-- **Playwright**: skipped for Step 4.1. The component is covered by
-  Jest + React Testing Library under jsdom; an end-to-end Playwright
-  round-trip requires (a) a reachable dev server, (b) a real agent wired
-  into `ai-agents.generated.ts` with a live LLM provider, and (c) the
-  pre-existing `.ai/tmp/review-pr/pr-1372/` stale-worktree conflict
-  resolved. Steps 4.4 + 4.11 are the natural Playwright integration
-  points: 4.4 embeds `<AiChat>` in the playground page against a test
-  agent, and 4.11 adds the full playground/settings integration-test
-  sweep. Recording here so Step 4.4 remembers to re-enable browser
-  proof.
+    successful (2 cache hit, 1 cache miss). Pre-existing
+    `agent-registry.ts(43,7)` carryover unchanged.
+  - `yarn generate`: clean; only refreshed openapi bundle listing
+    (unchanged after emit).
+  - `yarn i18n:check-sync`: green (46 modules, 4 locales). Hook
+    surfaces only `UploadFailureReason` codes — consumers translate at
+    render time, so no new i18n keys.
+- **Playwright**: skipped for Step 4.2 (same rationale as Step 4.1 —
+  adapter is a pure function + React hook covered by Jest + RTL under
+  jsdom; a browser round-trip requires a live dev server and a real
+  agent endpoint). Step 4.4 (playground) is the first natural
+  integration point; Step 4.11 carries the full Playwright sweep.
 
 ## Next concrete action
 
-- **Phase 4 Step 4.2** — Upload adapter that reuses the existing
-  attachments API and returns `attachmentIds`. Expected shape:
-  - Thin wrapper around the existing `/api/attachments/upload` (or
-    equivalent) endpoint, exposed from `packages/ui/src/ai/` as a helper
-    the `<AiChat>` host page can call before attaching files to a turn.
-  - Returns a typed `{ attachmentIds: string[] }` payload the host page
-    can thread into `<AiChat attachmentIds={...}>`.
-  - Unit tests mocking `apiFetch`; follow the same polyfill + mocking
-    pattern used by `AiChat.test.tsx` (TextEncoder/TextDecoder +
-    ReadableStream polyfills from `node:util` + `node:stream/web`, and
-    a `ResponseLike` helper type for jsdom).
-  - No changes to the attachments API itself — reuse only.
-- After Step 4.2 lands, Step 4.3 formalizes the UI-part registry props
-  bridge so host pages can pass a scoped registry into `<AiChat>`. The
-  default global-scoped registry from Step 4.1 will stay as the fallback.
+- **Phase 4 Step 4.3** — Client-side UI-part registry formalization
+  with Phase 3 approval-card slots reserved. Step 4.1 already shipped
+  a minimal `packages/ui/src/ai/ui-part-registry.ts` with register /
+  resolve / unregister + `RESERVED_AI_UI_PART_IDS` for the four
+  Phase 3 slots (`mutation-preview-card`, `field-diff-card`,
+  `confirmation-card`, `mutation-result-card`). Step 4.3 expands the
+  registry API shape. Candidate additions:
+  - Scoped registries so a host `<AiChat registry={...}>` can pass a
+    caller-owned registry instead of falling back to the global one
+    (keeps the Step 4.1 global registry as default).
+  - Richer `AiUiPartProps` shape (versioned envelope: `{ payload,
+    agentId, messageId, reservedId? }`) so Phase 3 approval cards
+    can read the pending-action id and emit `confirm` / `cancel`
+    events without re-inventing the contract each time.
+  - `listRegisteredAiUiPartIds()` helper for debug panels + settings
+    tooling.
+  - Unit tests updated for the expanded API; keep the Step 4.1 reserved
+    constants immutable.
+  - No changes to `<AiChat>`'s public contract; the component just
+    prefers the prop-supplied registry over the module-global one.
 
 ## Blockers / open questions
 
-- **`@ai-sdk/react` not in the workspace** — `useChat` lives there. Step
-  4.1 took the brief's sanctioned fallback: a hand-rolled `useAiChat`
-  that reuses `createAiAgentTransport`'s URL convention but reads the
-  stream through `apiFetch`. This is a non-blocker — the dispatcher
-  currently returns plain text (`toTextStreamResponse`), so
-  `DefaultChatTransport.sendMessages` wouldn't parse the body correctly
-  anyway. When the dispatcher migrates to `toUIMessageStreamResponse` in
-  a future Step (likely Phase 5), `useAiChat` collapses to
-  `useChat({ transport: createAiAgentTransport(...) })` from
-  `@ai-sdk/react` without changing `<AiChat>`'s public contract.
+- **`@ai-sdk/react` still absent from the workspace** — Step 4.1 fall-
+  back stays in place (`useAiChat` + hand-rolled text stream). Step 4.2
+  is unaffected.
 - **Playwright stale-worktree conflict** (`.ai/tmp/review-pr/pr-1372/`)
   — pre-existing; still non-blocking. Operator cleanup task.
 - **`packages/ai-assistant` typecheck script** — still missing (carryover).
@@ -132,9 +133,9 @@ Step 4.2 — upload adapter that reuses the attachments API and returns
 
 ## Environment caveats
 
-- Dev runtime runnable: unknown. Phase 4 Step 4.1 was proven through
-  Jest + jsdom; Step 4.4 will exercise the component in a real Next.js
-  route and should attempt a Playwright pass.
+- Dev runtime runnable: unknown. Phase 4 Step 4.2 was proven through
+  Jest + jsdom. Step 4.4 will exercise `<AiChat>` + the upload adapter
+  in a real Next.js route and should attempt a Playwright pass.
 - Database/migration state: clean, untouched.
 - `.ai/tmp/review-pr/pr-1372/` is still a pre-existing stale review
   worktree that breaks local `yarn test:integration --list`. Cleanup is

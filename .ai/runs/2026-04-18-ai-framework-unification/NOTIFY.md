@@ -589,3 +589,26 @@
   - **UI-part registry** ships empty; `console.warn` + placeholder chip for unknown ids. Reserved ids for Phase 3: `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`.
   - **Playwright skipped** for Step 4.1 — jsdom-level RTL coverage is sufficient given no live agent, no dev server, and the pre-existing stale-worktree blocker. Step 4.4 is the natural re-entry point for browser proof (playground page embeds `<AiChat>`).
 - Phase 4 WS-A now **1/3 landed** (4.1 done; 4.2 upload adapter and 4.3 registry props bridge remain). Phase 4 overall **1/11**. Next: Step 4.2 — upload adapter that reuses the attachments API and returns `attachmentIds` (threads into the existing `<AiChat attachmentIds>` prop).
+
+## 2026-04-18T18:45:00Z — Step 4.2 committed (6acaa8487)
+- `feat(ui): add AiChat upload adapter + useAiChatUpload hook (Phase 2 WS-A)`
+- Files created: `packages/ui/src/ai/upload-adapter.ts`, `packages/ui/src/ai/useAiChatUpload.ts`, `packages/ui/src/ai/__tests__/upload-adapter.test.ts`, `packages/ui/src/ai/__tests__/useAiChatUpload.test.tsx`.
+- Files touched (additive-only): `packages/ui/src/ai/index.ts` (new barrel exports for adapter + hook + types).
+- Validation (all green):
+  - New ai/ tests: 4 suites / 22 tests (delta +2 / +12 vs Step 4.1 baseline).
+  - `packages/ui` full regression: 55 / **291** (was 53 / 279 — exact delta match).
+  - `packages/ai-assistant` regression: 28 / **338** preserved.
+  - `packages/core` regression: 333 / **3033** preserved.
+  - Typecheck: 3/3 successful across ui/core/app.
+  - `yarn generate`: clean.
+  - `yarn i18n:check-sync`: green (46 modules, 4 locales).
+- Decisions:
+  - **Attachments endpoint target**: `POST /api/attachments` (multipart form-data at `packages/core/src/modules/attachments/api/route.ts`). The `/api/attachments/library` path is read-only; other attachments sub-routes are library/transfer helpers. Fields per file: `entityId` (default `'ai-chat-draft'`), `recordId` (defaulted to `crypto.randomUUID()` per batch), `file`, optional `partitionCode`.
+  - **Framework-agnostic default fetch**: the adapter defaults `fetchImpl` to `globalThis.fetch.bind(globalThis)` so portal and backend callers can either rely on the global fetch (the global is already patched by `apiFetch`'s scoped-header stack in backend contexts) or explicitly pass `apiFetch` / a portal-safe fetch. This avoids a hard dependency on `@open-mercato/ui/backend/utils/api` from portal bundles while still letting backend callers opt into the 401/403 redirect behavior.
+  - **Concurrency semaphore hand-rolled**: a ~15-line worker-pool that reads/advances a shared index counter. No existing util fits the shape (we need a per-slot ordering invariant, not `Promise.all` fan-out), and pulling a utility package for 15 lines would violate the `no new deps` posture Phase 2 WS-A is holding.
+  - **Server-error reason mapping**: `413 → size_exceeded`, `403|415 → mime_rejected`, `400` narrows on the error message body — `'file type'|'active content'` ⇒ `mime_rejected`, `'size'|'quota'` ⇒ `size_exceeded`, else `server`. Matches the three `400` failure branches emitted by `POST /api/attachments` (`File type not allowed`, `Active content uploads are not allowed`, and quota/size `413`s). Unknown 4xx/5xx → `server`. Network exceptions → `network`. Aborts (signal or `AbortError`) → `aborted`.
+  - **Response JSON parsing** goes through `response.text()` + `JSON.parse(...)` because jsdom's `Response.clone().json()` returns null bodies in the test harness. Functionally identical in production.
+  - **Hook never throws**: adapter rejections are coerced into a per-file `failed[]` envelope (reason=`network`) so consumers can render state changes without try/catch.
+  - **No new i18n keys**: hook surfaces only `UploadFailureReason` codes; consumers translate via `useT()` at render time. Keeps the `ai_assistant.chat.*` namespace unchanged pending Step 4.6 keyboard/debug work.
+  - **Playwright skipped** — same rationale as Step 4.1. Step 4.4 (playground) is the first natural integration point for an end-to-end drag-and-drop proof.
+- Phase 4 WS-A now **2/3 landed** (4.1 + 4.2 done; 4.3 registry expansion remains). Phase 4 overall **2/11**. Next: Step 4.3 — client-side UI-part registry formalization (expands the minimal Step 4.1 registry with scoped-registry props + richer `AiUiPartProps` envelope for Phase 3 approval cards).
