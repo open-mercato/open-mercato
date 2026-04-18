@@ -230,3 +230,29 @@
   - Kept the whole closeout suite in ONE file per the Step spec. The generator-stability describe imports `createAiAgentsExtension()` via a relative path into `packages/cli/src/lib/generators/extensions/ai-agents.ts` rather than duplicating the test into the cli package — the whole-fixture idempotency case is already covered by `packages/cli/.../output-snapshots.test.ts`, so this only adds the focused additive assertion.
   - Documented finding: `registerGeneratedAiToolEntries` maps to `McpToolDefinition` and drops the additive `AiToolDefinition` fields (`displayName`, `tags`, `isMutation`, `maxCallsPerTurn`, `supportsAttachments`) at registration time. Current behavior is preserved (BC-safe). Step 3.1 (`agent-registry.ts`) is the right place to either widen the registered shape or introduce a parallel agent-aware registration path, with the decision recorded in step-3.1-checks.md.
   - Phase 2 is now fully landed (all of spec Phase 0 Alignment Prerequisite). Next is Phase 3 / Step 3.1 — Phase 3 is UI-less through Step 3.10, so Playwright remains N/A for the next ten Steps.
+
+## 2026-04-18T10:05:59Z — Step 3.1 committed (a87bd19f6)
+- `feat(ai-assistant): add agent-registry loader for ai-agents.generated.ts`
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-registry.ts` (new — cached `Map<id, AiAgentDefinition>` + typed read API).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/ai-agents-generated.d.ts` (new — module-declaration shim for the dynamic import, mirrors `ai-tools-generated.d.ts`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-registry.test.ts` (new — 8 tests).
+  - `packages/ai-assistant/src/index.ts` (additive re-exports grouped under a new "Agent registry" block).
+  - `.ai/runs/2026-04-18-ai-framework-unification/step-3.1-checks.md`.
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → 14 suites / 187 tests (baseline 13 / 179; delta +1 suite / +8 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — `@open-mercato/core` green (cache hit); `@open-mercato/app` still fails on the pre-existing `example/customer-tasks/page` entry in `backend-routes.generated.ts` (unrelated; documented since Step 2.3). Grep of typecheck output for `agent-registry` and `ai-agents-generated` matched zero lines — no new diagnostics introduced.
+  - i18n / Playwright / generate / build: N/A (no UI, no strings, no module-structure change, read-only runtime).
+- BC: additive only.
+  - Surface 2 (Types): every new type is additive; `AiAgentDefinition` itself was already added in Step 2.1.
+  - Surface 3 (Function signatures): all new exports.
+  - Surface 4 (Import paths): `@open-mercato/ai-assistant` gains a new export group; nothing renamed or removed.
+  - Surface 13 (Generated file contracts): unchanged — this Step is a consumer of the existing `ai-agents.generated.ts` shape emitted by Step 2.2.
+- Decisions:
+  - Prefer `allAiAgents` (flattened) over `aiAgentConfigEntries` (grouped) — grouping is a generator-internal detail, the registry only needs per-agent lookup + module filter.
+  - `listAgents()` is stable-sorted by `id` to keep diagnostic output (future `meta.list_agents` tool in Step 3.8, debug logs) deterministic across processes.
+  - Duplicate `id` throws **at load time**, not per-call, so a misconfiguration surfaces immediately at boot. Aligns with the spec's per-tenant agent-id uniqueness guarantee (§4).
+  - Malformed entry → `console.warn` (not throw), mirroring `registerGeneratedAiToolEntries`. One bad fixture cannot take down the entire registry.
+  - Kept `seedAgentRegistryForTests` exported from the registry file but deliberately unexported from `packages/ai-assistant/src/index.ts` — testing hook only, not a public API. `resetAgentRegistryForTests` is exported publicly because downstream packages' integration tests may need it when Step 3.3 wires the HTTP dispatcher.
+  - Registry stores `AiAgentDefinition` objects **verbatim** (no projection to a subset). Side-steps the Step 2.5 HANDOFF finding about the MCP tool registry dropping additive fields — agents keep `executionMode`, `mutationPolicy`, `resolvePageContext`, `acceptedMediaTypes`, `output`, and everything else intact for the Step 3.2 policy gate.
+  - Phase 3 WS-A is now 1/3 landed. Steps 3.2 (policy gate) and 3.3 (HTTP dispatcher) are the remaining WS-A Steps — Step 3.2 is the first Step that actually consumes `getAgent(id)`.

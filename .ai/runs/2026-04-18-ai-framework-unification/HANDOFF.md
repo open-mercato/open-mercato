@@ -1,75 +1,75 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T10:00:12Z
+**Last updated:** 2026-04-18T10:05:59Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 2 fully landed (all of spec Phase 0);
-Phase 3 / Step 3.1 is next. Attachment-bridge contract types,
-prompt-composition primitive types, restored loader, and Phase 0
-additive-contract regression suite are all in place.
-**Last commit:** `1e8e9d134` —
-`test(ai-assistant): add phase 0 additive-contract regression suite`
+**Current phase/step:** Phase 3 WS-A / Step 3.1 landed — agent registry
+loader in place. Phase 2 (spec Phase 0) fully landed; Steps 3.2 and 3.3
+still pending to close Workstream A.
+**Last commit:** `a87bd19f6` —
+`feat(ai-assistant): add agent-registry loader for ai-agents.generated.ts`
 
 ## What just happened
 
-- Executor subagent landed **Step 2.5** as a single code commit
-  (`1e8e9d134`) plus this docs-flip commit.
-- New test file
-  `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/phase-0-additive-contract.test.ts`
-  (12 tests across 4 top-level describes):
-  1. restored module-tool loading is additive — plain-object
-     `aiTools[]` exports register through `registerGeneratedAiToolEntries`,
-     resolve through `mcp-tool-adapter`, are idempotent on re-run, and
-     modules without an `ai-tools.ts` stay silent.
-  2. `defineAiTool()` output and plain-object `AiToolDefinition` are
-     structurally equivalent on required fields; both are assignable to
-     `AiToolDefinition` and `McpToolDefinition`; both register through
-     the same loader path. Documents the current behavior that the
-     loader stores the `McpToolDefinition` subset (additive fields like
-     `displayName` / `tags` / `isMutation` / `maxCallsPerTurn` /
-     `supportsAttachments` are dropped at registration — Phase 3 WS-A /
-     Step 3.1 is the right place to preserve them when the agent
-     runtime lands).
-  3. `ai-agents.generated.ts` discovery is additive — fixtures with both
-     `aiToolConfigEntries` and `aiAgentConfigEntries` load tools
-     correctly and do NOT register agent IDs as tools; legacy-only and
-     agents-only fixtures both load cleanly.
-  4. generator output is stable across runs — `createAiAgentsExtension()`
-     produces byte-identical output across two factory instances and
-     across two `generateOutput()` calls on the same instance. Imported
-     via a relative path into `packages/cli` to keep the whole
-     regression suite in ONE file.
-- Unit tests: 13/13 suites, 179/179 tests in `packages/ai-assistant`
-  (baseline 12/167; delta +1 suite, +12 tests). `packages/cli`
-  33/33 suites, 787/787 tests (unchanged from baseline).
-- Typecheck: `@open-mercato/core:typecheck` green (cache hit);
-  `@open-mercato/app:typecheck` still fails on the pre-existing stale
-  `example/customer-tasks/page` entry in `backend-routes.generated.ts`
-  (documented since Step 2.3). Grep of typecheck output for
-  `phase-0-additive` matched zero lines — new file produces no
-  diagnostics.
+- Executor subagent landed **Step 3.1** as a single code commit
+  (`a87bd19f6`) plus this docs-flip commit.
+- New files under
+  `packages/ai-assistant/src/modules/ai_assistant/lib/`:
+  - `agent-registry.ts` — cached `Map<id, AiAgentDefinition>` populated
+    from the generated `allAiAgents` array via a dynamic import of
+    `@/.mercato/generated/ai-agents.generated`. Exposes
+    `loadAgentRegistry()` (idempotent), `getAgent(id)`,
+    `listAgents()` (stable-sorted by id), `listAgentsByModule(moduleId)`,
+    and the internal test hooks `resetAgentRegistryForTests()` +
+    `seedAgentRegistryForTests(agents)`.
+  - `ai-agents-generated.d.ts` — module declaration shim mirroring the
+    existing `ai-tools-generated.d.ts`, so TypeScript is happy with the
+    dynamic import at build sites that don't have a path-mapper yet.
+  - `__tests__/agent-registry.test.ts` — 8 new tests (empty-registry
+    on missing file, fixture population, stable-sort, module filter,
+    duplicate-id throws, malformed-entry warn-skip, reset hook,
+    idempotent re-load).
+- `packages/ai-assistant/src/index.ts` re-exports the public read-API
+  (`loadAgentRegistry`, `getAgent`, `listAgents`, `listAgentsByModule`,
+  `resetAgentRegistryForTests`). `seedAgentRegistryForTests` stays
+  intentionally unexported — internal testing hook only.
+- Registry stores `AiAgentDefinition` objects verbatim (no projection),
+  which avoids the additive-field loss flagged in the Step 2.5 HANDOFF
+  carryover about the MCP tool registry path. Step 3.2 will lean on
+  this: policy checks on `requiredFeatures` / `allowedTools` /
+  `readOnly` / `mutationPolicy` / `executionMode` need the full
+  `AiAgentDefinition`, not a subset.
+- Unit tests: 14/14 suites, 187/187 tests in `packages/ai-assistant`
+  (baseline 13/179; delta +1 suite, +8 tests). Typecheck on
+  `@open-mercato/core` green (cache hit); `@open-mercato/app`
+  typecheck still fails on the documented pre-existing
+  `example/customer-tasks/page` entry in `backend-routes.generated.ts`.
+  Grep of typecheck output for `agent-registry` /
+  `ai-agents-generated` matched zero lines — no new diagnostics.
 
 ## Next concrete action
 
-- **Step 3.1** — Spec Phase 1 WS-A — `agent-registry.ts` loads
-  `ai-agents.generated.ts` and exposes a typed lookup API.
-  - New file pointer:
-    `packages/ai-assistant/src/modules/ai_assistant/lib/agent-registry.ts`.
-  - Contract: typed `getAgent(id)`, `listAgents()`,
-    `listAgentsByModule(moduleId)` surfaced; lazy-loaded from
-    `@/.mercato/generated/ai-agents.generated` with graceful fallback
-    when the file is missing (tests, pre-generate builds) — mirror the
-    shape of `loadGeneratedModuleAiTools()` from Step 2.3.
-  - Export surface: add to `packages/ai-assistant/src/index.ts`
-    additively.
-  - Unit tests: fixture agents via `defineAiAgent`, lookup by id +
-    module, unknown-agent returns `undefined`, missing-generated-file
-    returns empty registry without throw.
-  - Phase 3 is UI-less through Step 3.10 — no Playwright / screenshots.
-    Step 3.3 (dispatcher HTTP route) and Step 3.6 (contract tests)
-    remain integration-test anchors, not UI.
+- **Step 3.2** — Spec Phase 1 WS-A — Runtime policy checks:
+  `requiredFeatures`, `allowedTools`, `readOnly`, attachment access,
+  `executionMode`.
+  - Expected new module (or inline in the dispatcher scaffold): a
+    policy helper under
+    `packages/ai-assistant/src/modules/ai_assistant/lib/`. Candidate
+    path: `agent-runtime.ts` (covering the shared policy + invocation
+    context) or a more focused `agent-policy.ts` if the runtime is
+    split across Steps 3.2 + 3.3.
+  - Consumer: Step 3.2 is the **first** Step that calls into
+    `getAgent(id)` from `agent-registry.ts`. Expect imports of
+    `getAgent` from `@open-mercato/ai-assistant`.
+  - Policy surface (per spec §4): `requiredFeatures` against user ACL
+    (mirror `hasRequiredFeatures` used by the MCP HTTP server),
+    `allowedTools` narrowing the tool registry returned to the agent,
+    `readOnly` / `mutationPolicy` gating `isMutation: true` tools,
+    `acceptedMediaTypes` vs incoming attachment parts, and
+    `executionMode` routing chat vs object.
+  - Unit tests: happy path + each rejection branch. No UI.
 - Phase 3 Workstream A runs Steps 3.1 → 3.3 back-to-back (registry →
   policy gate → HTTP dispatcher). Keep each Step to one commit.
 
@@ -86,12 +86,16 @@ additive-contract regression suite are all in place.
   persists into Phase 3.
 - **User's unstaged spec edit** (~280 lines on
   `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`) remains
-  out-of-scope. Step 2.5 read the committed HEAD view of the spec
+  out-of-scope. Step 3.1 read the committed HEAD view of the spec
   only.
-- **Loader drops additive tool fields**: documented finding — Step 3.1
-  should either widen `McpToolDefinition` to include the additive fields
-  or keep the registry `AiToolDefinition`-aware. Decision to be
-  recorded in Step 3.1 checks.
+- **Tool-registry additive-field loss** (from Step 2.5 HANDOFF): still
+  open. Step 3.1 sidesteps it for agents by storing full
+  `AiAgentDefinition` verbatim, but the tool-side projection through
+  `McpToolDefinition` still drops `displayName` / `tags` /
+  `isMutation` / `maxCallsPerTurn` / `supportsAttachments`. Step 3.2
+  (policy gate) needs at least `isMutation` — decide there whether to
+  widen `McpToolDefinition` or read `isMutation` off a parallel
+  side-channel.
 
 ## Environment caveats
 
@@ -103,8 +107,9 @@ additive-contract regression suite are all in place.
   in Phase 5 (Step 5.5, `AiPendingAction` table).
 - `yarn generate` will regenerate
   `apps/mercato/.mercato/generated/ai-tools.generated.ts` and
-  `ai-agents.generated.ts` on next run; Step 2.2 already wired the
-  generator, Step 2.3 the loader, Step 2.5 the regression coverage.
+  `ai-agents.generated.ts` on next run; Step 2.2 wired the generator,
+  Step 2.3 the tool loader, Step 2.5 the regression coverage, Step 3.1
+  the agent registry loader.
 
 ## Worktree
 
