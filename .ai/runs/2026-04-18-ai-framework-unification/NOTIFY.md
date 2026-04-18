@@ -256,3 +256,28 @@
   - Kept `seedAgentRegistryForTests` exported from the registry file but deliberately unexported from `packages/ai-assistant/src/index.ts` — testing hook only, not a public API. `resetAgentRegistryForTests` is exported publicly because downstream packages' integration tests may need it when Step 3.3 wires the HTTP dispatcher.
   - Registry stores `AiAgentDefinition` objects **verbatim** (no projection to a subset). Side-steps the Step 2.5 HANDOFF finding about the MCP tool registry dropping additive fields — agents keep `executionMode`, `mutationPolicy`, `resolvePageContext`, `acceptedMediaTypes`, `output`, and everything else intact for the Step 3.2 policy gate.
   - Phase 3 WS-A is now 1/3 landed. Steps 3.2 (policy gate) and 3.3 (HTTP dispatcher) are the remaining WS-A Steps — Step 3.2 is the first Step that actually consumes `getAgent(id)`.
+
+## 2026-04-18T10:37:31Z — Step 3.2 committed (4f3b8b737)
+- `feat(ai-assistant): add runtime policy gate for agent + tool + attachment checks`
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-policy.ts` (new — `checkAgentPolicy()` pure decision helper + 4 types + 9 deny codes).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-policy.test.ts` (new — 17 tests covering every deny code + success paths + super-admin bypass + default-read-only behavior).
+  - `packages/ai-assistant/src/index.ts` (additive re-exports under a new "Agent runtime policy gate" block).
+  - `.ai/runs/2026-04-18-ai-framework-unification/step-3.2-checks.md`.
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **15 suites / 204 tests** (baseline 14 / 187; delta +1 suite / +17 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/ai-assistant --filter=@open-mercato/core --filter=@open-mercato/app` — `@open-mercato/core` green (cache hit); `@open-mercato/app` still fails on the pre-existing `example/customer-tasks/page` entry in `backend-routes.generated.ts` (unrelated; documented since Step 2.3). Grep of typecheck output for `agent-policy` / `agent_policy` matched zero lines — no new diagnostics introduced.
+  - i18n / Playwright / generate / build: N/A (library helper only, no UI, no strings, no auto-discovery surface).
+- BC: additive only.
+  - Surface 2 (Types): every new type is additive; `AiAgentDefinition` and `AiToolDefinition` unchanged.
+  - Surface 3 (Function signatures): all new exports.
+  - Surface 4 (Import paths): `@open-mercato/ai-assistant` gains a new export group; nothing renamed or removed.
+  - Surface 10 (ACL feature IDs): no feature IDs introduced or renamed; policy helper reads features through `hasRequiredFeatures`.
+- Decisions:
+  - Reused `hasRequiredFeatures` from `auth.ts` for both agent-level and tool-level feature checks — preserves super-admin bypass + wildcard feature patterns already shipped with the MCP HTTP server.
+  - `readOnly` defaults to `true` when the field is not declared (spec §4 v1 rule). The default-read-only test case proves implicit agents still reject mutation tools.
+  - `mutationPolicy: 'read-only'` consistency rule (spec line 1675) is enforced with its own deny code (`mutation_blocked_by_policy`) distinct from `mutation_blocked_by_readonly`, so the HTTP dispatcher in Step 3.3 can surface the specific misconfiguration to tenant admins without ambiguity.
+  - Execution-mode gate is symmetric: object requested on chat-mode agent with no `output` → denied; chat requested on explicit object-mode agent → denied. Agents declared as `executionMode: 'chat'` but carrying an `output` schema can still run in object mode — that's the structured-output opt-in path Step 3.5 builds on.
+  - Attachment gate requires **opt-in**: agents without `acceptedMediaTypes` reject ALL attachments. Classification is MIME-prefix based: `image/*` → `image`, `application/pdf` → `pdf`, everything else → `file`, matching spec line 367.
+  - **isMutation BC gotcha (carried from Step 2.5)**: `toolRegistry.getTool()` returns `McpToolDefinition` at its declared surface. Tools registered with `isMutation: true` via plain-object literals (including `defineAiTool()` output) retain the field on the same object reference, so the cast to `AiToolDefinition` inside `agent-policy.ts` is BC-safe for current call sites. Tools that end up without `isMutation` (because they flowed through a projection that dropped it) are treated as non-mutation by default. This mirrors the spec's "mutation defaults to false" rule and stays safe: the mutation gates only fire when `isMutation === true`. When Step 2.5's future widening of `McpToolDefinition` lands, `agent-policy.ts` picks it up without any code change.
+  - Phase 3 WS-A is now 2/3 landed. Step 3.3 (HTTP dispatcher) closes WS-A.
