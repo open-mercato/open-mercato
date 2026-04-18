@@ -25,7 +25,7 @@
 | 1 | 1.2 | Rephase PLAN.md to cover the full ai-tooling spec (Phases 2–5) and rename the PR title to the `ai-framework-unification` main goal | done | 80b335707 |
 | 2 | 2.1 | Spec Phase 0 — Add `AiAgentDefinition` type and `defineAiTool()` helper; export both from `@open-mercato/ai-assistant` | done | a6191c741 |
 | 2 | 2.2 | Spec Phase 0 — Generator extension for `ai-agents.ts`, emit additive `ai-agents.generated.ts` | done | 89cbbe56a |
-| 2 | 2.3 | Spec Phase 0 — Restore loading of generated `ai-tools.generated.ts` contributions in the runtime tool-loader | todo | — |
+| 2 | 2.3 | Spec Phase 0 — Restore loading of generated `ai-tools.generated.ts` contributions in the runtime tool-loader | done | dc5d865fa |
 | 2 | 2.4 | Spec Phase 0 — Attachment-bridge contract types + prompt-composition primitive types in `@open-mercato/ai-assistant` | todo | — |
 | 2 | 2.5 | Spec Phase 0 — Unit tests: existing `ai-tools.ts` modules still register and execute; new discovery paths are additive | todo | — |
 | 3 | 3.1 | Spec Phase 1 WS-A — `agent-registry.ts` loads `ai-agents.generated.ts` and exposes a typed lookup API | todo | — |

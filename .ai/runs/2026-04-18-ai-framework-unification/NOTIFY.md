@@ -179,3 +179,19 @@
 ## 2026-04-18T09:50:30Z — decision: direct-executor mode for Step 2.2 only
 - Coordinator context lacks a subagent-dispatch tool. User course-corrected after Step 2.2 was already implemented locally: commit + push Step 2.2 under the normal executor contract, then halt without releasing the `in-progress` lock. Main session takes over dispatch from Step 2.3 onward.
 - No skill/contract change: the one-code-commit + one-docs-flip-commit discipline held. Lock remains held for the main session's incoming dispatches.
+
+## 2026-04-18T09:44:35Z — Step 2.3 committed (dc5d865fa)
+- `feat(ai-assistant): load module ai-tools.generated.ts in runtime tool-loader`.
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/tool-loader.ts` (extended; adds `AiToolConfigEntry` type, `registerGeneratedAiToolEntries()`, `loadGeneratedModuleAiTools()`, wires the new call into `loadAllModuleTools()` after Code Mode bootstrap).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/ai-tools-generated.d.ts` (new, 7 lines; declares `@/.mercato/generated/ai-tools.generated` module so the dynamic import type-checks inside the package).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/tool-loader.test.ts` (new, 5 cases; assertions cover populated-module registration, empty/undefined tools staying silent, `mcp-tool-adapter.ts` shape parity, `registerMcpTool` idempotency, and malformed-entry skip-with-warning).
+- Verification:
+  - `npx jest --config=jest.config.cjs --forceExit` in `packages/ai-assistant/` — **11 suites, 155 tests, all passing** (new suite `tool-loader.test.ts` 5/5).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — `@open-mercato/core` green; `@open-mercato/app` fails on a pre-existing stale entry in `backend-routes.generated.ts` referencing `example/backend/customer-tasks/page` (not touched by this Step). Focused `tsc --noEmit` over the Step 2.3 files: no diagnostics.
+  - i18n / Playwright / generator: N/A (no user-facing strings, no UI, no new generator).
+- BC: additive only — no signature removals, no generated-file shape changes, `mcp-tool-adapter.ts` unchanged. Spec surfaces 2, 3, 4, 13 remain compatible.
+- Decisions:
+  - Kept `mcp-tool-adapter.ts` as the single AI SDK adapter stack (spec §D10 + PLAN Risks). No parallel adapter.
+  - Dynamic-imported the generated file with a try/catch so the loader is safe to call in tests and in pre-generate builds.
+  - Used an `isModuleAiTool` structural guard rather than stricter Zod validation to avoid widening the loader's runtime dependency surface; malformed entries are skipped with a warning.
