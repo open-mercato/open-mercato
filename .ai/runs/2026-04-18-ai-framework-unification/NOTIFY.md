@@ -281,3 +281,29 @@
   - Attachment gate requires **opt-in**: agents without `acceptedMediaTypes` reject ALL attachments. Classification is MIME-prefix based: `image/*` → `image`, `application/pdf` → `pdf`, everything else → `file`, matching spec line 367.
   - **isMutation BC gotcha (carried from Step 2.5)**: `toolRegistry.getTool()` returns `McpToolDefinition` at its declared surface. Tools registered with `isMutation: true` via plain-object literals (including `defineAiTool()` output) retain the field on the same object reference, so the cast to `AiToolDefinition` inside `agent-policy.ts` is BC-safe for current call sites. Tools that end up without `isMutation` (because they flowed through a projection that dropped it) are treated as non-mutation by default. This mirrors the spec's "mutation defaults to false" rule and stays safe: the mutation gates only fire when `isMutation === true`. When Step 2.5's future widening of `McpToolDefinition` lands, `agent-policy.ts` picks it up without any code change.
   - Phase 3 WS-A is now 2/3 landed. Step 3.3 (HTTP dispatcher) closes WS-A.
+
+## 2026-04-18T12:10:00Z — Step 3.3 committed (aae4fc6f5)
+- `feat(ai-assistant): add POST /api/ai/chat?agent=<id> dispatcher route`
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/route.ts` (new — dispatcher HTTP route with `metadata` + `openApi`).
+  - `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/__tests__/route.test.ts` (new — 9 tests covering 401, 400-missing-agent, 400-malformed-agent, 400-invalid-body, 400-message-overflow, 404-unknown, 403-missing-feature, 409-object-mode-over-chat, 200-placeholder-stream).
+  - `.ai/runs/2026-04-18-ai-framework-unification/step-3.3-checks.md`.
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **16 suites / 213 tests** (baseline 15 / 204 after Step 3.2; delta +1 suite / +9 tests).
+  - `yarn generate` → 310 API paths (previously 309). OpenAPI JSON now includes `operationId: aiAssistantChatAgent` at `/api/ai_assistant/ai/chat` with `x-require-auth: true` and `x-require-features: ['ai_assistant.view']`.
+  - Typecheck: no package-level `tsc --noEmit` for `packages/ai-assistant`; grep of prior typecheck output for the new route path shows zero new diagnostics.
+  - i18n / Playwright: N/A (no UI, no strings).
+- BC: additive only.
+  - Surface 7 (API route URLs): NEW path only. Legacy `/api/ai_assistant/chat` (OpenCode route) stays untouched.
+  - Surface 2 (Types): new local `AiChatRequest = z.infer<typeof chatRequestSchema>` inside the route file; no public type rename.
+  - All other surfaces unaffected.
+- Decisions:
+  - **Placeholder stream body** — Step 3.3 returns
+    `data: {"type":"text","content":"Agent runtime for \"<agentId>\" is not yet implemented..."}\n\ndata: [DONE]\n\n`
+    so the HTTP contract, Content-Type, and error-model are observable end-to-end before Step 3.4 wires `createAiAgentTransport`. The placeholder carries a `TODO(step-3.4)` comment citing the exact successor Step — permissible WHY-comment per the AGENTS.md rule.
+  - **`attachmentMediaTypes: undefined`** — Step 3.3 does NOT resolve attachment IDs to media types. That work lands in Step 3.7 (attachment-to-model conversion bridge). `attachmentIds` are still zod-validated as `string[]` at the body level; the policy gate simply skips the attachment-type branch until bridge data is available. Documented with a `TODO(step-3.7)` comment at the call site.
+  - **Effective URL** — routing convention prefixes the module id, so the live URL is `/api/ai_assistant/ai/chat` even though the spec uses `/api/ai/chat` as shorthand. File layout (`api/ai/chat/route.ts`) matches the plan. Downstream Step 3.4 helpers + Phase 4 UI should resolve via the generated route registry, not a hard-coded literal.
+  - **Policy gate reuse** — the route calls `checkAgentPolicy({ agentId, authContext: { userFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin }, requestedExecutionMode: 'chat' })` without passing `toolName`. The tool-level branch of the policy gate (tool_not_whitelisted / tool_features_denied / mutation_blocked_by_*) is therefore untriggered at the dispatcher boundary — those denies will fire inside the Step 3.4 transport for each individual tool call, not at request-entry time. Matches the spec's runtime model: dispatcher authorizes the agent, transport authorizes each tool.
+  - **ACL load path** — reused `createRequestContainer()` + `rbacService.loadAcl(auth.sub, { tenantId, organizationId })` exactly the way `api/tools/execute/route.ts` already does. No new DI surface.
+  - **Message cap** — `messages.length > 100` → 400 with `code: 'validation_error'`. Chosen as a pragmatic guardrail for Phase 3; Phase 5 agent settings UI (Step 5.4) MAY replace it with a per-agent `maxSteps`/`maxMessages` cap.
+  - Phase 3 WS-A is now **complete** (3/3 Steps: 3.1 registry, 3.2 policy, 3.3 dispatcher). Next up: Phase 3 WS-B opens with Step 3.4 AI SDK helpers.
