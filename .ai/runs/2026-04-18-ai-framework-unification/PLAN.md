@@ -40,7 +40,7 @@
 | 3 | 3.10 | Spec Phase 1 WS-C — Catalog tool pack (products / categories / variants / prices / offers / media / product configuration) | done | 0a5395ff2 |
 | 3 | 3.11 | Spec §7 (D18) — Catalog merchandising read tools (`search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media` via bridge, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`) | done | 6e0beccb8 |
 | 3 | 3.12 | Spec §7 (D18) — Catalog AI-authoring tools (`draft_description_from_attributes`, `extract_attributes_from_description`, `draft_description_from_media`, `suggest_title_variants`, `suggest_price_adjustment`) | done | 14249bc68 |
-| 3 | 3.13 | Spec Phase 1 WS-C — Integration tests: unknown agent / forbidden agent / invalid attachment / allowed-tool filtering / tool-pack coverage | todo | — |
+| 3 | 3.13 | Spec Phase 1 WS-C — Integration tests: unknown agent / forbidden agent / invalid attachment / allowed-tool filtering / tool-pack coverage | done | f1cc6be3d |
 | 4 | 4.1 | Spec Phase 2 WS-A — `packages/ui/src/ai/AiChat.tsx` (embeddable chat component) | todo | — |
 | 4 | 4.2 | Spec Phase 2 WS-A — Upload adapter reusing attachments API, returns `attachmentIds` | todo | — |
 | 4 | 4.3 | Spec Phase 2 WS-A — Client-side UI-part registry with Phase 3 approval-card slots reserved | todo | — |
