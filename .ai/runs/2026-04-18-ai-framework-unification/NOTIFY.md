@@ -157,3 +157,9 @@
 - 44 Steps remaining across Phases 2–5. Next resume starts at **Step 2.2** (generator extension for `ai-agents.ts`).
 - PR comment `4273315680` posted with the full resume summary.
 - Releasing `in-progress` label on PR #1593.
+
+## 2026-04-18T09:24:07Z — coordinator claim
+- Coordinator (auto-continue-pr surrogate) claimed #1593 with all three lock signals: assignee `pkarw`, `in-progress` label, and claim comment `4273325910`.
+- Driving remaining 44 Steps sequentially via executor subagents (one per Step, foreground).
+- Safety checkpoint: will stop after 20 successful Steps in this session so the user can review bulk progress before Phase 3+.
+- Other auto-skills (auto-review-pr, merge-buddy, review-prs) will skip until the lock releases.
