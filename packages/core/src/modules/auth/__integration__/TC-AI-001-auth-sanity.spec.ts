@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login, DEFAULT_CREDENTIALS } from '../helpers/auth';
+import { login, DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-AI-001: Auth sanity for the AI framework integration run (Step 3.13 / Phase 3 WS-C).

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getAuthToken } from '../helpers/api';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-AI-002: AI agent dispatcher policy gate (Step 3.13 / Phase 3 WS-C).
