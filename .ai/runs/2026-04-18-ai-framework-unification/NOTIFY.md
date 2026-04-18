@@ -163,3 +163,19 @@
 - Driving remaining 44 Steps sequentially via executor subagents (one per Step, foreground).
 - Safety checkpoint: will stop after 20 successful Steps in this session so the user can review bulk progress before Phase 3+.
 - Other auto-skills (auto-review-pr, merge-buddy, review-prs) will skip until the lock releases.
+
+## 2026-04-18T09:50:00Z — Step 2.2 committed (89cbbe56a)
+- `feat(cli): add ai-agents.generated.ts generator extension`.
+- Files touched:
+  - `packages/cli/src/lib/generators/extensions/ai-agents.ts` (new, 108 lines; mirrors `createAiToolsExtension()`).
+  - `packages/cli/src/lib/generators/extensions/index.ts` (registers `createAiAgentsExtension()` after `createAiToolsExtension()`).
+  - `packages/cli/src/lib/generators/__tests__/structural-contracts.test.ts` (new `ai-agents.generated.ts` describe block + orders fixture `ai-agents.ts`).
+  - `packages/cli/src/lib/generators/__tests__/module-subset.test.ts` (expected-files list + empty-agents case).
+  - `packages/cli/src/lib/generators/__tests__/output-snapshots.test.ts` (stability list + orders fixture `ai-agents.ts`).
+  - `packages/cli/src/lib/generators/__tests__/scanner.test.ts` (convention-file override coverage).
+- Verification: `structural-contracts.test.ts` 98/98 passing (includes 2 new ai-agents cases); `module-subset.test.ts` + `scanner.test.ts` + `output-snapshots.test.ts` 78/78 passing. See `step-2.2-checks.md` for typecheck/generate/i18n/Playwright N/A reasoning.
+- BC: additive only — new file `ai-agents.generated.ts` with new exports (`aiAgentConfigEntries`, `allAiAgents`); `ai-tools.generated.ts` output shape unchanged.
+
+## 2026-04-18T09:50:30Z — decision: direct-executor mode for Step 2.2 only
+- Coordinator context lacks a subagent-dispatch tool. User course-corrected after Step 2.2 was already implemented locally: commit + push Step 2.2 under the normal executor contract, then halt without releasing the `in-progress` lock. Main session takes over dispatch from Step 2.3 onward.
+- No skill/contract change: the one-code-commit + one-docs-flip-commit discipline held. Lock remains held for the main session's incoming dispatches.
