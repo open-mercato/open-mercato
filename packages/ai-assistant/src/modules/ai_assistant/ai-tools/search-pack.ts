@@ -33,7 +33,7 @@ const hybridSearchInput = z.object({
     .describe('Filter to specific entity ids (e.g. "catalog:product").'),
 })
 
-const hybridSearchTool: AiToolDefinition = defineAiTool({
+const hybridSearchTool = defineAiTool({
   name: 'search.hybrid_search',
   displayName: 'Hybrid search',
   description:
@@ -58,7 +58,7 @@ const hybridSearchTool: AiToolDefinition = defineAiTool({
     })
     const timingMs = Date.now() - started
     const strategiesUsed = Array.from(
-      new Set(results.map((result) => result.source).filter((id): id is string => typeof id === 'string')),
+      new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
     )
     return {
       query: input.q,
@@ -75,7 +75,7 @@ const getRecordContextInput = z.object({
   recordId: z.string().min(1).describe('Record primary key (UUID).'),
 })
 
-const getRecordContextTool: AiToolDefinition = defineAiTool({
+const getRecordContextTool = defineAiTool({
   name: 'search.get_record_context',
   displayName: 'Get record context',
   description:
@@ -117,6 +117,6 @@ const getRecordContextTool: AiToolDefinition = defineAiTool({
   },
 })
 
-export const searchAiTools: AiToolDefinition[] = [hybridSearchTool, getRecordContextTool]
+export const searchAiTools: AiToolDefinition<any, any>[] = [hybridSearchTool, getRecordContextTool]
 
 export default searchAiTools

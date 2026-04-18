@@ -69,7 +69,7 @@ const listAgentsInput = z.object({
   moduleId: z.string().optional().describe('Restrict results to one module id.'),
 })
 
-const listAgentsTool: AiToolDefinition = defineAiTool({
+const listAgentsTool = defineAiTool({
   name: 'meta.list_agents',
   displayName: 'List agents',
   description:
@@ -101,7 +101,7 @@ const describeAgentInput = z.object({
   agentId: z.string().min(1).describe('Agent id (e.g. "catalog.merchandising_assistant").'),
 })
 
-const describeAgentTool: AiToolDefinition = defineAiTool({
+const describeAgentTool = defineAiTool({
   name: 'meta.describe_agent',
   displayName: 'Describe agent',
   description:
@@ -134,6 +134,6 @@ const describeAgentTool: AiToolDefinition = defineAiTool({
   },
 })
 
-export const metaAiTools: AiToolDefinition[] = [listAgentsTool, describeAgentTool]
+export const metaAiTools: AiToolDefinition<any, any>[] = [listAgentsTool, describeAgentTool]
 
 export default metaAiTools

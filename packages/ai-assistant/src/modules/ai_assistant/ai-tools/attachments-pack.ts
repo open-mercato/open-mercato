@@ -75,7 +75,7 @@ const listInput = z.object({
   recordId: z.string().min(1).describe('Record identifier within that entity.'),
 })
 
-const listRecordAttachmentsTool: AiToolDefinition = defineAiTool({
+const listRecordAttachmentsTool = defineAiTool({
   name: 'attachments.list_record_attachments',
   displayName: 'List record attachments',
   description:
@@ -127,7 +127,7 @@ const readInput = z.object({
     .describe('When true, include the stored extracted / OCR text if present (default false).'),
 })
 
-const readAttachmentTool: AiToolDefinition = defineAiTool({
+const readAttachmentTool = defineAiTool({
   name: 'attachments.read_attachment',
   displayName: 'Read attachment metadata',
   description:
@@ -186,7 +186,7 @@ const transferInput = z.object({
     .describe('Optional subset; defaults to every attachment on the source record.'),
 })
 
-const transferRecordAttachmentsTool: AiToolDefinition = defineAiTool({
+const transferRecordAttachmentsTool = defineAiTool({
   name: 'attachments.transfer_record_attachments',
   displayName: 'Transfer record attachments',
   description:
@@ -260,7 +260,7 @@ const transferRecordAttachmentsTool: AiToolDefinition = defineAiTool({
   },
 })
 
-export const attachmentsAiTools: AiToolDefinition[] = [
+export const attachmentsAiTools: AiToolDefinition<any, any>[] = [
   listRecordAttachmentsTool,
   readAttachmentTool,
   transferRecordAttachmentsTool,

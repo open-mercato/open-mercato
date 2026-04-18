@@ -1,0 +1,61 @@
+• turbo 2.7.5
+@open-mercato/cli:test: 
+@open-mercato/core:test: PASS src/modules/api_keys/services/__tests__/onetime-key-expiry.test.ts
+@open-mercato/core:test: PASS src/modules/messages/lib/__tests__/object-validation.test.ts
+@open-mercato/core:test: PASS src/modules/messages/api/[id]/conversation/read/__tests__/route.test.ts
+@open-mercato/core:test: PASS src/modules/entities/backend/entities/user/__tests__/create-entity-submit.test.ts
+@open-mercato/core:test: PASS src/modules/sales/widgets/dashboard/new-orders/__tests__/config.test.ts
+@open-mercato/core:test: PASS src/modules/messages/api/[id]/conversation/archive/__tests__/route.test.ts
+@open-mercato/core:test: PASS src/modules/messages/api/[id]/conversation/__tests__/route.test.ts
+@open-mercato/core:test: PASS src/modules/messages/api/types/__tests__/route.test.ts
+@open-mercato/core:test: PASS src/modules/sales/api/__tests__/channels.route.test.ts
+@open-mercato/core:test: PASS src/modules/sales/widgets/dashboard/new-quotes/__tests__/config.test.ts
+@open-mercato/core:test: PASS src/modules/directory/backend/directory/organizations/__tests__/edit-submit.test.ts
+@open-mercato/core:test: PASS src/modules/messages/api/unread-count/__tests__/route.test.ts
+@open-mercato/core:test: PASS src/modules/attachments/lib/__tests__/ocr-config.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/api/__tests__/utils.test.ts
+@open-mercato/core:test: PASS src/modules/directory/backend/directory/organizations/__tests__/create-submit.test.ts
+@open-mercato/core:test: PASS src/modules/customers/__tests__/search.test.ts
+@open-mercato/core:test: PASS src/modules/customers/components/detail/__tests__/TaskForm.submit.test.ts
+@open-mercato/core:test: PASS src/modules/sales/lib/__tests__/returnQuantity.test.ts
+@open-mercato/core:test: PASS src/modules/customers/__tests__/ai-tools/aggregator.test.ts
+@open-mercato/core:test: PASS src/modules/customer_accounts/lib/__tests__/rateLimitIdentifier.test.ts
+@open-mercato/core:test: PASS src/modules/customer_accounts/__tests__/tokenGenerator.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/services/__tests__/catalogPricingService.test.ts
+@open-mercato/core:test: PASS src/modules/messages/lib/__tests__/message-types-registry.test.ts
+@open-mercato/core:test: PASS src/modules/messages/commands/__tests__/registration.test.ts
+@open-mercato/core:test: PASS src/modules/notifications/__tests__/deliveryStrategies.test.ts
+@open-mercato/core:test: PASS src/modules/business_rules/backend/__tests__/page-metadata.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/lib/__tests__/categoryTree.test.ts
+@open-mercato/core:test: PASS src/modules/shipping_carriers/lib/__tests__/status-sync.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/widgets/__tests__/injection-table.test.ts
+@open-mercato/core:test: PASS src/modules/customers/components/detail/__tests__/utils.test.ts
+@open-mercato/core:test: PASS src/modules/shipping_carriers/widgets/injection/__tests__/tracking-status-badge.widget.test.tsx
+@open-mercato/core:test: PASS src/modules/customers/components/detail/__tests__/ActivityForm.validation.test.ts
+@open-mercato/core:test: PASS src/modules/customers/__tests__/ce.default-fields.test.ts
+@open-mercato/core:test: PASS src/modules/attachments/data/__tests__/entities-ocr.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/api/__tests__/variants.route.test.ts
+@open-mercato/core:test: PASS src/modules/auth/api/__tests__/users-consents.route.test.ts
+@open-mercato/core:test: PASS src/modules/customers/api/__tests__/detail.metadata.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/api/__tests__/prices.route.test.ts
+@open-mercato/core:test: PASS src/modules/catalog/commands/__tests__/registration.test.ts
+@open-mercato/core:test: PASS src/modules/customers/components/detail/__tests__/DealForm.validation.test.ts
+@open-mercato/core:test: A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+@open-mercato/core:test: 
+@open-mercato/core:test: Test Suites: 333 passed, 333 total
+@open-mercato/core:test: Tests:       3033 passed, 3033 total
+@open-mercato/core:test: Snapshots:   0 total
+@open-mercato/core:test: Time:        12.96 s
+@open-mercato/core:test: Ran all test suites.
+@open-mercato/cli:test: PASS src/lib/generators/__tests__/structural-contracts.test.ts (14.217 s)
+@open-mercato/cli:test: 
+@open-mercato/cli:test: Test Suites: 33 passed, 33 total
+@open-mercato/cli:test: Tests:       787 passed, 787 total
+@open-mercato/cli:test: Snapshots:   0 total
+@open-mercato/cli:test: Time:        15.769 s
+@open-mercato/cli:test: Ran all test suites.
+
+ Tasks:    19 successful, 19 total
+Cached:    0 cached, 19 total
+  Time:    27.077s 
+

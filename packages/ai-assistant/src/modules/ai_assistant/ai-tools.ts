@@ -12,7 +12,7 @@ import searchAiTools from './ai-tools/search-pack'
 import attachmentsAiTools from './ai-tools/attachments-pack'
 import metaAiTools from './ai-tools/meta-pack'
 
-export const aiTools: AiToolDefinition[] = [
+export const aiTools: AiToolDefinition<any, any>[] = [
   ...searchAiTools,
   ...attachmentsAiTools,
   ...metaAiTools,

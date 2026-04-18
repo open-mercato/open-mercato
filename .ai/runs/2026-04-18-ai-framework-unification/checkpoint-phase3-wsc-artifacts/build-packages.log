@@ -1,0 +1,64 @@
+• turbo 2.7.5
+• Packages in scope: @open-mercato/ai-assistant, @open-mercato/cache, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/gateway-stripe, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/sync-akeneo, @open-mercato/ui, @open-mercato/webhooks, create-mercato-app
+• Running build in 18 packages
+• Remote caching disabled
+@open-mercato/checkout:build: cache miss, executing 3992f1deee85ed21
+@open-mercato/events:build: cache miss, executing db9cc7fdf1796111
+create-mercato-app:build: cache miss, executing 0434ea8b17223bb2
+@open-mercato/sync-akeneo:build: cache miss, executing a04860f06691d25b
+@open-mercato/webhooks:build: cache miss, executing bf4433d6814f2885
+@open-mercato/content:build: cache miss, executing 689c40ccae6c64ae
+@open-mercato/enterprise:build: cache miss, executing 30507e2049731223
+@open-mercato/queue:build: cache miss, executing d84c1f04508735e6
+@open-mercato/core:build: cache miss, executing 0db0f4e8135219e7
+@open-mercato/onboarding:build: cache miss, executing 12f42993e7194941
+@open-mercato/events:build: Found 8 entry points
+@open-mercato/events:build: events built successfully
+@open-mercato/cache:build: cache miss, executing b6af341a3e44ee18
+@open-mercato/enterprise:build: Found 292 entry points
+@open-mercato/enterprise:build: enterprise package built successfully
+@open-mercato/search:build: cache miss, executing 8e84ff0eaba1c4a4
+@open-mercato/checkout:build: checkout built successfully
+@open-mercato/scheduler:build: cache miss, executing 242a7ccb9869afb5
+@open-mercato/webhooks:build: Found 58 entry points
+@open-mercato/webhooks:build: webhooks built successfully
+@open-mercato/ui:build: cache miss, executing d77c6f55270304a5
+@open-mercato/sync-akeneo:build: sync-akeneo built successfully
+@open-mercato/ai-assistant:build: cache miss, executing 4c46de876e106ef6
+create-mercato-app:build: Copied agentic/ → dist/agentic/
+create-mercato-app:build: Discovered 16 standalone guides → dist/agentic/guides/
+create-mercato-app:build: Build complete: dist/index.js
+@open-mercato/cli:build: cache miss, executing 7ce3542425aaa50f
+@open-mercato/content:build: Found 7 entry points
+@open-mercato/content:build: content built successfully
+@open-mercato/core:build: Found 2195 source entry points
+@open-mercato/shared:build: cache miss, executing e7ba8b04d9a57d1c
+@open-mercato/onboarding:build: Found 24 entry points
+@open-mercato/onboarding:build: onboarding built successfully
+@open-mercato/gateway-stripe:build: cache miss, executing 6f3df1db76f9d77a
+@open-mercato/queue:build: Found 7 entry points
+@open-mercato/queue:build: queue built successfully
+@open-mercato/cache:build: Found 9 entry points
+@open-mercato/cache:build: cache built successfully
+@open-mercato/search:build: Found 80 entry points
+@open-mercato/search:build: search built successfully
+@open-mercato/scheduler:build: scheduler built successfully
+@open-mercato/ai-assistant:build: Found 107 entry points
+@open-mercato/ai-assistant:build: ai-assistant built successfully
+@open-mercato/cli:build: Found 63 entry points
+@open-mercato/cli:build: Copied create-app/agentic/ → dist/agentic/
+@open-mercato/cli:build: Discovered 16 standalone guides → dist/agentic/guides/
+@open-mercato/cli:build: CLI built successfully
+@open-mercato/shared:build: Found 196 entry points
+@open-mercato/gateway-stripe:build: Found 25 entry points
+@open-mercato/shared:build: shared built successfully
+@open-mercato/gateway-stripe:build: gateway-stripe built successfully
+@open-mercato/ui:build: Generated lucide registry with 83 icons -> /Users/piotrkarwatka/Projects/mercato-development/packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+@open-mercato/ui:build: Found 252 entry points
+@open-mercato/ui:build: ui built successfully
+@open-mercato/core:build: core built successfully
+
+ Tasks:    18 successful, 18 total
+Cached:    0 cached, 18 total
+  Time:    3.804s 
+

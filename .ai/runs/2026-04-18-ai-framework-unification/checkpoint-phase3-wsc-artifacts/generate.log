@@ -1,0 +1,126 @@
+• turbo 2.7.5
+• Packages in scope: @open-mercato/app
+• Running generate in 1 packages
+• Remote caching disabled
+@open-mercato/app:generate: cache bypass, force executing 310f122bf8f776ee
+@open-mercato/app:generate: [dotenv@17.2.3] injecting env (59) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+@open-mercato/app:generate: ╔═══════════════════════╗
+@open-mercato/app:generate: ║  🧩 Open Mercato CLI  ║
+@open-mercato/app:generate: ╚═══════════════════════╝
+@open-mercato/app:generate: 
+@open-mercato/app:generate: 🚀 Running generate:all 
+@open-mercato/app:generate: Running all generators...
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/dashboards/api/roles/widgets/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/dashboards/api/users/widgets/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/auth/api/roles/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/auth/api/users/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/directory/api/organizations/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/directory/api/tenants/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/activities/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/addresses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/comments/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/companies/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/deals/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/interactions/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/people/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/api/tags/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/categories/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/offers/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/option-schemas/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/price-kinds/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/prices/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/product-unit-conversions/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/products/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/tags/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/catalog/api/variants/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/channels/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/credit-memos/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/dashboard/widgets/new-orders/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/dashboard/widgets/new-quotes/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/delivery-windows/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/document-addresses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/invoices/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/notes/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/order-adjustments/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/order-line-statuses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/order-lines/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/order-statuses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/orders/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/payment-methods/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/payment-statuses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/payments/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/price-kinds/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/quote-adjustments/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/quote-lines/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/quotes/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/returns/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/shipment-statuses/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/shipments/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/shipping-methods/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/tags/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/sales/api/tax-rates/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/api_keys/api/keys/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/execute/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/logs/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/rules/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/sets/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/execute/[ruleId]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/logs/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/sets/[id]/members/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/business_rules/api/sets/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/check/boolean/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/check/json/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/check/number/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/check/string/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/global/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/overrides/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/global/[id]/override/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/feature_toggles/api/global/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/currencies/api/currencies/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/currencies/api/exchange-rates/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/planner/api/availability-rule-sets.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/planner/api/availability.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/resources/api/activities.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/resources/api/comments.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/resources/api/resource-types.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/resources/api/resources.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/resources/api/tags.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/activities.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/addresses.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/comments.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/job-histories.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/leave-requests.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/team-members.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/team-roles.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/staff/api/teams.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/progress/api/active/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/progress/api/jobs/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/progress/api/jobs/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/scheduler/src/modules/scheduler/api/jobs/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/deliveries/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/webhook-deliveries/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/webhooks/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/[id]/rotate-secret/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/[id]/test/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/deliveries/[id]/retry/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/packages/webhooks/src/modules/webhooks/api/deliveries/[id]/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/apps/mercato/src/modules/example/api/customer-priorities/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/apps/mercato/src/modules/example/api/todos/route.ts
+@open-mercato/app:generate: [generate] ⚠ Route file exports handlers but no metadata — auth will default to required: /Users/piotrkarwatka/Projects/mercato-development/apps/mercato/src/modules/example/api/blog/[id]/route.ts
+@open-mercato/app:generate: Generated .mercato/generated/frontend-routes.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/ai-agents.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/module-package-sources.css
+@open-mercato/app:generate: [OpenAPI] Found 310 API route files
+@open-mercato/app:generate: [OpenAPI] Bundle approach: 310 paths, 242 with requestBody schemas
+@open-mercato/app:generate: [OpenAPI] Skipped (unchanged): /Users/piotrkarwatka/Projects/mercato-development/apps/mercato/.mercato/generated/openapi.generated.json
+@open-mercato/app:generate: [Bootstrap] Entity IDs re-registered (this may occur during HMR)
+@open-mercato/app:generate: [generate] Purging structural cache for all tenants...
+@open-mercato/app:generate: [generate] Structural cache purge completed.
+@open-mercato/app:generate: All generators completed.
+@open-mercato/app:generate: ⏱️ Done in 5449ms
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    6.33s 
+
