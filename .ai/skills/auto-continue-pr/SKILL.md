@@ -22,6 +22,8 @@ is not `done`, and drive the PR to `complete` status with per-commit
 
 ## Workflow
 
+> If this is a **Simple run**, follow the Simple-run contract in step 0a and skip everything from run-folder lookup through NOTIFY ceremony. If this is a **Spec-implementation run**, proceed with the full workflow below.
+
 ### 0. Claim the PR
 
 Auto-skills MUST NOT clobber each other. Before doing anything else, decide whether you may claim this PR.
@@ -59,6 +61,71 @@ gh pr comment {prNumber} --body "🤖 \`auto-continue-pr\` started by @${CURRENT
 ```
 
 The release step happens at the end of step 9 — the lock MUST be released even on failure. Use a `trap`/finally so a crash still clears the label and posts a completion comment.
+
+### 0a. Classify the run before parsing PLAN.md
+
+Now that you hold the lock, decide which mode this resume runs in. The rest of the workflow branches on this choice.
+
+**Simple run** (default when unsure whether the PR looks simple):
+
+- Bug fix (1–3 files, localized).
+- Code-review follow-up (applying review feedback to an existing PR).
+- Dependency bump.
+- Typo, copy change, or docs tweak.
+- Small refactor within one file.
+- Linter, i18n, or test-only changes.
+- Any PR the user explicitly flags as small ("just a quick fix", "CR follow-up", etc.).
+
+**Spec-implementation run**:
+
+- Work driven by a file under `.ai/specs/` or `.ai/specs/enterprise/`.
+- Multi-phase or multi-workstream tasks (≥3 commits expected).
+- New module, new integration provider, new database entity + migration.
+- UI surface + API + tests together.
+- Anything the user describes with phases, workstreams, or deliverables.
+- Any existing `auto-create-pr` run that already has a `.ai/runs/<date>-<slug>/` folder.
+
+Classification heuristic — evaluate in order, first match wins:
+
+1. Is there a linked spec (`.ai/specs/...`) or an existing `.ai/runs/<date>-<slug>/` folder referenced from the PR body? → **Spec-implementation run**.
+2. Did the user describe the task in terms of phases / steps / deliverables? → **Spec-implementation run**.
+3. Does the task clearly span >5 files or >1 package AND introduce new contract surface (new route, new entity, new event ID, new DI name, new ACL feature)? → **Spec-implementation run**.
+4. Otherwise → **Simple run**.
+
+When in doubt: **default to Simple run**. It is cheaper to promote a Simple run to a Spec-implementation run mid-flight (by drafting a plan then) than to over-engineer a typo fix.
+
+Never demote a Spec-implementation run to a Simple run.
+
+#### Simple-run contract
+
+For Simple runs, skip the whole run-folder ceremony. Requirements:
+
+- **No run folder**, no `PLAN.md`, no `HANDOFF.md`, no `NOTIFY.md`, no `step-<X.Y>-checks.md`.
+- **No Tasks table** anywhere.
+- **One code commit** pushed to the PR branch (may be amended pre-push; once pushed, create a new commit rather than amending).
+- Unit tests for behavior changes (still mandatory for code; docs-only exempt).
+- Targeted validation for the touched package(s) only (typecheck + unit tests; i18n if strings changed).
+- Conventional-commit subject.
+- Push the fix directly to the PR branch.
+- PR body stays short — summary + test plan + rollback (no `Tracking plan:` line, no `Status:` field, no linked run folder). If the existing body already has these tracking fields from a prior promotion, leave them; otherwise do not add them.
+- Still respect: three-signal `in-progress` lock (already claimed in step 0), label discipline (pipeline + category + meta), BC contract surfaces, code-review self-check, `auto-review-pr` pass.
+- Final summary comment still posts, but compacted to: summary of changes, how to verify, what can go wrong. No "Verification phases" matrix, no "External references honored" section unless actually relevant.
+
+A Simple run still uses an isolated worktree (skip straight to step 2 for worktree setup), still runs `auto-review-pr` in autofix mode, and still releases the lock per step 9.
+
+#### Spec-implementation-run contract
+
+Keep the full contract documented in the rest of this file: run-folder lookup, HANDOFF.md → Tasks table → NOTIFY tail orientation, per-Step `step-<X.Y>-checks.md`, 1:1 step-to-commit discipline, full validation gate before flipping to `complete`, `auto-review-pr` autofix pass, comprehensive summary comment with all headings.
+
+#### Promotion path (Simple → Spec-implementation)
+
+A Simple run MAY be promoted to a Spec-implementation run mid-flight if the resume discovers the remaining work is larger than it looked:
+
+- Stop the simple flow.
+- Draft the plan under `.ai/runs/<date>-<slug>/PLAN.md` (with Tasks table), `HANDOFF.md`, `NOTIFY.md`.
+- Write a seed commit that adds these files.
+- Update the PR body to add `Tracking plan:` and `Status: in-progress` lines.
+- Continue under the full Spec-implementation contract from step 1 onwards.
 
 ### 1. Locate the run folder
 
@@ -217,6 +284,8 @@ Subagent parallelism (optional, capped at 2):
 - Record any subagent delegation in `NOTIFY.md` with timestamps.
 
 #### Multi-Step runs: executor-dispatch pattern
+
+> Applies only to **Spec-implementation runs**. Simple runs have at most one code commit and do not use executor dispatch.
 
 When a single `/auto-continue-pr` invocation is expected to land **multiple Steps in one pass**, the main session SHOULD act as a **dispatcher** and spawn one **executor subagent** per Step (foreground `Agent` tool call, `subagent_type: "general-purpose"`). The executor implements exactly that Step end-to-end (code commit + docs-flip commit + push). The main session waits for the executor to return, verifies the commits landed and pushed, then dispatches the next Step.
 
