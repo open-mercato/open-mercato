@@ -1,84 +1,104 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T14:55:00Z
+**Last updated:** 2026-04-18T17:10:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 4 WS-A Step 4.3 **complete** (closes WS-A:
-`<AiChat>` + upload adapter + formalized UI-part registry with Phase 3
-slots reserved). Next: Phase 4 WS-B Step 4.4 — backend playground page.
-**Last commit:** `59f23edac` — `feat(ui): formalize AiChat UI-part registry with Phase 3 slot reservations (Phase 2 WS-A)`
+**Current phase/step:** Phase 4 WS-B Step 4.4 **complete** (backend
+playground page + `run-object` HTTP route + `agents` list route). Next:
+Phase 4 WS-B Step 4.5 — backend agent settings page (prompt overrides,
+tool toggles, attachment policy).
+**Last commit:** `f62aead47` — `feat(ai-assistant): add backend AI playground page + run-object route (Phase 2 WS-B)`
 
 ## What just happened
 
-- Step 4.3 landed the formalized UI-part registry:
-  - `createAiUiPartRegistry()` — isolated instances for testing / scoped rendering.
-  - `defaultAiUiPartRegistry` — global singleton that seeds the four Phase 3
-    reserved slots (`mutation-preview-card`, `field-diff-card`,
-    `confirmation-card`, `mutation-result-card`) to a shared
-    `PendingPhase3Placeholder` DS-compliant info alert.
-  - `<AiChat>` gained an optional `registry` prop that overrides the
-    default registry. Step-4.1 `registerAiUiPart` / `resolveAiUiPart`
-    shims still work.
-- New files: `ui-part-slots.ts`, `ui-parts/pending-phase3-placeholder.tsx`,
-  3 new test files, `__integration__/TC-AI-UI-003-aichat-registry.spec.tsx`.
-- i18n keys added under `ai_assistant.chat.pending_phase3.*` (4 locales).
-- Jest run: `packages/ui` `ai/` scope = 6 suites / 45 tests, green.
-- Earlier same session:
-  - Cleanup commit `bbc63f1da` moved the TC-AI integration specs from
-    `.ai/qa/tests/ai-framework/` into their per-module
-    `__integration__/` homes per the user's feedback. The spec runner's
-    discovery helper already walks `packages/*/src/**/__integration__/**`
-    so no Playwright config change was needed.
-  - Refactor commit `8afa65d2e` split the verbose skill variant into
-    `.ai/skills/auto-create-pr-sophisticated/` and
-    `.ai/skills/auto-continue-pr-sophisticated/`; originals restored to
-    pre-PR state.
+- Step 4.4 shipped the first real user-facing embedding of `<AiChat>`:
+  - New backend page `/backend/config/ai-assistant/playground` guarded
+    by `ai_assistant.settings.manage`.
+  - Two-tab UX (Chat + Object mode) driven by a single agent picker.
+    The chat lane embeds `<AiChat key={agent.id}>` so switching agents
+    resets transcript state; the object lane calls the new scoped
+    one-shot route.
+  - Debug toggle flips `<AiChat debug>` on/off. Empty-state alert when
+    no agents are registered. Lane-level disabled alerts when the
+    selected agent's `executionMode` does not match the current tab.
+- New HTTP routes (both additive):
+  - `POST /api/ai_assistant/ai/run-object` — reuses the chat
+    dispatcher's auth + policy gate but with
+    `requestedExecutionMode: 'object'`, returns `{ object, finishReason?, usage? }`
+    via `runAiAgentObject`. Streaming-mode is rejected with 422.
+  - `GET /api/ai_assistant/ai/agents` — mirrors the
+    `meta.list_agents` tool so the client picker can populate without
+    going through the MCP tool transport.
+- 32 new `ai_assistant.playground.*` i18n keys, synced across en/pl/es/de.
+- Integration spec
+  `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts`
+  stubs `/api/ai_assistant/ai/{agents,chat,run-object}` so CI never
+  hits a real LLM provider; asserts picker + debug toggle + composer
+  wiring.
+- 8 new unit tests under the new route's `__tests__/` (401/400/404/403/422
+  happy+sad paths + `AgentPolicyError` mapping + stream-mode rejection).
+- **Build fix (also in the same commit):** narrowed
+  `packages/ui/src/ai/useAiChat.ts`'s import of `createAiAgentTransport`
+  from the `@open-mercato/ai-assistant` root barrel to the subpath
+  `@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport`.
+  Without this the playground page (first app consumer of the
+  `@open-mercato/ui/ai` module from a Next.js page) failed `yarn build:app`
+  because the barrel transitively pulls `opencode-handlers` and the
+  server-only DI container into the client bundle. Three AiChat test
+  mock paths updated to match; no public contract change. Also added
+  an explicit `./ai` entry to `packages/ui/package.json` exports.
 
 ## Next concrete action
 
-- **Step 4.4** — Backend playground page
-  `/backend/config/ai-assistant/playground` with:
-  - Agent picker that enumerates agents the caller can invoke (reuses
-    `meta.list_agents` from Step 3.8).
-  - Debug panel toggle (shows `useAiChat`'s last request / response
-    payload plus resolved tools & prompt sections).
-  - Object-mode runner calling `runAiAgentObject` (Step 3.5).
-  - Keyboard shortcuts (`Cmd/Ctrl+Enter` submit, `Escape` cancel) —
-    follow `packages/ui/AGENTS.md` dialog conventions.
-  - Feature gate: `ai_assistant.settings.manage` (existing, see
-    `packages/ai-assistant/src/modules/ai_assistant/acl.ts`).
-  - First real browser surface for `<AiChat>`. Executor MUST run a
-    Playwright MCP smoke per the UI-step cadence rule (memory:
-    `feedback_integration_tests_per_module.md`) and land an integration
-    spec under
-    `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts`.
+- **Step 4.5** — Backend agent settings page at
+  `/backend/config/ai-assistant/agents`:
+  - Per-agent prompt override editor (versioned, additive merge
+    — see spec Phase 3 WS-B rules; Phase 2 may ship UI-only with a
+    local-state placeholder pending Phase 3 persistence in Step 5.3).
+  - Tool whitelist toggles (`allowedTools` per agent) — read-only
+    until Phase 3, but surface the list so operators see what each
+    agent invokes.
+  - Attachment media-type policy view.
+  - Guarded by `ai_assistant.settings.manage`.
+  - Reuse the agent picker UX from Step 4.4 (candidate for extracting
+    to a shared `<AgentPicker>` primitive under
+    `packages/ai-assistant/src/modules/ai_assistant/components/` if
+    scope stays small; otherwise duplicate once and extract in 4.6).
+  - Integration spec under
+    `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-*.spec.ts`.
+  - Update `packages/ai-assistant/AGENTS.md` / `.ai/specs/...` as the
+    spec requires when the prompt-override contract is first exposed.
 
 ## Blockers / open questions
 
-- **Dispatcher response shape.** `useAiChat` assumes plain-text streaming
-  (`toTextStreamResponse`). If the playground wants to stream `UIMessage`
-  chunks for tool calls / usage / parts, migrate the dispatcher to
-  `toUIMessageStreamResponse` — flag in 4.4 if it becomes a blocker.
-- **Object-mode dispatcher.** Per Step 3.5 decisions, the HTTP route is
-  still chat-only. The playground's object-mode lane will call the
-  helper directly server-side via a new scoped route (e.g.
-  `POST /api/ai_assistant/ai/run-object`) — keep scope small.
-- **Integration-test discovery in `packages/ui`.** The CLI discovery
-  helper walks `packages/*/src/**/__integration__/**`, so
-  `packages/ui/__integration__/` may fall outside the default scope
-  (note: lives at `packages/ui/__integration__/`, not
-  `packages/ui/src/**`). Verify during 4.4 and add a README redirect or
-  move the spec into `packages/ui/src/ai/__integration__/` if discovery
-  drops it.
+- **Prompt-override persistence.** Spec Phase 3 WS-B (Step 5.3) owns
+  the versioned prompt-override storage. Step 4.5 may need to land a
+  UI-only surface that POSTs to a TODO endpoint or manages override
+  state in local component state pending 5.3. Flag the split when the
+  Step 4.5 subagent runs.
+- **Agent picker reuse.** Playground's picker is currently a plain
+  `<select>` inline in `AiPlaygroundPageClient.tsx`. If Step 4.5
+  rebuilds the same UI, extract to a shared primitive before a third
+  caller appears.
+- **Dev-runtime browser smoke caveat.** This Step's browser-smoke was
+  constrained by an unrelated pre-session `next-server` process
+  saturating port :3000. The Playwright integration spec (which runs
+  against its own Playwright-managed dev server) provides equivalent
+  coverage. If this recurs for Step 4.5, document and keep moving.
 
 ## Environment caveats
 
-- Dev runtime runnable (verified at the Phase 3 WS-C checkpoint).
+- Dev runtime nominally runnable (the build chain is green). The
+  primary-worktree's dev server was stuck at ~120% CPU during the
+  Step 4.4 session — if this persists, Step 4.5 should either target
+  a different port or ask the user to recycle the dev runtime before
+  starting.
 - Database / migration state: clean, untouched.
-- `yarn i18n:check-sync` green after 4.3 keys landed.
-- Typecheck clean; the pre-existing `@open-mercato/app`
+- `yarn i18n:check-sync` green (46 modules × 4 locales including the
+  32 new `ai_assistant.playground.*` keys).
+- Typecheck clean; pre-existing `@open-mercato/app`
   `agent-registry.ts(43,7)` diagnostic (Step 3.1 carryover) is
   tolerated.
 

@@ -629,3 +629,26 @@
 - BC: additive only. Step-4.1 `registerAiUiPart` / `resolveAiUiPart` preserved as shims over `defaultAiUiPartRegistry`. `<AiChat>` props contract extended (optional `registry`), never narrowed.
 - Phase 2 WS-A is now **3/3 landed — closed**. Phase 2 WS-B opens next with Step 4.4 (backend playground page). First real browser surface for `<AiChat>`; UI-step cadence rule (memory: feedback_integration_tests_per_module.md) requires a Playwright smoke + integration spec under `packages/ai-assistant/src/modules/ai_assistant/__integration__/`.
 
+
+## 2026-04-18T17:05:00Z — Step 4.4 committed (f62aead47)
+- `feat(ai-assistant): add backend AI playground page + run-object route (Phase 2 WS-B)`
+- Files touched (code commit):
+  - New page: `packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/playground/{page.tsx,page.meta.ts,AiPlaygroundPageClient.tsx}`.
+  - New routes: `packages/ai-assistant/src/modules/ai_assistant/api/ai/{run-object,agents}/route.ts` (+ run-object `__tests__/route.test.ts`).
+  - Integration spec: `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts`.
+  - i18n: 32 new `ai_assistant.playground.*` keys synced across en/pl/es/de.
+  - Build fix: `packages/ui/src/ai/useAiChat.ts` now imports `createAiAgentTransport` from the narrow subpath `@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport`; three AiChat test `jest.mock(...)` call sites updated to match; explicit `./ai` export added to `packages/ui/package.json`.
+- Verification:
+  - `packages/ai-assistant` jest: **29 suites / 346 tests** (was 28/338 — new `run-object` route suite adds 1/8).
+  - `packages/ui` jest: **58 / 317** preserved.
+  - `packages/core` jest: **333 / 3033** preserved.
+  - `yarn build:app`: **51.9s** green after the narrow-import fix.
+  - `yarn generate`: 312 API routes; both new paths present in `openapi.generated.json`.
+  - `yarn i18n:check-sync`: green after `--fix` sorted the new entries.
+- Decisions:
+  - **Auth wiring**: `run-object` mirrors the chat dispatcher's `getAuthFromRequest → rbacService.loadAcl → checkAgentPolicy` chain. Error codes match; `execution_mode_not_supported` maps to 422 (vs 409 chat) so the "wrong-mode agent" surface is distinct for clients.
+  - **Picker UX**: one picker, two tabs. Each tab detects `executionMode` and renders a disabled-state alert when the picker choice does not match. Chat lane resets `<AiChat>` on agent switch via `key={agent.id}`.
+  - **Playwright stubs**: spec intercepts `/api/ai_assistant/ai/{agents,chat,run-object}` so the test asserts UI wiring (picker, debug toggle, composer) without depending on a configured LLM provider. Streaming coverage already exists in the chat-dispatcher unit tests.
+  - **Browser smoke deferred to Playwright**: an unrelated pre-session `next-server` process (pid 48131, 47-minute wall clock at ~120% CPU) saturated port :3000, so MCP browser navigation timed out. The integration spec provides equivalent coverage against its own Playwright-managed dev server.
+- BC: additive only (2 new URLs, 1 new page, 32 new i18n keys, explicit `./ai` subpath export in `packages/ui/package.json`). `useAiChat` import path change is internal — `<AiChat>` / `useAiChat` public contracts unchanged.
+- Phase 4 WS-B now **1/3 landed** (4.4 done). Phase 4 overall **4/11**. Next: Step 4.5 — backend agent settings page.
