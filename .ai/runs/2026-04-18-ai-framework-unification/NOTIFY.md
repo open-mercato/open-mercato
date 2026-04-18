@@ -503,3 +503,29 @@
   - **`list_offers.variantId` path** walks prices to discover offer ids (offers join prices via `offer_id`, not a direct variant FK). Short-circuits when the variant has no priced offers.
   - **`list_price_kinds_base` org scope**: price kinds can be null-scoped (shared across tenant). `where.$or` allows both matched and null `organizationId` rows within the tenant boundary.
 - Phase 3 WS-C is now **4/7 landed** — next is Step 3.11 (D18 catalog merchandising read tools: `search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media`, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`).
+
+## 2026-04-18T23:05:00Z — Step 3.11 committed (6e0beccb8)
+- `feat(catalog): add D18 merchandising read tools (search_products, get_product_bundle, list_selected_products, get_product_media, get_attribute_schema, get_category_brief, list_price_kinds)`
+- Files added: `packages/core/src/modules/catalog/ai-tools/merchandising-pack.ts`, `packages/core/src/modules/catalog/ai-tools/_shared.ts`, `packages/core/src/modules/catalog/__tests__/ai-tools/merchandising-pack.test.ts`.
+- Files modified: `packages/core/src/modules/catalog/ai-tools.ts` (import + concat `merchandisingAiTools`), `packages/core/src/modules/catalog/ai-tools/prices-offers-pack.ts` (route `list_price_kinds_base` through the shared helper), `packages/core/src/modules/catalog/__tests__/ai-tools/aggregator.test.ts` (extend to 19-tool coverage + coexistence + spec-name fidelity).
+- Seven D18 read tools shipped, names match the spec verbatim:
+  - `catalog.search_products` (hybrid: searchService when `q` non-empty → query engine otherwise; output `source: 'search_service' | 'query_engine'`).
+  - `catalog.get_product_bundle` (aggregate; `translations: null` flagged since catalog has no `translations.ts` yet).
+  - `catalog.list_selected_products` (1..50 ids, dedup, cross-tenant drops into `missingIds`).
+  - `catalog.get_product_media` (attachmentId strings only; Step 3.7 bridge converts at runtime).
+  - `catalog.get_attribute_schema` (reuses `loadCustomFieldDefinitionIndex` — no hand-rolled resolver).
+  - `catalog.get_category_brief` (`{ found: false }` on miss; reuses the same schema resolver).
+  - `catalog.list_price_kinds` (D18) + coexistence with `catalog.list_price_kinds_base` (Step 3.10). Both tools share the new `listPriceKindsCore` helper in `_shared.ts`.
+- RBAC: every tool whitelists existing feature IDs from `catalog/acl.ts` (`catalog.products.view`, `catalog.categories.view`, `catalog.settings.manage`). Pinned by `aggregator.test.ts`.
+- No mutation tools. No new feature IDs.
+- Tests: catalog ai-tools scope **8 suites / 57 tests** (+1 / +21 vs 3.10). Full `packages/core` **332 / 3013** (+1 / +21 vs 331 / 2992 baseline). `packages/ai-assistant` unchanged at **25 / 316**.
+- Typecheck: `@open-mercato/core` passes cleanly; `@open-mercato/app` carries only pre-existing Steps 3.1/3.8 diagnostics (zero new diagnostics on the new files — verified).
+- `yarn generate` — re-ran; existing catalog entry in `ai-tools.generated.ts` still resolves. No new generator entry required.
+- Decision notes:
+  - **Shared helper over duplication**: the brief allowed either sharing or flagging a NOTE. The `list_price_kinds` (D18) / `list_price_kinds_base` pair now share `listPriceKindsCore` in `ai-tools/_shared.ts`. The shared helper keeps full row info (including `createdAt` / `updatedAt` — additive); each tool projects its own output shape on top. No output-shape regression vs Step 3.10.
+  - **`search_products` search-service filters**: current `SearchOptions` accepts `entityTypes` but not structured filters. The tool sends `q` + `entityTypes: ['catalog:catalog_product']` to the service, intersects the hit set with the query-engine path for any structured filter (category / tags / price / active), and hydrates tenant-scoped product summaries. Documented in the tool's description and here.
+  - **`get_product_bundle` best price**: uses `catalogPricingService.resolvePrice` when registered in DI. `PricingContext` requires `quantity` + `date`; the bundle uses `{ quantity: 1, date: new Date() }` since merchandising reads have no cart state. When the DI token is absent, `best` is `null` and `all` still carries every price row.
+  - **`get_product_media` bridge handoff**: returns `attachmentId` strings alongside metadata; does NOT call the Step 3.7 bridge itself. The bridge is expected to intercept attachment references when the chat/object helper dispatches the tool in-context. Short doc-comment on the tool's description makes the handoff explicit.
+  - **`get_attribute_schema` reuse**: uses `loadCustomFieldDefinitionIndex` from `@open-mercato/shared/lib/crud/custom-fields` — the canonical resolver. No hand-rolled merged-schema path. Product / category specialization goes through the same loader with entity-id filter (`E.catalog.catalog_product`, `E.catalog.catalog_product_category`).
+  - **`list_selected_products` cross-tenant handling**: cross-tenant ids and missing ids both drop into `missingIds` (not a 403 surface). A `console.warn` logs each drop. This matches the spec's brief explicitly ("cross-tenant IDs must appear as missing, not as a 403").
+- Phase 3 WS-C is now **5/7 landed** — next is Step 3.12 (D18 catalog AI-authoring tools via `runAiAgentObject`).

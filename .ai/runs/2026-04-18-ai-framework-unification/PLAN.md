@@ -38,7 +38,7 @@
 | 3 | 3.8 | Spec Phase 1 WS-C — General-purpose tool packs (`search.*`, `attachments.*`, `meta.*`) | done | 11c5a87b8 |
 | 3 | 3.9 | Spec Phase 1 WS-C — Customers tool pack (people / companies / deals / activities / tasks / addresses / tags / settings) | done | c2f2e21cb |
 | 3 | 3.10 | Spec Phase 1 WS-C — Catalog tool pack (products / categories / variants / prices / offers / media / product configuration) | done | 0a5395ff2 |
-| 3 | 3.11 | Spec §7 (D18) — Catalog merchandising read tools (`search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media` via bridge, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`) | todo | — |
+| 3 | 3.11 | Spec §7 (D18) — Catalog merchandising read tools (`search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media` via bridge, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`) | done | 6e0beccb8 |
 | 3 | 3.12 | Spec §7 (D18) — Catalog AI-authoring tools (`draft_description_from_attributes`, `extract_attributes_from_description`, `draft_description_from_media`, `suggest_title_variants`, `suggest_price_adjustment`) | todo | — |
 | 3 | 3.13 | Spec Phase 1 WS-C — Integration tests: unknown agent / forbidden agent / invalid attachment / allowed-tool filtering / tool-pack coverage | todo | — |
 | 4 | 4.1 | Spec Phase 2 WS-A — `packages/ui/src/ai/AiChat.tsx` (embeddable chat component) | todo | — |
