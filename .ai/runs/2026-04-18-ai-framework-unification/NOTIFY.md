@@ -395,3 +395,33 @@
 - Branch at `63167d39a`, all commits pushed. Lock releasing.
 - Next resume starts at Step 3.7 (attachment-to-model conversion bridge), the first WS-C step.
 - 37 Steps remain: WS-C (7), Phase 4 (11), Phase 5 (19).
+
+## 2026-04-18T17:20:00Z — Step 3.7 committed (86901a489)
+- `feat(ai-assistant): add attachment-to-model conversion bridge`
+- Files touched (code commit):
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` (new, ~370 lines) — resolver, whitelist filter, tenant/org gate, four-source classifier, AI SDK v6 `FileUIPart` materializer, system-prompt attachment summarizer, optional `AttachmentSigner` DI hook.
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts` (modified) — adds module-private `attachAttachmentsToMessages` + `appendAttachmentSummary` shared by both helpers; threads `resolveAttachmentPartsForAgent` into `runAiAgentText` and `runAiAgentObject` through the same code path.
+  - `packages/ai-assistant/src/index.ts` (modified) — additive re-exports: `resolveAttachmentParts`, `resolveAttachmentPartsForAgent`, `attachmentPartsToUiFileParts`, `summarizeAttachmentPartsForPrompt`, `ResolveAttachmentPartsInput`, `AttachmentSigner`.
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/attachment-parts.test.ts` (new, 20 tests) — covers all four source kinds, the `acceptedMediaTypes` whitelist, the cross-tenant drop, and the unavailable-service graceful skip; mocks the attachments module at the jest module level.
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **22 suites / 285 tests** (baseline 21/265 after Step 3.6; delta +1 suite / +20 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`: same pre-existing `app:typecheck` diagnostic on `agent-registry.ts(43,7)` (Step 3.1 carryover). No new diagnostics on `attachment-parts.ts`, `agent-runtime.ts`, or `index.ts`.
+  - `yarn generate` NOT run — library-only change, no route / OpenAPI / module-discovery surface touched.
+  - i18n / Playwright: N/A (no user-facing strings, no UI).
+- BC: additive only.
+  - Surface 2 (Types): new `ResolveAttachmentPartsInput`, `AttachmentSigner`. No existing public type modified.
+  - Surface 3 (Function signatures): four new exported functions; no existing signature changed. `runAiAgentText` / `runAiAgentObject` public input shape unchanged — the bridge runs on already-accepted `attachmentIds` + `container`.
+  - Surface 4 (Import paths): additive re-exports only.
+  - Surface 7 (API route URLs): unchanged.
+  - Surface 8 (Database schema): unchanged.
+- Decisions:
+  - **Single shared code path.** Both `runAiAgentText` and `runAiAgentObject` call `resolveAttachmentPartsForAgent` + `attachAttachmentsToMessages` + `appendAttachmentSummary` in the same order with the same inputs. The only reason the helpers exist separately is that `streamText` vs `generateObject`/`streamObject` live behind different SDK entries; the attachment pipeline is shared byte-for-byte so Step 3.6 parity invariant #7 holds.
+  - **Attachments module reuse, no new service surface.** The bridge loads `Attachment` via `findOneWithDecryption`, resolves the disk path via `resolveAttachmentAbsolutePath`, and reads bytes via `fs.promises.readFile`. The `content` column (OCR/text extraction) is reused verbatim for `text`-source classification. No raw `em.find` / `em.findOne` in the new module. No new attachments-service API required.
+  - **4 MB inline byte threshold.** Safe cross-provider ceiling; callers can override via `maxInlineBytes`. Oversized images/PDFs fall through to `signed-url` (if a signer is registered) or `metadata-only` (otherwise). The spec's D13 rule (never pass authenticated frontend URLs) is enforced by construction — the resolver never copies `attachment.url`, only storage-side bytes or signer-minted URLs.
+  - **`AttachmentSigner` as a DI hook, not a runtime param.** No concrete signer ships today. Phase 3 or 4 can register an `attachmentSigner` in the DI container (e.g., an S3 presigner, a tokenized download route) without a single runtime-helper change. `signer.sign(...)` is best-effort — thrown errors log and fall through to `metadata-only`.
+  - **AI SDK v6 `FileUIPart` on the last user `UIMessage.parts`.** Bytes become a `data:<mime>;base64,...` URL; signed-url is passed verbatim. If no user message exists in the conversation (edge case), a synthetic user message is appended. `convertToModelMessages` was already wired into both helpers — no SDK-surface change required. Text + metadata-only parts cannot travel as `FileUIPart` (no provider-safe representation) so they render into a structured `[ATTACHMENTS]` block appended to the composed system prompt — identical on chat and object modes.
+  - **`acceptedMediaTypes` default = permissive.** Agents that do not declare `acceptedMediaTypes` accept any classified kind; the whitelist is a drop filter, not a default gate. Matches the existing `ai-agent-definition.ts` semantics where the field is optional.
+  - **`content` column for text extraction, not live re-parsing.** The attachments module already runs OCR/text extraction (see `packages/core/src/modules/attachments/lib/textExtraction.ts`) and stores the output on `attachments.content`. The bridge reuses it verbatim with a 64 KB character cap and a `[... truncated]` marker. Re-parsing on the read path would duplicate work and introduce extra provider-runtime latency; if a record's `content` is not yet populated, text-source classification is skipped and the part downgrades to `metadata-only` — acceptable for a library-only Phase 1 bridge.
+  - **Graceful skip, not hard failure.** When no container is available (direct callers, tests, future non-HTTP dispatchers), `resolveAttachmentParts` returns `[]` and logs one `console.warn`. The runtime helpers continue executing with the original message list — matches the Step 3.6 invariant that `attachmentIds` still flow into `resolveAiAgentTools` unchanged.
+  - **Unit tests mock the attachments module at jest module boundaries.** Keeps the new suite independent of the core package's runtime (no DB, no real FS), mirrors the pattern used by Step 3.4 / 3.5 / 3.6 suites. Integration coverage with the real attachments service is Step 3.13.
+- Phase 3 WS-C is now **1/7 landed** — next is Step 3.8 (general-purpose tool packs `search.*` / `attachments.*` / `meta.*`).
