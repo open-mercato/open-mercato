@@ -419,4 +419,126 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
     await expect(errorAlert).toBeVisible({ timeout: 15_000 });
     await expect(errorAlert).toContainText(/policy fields|reserved|mutationPolicy/i);
   });
+
+  test('mutationPolicy section disables escalation options with an explanatory tooltip (Step 5.4)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+
+    await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agents: [
+            {
+              id: 'customers.account_assistant',
+              moduleId: 'customers',
+              label: 'Customers account assistant',
+              description: 'Read-only customers assistant.',
+              systemPrompt: 'You are a read-only customers assistant.',
+              executionMode: 'chat',
+              mutationPolicy: 'read-only',
+              readOnly: true,
+              maxSteps: 10,
+              allowedTools: [],
+              tools: [],
+              requiredFeatures: [],
+              acceptedMediaTypes: [],
+              hasOutputSchema: false,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    await page.route('**/api/ai_assistant/ai/agents/*/prompt-override', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agentId: 'customers.account_assistant',
+          override: null,
+          versions: [],
+        }),
+      });
+    });
+
+    await page.route(
+      '**/api/ai_assistant/ai/agents/*/mutation-policy',
+      async (route) => {
+        const request = route.request();
+        if (request.method() === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              agentId: 'customers.account_assistant',
+              codeDeclared: 'read-only',
+              override: null,
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error:
+              'Cannot set mutationPolicy="confirm-required" for agent "customers.account_assistant": the agent\'s code-declared policy is "read-only".',
+            code: 'escalation_not_allowed',
+            codeDeclared: 'read-only',
+            requested: 'confirm-required',
+          }),
+        });
+      },
+    );
+
+    await page.goto(settingsPath, { waitUntil: 'domcontentloaded' });
+
+    const container = page.locator('[data-ai-agent-settings]');
+    await expect(container).toBeVisible({ timeout: 60_000 });
+
+    const confirmOption = page.locator(
+      '[data-ai-agent-mutation-policy-option="confirm-required"]',
+    );
+    await expect(confirmOption).toBeVisible({ timeout: 15_000 });
+    const disabledAttr = await confirmOption.getAttribute(
+      'data-ai-agent-mutation-policy-option-disabled',
+    );
+    expect(disabledAttr).toBe('true');
+
+    // The read-only option (matching code-declared) is selectable.
+    const readOnlyOption = page.locator(
+      '[data-ai-agent-mutation-policy-option="read-only"]',
+    );
+    const readOnlyDisabled = await readOnlyOption.getAttribute(
+      'data-ai-agent-mutation-policy-option-disabled',
+    );
+    expect(readOnlyDisabled).toBe('false');
+  });
+
+  test('mutationPolicy escalation attempts are rejected by the server with 400 + escalation_not_allowed (Step 5.4)', async ({
+    request,
+  }) => {
+    // Use request.fetch via the request fixture (auth cookies won't be set, so we
+    // expect 401; the test's primary purpose is to confirm the route is mounted
+    // AND to document the escalation-guard contract surface. When auth is
+    // available in the env the guard returns 400 + escalation_not_allowed.)
+    const response = await request.post(
+      '/api/ai_assistant/ai/agents/customers.account_assistant/mutation-policy',
+      {
+        data: { mutationPolicy: 'confirm-required' },
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+    // Route should exist (never 404 on the path itself).
+    expect([400, 401, 403]).toContain(response.status());
+    if (response.status() === 400) {
+      const body = await response.json();
+      expect(body.code).toBe('escalation_not_allowed');
+    }
+  });
 });

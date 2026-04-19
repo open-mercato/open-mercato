@@ -1,6 +1,6 @@
 import { dynamicTool, type Tool } from 'ai'
 import type { ZodType } from 'zod'
-import type { AiAgentDefinition } from './ai-agent-definition'
+import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
 import type { AiChatRequestContext } from './attachment-bridge-types'
 import type { AiToolDefinition, McpToolContext } from './types'
 import { loadAgentRegistry } from './agent-registry'
@@ -35,6 +35,14 @@ export interface ResolveAiAgentToolsInput {
    * can reject chat-only agents early with `execution_mode_not_supported`.
    */
   requestedExecutionMode?: 'chat' | 'object'
+  /**
+   * Optional tenant-scoped mutation-policy DOWNGRADE. When supplied, the
+   * effective policy evaluated by `checkAgentPolicy` is the most restrictive
+   * of `{ agent.mutationPolicy, mutationPolicyOverride }`. Escalation is
+   * rejected at the route layer; this helper trusts callers to pass only
+   * values produced by the override repository.
+   */
+  mutationPolicyOverride?: AiAgentMutationPolicy | null
 }
 
 export interface ResolvedAgentTools {
@@ -113,10 +121,12 @@ export async function resolveAiAgentTools(
   await loadAgentRegistry()
 
   const policyAuth = toPolicyAuthContext(input.authContext)
+  const mutationPolicyOverride = input.mutationPolicyOverride ?? null
   const agentDecision = checkAgentPolicy({
     agentId: input.agentId,
     authContext: policyAuth,
     requestedExecutionMode: input.requestedExecutionMode ?? 'chat',
+    mutationPolicyOverride,
   })
   if (!agentDecision.ok) {
     throw new AgentPolicyError(agentDecision.code, agentDecision.message)
@@ -130,6 +140,7 @@ export async function resolveAiAgentTools(
       agentId: input.agentId,
       authContext: policyAuth,
       toolName,
+      mutationPolicyOverride,
     })
     if (!toolDecision.ok) {
       console.warn(

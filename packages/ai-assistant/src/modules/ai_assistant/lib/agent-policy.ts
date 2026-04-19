@@ -1,7 +1,11 @@
 import { getAgent } from './agent-registry'
 import { hasRequiredFeatures } from './auth'
 import { toolRegistry } from './tool-registry'
-import type { AiAgentAcceptedMediaType, AiAgentDefinition } from './ai-agent-definition'
+import type {
+  AiAgentAcceptedMediaType,
+  AiAgentDefinition,
+  AiAgentMutationPolicy,
+} from './ai-agent-definition'
 import type { AiToolDefinition } from './types'
 
 export type AgentPolicyDenyCode =
@@ -30,6 +34,79 @@ export interface AgentPolicyCheckInput {
   toolName?: string
   attachmentMediaTypes?: string[]
   requestedExecutionMode?: 'chat' | 'object'
+  /**
+   * Optional tenant-scoped downgrade for the agent's code-declared
+   * `mutationPolicy`. When supplied, the effective policy is the MOST
+   * RESTRICTIVE of `{ code-declared, override }` — escalation is never
+   * allowed through this channel (that is enforced at the route layer).
+   * Callers that omit this field get the exact pre-Step-5.4 behavior.
+   */
+  mutationPolicyOverride?: AiAgentMutationPolicy | null
+}
+
+/**
+ * Restrictiveness ranking of `AiAgentMutationPolicy` (most restrictive first).
+ * `read-only` blocks all mutation tools. `destructive-confirm-required` forces
+ * confirmation for every write (including non-destructive ones). `confirm-required`
+ * is the least restrictive policy — writes go through a single confirmation.
+ *
+ * This ordering is load-bearing for both the runtime's effective-policy
+ * computation AND the route-layer escalation guard. Changing the order is a
+ * security-sensitive change.
+ */
+const POLICY_RESTRICTIVENESS: Record<AiAgentMutationPolicy, number> = {
+  'read-only': 0,
+  'destructive-confirm-required': 1,
+  'confirm-required': 2,
+}
+
+export function isKnownMutationPolicy(value: unknown): value is AiAgentMutationPolicy {
+  return (
+    value === 'read-only' ||
+    value === 'confirm-required' ||
+    value === 'destructive-confirm-required'
+  )
+}
+
+/**
+ * Returns the effective mutation policy — the MOST RESTRICTIVE of
+ * `{ codeDeclared, override }`. Missing override → `codeDeclared`. A corrupt
+ * override value (unknown string from DB) is logged and falls back to
+ * `codeDeclared` so the system fails SAFE when a schema drift leaks through.
+ */
+export function resolveEffectiveMutationPolicy(
+  codeDeclared: AiAgentMutationPolicy | undefined,
+  override: AiAgentMutationPolicy | null | undefined,
+  agentId?: string,
+): AiAgentMutationPolicy {
+  const base: AiAgentMutationPolicy =
+    codeDeclared && isKnownMutationPolicy(codeDeclared) ? codeDeclared : 'read-only'
+  if (override === undefined || override === null) return base
+  if (!isKnownMutationPolicy(override)) {
+    console.warn(
+      `[AI Agents] Ignoring corrupt mutationPolicy override for agent "${agentId ?? '<unknown>'}": ${String(
+        override,
+      )}. Falling back to code-declared policy "${base}".`,
+    )
+    return base
+  }
+  const baseRank = POLICY_RESTRICTIVENESS[base]
+  const overrideRank = POLICY_RESTRICTIVENESS[override]
+  return overrideRank < baseRank ? override : base
+}
+
+/**
+ * Returns `true` when `candidate` would WIDEN `codeDeclared` — i.e. would
+ * grant the agent more mutation surface than its code declares. Used by the
+ * mutation-policy override route to reject escalation attempts with 400.
+ */
+export function isMutationPolicyEscalation(
+  codeDeclared: AiAgentMutationPolicy | undefined,
+  candidate: AiAgentMutationPolicy,
+): boolean {
+  const base: AiAgentMutationPolicy =
+    codeDeclared && isKnownMutationPolicy(codeDeclared) ? codeDeclared : 'read-only'
+  return POLICY_RESTRICTIVENESS[candidate] > POLICY_RESTRICTIVENESS[base]
 }
 
 function classifyMediaType(value: string): AiAgentAcceptedMediaType {
@@ -44,6 +121,19 @@ function isAgentReadOnly(agent: AiAgentDefinition): boolean {
   return true
 }
 
+/**
+ * Returns the effective mutation policy for a policy-check invocation — the
+ * most restrictive of `{ agent.mutationPolicy, input.mutationPolicyOverride }`.
+ * Pure-lookup helper; no I/O. Callers that need to know the same value outside
+ * of a policy check should use {@link resolveEffectiveMutationPolicy} directly.
+ */
+function resolvePolicyCheckMutationPolicy(
+  agent: AiAgentDefinition,
+  override: AiAgentMutationPolicy | null | undefined,
+): AiAgentMutationPolicy {
+  return resolveEffectiveMutationPolicy(agent.mutationPolicy, override, agent.id)
+}
+
 function hasAgentStructuredOutput(agent: AiAgentDefinition): boolean {
   return Boolean(agent.output)
 }
@@ -53,7 +143,14 @@ function agentExecutionMode(agent: AiAgentDefinition): 'chat' | 'object' {
 }
 
 export function checkAgentPolicy(input: AgentPolicyCheckInput): AgentPolicyDecision {
-  const { agentId, authContext, toolName, attachmentMediaTypes, requestedExecutionMode } = input
+  const {
+    agentId,
+    authContext,
+    toolName,
+    attachmentMediaTypes,
+    requestedExecutionMode,
+    mutationPolicyOverride,
+  } = input
 
   const agent = getAgent(agentId)
   if (!agent) {
@@ -113,7 +210,8 @@ export function checkAgentPolicy(input: AgentPolicyCheckInput): AgentPolicyDecis
           message: `Mutation tool "${toolName}" cannot be executed by read-only agent "${agentId}".`,
         }
       }
-      if (agent.mutationPolicy === 'read-only') {
+      const effectivePolicy = resolvePolicyCheckMutationPolicy(agent, mutationPolicyOverride)
+      if (effectivePolicy === 'read-only') {
         return {
           ok: false,
           code: 'mutation_blocked_by_policy',

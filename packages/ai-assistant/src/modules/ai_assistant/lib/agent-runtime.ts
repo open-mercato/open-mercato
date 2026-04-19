@@ -26,7 +26,10 @@ import {
   summarizeAttachmentPartsForPrompt,
 } from './attachment-parts'
 import { AiAgentPromptOverrideRepository } from '../data/repositories/AiAgentPromptOverrideRepository'
+import { AiAgentMutationPolicyOverrideRepository } from '../data/repositories/AiAgentMutationPolicyOverrideRepository'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
+import { isKnownMutationPolicy } from './agent-policy'
+import type { AiAgentMutationPolicy } from './ai-agent-definition'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -196,6 +199,48 @@ async function resolveBaseSystemPromptWithOverride(
 }
 
 /**
+ * Looks up the tenant-scoped `mutationPolicy` override for `agentId` (Step
+ * 5.4). Fails SAFE: any repo error, missing container, missing `em`
+ * registration, or corrupt enum value returns `null`, which causes the
+ * runtime to fall back to the agent's code-declared policy. A chat turn
+ * MUST never fail on override lookup.
+ */
+async function resolveMutationPolicyOverride(
+  agentId: string,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<AiAgentMutationPolicy | null> {
+  if (!tenantId || !container) return null
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return null
+  try {
+    const repo = new AiAgentMutationPolicyOverrideRepository(em)
+    const row = await repo.get(agentId, { tenantId, organizationId: organizationId ?? null })
+    if (!row) return null
+    const raw = row.mutationPolicy
+    if (!isKnownMutationPolicy(raw)) {
+      console.warn(
+        `[AI Agents] Ignoring corrupt mutationPolicy override row for agent "${agentId}": "${raw}". Falling back to code-declared policy.`,
+      )
+      return null
+    }
+    return raw
+  } catch (error) {
+    console.warn(
+      `[AI Agents] mutationPolicy override lookup failed for agent "${agentId}"; falling back to code-declared policy.`,
+      error,
+    )
+    return null
+  }
+}
+
+/**
  * Appends AI SDK v6 `FileUIPart` entries to the last user message in the
  * request so resolved attachment bytes / signed URLs reach the model. Pure
  * helper so chat-mode and object-mode share identical behavior — any
@@ -259,11 +304,18 @@ function appendAttachmentSummary(
  * invariant #7 still holds.
  */
 export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Response> {
+  const mutationPolicyOverride = await resolveMutationPolicyOverride(
+    input.agentId,
+    input.container,
+    input.authContext.tenantId,
+    input.authContext.organizationId,
+  )
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
     attachmentIds: input.attachmentIds,
+    mutationPolicyOverride,
   })
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({
@@ -424,12 +476,19 @@ function resolveStructuredOutput<TSchema>(
 export async function runAiAgentObject<TSchema = unknown>(
   input: RunAiAgentObjectInput<TSchema>,
 ): Promise<RunAiAgentObjectResult<TSchema>> {
+  const mutationPolicyOverride = await resolveMutationPolicyOverride(
+    input.agentId,
+    input.container,
+    input.authContext.tenantId,
+    input.authContext.organizationId,
+  )
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
     attachmentIds: input.attachmentIds,
     requestedExecutionMode: 'object',
+    mutationPolicyOverride,
   })
 
   const resolvedOutput = resolveStructuredOutput(agent, input.output)

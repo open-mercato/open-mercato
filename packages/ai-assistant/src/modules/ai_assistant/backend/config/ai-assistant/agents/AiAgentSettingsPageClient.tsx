@@ -11,9 +11,12 @@ import {
   Image as ImageIcon,
   FileText,
   Loader2,
+  Lock,
   Paperclip,
   RefreshCcw,
   Save,
+  ShieldAlert,
+  Trash2,
   Wand2,
   Wrench,
 } from 'lucide-react'
@@ -137,6 +140,51 @@ async function fetchOverride(agentId: string): Promise<OverrideResponse> {
     throw new Error(text || `Failed to load prompt override (${res.status})`)
   }
   return (await res.json()) as OverrideResponse
+}
+
+type MutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
+
+const MUTATION_POLICY_OPTIONS: MutationPolicy[] = [
+  'read-only',
+  'destructive-confirm-required',
+  'confirm-required',
+]
+
+// Higher number = less restrictive. Mirrors
+// `lib/agent-policy.ts#POLICY_RESTRICTIVENESS` — UI must match the server's
+// escalation guard so disabled options line up with 400 responses.
+const POLICY_RESTRICTIVENESS_UI: Record<MutationPolicy, number> = {
+  'read-only': 0,
+  'destructive-confirm-required': 1,
+  'confirm-required': 2,
+}
+
+type MutationPolicyOverrideRow = {
+  id: string
+  agentId: string
+  mutationPolicy: MutationPolicy
+  notes: string | null
+  createdByUserId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type MutationPolicyResponse = {
+  agentId: string
+  codeDeclared: MutationPolicy
+  override: MutationPolicyOverrideRow | null
+}
+
+async function fetchMutationPolicy(agentId: string): Promise<MutationPolicyResponse> {
+  const res = await fetch(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/mutation-policy`,
+    { method: 'GET', credentials: 'include' },
+  )
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(text || `Failed to load mutation policy (${res.status})`)
+  }
+  return (await res.json()) as MutationPolicyResponse
 }
 
 function SettingsLoading({ message }: { message: string }) {
@@ -358,6 +406,389 @@ function AttachmentPolicyBadges({ mediaTypes }: { mediaTypes: string[] }) {
         )
       })}
     </div>
+  )
+}
+
+function MutationPolicySection({ agent }: { agent: AgentSettings }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+
+  const query = useQuery<MutationPolicyResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'mutation_policy', agent.id],
+    queryFn: () => fetchMutationPolicy(agent.id),
+    retry: false,
+  })
+
+  const codeDeclared = (query.data?.codeDeclared ?? (agent.mutationPolicy as MutationPolicy))
+  const currentOverride = query.data?.override ?? null
+
+  const [selected, setSelected] = React.useState<MutationPolicy | null>(null)
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isClearing, setIsClearing] = React.useState(false)
+  const [state, setState] = React.useState<
+    | { kind: 'idle' }
+    | { kind: 'success'; message: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' })
+
+  React.useEffect(() => {
+    setSelected(currentOverride?.mutationPolicy ?? null)
+    setState({ kind: 'idle' })
+  }, [agent.id, currentOverride?.mutationPolicy])
+
+  const codeRank = POLICY_RESTRICTIVENESS_UI[codeDeclared] ?? 0
+  const effectivePolicy: MutationPolicy = (() => {
+    if (!currentOverride) return codeDeclared
+    const overrideRank = POLICY_RESTRICTIVENESS_UI[currentOverride.mutationPolicy]
+    return overrideRank < codeRank ? currentOverride.mutationPolicy : codeDeclared
+  })()
+
+  const hasChange = selected !== null && selected !== (currentOverride?.mutationPolicy ?? null)
+
+  const save = React.useCallback(async () => {
+    if (!selected || isSaving) return
+    setIsSaving(true)
+    setState({ kind: 'idle' })
+    try {
+      const res = await fetch(
+        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ mutationPolicy: selected }),
+        },
+      )
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        code?: string
+        codeDeclared?: MutationPolicy
+        requested?: MutationPolicy
+      }
+      if (!res.ok) {
+        const message =
+          payload.code === 'escalation_not_allowed'
+            ? (payload.error ??
+                t(
+                  'ai_assistant.agents.mutation_policy.errors.escalationNotAllowed',
+                  'Cannot upgrade beyond the agent\'s declared policy — this is a code-level change.',
+                ))
+            : (payload.error ??
+                `Failed to save mutation policy (${res.status}).`)
+        setState({ kind: 'error', message })
+        return
+      }
+      setState({
+        kind: 'success',
+        message: t(
+          'ai_assistant.agents.mutation_policy.savedMessage',
+          'Mutation policy override saved.',
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'mutation_policy', agent.id],
+      })
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [agent.id, isSaving, queryClient, selected, t])
+
+  const clear = React.useCallback(async () => {
+    if (isClearing) return
+    setIsClearing(true)
+    setState({ kind: 'idle' })
+    try {
+      const res = await fetch(
+        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        },
+      )
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+      }
+      if (!res.ok) {
+        setState({
+          kind: 'error',
+          message: payload.error ?? `Failed to clear override (${res.status}).`,
+        })
+        return
+      }
+      setState({
+        kind: 'success',
+        message: t(
+          'ai_assistant.agents.mutation_policy.clearedMessage',
+          'Mutation policy override cleared; agent is using its code-declared policy.',
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'mutation_policy', agent.id],
+      })
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsClearing(false)
+    }
+  }, [agent.id, isClearing, queryClient, t])
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-background p-4"
+      data-ai-agent-mutation-policy={agent.id}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t('ai_assistant.agents.mutation_policy.title', 'Mutation policy')}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.mutation_policy.subtitle',
+                'Downgrade this agent\'s mutation capability per tenant. Upgrading beyond the code-declared policy is blocked by the server.',
+              )}
+            </p>
+          </div>
+        </div>
+        <StatusBadge
+          variant={mutationPolicyStatusMap[effectivePolicy] ?? 'neutral'}
+          dot
+          data-ai-agent-mutation-policy-effective
+        >
+          {effectivePolicy}
+        </StatusBadge>
+      </header>
+
+      <div className="mt-3 flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.mutation_policy.codeDeclared', 'Code-declared')}
+            </span>
+            <div className="mt-1 flex items-center gap-2">
+              <StatusBadge
+                variant={mutationPolicyStatusMap[codeDeclared] ?? 'neutral'}
+                dot
+                data-ai-agent-mutation-policy-code-declared
+              >
+                {codeDeclared}
+              </StatusBadge>
+              <Lock className="size-3 text-muted-foreground" aria-hidden />
+              <span className="text-xs text-muted-foreground">
+                {t(
+                  'ai_assistant.agents.mutation_policy.codeDeclaredHint',
+                  'Compiled into the agent definition.',
+                )}
+              </span>
+            </div>
+          </div>
+          <div>
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.mutation_policy.tenantOverride', 'Tenant override')}
+            </span>
+            <div className="mt-1">
+              {currentOverride ? (
+                <StatusBadge
+                  variant={mutationPolicyStatusMap[currentOverride.mutationPolicy] ?? 'neutral'}
+                  dot
+                  data-ai-agent-mutation-policy-override-current
+                >
+                  {currentOverride.mutationPolicy}
+                </StatusBadge>
+              ) : (
+                <span
+                  className="text-xs text-muted-foreground"
+                  data-ai-agent-mutation-policy-override-empty
+                >
+                  {t(
+                    'ai_assistant.agents.mutation_policy.noOverride',
+                    'No override — using code-declared policy.',
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <Alert variant="info" data-ai-agent-mutation-policy-notice>
+          <ShieldAlert className="size-4" aria-hidden />
+          <AlertTitle>
+            {t(
+              'ai_assistant.agents.mutation_policy.noticeTitle',
+              'Downgrade only — escalation is a code change',
+            )}
+          </AlertTitle>
+          <AlertDescription>
+            {t(
+              'ai_assistant.agents.mutation_policy.noticeBody',
+              'Overrides can only make the policy more restrictive. Options more permissive than the code-declared policy are disabled and rejected server-side.',
+            )}
+          </AlertDescription>
+        </Alert>
+
+        {query.isLoading ? (
+          <SettingsLoading
+            message={t(
+              'ai_assistant.agents.mutation_policy.loading',
+              'Loading mutation policy...',
+            )}
+          />
+        ) : query.isError ? (
+          <Alert variant="destructive" data-ai-agent-mutation-policy-load-error>
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>
+              {t(
+                'ai_assistant.agents.mutation_policy.loadErrorTitle',
+                'Failed to load mutation policy',
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {query.error instanceof Error ? query.error.message : String(query.error)}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div
+            className="flex flex-col gap-2"
+            role="radiogroup"
+            aria-label={t(
+              'ai_assistant.agents.mutation_policy.pickerLabel',
+              'Mutation policy override',
+            )}
+            data-ai-agent-mutation-policy-picker
+          >
+            {MUTATION_POLICY_OPTIONS.map((option) => {
+              const optionRank = POLICY_RESTRICTIVENESS_UI[option]
+              const wouldEscalate = optionRank > codeRank
+              const isSelected = selected === option
+              return (
+                <Tooltip key={option}>
+                  <TooltipTrigger asChild>
+                    <label
+                      className={`flex items-start gap-3 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                        wouldEscalate
+                          ? 'border-border bg-muted/30 cursor-not-allowed opacity-60'
+                          : isSelected
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border bg-background hover:bg-muted/40'
+                      }`}
+                      data-ai-agent-mutation-policy-option={option}
+                      data-ai-agent-mutation-policy-option-disabled={wouldEscalate ? 'true' : 'false'}
+                    >
+                      <input
+                        type="radio"
+                        name={`mutation-policy-${agent.id}`}
+                        value={option}
+                        checked={isSelected}
+                        disabled={wouldEscalate}
+                        onChange={() => {
+                          if (wouldEscalate) return
+                          setSelected(option)
+                        }}
+                        className="mt-0.5"
+                        aria-disabled={wouldEscalate}
+                      />
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="flex items-center gap-2">
+                          <StatusBadge
+                            variant={mutationPolicyStatusMap[option] ?? 'neutral'}
+                            dot
+                          >
+                            {option}
+                          </StatusBadge>
+                          {wouldEscalate ? (
+                            <Lock className="size-3 text-muted-foreground" aria-hidden />
+                          ) : null}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {t(
+                            `ai_assistant.agents.mutation_policy.options.${option}`,
+                            option,
+                          )}
+                        </span>
+                      </div>
+                    </label>
+                  </TooltipTrigger>
+                  {wouldEscalate ? (
+                    <TooltipContent>
+                      {t(
+                        'ai_assistant.agents.mutation_policy.escalationTooltip',
+                        "Cannot be set above the agent's declared policy — this is a code-level change.",
+                      )}
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+              )
+            })}
+          </div>
+        )}
+
+        {state.kind === 'success' ? (
+          <Alert variant="success" data-ai-agent-mutation-policy-state="success">
+            <CheckCircle2 className="size-4" aria-hidden />
+            <AlertTitle>
+              {t('ai_assistant.agents.mutation_policy.savedTitle', 'Mutation policy updated')}
+            </AlertTitle>
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {state.kind === 'error' ? (
+          <Alert variant="destructive" data-ai-agent-mutation-policy-state="error">
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>
+              {t(
+                'ai_assistant.agents.mutation_policy.errorTitle',
+                'Failed to update mutation policy',
+              )}
+            </AlertTitle>
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void clear()}
+            disabled={isClearing || isSaving || !currentOverride}
+            data-ai-agent-mutation-policy-clear
+          >
+            {isClearing ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.mutation_policy.clear', 'Clear override')}</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void save()}
+            disabled={isSaving || isClearing || !hasChange || selected === null}
+            data-ai-agent-mutation-policy-save
+          >
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.mutation_policy.save', 'Save override')}</span>
+          </Button>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -605,6 +1036,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </div>
         </dl>
       </section>
+
+      <MutationPolicySection agent={agent} />
 
       <section
         className="rounded-lg border border-border bg-background p-4"
