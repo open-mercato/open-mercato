@@ -32,24 +32,31 @@ export async function getAuthToken(
     form.set('email', attempt.email);
     form.set('password', attempt.password);
 
-    const response = await request.post(resolveUrl('/api/auth/login'), {
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      data: form.toString(),
-    });
+    // Retry on 429 (auth rate limit kicks in after ~25-30 rapid attempts from
+    // the same test run). Capped exponential backoff: 1s, 2s, 4s; 3 retries.
+    for (let retry = 0; retry < 4; retry += 1) {
+      const response = await request.post(resolveUrl('/api/auth/login'), {
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        data: form.toString(),
+      });
 
-    const raw = await response.text();
-    let body: Record<string, unknown> | null = null;
-    try {
-      body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-    } catch {
-      body = null;
-    }
+      const raw = await response.text();
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+      } catch {
+        body = null;
+      }
 
-    lastStatus = response.status();
-    if (response.ok() && body && typeof body.token === 'string' && body.token) {
-      return body.token;
+      lastStatus = response.status();
+      if (response.ok() && body && typeof body.token === 'string' && body.token) {
+        return body.token;
+      }
+      if (response.status() !== 429) break;
+      const backoffMs = 1000 * 2 ** retry;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 

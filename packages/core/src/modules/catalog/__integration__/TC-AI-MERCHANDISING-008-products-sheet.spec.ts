@@ -73,11 +73,14 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
   });
 
   test('trigger renders on products list page and opens the merchandising sheet', async ({ page }) => {
+    // CI cold-compile of the products list + injection widget can exceed the
+    // default 20s test timeout; give this test 2 minutes.
+    test.setTimeout(120_000);
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
-    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await expect(trigger).toBeVisible({ timeout: 60_000 });
 
     await trigger.click();
 
@@ -91,11 +94,12 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
   });
 
   test('selection pill reflects the current selected count when selection changes', async ({ page }) => {
+    test.setTimeout(120_000);
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
-    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
 
     const sheet = page.locator('[data-ai-merchandising-sheet]');
