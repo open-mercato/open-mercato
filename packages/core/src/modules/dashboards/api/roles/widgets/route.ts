@@ -177,7 +177,7 @@ const roleWidgetsPutDoc: OpenApiMethodDoc = {
   requestBody: {
     contentType: 'application/json',
     schema: roleWidgetSettingsSchema,
-    description: 'Role identifier, optional scope, and the widget ids that should remain assigned.',
+    description: 'Role identifier and the widget ids that should remain assigned. Scope is derived from the authenticated session.',
   },
   responses: [
     { status: 200, description: 'Widgets updated successfully.', schema: dashboardRoleWidgetsUpdateResponseSchema },

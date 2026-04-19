@@ -180,7 +180,7 @@ const userWidgetsPutDoc: OpenApiMethodDoc = {
   requestBody: {
     contentType: 'application/json',
     schema: userWidgetSettingsSchema,
-    description: 'User identifier, optional scope, override mode, and widget ids.',
+    description: 'User identifier, override mode, and widget ids. Scope is derived from the authenticated session.',
   },
   responses: [
     { status: 200, description: 'Overrides saved.', schema: dashboardUserWidgetsUpdateResponseSchema },
