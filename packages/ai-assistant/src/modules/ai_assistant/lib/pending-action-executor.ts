@@ -20,6 +20,8 @@
  */
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
+import { emitAiAssistantEvent } from '../events'
+import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import type {
@@ -44,8 +46,16 @@ export interface PendingActionExecuteInput {
   /** Carried over from the re-check; written onto the row with status=confirmed. */
   failedRecords?: AiPendingActionFailedRecord[] | null
   repo?: AiPendingActionRepository
-  /** Injection seam for unit tests. */
-  eventBus?: { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null
+  /**
+   * Injection seam for unit tests. When omitted, emission is routed via
+   * the typed `emitAiAssistantEvent` helper (the normal production path).
+   * When supplied, the raw bus is used directly — kept for legacy tests
+   * that assert on the bus call surface.
+   */
+  emitEvent?: (
+    eventId: 'ai.action.confirmed',
+    payload: AiActionConfirmedPayload,
+  ) => Promise<void>
   now?: Date
 }
 
@@ -65,28 +75,25 @@ export interface PendingActionExecuteFail {
 
 export type PendingActionExecuteResult = PendingActionExecuteOk | PendingActionExecuteFail
 
-const CONFIRMED_EVENT_ID = 'ai.action.confirmed'
+const CONFIRMED_EVENT_ID = 'ai.action.confirmed' as const
 
-function resolveEventBus(
-  container: PendingActionExecuteContext['container'],
-): { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null {
-  if (!container) return null
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return container.resolve('eventBus') as any
-  } catch {
-    return null
-  }
+type ConfirmedEmitter = (
+  eventId: 'ai.action.confirmed',
+  payload: AiActionConfirmedPayload,
+) => Promise<void>
+
+const defaultConfirmedEmitter: ConfirmedEmitter = async (eventId, payload) => {
+  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, {
+    persistent: true,
+  })
 }
 
 async function emitConfirmed(
-  bus: { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null,
-  payload: Record<string, unknown>,
+  emitter: ConfirmedEmitter,
+  payload: AiActionConfirmedPayload,
 ): Promise<void> {
-  if (!bus) return
   try {
-    // TODO(step 5.11): switch to typed emit via `createModuleEvents` for `ai_assistant`.
-    await bus.emitEvent(CONFIRMED_EVENT_ID, payload, { persistent: true })
+    await emitter(CONFIRMED_EVENT_ID, payload)
   } catch (error) {
     console.warn(`[AI Pending Action] Failed to emit ${CONFIRMED_EVENT_ID}:`, error)
   }
@@ -137,7 +144,7 @@ export async function executePendingActionConfirm(
     userId: ctx.userId,
   }
   const clock = now ?? new Date()
-  const eventBus = input.eventBus === undefined ? resolveEventBus(ctx.container) : input.eventBus
+  const emitter: ConfirmedEmitter = input.emitEvent ?? defaultConfirmedEmitter
 
   if (action.status === 'confirmed') {
     const prior = (action.executionResult ?? {}) as AiPendingActionExecutionResult
@@ -182,7 +189,7 @@ export async function executePendingActionConfirm(
       executionResult: failureResult,
       now: clock,
     })
-    await emitConfirmed(eventBus, {
+    await emitConfirmed(emitter, {
       pendingActionId: failedRow.id,
       agentId: agent.id,
       toolName: tool.name,
@@ -207,7 +214,7 @@ export async function executePendingActionConfirm(
     executionResult: successResult,
     now: clock,
   })
-  await emitConfirmed(eventBus, {
+  await emitConfirmed(emitter, {
     pendingActionId: confirmedFinal.id,
     agentId: agent.id,
     toolName: tool.name,

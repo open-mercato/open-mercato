@@ -4,6 +4,7 @@ import {
   executePendingActionConfirm,
   PENDING_ACTION_CONFIRMED_EVENT_ID,
 } from '../pending-action-executor'
+import type { AiActionConfirmedPayload } from '../../events'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
 import type { AiPendingAction } from '../../data/entities'
@@ -111,16 +112,16 @@ function makeCtx() {
 }
 
 describe('executePendingActionConfirm', () => {
-  it('transitions pending → confirmed → executing → confirmed on handler success', async () => {
+  it('transitions pending → confirmed → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const result = await executePendingActionConfirm({
       action: makeAction(),
       agent: makeAgent(),
       tool: makeTool(),
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
     })
     expect(result.ok).toBe(true)
     expect(repo.setStatus).toHaveBeenCalledTimes(3)
@@ -133,13 +134,32 @@ describe('executePendingActionConfirm', () => {
       recordId: 'p-1',
       commandName: 'catalog.product.update',
     })
-    expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
-    expect(eventBus.emitEvent.mock.calls[0][0]).toBe(PENDING_ACTION_CONFIRMED_EVENT_ID)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
+      'ai.action.confirmed',
+      AiActionConfirmedPayload,
+    ]
+    expect(emittedId).toBe(PENDING_ACTION_CONFIRMED_EVENT_ID)
+    expect(emittedPayload).toMatchObject({
+      pendingActionId: 'pa_1',
+      agentId: 'catalog.merchandising_assistant',
+      toolName: 'catalog.update_product',
+      status: 'confirmed',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      resolvedByUserId: 'user-1',
+      executionResult: {
+        recordId: 'p-1',
+        commandName: 'catalog.product.update',
+      },
+    })
+    expect(typeof emittedPayload.resolvedAt).toBe('string')
   })
 
-  it('transitions pending → confirmed → executing → failed on handler throw', async () => {
+  it('transitions pending → confirmed → executing → failed on handler throw and emits typed failure payload', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const throwingTool = makeTool({
       handler: async () => {
         throw new Error('db constraint')
@@ -151,7 +171,7 @@ describe('executePendingActionConfirm', () => {
       tool: throwingTool,
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
     })
     expect(result.ok).toBe(false)
     expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
@@ -160,7 +180,16 @@ describe('executePendingActionConfirm', () => {
       'failed',
     ])
     expect(result.executionResult.error).toMatchObject({ code: 'handler_error', message: 'db constraint' })
-    expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
+      'ai.action.confirmed',
+      AiActionConfirmedPayload,
+    ]
+    expect(emittedId).toBe(PENDING_ACTION_CONFIRMED_EVENT_ID)
+    expect(emittedPayload.status).toBe('failed')
+    expect(emittedPayload.executionResult).toMatchObject({
+      error: { code: 'handler_error', message: 'db constraint' },
+    })
   })
 
   it('idempotent: calling twice on already-confirmed row returns prior result without re-executing', async () => {
@@ -171,7 +200,7 @@ describe('executePendingActionConfirm', () => {
         executionResult: priorResult as never,
       }),
     )
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const handlerSpy = jest.fn(async () => ({ recordId: 'p-2' }))
     const result = await executePendingActionConfirm({
       action: makeAction({
@@ -182,18 +211,18 @@ describe('executePendingActionConfirm', () => {
       tool: makeTool({ handler: handlerSpy }),
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
     })
     expect(result.ok).toBe(true)
     expect(result.executionResult).toEqual(priorResult)
     expect(handlerSpy).not.toHaveBeenCalled()
     expect(repo.setStatus).not.toHaveBeenCalled()
-    expect(eventBus.emitEvent).not.toHaveBeenCalled()
+    expect(emitEvent).not.toHaveBeenCalled()
   })
 
   it('carries partial-stale failedRecords[] onto the confirmed row', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const failed = [
       { recordId: 'r-2', error: { code: 'stale_version', message: 'x' } },
     ]
@@ -203,7 +232,7 @@ describe('executePendingActionConfirm', () => {
       tool: makeTool(),
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
       failedRecords: failed,
     })
     expect(result.ok).toBe(true)

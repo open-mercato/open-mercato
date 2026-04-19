@@ -4,6 +4,10 @@ import {
   PENDING_ACTION_CANCELLED_EVENT_ID,
   PENDING_ACTION_EXPIRED_EVENT_ID,
 } from '../pending-action-cancel'
+import type {
+  AiActionCancelledPayload,
+  AiActionExpiredPayload,
+} from '../../events'
 import type { AiPendingAction } from '../../data/entities'
 
 function makeAction(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
@@ -78,9 +82,9 @@ function makeCtx() {
 }
 
 describe('executePendingActionCancel', () => {
-  it('atomically transitions pending → cancelled and emits ai.action.cancelled', async () => {
+  it('atomically transitions pending → cancelled and emits typed ai.action.cancelled', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const clock = new Date('2026-04-18T10:05:00.000Z')
 
     const result = await executePendingActionCancel({
@@ -88,7 +92,7 @@ describe('executePendingActionCancel', () => {
       ctx: makeCtx(),
       reason: 'Customer asked to abort',
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
       now: clock,
     })
 
@@ -103,20 +107,39 @@ describe('executePendingActionCancel', () => {
         error: { code: 'cancelled_by_user', message: 'Customer asked to abort' },
       },
     })
-    expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
-    expect(eventBus.emitEvent.mock.calls[0][0]).toBe(PENDING_ACTION_CANCELLED_EVENT_ID)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
+      'ai.action.cancelled',
+      AiActionCancelledPayload,
+    ]
+    expect(emittedId).toBe(PENDING_ACTION_CANCELLED_EVENT_ID)
+    expect(emittedPayload).toMatchObject({
+      pendingActionId: 'pa_1',
+      agentId: 'catalog.merchandising_assistant',
+      toolName: 'catalog.update_product',
+      status: 'cancelled',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      resolvedByUserId: 'user-1',
+      reason: 'Customer asked to abort',
+      executionResult: {
+        error: { code: 'cancelled_by_user', message: 'Customer asked to abort' },
+      },
+    })
+    expect(typeof emittedPayload.resolvedAt).toBe('string')
   })
 
   it('defaults to "Cancelled by user" message when no reason is supplied', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const clock = new Date('2026-04-18T10:05:00.000Z')
 
     const result = await executePendingActionCancel({
       action: makeAction(),
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
       now: clock,
     })
 
@@ -127,39 +150,41 @@ describe('executePendingActionCancel', () => {
         error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
       },
     })
+    const [, payload] = emitEvent.mock.calls[0] as [string, AiActionCancelledPayload]
+    expect(payload.reason).toBeUndefined()
   })
 
   it('idempotent: already-cancelled action returns row without calling setStatus or emitting', async () => {
     const cancelledAction = makeAction({ status: 'cancelled' as never })
     const repo = makeRepoStub(cancelledAction)
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
 
     const result = await executePendingActionCancel({
       action: cancelledAction,
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
     })
 
     expect(result.status).toBe('cancelled')
     expect(result.row).toBe(cancelledAction)
     expect(repo.setStatus).not.toHaveBeenCalled()
-    expect(eventBus.emitEvent).not.toHaveBeenCalled()
+    expect(emitEvent).not.toHaveBeenCalled()
   })
 
-  it('expired short-circuit: flips to expired and emits ai.action.expired', async () => {
+  it('expired short-circuit: flips to expired and emits typed ai.action.expired', async () => {
     const expiredAction = makeAction({
       expiresAt: new Date('2020-01-01T00:00:00.000Z'),
     })
     const repo = makeRepoStub(expiredAction)
-    const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
     const clock = new Date('2026-04-18T10:05:00.000Z')
 
     const result = await executePendingActionCancel({
       action: expiredAction,
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
       now: clock,
     })
 
@@ -168,15 +193,30 @@ describe('executePendingActionCancel', () => {
     expect(repo.setStatus).toHaveBeenCalledTimes(1)
     const [, nextStatus] = repo.setStatus.mock.calls[0]
     expect(nextStatus).toBe('expired')
-    expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
-    expect(eventBus.emitEvent.mock.calls[0][0]).toBe(PENDING_ACTION_EXPIRED_EVENT_ID)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
+      'ai.action.expired',
+      AiActionExpiredPayload,
+    ]
+    expect(emittedId).toBe(PENDING_ACTION_EXPIRED_EVENT_ID)
+    expect(emittedPayload).toMatchObject({
+      pendingActionId: 'pa_1',
+      agentId: 'catalog.merchandising_assistant',
+      toolName: 'catalog.update_product',
+      status: 'expired',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      resolvedByUserId: null,
+    })
+    expect(typeof emittedPayload.resolvedAt).toBe('string')
+    expect(typeof emittedPayload.expiresAt).toBe('string')
+    expect(typeof emittedPayload.expiredAt).toBe('string')
   })
 
-  it('swallows event-bus errors without failing the cancel', async () => {
+  it('swallows emit-event errors without failing the cancel', async () => {
     const repo = makeRepoStub(makeAction())
-    const eventBus = {
-      emitEvent: jest.fn().mockRejectedValue(new Error('bus down')),
-    }
+    const emitEvent = jest.fn().mockRejectedValue(new Error('bus down'))
     const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const clock = new Date('2026-04-18T10:05:00.000Z')
 
@@ -184,7 +224,7 @@ describe('executePendingActionCancel', () => {
       action: makeAction(),
       ctx: makeCtx(),
       repo: repo as unknown as never,
-      eventBus,
+      emitEvent,
       now: clock,
     })
 

@@ -2,7 +2,7 @@
  * Pending-action cancel executor (spec §9.4, Step 5.9).
  *
  * Flips an `AiPendingAction` from `pending → cancelled` and emits the
- * `ai.action.cancelled` event. Unlike
+ * typed `ai.action.cancelled` event via `emitAiAssistantEvent`. Unlike
  * {@link executePendingActionConfirm} the tool handler is NEVER invoked —
  * cancellation is a pure state-machine transition plus an event emission.
  * Any other status short-circuits: already-`cancelled` is idempotent (no
@@ -20,6 +20,12 @@
  */
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
+import { emitAiAssistantEvent } from '../events'
+import type {
+  AiActionCancelledPayload,
+  AiActionExpiredPayload,
+  AiAssistantEventId,
+} from '../events'
 import type { AiPendingActionExecutionResult } from './pending-action-types'
 
 export interface PendingActionCancelContext {
@@ -29,14 +35,22 @@ export interface PendingActionCancelContext {
   container: import('awilix').AwilixContainer
 }
 
+export type CancelEmitter = (
+  eventId: Extract<AiAssistantEventId, 'ai.action.cancelled' | 'ai.action.expired'>,
+  payload: AiActionCancelledPayload | AiActionExpiredPayload,
+) => Promise<void>
+
 export interface PendingActionCancelInput {
   action: AiPendingAction
   ctx: PendingActionCancelContext
   /** Optional, caller-supplied cancellation reason (already trimmed by the route). */
   reason?: string | null
   repo?: AiPendingActionRepository
-  /** Injection seam for unit tests. */
-  eventBus?: { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null
+  /**
+   * Injection seam for unit tests. When omitted, emission is routed via
+   * the typed `emitAiAssistantEvent` helper (the normal production path).
+   */
+  emitEvent?: CancelEmitter
   now?: Date
 }
 
@@ -47,30 +61,22 @@ export interface PendingActionCancelResult {
   status: PendingActionCancelStatus
 }
 
-const CANCELLED_EVENT_ID = 'ai.action.cancelled'
-const EXPIRED_EVENT_ID = 'ai.action.expired'
+const CANCELLED_EVENT_ID = 'ai.action.cancelled' as const
+const EXPIRED_EVENT_ID = 'ai.action.expired' as const
 
-function resolveEventBus(
-  container: PendingActionCancelContext['container'],
-): { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null {
-  if (!container) return null
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return container.resolve('eventBus') as any
-  } catch {
-    return null
-  }
+const defaultCancelEmitter: CancelEmitter = async (eventId, payload) => {
+  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, {
+    persistent: true,
+  })
 }
 
 async function emitEventSafe(
-  bus: { emitEvent: (id: string, payload: unknown, options?: unknown) => Promise<void> } | null,
-  eventId: string,
-  payload: Record<string, unknown>,
+  emitter: CancelEmitter,
+  eventId: Parameters<CancelEmitter>[0],
+  payload: Parameters<CancelEmitter>[1],
 ): Promise<void> {
-  if (!bus) return
   try {
-    // TODO(step 5.11): switch to typed emit via `createModuleEvents` for `ai_assistant`.
-    await bus.emitEvent(eventId, payload, { persistent: true })
+    await emitter(eventId, payload)
   } catch (error) {
     console.warn(`[AI Pending Action] Failed to emit ${eventId}:`, error)
   }
@@ -83,9 +89,10 @@ async function emitEventSafe(
  *   emitting a second event. Callers should typically short-circuit on
  *   this branch BEFORE invoking the helper (see the Step 5.9 route).
  * - If `action.expiresAt <= now`, the row is flipped to `expired` and the
- *   `ai.action.expired` event is emitted (raw literal id; Step 5.11 will
- *   migrate to `createModuleEvents`). Returns `{ status: 'expired' }` so
- *   the route can translate to a 409 `expired` envelope.
+ *   `ai.action.expired` event is emitted via the typed
+ *   `emitAiAssistantEvent` helper (see `../events`). Returns
+ *   `{ status: 'expired' }` so the route can translate to a 409
+ *   `expired` envelope.
  * - Otherwise flips `pending → cancelled`, writes `resolvedAt` + the
  *   optional cancellation reason onto `executionResult.error`, and emits
  *   `ai.action.cancelled`.
@@ -106,7 +113,7 @@ export async function executePendingActionCancel(
     userId: ctx.userId,
   }
   const clock = now ?? new Date()
-  const eventBus = input.eventBus === undefined ? resolveEventBus(ctx.container) : input.eventBus
+  const emitter: CancelEmitter = input.emitEvent ?? defaultCancelEmitter
 
   if (action.status === 'cancelled') {
     return { row: action, status: 'cancelled' }
@@ -116,7 +123,11 @@ export async function executePendingActionCancel(
     action.expiresAt instanceof Date ? action.expiresAt : new Date(action.expiresAt)
   if (expiresAt.getTime() <= clock.getTime()) {
     const expiredRow = await repo.setStatus(action.id, 'expired', scope, { now: clock })
-    await emitEventSafe(eventBus, EXPIRED_EVENT_ID, {
+    const resolvedAtIso =
+      (expiredRow.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString()
+    const expiresAtIso =
+      (expiresAt ?? clock).toISOString?.() ?? new Date(clock).toISOString()
+    const expiredPayload: AiActionExpiredPayload = {
       pendingActionId: expiredRow.id,
       agentId: expiredRow.agentId,
       toolName: expiredRow.toolName,
@@ -125,8 +136,11 @@ export async function executePendingActionCancel(
       organizationId: ctx.organizationId ?? null,
       userId: ctx.userId,
       resolvedByUserId: null,
-      resolvedAt: (expiredRow.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString(),
-    })
+      resolvedAt: resolvedAtIso,
+      expiresAt: expiresAtIso,
+      expiredAt: resolvedAtIso,
+    }
+    await emitEventSafe(emitter, EXPIRED_EVENT_ID, expiredPayload)
     return { row: expiredRow, status: 'expired' }
   }
 
@@ -143,7 +157,7 @@ export async function executePendingActionCancel(
     executionResult,
     now: clock,
   })
-  await emitEventSafe(eventBus, CANCELLED_EVENT_ID, {
+  const cancelledPayload: AiActionCancelledPayload = {
     pendingActionId: cancelledRow.id,
     agentId: cancelledRow.agentId,
     toolName: cancelledRow.toolName,
@@ -154,7 +168,9 @@ export async function executePendingActionCancel(
     resolvedByUserId: ctx.userId,
     resolvedAt: (cancelledRow.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString(),
     executionResult,
-  })
+    ...(trimmedReason.length > 0 ? { reason: trimmedReason } : {}),
+  }
+  await emitEventSafe(emitter, CANCELLED_EVENT_ID, cancelledPayload)
 
   return { row: cancelledRow, status: 'cancelled' }
 }

@@ -20,6 +20,7 @@ jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () =>
   })),
 }))
 
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { POST } from '../route'
 
 function buildRequest(body?: unknown): Request {
@@ -101,6 +102,9 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     })
 
     emitEventMock.mockResolvedValue(undefined)
+    setGlobalEventBus({
+      emit: (eventId, payload, options) => emitEventMock(eventId, payload, options),
+    })
     repoSetStatusMock.mockImplementation(
       async (id: string, status: string, _scope: unknown, extra?: any) => {
         return {
