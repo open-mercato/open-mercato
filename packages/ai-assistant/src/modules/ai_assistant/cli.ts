@@ -271,4 +271,28 @@ const entityGraph: ModuleCli = {
   },
 }
 
-export default [mcpServe, mcpServeHttp, mcpDev, listTools, entityGraph]
+const runPendingActionCleanup: ModuleCli = {
+  command: 'run-pending-action-cleanup',
+  async run() {
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runPendingActionCleanup: runCleanup } = await import(
+      './workers/ai-pending-action-cleanup'
+    )
+
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const summary = await runCleanup({ em })
+
+    console.log('[ai-pending-action-cleanup] Sweep complete:', summary)
+  },
+}
+
+export default [
+  mcpServe,
+  mcpServeHttp,
+  mcpDev,
+  listTools,
+  entityGraph,
+  runPendingActionCleanup,
+]

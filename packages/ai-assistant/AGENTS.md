@@ -512,6 +512,12 @@ yarn mcp:serve
 | `ai_assistant.mcp_servers.view` | MUST require for viewing external MCP server configs |
 | `ai_assistant.mcp_servers.manage` | MUST require for creating/editing/deleting MCP server configs |
 
+## Workers
+
+| Worker | Queue | Purpose |
+|--------|-------|---------|
+| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Scans every tenant for expired pending mutation approvals (`status = 'pending'` AND `expires_at < now`) and flips them to `expired` via the state-machine guard, emitting `ai.action.expired` per row. Race-safe: rows that concurrently transitioned (e.g., a confirm beat us) throw `AiPendingActionStateError` from the repo and are skipped without emitting. Runs on a 5-minute system-scope interval (registered by `setup.ts`). Manually invoked via `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency: 1. |
+
 ## Events
 
 Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
