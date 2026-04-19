@@ -737,3 +737,15 @@
   - **No RTL test for the sheet**: behavior covered end-to-end by the Playwright integration spec; the sheet is a thin listener over the DataTable.
   - **Zero new ACL features / routes.**
 - BC: additive only. Phase 4 WS-C now **3/5 landed** (4.7, 4.8, 4.9). Phase 4 overall **9/11**. Next: Step 4.10 — Backend + portal examples via existing injection patterns.
+
+## 2026-04-19T00:35:00Z — Step 4.10 committed (e41732027)
+- `feat(ai-assistant-examples): backend + portal AiChat injection examples (Phase 2 WS-C)`
+- Backend widget: `customers.injection.ai-assistant-trigger` → `data-table:customers.people.list:header` (feature gate `customers.people.view` + `ai_assistant.view`).
+- Portal widget: `customer_accounts.injection.portal-ai-assistant-trigger` → `portal:profile:after` (feature gate `portal.account.manage`).
+- Both widgets ship through `widgets/injection-table.ts` without editing host pages. Each opens a Dialog embedding `<AiChat agent="customers.account_assistant">` with a spec §10.1-shaped `pageContext`.
+- RTL tests (4 across 2 suites) cover trigger render + feature gating. Core Jest regression **337 / 3069** (was 335 / 3053; delta +2 / +16 matches).
+- 8 new i18n keys total (4 backend + 4 portal), all 4 locales in sync.
+- Integration specs under owning modules' `__integration__/` folders. TC-AI-INJECT-009 (backend) + TC-AI-INJECT-010 (portal registration smoke).
+- Dev server flake: port 3000 returning 500 with peak memory 12.6 GB; restart not authorized by the user. TC-AI-INJECT-009 live Playwright run could not close in this window — Step 4.11 will re-run it against a fresh dev runtime.
+- BC: additive only. 0 new routes, 0 new ACL features, 0 edits to host pages.
+- Phase 4 WS-C now **4/5 landed** (4.7, 4.8, 4.9, 4.10). Phase 4 overall **10/11**. Next: Step 4.11 — Phase 2 integration tests (playground + settings + D18 demo), closes Phase 2.

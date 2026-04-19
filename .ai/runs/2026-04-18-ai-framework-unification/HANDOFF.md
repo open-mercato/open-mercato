@@ -1,99 +1,85 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T23:45:00Z
+**Last updated:** 2026-04-19T00:35:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 4 WS-C Step 4.9 **complete** (D18 Phase-2
-exit: `catalog.merchandising_assistant` + products-list `<AiChat>`
-sheet). Next: Step 4.10 — Backend + portal examples using existing
-injection/replacement patterns.
-**Last commit:** `ebb060c5f` — `feat(catalog): add catalog.merchandising_assistant agent + products-list AiChat sheet (Phase 2 WS-C, spec §10 D18)`
+**Current phase/step:** Phase 4 WS-C Step 4.10 **complete** (backend +
+portal `<AiChat>` injection examples via existing widget registry).
+Next: Step 4.11 — Phase 2 integration tests (playground + settings +
+D18 read-only demo). Closes Phase 2.
+**Last commit:** `e41732027` — `feat(ai-assistant-examples): backend + portal AiChat injection examples (Phase 2 WS-C)`
 
 ## What just happened
 
-- Step 4.9 delivered the D18 demo (read-only Phase-2 exit):
-  - Second agent `catalog.merchandising_assistant` exported from
-    `packages/core/src/modules/catalog/ai-agents.ts` alongside
-    `catalog.catalog_assistant`. Both are picked up by the generator's
-    `aiAgents` barrel.
-  - 17-tool whitelist: 7 D18 reads (Step 3.11) + 5 D18 authoring
-    (Step 3.12) + 5 general-purpose (Step 3.8). Deny-list tests
-    enforce no mutation tools and no base catalog list/get overlap.
-  - Prompt template = spec §10.5 verbatim (7 structured sections).
-  - `MerchandisingAssistantSheet` drawer embedded on
-    `/backend/catalog/catalog/products`, gated behind
-    `catalog.products.view` + `ai_assistant.view`. "Acting on N
-    products" pill reflects live selection size.
-  - Products DataTable emits selection + filter change notifications
-    so the sheet forms a spec §10.1-shaped `pageContext` (view,
-    recordType, recordId, extra.filter, extra.totalMatching,
-    extra.selectedCount) and passes it to `<AiChat>`.
-  - 6 new catalog-i18n keys under `catalog.merchandising_assistant.*`,
-    4 locales in sync.
-  - Playwright integration spec
-    `packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts`
-    asserts trigger button, sheet open, selection pill, and the
-    playground picker shows all three agents.
-- Unit tests: catalog ai-agents suite **23/23** (was 11; +12 for the
-  new agent including deny-lists, whitelist membership, seven-section
-  prompt, compilation, page-context stub).
-- Typecheck clean, `yarn generate` no drift, `yarn i18n:check-sync`
-  green.
-- Browser smoke captured three screenshots under
-  `step-4.9-artifacts/`: products-list trigger, merchandising sheet
-  open, playground picker with all three agents.
+- Step 4.10 shipped two injection widgets that demonstrate dropping
+  `<AiChat>` onto host surfaces through the existing widget pipeline
+  instead of editing host pages:
+  - Backend `customers.injection.ai-assistant-trigger` → spot
+    `data-table:customers.people.list:header`. Renders an "Ask AI"
+    toolbar button on `/backend/customers/people`; click opens a
+    Dialog embedding `<AiChat agent="customers.account_assistant">`
+    with selection-aware `pageContext` (spec §10.1 shape).
+  - Portal `customer_accounts.injection.portal-ai-assistant-trigger`
+    → spot `portal:profile:after`. Renders a portal-styled "Ask AI"
+    button behind the `portal.account.manage` customer feature.
+- RTL unit tests (2 suites / 4 tests) cover trigger render + feature
+  gating on both widgets. Core Jest regression: 337 / 3069 (was
+  335 / 3053; delta +2 / +16 matches).
+- i18n: 4 new keys each on the backend (`customers.ai_assistant.*`)
+  and portal (`customer_accounts.portal_ai_assistant.*`) sides, all 4
+  locales in sync.
+- Integration specs landed under each owning module's
+  `__integration__/` folder:
+  - `TC-AI-INJECT-009-backend-inject.spec.ts` asserts the trigger
+    renders on the people list.
+  - `TC-AI-INJECT-010-portal-inject.spec.ts` ships as a registration
+    smoke placeholder (no portal customer-login helper yet).
+
+## Open issues carried to Step 4.11
+
+- **Dev server on port 3000 is returning HTTP 500** (peak memory
+  12.6 GB, stale compile state). User did NOT authorize a restart;
+  the code compiles clean under typecheck + Jest, but TC-AI-INJECT-009
+  against the live dev server could not green in the Step 4.10
+  window. Step 4.11 must either re-run it against a fresh dev runtime
+  or ask the user to restart.
+- **Portal customer-login helper** is missing in
+  `.ai/qa/tests/helpers`. TC-AI-INJECT-010 is a trivial registration
+  smoke today; Step 4.11 should extend
+  `packages/core/src/helpers/integration/auth.ts` (or the equivalent)
+  with a customer-side login flow and upgrade the spec.
+- **Portal `ai_assistant.view` feature gap** — the portal widget
+  gates on `portal.account.manage` because no dedicated portal AI
+  view feature exists. Document as a Phase 5 follow-up.
 
 ## Next concrete action
 
-- **Step 4.10** — Backend + portal examples using existing
-  injection/replacement patterns:
-  - Pick ONE backend page from another module (outside catalog) and
-    demonstrate embedding `<AiChat>` via the widget-injection system
-    (not by editing the page directly). Candidates: customers deal
-    detail, quotes list, orders list. Prefer a page where a
-    per-record pageContext shape is useful.
-  - Pick ONE portal page (customer portal) and demonstrate the same
-    pattern with `<AiChat>` gated by customer features. Customer
-    portal layout lives under
-    `packages/ui/src/portal/` and
-    `packages/core/src/modules/customer_accounts/frontend/`.
-  - Both examples MUST use the existing widget injection spots
-    (`widgets/injection/*.tsx` + `widgets/injection-table.ts`) so
-    third-party modules can copy the pattern.
-  - Integration spec under the owning module's `__integration__/`
-    folder.
-  - UI-cadence rule applies: real browser smoke for both surfaces,
-    screenshots under `step-4.10-artifacts/`.
-- **Cadence note:** after Step 4.10 and 4.11, the 5-step checkpoint
-  window closes (3 Steps since 4.6 checkpoint: 4.7, 4.8, 4.9; +4.10
-  and 4.11 = 5). Full gate due after 4.11.
+- **Step 4.11** — Spec Phase 2 — Integration tests closing Phase 2:
+  - Playwright coverage of the playground page (`/backend/config/ai-assistant/playground`) including the agent-picker populated with all three agents, debug-panel rendering, chat happy-path with a stubbed SSE response.
+  - Playwright coverage of the agent settings page (`/backend/config/ai-assistant/agents`) including the prompt-override editor's `Cmd/Ctrl+Enter` hook and the read-only tool-toggle list.
+  - Playwright coverage of the D18 merchandising demo: open the sheet on `/backend/catalog/catalog/products`, verify the selection pill updates when rows are selected.
+  - Re-run TC-AI-INJECT-009 + TC-AI-INJECT-010 (after wiring the portal login helper) against a fresh dev runtime.
+  - All specs colocated under the owning module's
+    `packages/<pkg>/src/modules/<module>/__integration__/` folder.
 
-## Blockers / open questions
+## Cadence reminder
 
-- **Turbopack dev-runtime cache** keeps needing a bust
-  (`cd packages/core && node build.mjs` + `touch apps/mercato/next.config.ts`)
-  every time a new module-root `ai-agents.ts` or generated file
-  shifts. Not a blocker — documented recipe works. Consider a
-  follow-up in Step 4.11 or later Phase 5 to wire a post-generate
-  hook that touches `next.config.ts` automatically.
-- **Agent `resolvePageContext`** is still a stub returning `null` for
-  both catalog agents. The D18 sheet forms the `pageContext`
-  client-side and passes it through `<AiChat>` — so the Step-5.2
-  server-side hydration is strictly additive. Flag in 5.2 that the
-  merchandising assistant's context already carries selection size.
-- **Executor stability:** two stream-idle timeouts in the last two
-  Step dispatches. Main session has been finishing docs-flips
-  directly when this happens. Keep Step 4.10 scoped tight.
+- 5 Steps since the last full-gate checkpoint (4.7, 4.8, 4.9, 4.10 +
+  4.11 upcoming). After Step 4.11 the full integration + validation
+  gate is due (user rule: every 5 Steps). Since 4.11 is itself an
+  integration-test Step, the checkpoint stacks cleanly on top.
 
 ## Environment caveats
 
-- Dev runtime: `yarn dev:app` still running on port 3000 (background
-  task `bk93jo24j`). Reused across Steps 4.4 → 4.9.
+- Dev runtime: `yarn dev:app` still registered as background task
+  `bk93jo24j` on port 3000 but currently returning 500. Restart
+  requires user authorization.
 - Database / migration state: clean, untouched.
 - Typecheck clean; pre-existing `@open-mercato/app`
   `agent-registry.ts(43,7)` carryover tolerated.
+- `yarn i18n:check-sync` green (46 modules × 4 locales).
 
 ## Worktree
 
