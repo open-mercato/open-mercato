@@ -1,6 +1,15 @@
 import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
+import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
+
+const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 5_000
+
+function resolveVaultRequestTimeoutMs(): number {
+  const raw = process.env.VAULT_REQUEST_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_VAULT_REQUEST_TIMEOUT_MS)
+}
 
 export type TenantDek = {
   tenantId: string
@@ -85,12 +94,6 @@ function normalizeEnv(value: string | undefined): string {
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) return fallback
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
-}
-
 type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }
 
 function resolveDerivedKeySecret(): DerivedSecret | null {
@@ -160,7 +163,7 @@ export class HashicorpVaultKmsService implements KmsService {
     this.vaultToken = normalizeEnv(opts.vaultToken || process.env.VAULT_TOKEN || '')
     this.mountPath = (opts.mountPath || process.env.VAULT_KV_PATH || 'secret/data').replace(/\/+$/, '')
     this.ttlMs = opts.ttlMs ?? 15 * 60 * 1000
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? parsePositiveInt(process.env.VAULT_REQUEST_TIMEOUT_MS, 1500)
+    this.requestTimeoutMs = resolveTimeoutMs(opts.requestTimeoutMs, resolveVaultRequestTimeoutMs())
     this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
@@ -194,26 +197,16 @@ export class HashicorpVaultKmsService implements KmsService {
     return entry
   }
 
-  private createTimeoutController(): { controller: AbortController; clear: () => void } {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
-    return {
-      controller,
-      clear: () => clearTimeout(timer),
-    }
-  }
-
   private async readVault(path: string): Promise<VaultReadResponse | null> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
       return null
     }
-    const timeout = this.createTimeoutController()
     try {
-      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
+      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'GET',
         headers: { 'X-Vault-Token': this.vaultToken },
-        signal: timeout.controller.signal,
+        timeoutMs: this.requestTimeoutMs,
       })
       if (!res.ok) {
         this.healthy = res.status < 500
@@ -232,8 +225,6 @@ export class HashicorpVaultKmsService implements KmsService {
         timeoutMs: this.requestTimeoutMs,
       })
       return null
-    } finally {
-      timeout.clear()
     }
   }
 
@@ -242,16 +233,15 @@ export class HashicorpVaultKmsService implements KmsService {
       this.healthy = false
       return false
     }
-    const timeout = this.createTimeoutController()
     try {
-      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
+      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'POST',
         headers: {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ data: { key } }),
-        signal: timeout.controller.signal,
+        timeoutMs: this.requestTimeoutMs,
       })
       this.healthy = res.ok
       if (!res.ok) {
@@ -266,8 +256,6 @@ export class HashicorpVaultKmsService implements KmsService {
         timeoutMs: this.requestTimeoutMs,
       })
       return false
-    } finally {
-      timeout.clear()
     }
   }
 

@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -23,18 +24,6 @@ function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
   return m ? decodeURIComponent(m[1]) : null
-}
-
-function sanitizeRedirect(param: string | null, baseUrl: string): string {
-  const value = param || '/'
-  try {
-    const base = new URL(baseUrl)
-    const resolved = new URL(value, baseUrl)
-    if (resolved.origin === base.origin && resolved.pathname.startsWith('/')) {
-      return resolved.pathname + resolved.search + resolved.hash
-    }
-  } catch {}
-  return '/'
 }
 
 function clearStaffAuthCookies(response: NextResponse) {
@@ -58,7 +47,7 @@ function clearStaffAuthCookies(response: NextResponse) {
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const baseUrl = getAppBaseUrl(req)
-  const redirectTo = sanitizeRedirect(url.searchParams.get('redirect'), baseUrl)
+  const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(

@@ -1,6 +1,7 @@
 import { MeiliSearch } from 'meilisearch'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
+import { resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import type {
   FullTextSearchDriver,
   FullTextSearchDocument,
@@ -17,8 +18,18 @@ export type MeilisearchDriverOptions = {
   apiKey?: string
   indexPrefix?: string
   defaultLimit?: number
+  timeoutMs?: number
   encryptionMapResolver?: (entityId: EntityId) => Promise<EncryptionMapEntry[]>
   fieldPolicyResolver?: (entityId: EntityId) => SearchFieldPolicy | undefined
+}
+
+const DEFAULT_MEILISEARCH_REQUEST_TIMEOUT_MS = 30_000
+
+function resolveMeilisearchTimeoutMs(explicit?: number): number {
+  if (typeof explicit === 'number') return resolveTimeoutMs(explicit, DEFAULT_MEILISEARCH_REQUEST_TIMEOUT_MS)
+  const raw = process.env.MEILISEARCH_REQUEST_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_MEILISEARCH_REQUEST_TIMEOUT_MS)
 }
 
 export function createMeilisearchDriver(
@@ -28,6 +39,7 @@ export function createMeilisearchDriver(
   const apiKey = options?.apiKey ?? process.env.MEILISEARCH_API_KEY ?? ''
   const indexPrefix = options?.indexPrefix ?? process.env.MEILISEARCH_INDEX_PREFIX ?? 'om'
   const defaultLimit = options?.defaultLimit ?? 20
+  const requestTimeoutMs = resolveMeilisearchTimeoutMs(options?.timeoutMs)
   const encryptionMapResolver = options?.encryptionMapResolver
   const fieldPolicyResolver = options?.fieldPolicyResolver
 
@@ -37,7 +49,7 @@ export function createMeilisearchDriver(
 
   function getClient(): MeiliSearch {
     if (!client) {
-      client = new MeiliSearch({ host, apiKey })
+      client = new MeiliSearch({ host, apiKey, timeout: requestTimeoutMs })
     }
     return client
   }
