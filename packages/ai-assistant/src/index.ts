@@ -202,6 +202,17 @@ export {
   type PendingActionExecuteFail,
 } from './modules/ai_assistant/lib/pending-action-executor'
 
+// Pending-action cancel executor (Phase 3 WS-C — Step 5.9)
+export {
+  executePendingActionCancel,
+  PENDING_ACTION_CANCELLED_EVENT_ID,
+  PENDING_ACTION_EXPIRED_EVENT_ID,
+  type PendingActionCancelInput,
+  type PendingActionCancelContext,
+  type PendingActionCancelResult,
+  type PendingActionCancelStatus,
+} from './modules/ai_assistant/lib/pending-action-cancel'
+
 // Shared AI model factory (Phase 3 WS-A — Step 5.1)
 export {
   createModelFactory,
