@@ -160,6 +160,7 @@ describe('customers todos adapter route', () => {
     listCanonicalTodoRows.mockResolvedValue({
       items: [canonicalRow],
       bridgeIds: new Set([TODO_ID]),
+      total: 1,
     })
 
     const { hydrateCanonicalInteractions, loadCustomerSummaries } =
@@ -358,6 +359,68 @@ describe('customers todos adapter route', () => {
         input: { id: TODO_ID },
       }),
     )
+  })
+
+  it('pushes pagination and search to the DB layer in unified mode', async () => {
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: true,
+      legacyAdapters: true,
+      externalSync: false,
+    })
+
+    const { listCanonicalTodoRows, listLegacyTodoRows } = jest.requireMock('../../../lib/todoCompatibility')
+    listCanonicalTodoRows.mockResolvedValue({
+      items: [],
+      bridgeIds: new Set(),
+      total: 317,
+    })
+
+    const res = await GET(
+      new Request(
+        `http://localhost/api/customers/todos?entityId=${ENTITY_ID}&page=4&pageSize=25&search=  Invoice  `,
+      ),
+    )
+    expect(res.status).toBe(200)
+
+    expect(listCanonicalTodoRows).toHaveBeenCalledTimes(1)
+    expect(listLegacyTodoRows).not.toHaveBeenCalled()
+    const call = listCanonicalTodoRows.mock.calls[0]
+    const options = call[5]
+    expect(options).toEqual(
+      expect.objectContaining({
+        entityId: ENTITY_ID,
+        pagination: { page: 4, pageSize: 25 },
+        searchText: 'invoice',
+      }),
+    )
+
+    const body = await res.json()
+    expect(body.total).toBe(317)
+    expect(body.page).toBe(4)
+    expect(body.pageSize).toBe(25)
+    expect(body.totalPages).toBe(Math.ceil(317 / 25))
+  })
+
+  it('bounds per-source windows in merged non-unified mode', async () => {
+    const { listCanonicalTodoRows, listLegacyTodoRows } = jest.requireMock('../../../lib/todoCompatibility')
+
+    await GET(
+      new Request(`http://localhost/api/customers/todos?entityId=${ENTITY_ID}&page=2&pageSize=50`),
+    )
+
+    expect(listLegacyTodoRows).toHaveBeenCalledTimes(1)
+    expect(listCanonicalTodoRows).toHaveBeenCalledTimes(1)
+
+    const legacyArgs = listLegacyTodoRows.mock.calls[0]
+    expect(legacyArgs[5]).toEqual(expect.objectContaining({ limit: expect.any(Number) }))
+    expect(legacyArgs[5].limit).toBeLessThanOrEqual(2000)
+    expect(legacyArgs[5].limit).toBeGreaterThan(0)
+
+    const canonicalArgs = listCanonicalTodoRows.mock.calls[0]
+    expect(canonicalArgs[5]).toEqual(expect.objectContaining({ limit: expect.any(Number) }))
+    expect(canonicalArgs[5].limit).toBeLessThanOrEqual(2000)
+    expect(canonicalArgs[5].limit).toBeGreaterThan(0)
   })
 
   it('returns 410 when legacy adapters are disabled', async () => {

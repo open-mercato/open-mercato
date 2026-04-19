@@ -30,6 +30,11 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
 }
 
+// Per-source fetch cap used when the legacy adapter must merge legacy and
+// canonical-bridge rows without DB-side union. Bounds memory on tenants with
+// large task history.
+const MERGED_TASK_FETCH_CAP = 2000
+
 export async function GET(request: Request): Promise<Response> {
   const { translate } = await resolveTranslations()
   try {
@@ -41,34 +46,57 @@ export async function GET(request: Request): Promise<Response> {
     const search = normalizeTodoSearch(query.search)
     const queryEngine = container.resolve('queryEngine') as QueryEngine
 
-    const mergedRows = flags.unified
-      ? (await listCanonicalTodoRows(
-          em,
-          container,
-          auth,
-          selectedOrganizationId,
-          organizationIds,
-          { entityId: query.entityId },
-        )).items
-      : await Promise.all([
-          listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId),
-          listCanonicalTodoRows(
-            em,
-            container,
-            auth,
-            selectedOrganizationId,
-            organizationIds,
-            {
-              entityId: query.entityId,
-              includeDeleted: true,
-              source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
-            },
-          ),
-        ]).then(([legacyRows, canonicalRows]) => [
-          ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
-          ...canonicalRows.items,
-        ])
+    if (flags.unified) {
+      const canonical = await listCanonicalTodoRows(
+        em,
+        container,
+        auth,
+        selectedOrganizationId,
+        organizationIds,
+        {
+          entityId: query.entityId,
+          pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
+          searchText: search,
+        },
+      )
+      const total = canonical.total
+      return NextResponse.json({
+        items: canonical.items,
+        total,
+        page: exportAll ? 1 : query.page,
+        pageSize: exportAll ? canonical.items.length : query.pageSize,
+        totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / query.pageSize)),
+      })
+    }
 
+    const legacyWindow = exportAll
+      ? null
+      : Math.min(
+          MERGED_TASK_FETCH_CAP,
+          Math.max(query.pageSize, query.page * query.pageSize + query.pageSize),
+        )
+    const [legacyRows, canonicalRows] = await Promise.all([
+      listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
+        limit: legacyWindow,
+      }),
+      listCanonicalTodoRows(
+        em,
+        container,
+        auth,
+        selectedOrganizationId,
+        organizationIds,
+        {
+          entityId: query.entityId,
+          includeDeleted: true,
+          source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+          limit: legacyWindow,
+        },
+      ),
+    ])
+    const mergedRows = [
+      ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
+      ...canonicalRows.items,
+    ]
     const filteredRows = filterTodoRows(sortTodoRows(mergedRows), search)
     const paged = paginateTodoRows(filteredRows, query.page, query.pageSize, exportAll)
 
