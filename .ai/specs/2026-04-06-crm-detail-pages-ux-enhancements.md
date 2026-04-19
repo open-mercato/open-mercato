@@ -26,9 +26,10 @@
 
 - Modified: company-v2, person-v2 detail pages (SPEC-046 Zone 1 + Zone 2)
 - Modified: sales document-v2 detail page (SPEC-047 Zone 1 + Zone 2)
-- New components: `CollapsibleGroup`, `CollapsibleZoneLayout`, `InlineActivityComposer`, `RolesSection`, `StageProgressBar`, `DealClosureDialog`, `ActivityTimelineFilters`
-- New API endpoints: roles CRUD, activity filtering
-- New UMES injection spots for roles and stage bar
+- New components (Phase 1–5): `CollapsibleGroup`, `CollapsibleZoneLayout`, `InlineActivityComposer`, `RolesSection`, `PipelineStepper` (stage progress bar), `ConfirmDealLostDialog` / `DealLostSummaryDialog` / `DealWonPopup` / `DealClosureActionBar` (closure flow), `ActivityTimelineFilters`
+- New components (Phase 6–8, added during implementation — see "Additional UX Iterations"): Dashboard widgets, AI Action Chips, per-user Labels UI, Dictionary Kind Settings UI, Person-Company Roles UI, Decision Makers Footer, Mini Week Calendar, Entity-scoped Tag Dialogs, Activity Log Tab, Changelog Tab
+- New API endpoints: roles CRUD, activity filtering, per-user labels CRUD/assign, person-company link CRUD, dictionary entry reorder/set-default, dictionary kind settings CRUD, audit-log projections export
+- New UMES injection spots for roles, stage bar, activity composer, closure dialog
 
 **Concerns:**
 
@@ -661,6 +662,442 @@ In particular:
 | **Phase 2** | Stage progress bar + Won/Lost flow | 3–4 days | SPEC-047 implemented, SPEC-028 pipelines |
 | **Phase 3** | Multi-role assignment | 2–3 days | New migration, dictionary seeding |
 | **Phase 4** | Activity timeline filtering + pinning | 2–3 days | SPEC-046b interactions API extended |
+| **Phase 5** | Changelog tab + audit-log projections (see Rev 4) | 2–3 days | `action_logs` column additions |
+| **Phase 6** | Dashboard tab + widgets (Rev 5 — added during implementation) | 3–4 days | SPEC-028 pipelines, SPEC-046b interactions |
+| **Phase 7** | Per-user Labels + Dictionary Kind Settings + reorder/default (Rev 5) | 3–4 days | Dictionary module migration |
+| **Phase 8** | AI Action Chips + Decision Makers Footer + Mini Week Calendar + Activity Log tab (Rev 5) | 2–3 days | None |
+
+---
+
+## Additional UX Iterations (Rev 5 — Added During Implementation)
+
+Between the original 2026-04-06 draft and the branch landing on 2026-04-19, the UX designer delivered further iterations that shipped alongside Phases 1–5 on the same branch. This section catalogs those additions so the spec reflects the full scope of the `feat/crm-details-screens` branch.
+
+Each sub-section below follows the same shape as Enhancements 1–5 (Architecture, Behavior, Files) but at a higher level — implementation detail lives in the code, this serves as the architectural record.
+
+### Enhancement 6 — Company Dashboard Tab
+
+#### Architecture
+
+New Zone 2 tab on the company detail page: a widget grid that answers "what do I need to know about this account right now?" without having to click through other tabs. Composed of independent widgets that each resolve their own data.
+
+```
+┌── Zone 2: [Dashboard] [Details] [People] [Deals] [Activities] ──┐
+│                                                                  │
+│  ┌─ Active Deal ────────┐  ┌─ Relationship Health ────────────┐ │
+│  │ Order #12345         │  │ Score: 78/100                    │ │
+│  │ €45,000 · Negotiation│  │ Last contact: 3 days ago         │ │
+│  │ Close est.: 2026-05  │  │ Overdue tasks: 1                 │ │
+│  └──────────────────────┘  └──────────────────────────────────┘ │
+│                                                                  │
+│  ┌─ Next Step ──────────┐  ┌─ Open Tasks (3) ─────────────────┐ │
+│  │ 📞 Follow-up call    │  │ 🔴 Send proposal (overdue)       │ │
+│  │ Tomorrow, 14:00      │  │ 🟢 Schedule demo                 │ │
+│  │ [Reschedule]         │  │ 🟢 Confirm Q2 renewal            │ │
+│  └──────────────────────┘  └──────────────────────────────────┘ │
+│                                                                  │
+│  ┌─ Upcoming Meetings ──────────────────────────────────────────┐│
+│  │ 🤝 Apr 22 · 10:00 · Strategy sync with Jan Kowalski          ││
+│  │ 🤝 May 03 · 14:00 · Q2 review                                ││
+│  └──────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  ┌─ Recent Activity (timeline preview, 5 most recent) ──────────┐│
+│  │ …                                                            ││
+│  └──────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────┘
+```
+
+#### Widgets
+
+| Widget | Data source | Notes |
+| ------ | ----------- | ----- |
+| `ActiveDealWidget` | `/api/customers/companies/{id}/deals?status=open&limit=1` + pipeline lookup | Shows the single highest-value open deal; empty state when none |
+| `RelationshipHealthWidget` | `healthScoreUtils.computeHealthScore(...)` over interactions, deals, last-contact | Pure-client computation over already-loaded company/interaction payload |
+| `NextStepCard` | `/api/customers/interactions?entityType=company&entityId={id}&scheduledAt[gt]=now&limit=1` | Surfaces the nearest scheduled activity; "Reschedule" opens `ScheduleActivityDialog` |
+| `OpenTasksWidget` | `/api/customers/todos?entityType=company&entityId={id}&status=open` | Inline quick-complete + overdue highlight |
+| `UpcomingMeetingsWidget` | `/api/customers/interactions?entityType=company&entityId={id}&type=meeting&scheduledAt[gt]=now` | Sorted ascending by `scheduledAt` |
+| `RecentActivityWidget` | Shared `PlannedActivitiesSection` / `ActivityHistorySection` in compact mode | Deep link → full Activities tab |
+| `CompanyCard` | Summary of company scalars (status, size, industry) | Shared with `PersonDetailTabs` for consistency |
+
+Widgets are dashboard-independent (no shared store): each widget owns its own loading/error/empty state and participates in the standard DOM event bridge for cross-widget refreshes (interaction created → refresh `NextStepCard`, `UpcomingMeetingsWidget`, `RecentActivityWidget`).
+
+#### Behavior
+
+| Rule | Detail |
+| ---- | ------ |
+| Default tab | Dashboard is NOT default on first load — Details tab remains default to preserve SPEC-046 muscle memory. User can pin Dashboard as default via a per-user preference in a later iteration. |
+| Empty state | Each widget shows its own empty state (`<EmptyState>` primitive) with a CTA to create the relevant entity. |
+| Refresh | Widgets subscribe to `customers.*.created/updated/deleted` via DOM event bridge. Only affected widgets refresh. |
+| Layout | CSS Grid, 2 columns on `md+`, single column below `md`. Widgets are roughly equal height; tall widgets (`UpcomingMeetingsWidget`, `RecentActivityWidget`) span full width. |
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/components/detail/CompanyDashboardTab.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/ActiveDealWidget.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/RelationshipHealthWidget.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/OpenTasksWidget.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/UpcomingMeetingsWidget.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/RecentActivityWidget.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/dashboard/helpers.ts` | New — shared widget utilities |
+| `packages/core/src/modules/customers/components/detail/ActiveDealCard.tsx` | New — card presentation shared between widget + list views |
+| `packages/core/src/modules/customers/components/detail/NextStepCard.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/CompanyCard.tsx` | New |
+| `packages/core/src/modules/customers/components/detail/CompanyKpiBar.tsx` | New — KPI ribbon atop the company page |
+| `packages/core/src/modules/customers/components/detail/healthScoreUtils.ts` | New — pure computation |
+| `packages/core/src/modules/customers/components/detail/pipelineStageUtils.ts` | New — pure helpers for stage math |
+
+---
+
+### Enhancement 7 — AI Action Chips on Activities
+
+#### Architecture
+
+Each `ActivityCard` exposes a row of contextual AI action chips (e.g., "Draft reply", "Summarize", "Extract next step"). The chip set is data-driven from `aiActionCatalog.ts` so adding a new action is one catalog entry — no UI edits.
+
+#### Behavior
+
+| Rule | Detail |
+| ---- | ------ |
+| Chip visibility | Each catalog entry declares `appliesTo` (activity types) and optional feature-gate. |
+| Invocation | Click → calls existing MCP tool (`@open-mercato/ai-assistant`) with a scoped prompt; result streams back into the activity inline. |
+| Permissions | AI actions require `customers.interactions.manage` plus any additional feature declared in the catalog entry. |
+| Non-blocking | Errors surface via `flash('…', 'error')`; activity content is never mutated without explicit user confirmation. |
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/components/detail/aiActionCatalog.ts` | New — declarative catalog |
+| `packages/core/src/modules/customers/components/detail/AiActionChips.tsx` | New — chip row |
+| `packages/core/src/modules/customers/components/detail/ActivityAiActions.tsx` | New — execution wrapper |
+| `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | New — canonical activity card composition |
+| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell |
+| `packages/core/src/modules/customers/components/detail/ActivityHistorySection.tsx` | New — grouped history list |
+
+---
+
+### Enhancement 8 — Per-User Customer Labels (free-pool)
+
+#### Architecture
+
+Distinct from the shared "tags" / dictionary-driven labels used across the tenant, this enhancement introduces **per-user** free-pool labels that let each salesperson annotate customers privately. Conceptually similar to Gmail labels: owned by a user, visible only to that user, scoped to a tenant+org.
+
+#### Data Model
+
+Two new tables:
+
+`customer_labels`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | Scoped per org |
+| `tenant_id` | uuid | Multi-tenant |
+| `user_id` | uuid | FK → owning staff user |
+| `slug` | text | URL-safe identifier, unique per (user, tenant, org) |
+| `label` | text | Display label |
+| `created_at`, `updated_at` | timestamptz | |
+
+**Unique constraint:** `(user_id, tenant_id, organization_id, slug)`.
+
+`customer_label_assignments`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | |
+| `tenant_id` | uuid | |
+| `user_id` | uuid | Must match `customer_labels.user_id` — labels are private |
+| `label_id` | uuid | FK → `customer_labels.id` |
+| `entity_id` | uuid | FK → `customer_entities.id` |
+| `created_at` | timestamptz | |
+
+**Unique constraint:** `(label_id, entity_id)`.
+
+#### API
+
+```
+GET    /api/customers/labels
+POST   /api/customers/labels                     { slug, label }
+DELETE /api/customers/labels/{id}
+POST   /api/customers/labels/assign              { labelId, entityId, organizationId? }
+POST   /api/customers/labels/unassign            { labelId, entityId }
+```
+
+Routes declare only `requireAuth: true`; the runtime check resolves the target entity and calls the appropriate per-kind feature (`customers.people.manage` or `customers.companies.manage`) scoped to the entity's org — see root "Migration & Backward Compatibility → Label feature-gate semantics (H10)".
+
+All writes flow through commands: `customers.labels.create`, `customers.labels.delete`, `customers.labels.assign`, `customers.labels.unassign`. Each emits `customers.label.{created,updated,deleted}` or `customers.label_assignment.{created,updated,deleted}`.
+
+#### UI
+
+| Component | Purpose |
+| --------- | ------- |
+| `EntityTagsDialog` | Generic tag/label manage dialog (composes tags + labels) |
+| `CompanyTagsDialog` | Specialization for companies |
+| `PersonTagsDialog` | Specialization for persons |
+| `ManageTagsDialog` | Global tag admin (in Rev 2 spec) |
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/data/entities.ts` | +`CustomerLabel`, `CustomerLabelAssignment` |
+| `packages/core/src/modules/customers/data/validators.ts` | +`labelCreateSchema`, `labelAssignmentSchema`, … |
+| `packages/core/src/modules/customers/commands/labels.ts` | New — commands with undo + events |
+| `packages/core/src/modules/customers/api/labels/route.ts` | New |
+| `packages/core/src/modules/customers/api/labels/assign/route.ts` | New |
+| `packages/core/src/modules/customers/api/labels/unassign/route.ts` | New |
+| `packages/core/src/modules/customers/components/detail/{EntityTagsDialog,CompanyTagsDialog,PersonTagsDialog}.tsx` | New |
+
+---
+
+### Enhancement 9 — Dictionary Kind Settings (tenant-scoped CRM config)
+
+#### Architecture
+
+CRM dictionaries (status, loss reason, role type, etc.) now support per-tenant+org configuration via a new table `customer_dictionary_kind_settings`. Each kind can be configured with:
+
+- `selection_mode` — `'single'` or `'multi'` — whether the dictionary is single-select or multi-select in forms that consume it.
+- `visible_in_tags` — whether dictionary entries appear in the unified tags surface (search, filter, assign).
+- `sort_order` — display priority within the CRM settings UI.
+
+The settings are surfaced in a new admin page (Backend → CRM → Configuration) composed of `CustomersConfigurationSections` and the shared `DictionarySettings` panel.
+
+#### Data Model
+
+`customer_dictionary_kind_settings`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | Scoped per org |
+| `tenant_id` | uuid | Multi-tenant |
+| `kind` | text | Matches a dictionary kind (e.g. `customer_status`) |
+| `selection_mode` | text | `'single'` (default) or `'multi'` |
+| `visible_in_tags` | boolean | Default `true` |
+| `sort_order` | int | Default `0` |
+| `created_at`, `updated_at` | timestamptz | |
+
+**Unique:** `(organization_id, tenant_id, kind)`.
+
+#### API
+
+```
+GET    /api/customers/dictionaries/kind-settings
+PUT    /api/customers/dictionaries/kind-settings     { kind, selectionMode?, visibleInTags?, sortOrder? }
+```
+
+Writes flow through `customers.dictionaryKindSettings.upsert` command.
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/data/entities.ts` | +`CustomerDictionaryKindSetting` |
+| `packages/core/src/modules/customers/commands/dictionaryKindSettings.ts` | New |
+| `packages/core/src/modules/customers/api/dictionaries/kind-settings/route.ts` | New |
+| `packages/core/src/modules/customers/components/DictionarySettings.tsx` | New — settings UI panel |
+| `packages/core/src/modules/customers/components/CustomersConfigurationSections.tsx` | New — admin page composition |
+| `packages/core/src/modules/customers/backend/config/customers/page.tsx` | New — `/backend/config/customers` page |
+
+---
+
+### Enhancement 10 — Dictionary Entry Reorder + Set-Default
+
+#### Architecture
+
+The shared `dictionaries` module gains two capabilities needed for CRM UX:
+
+1. **Manual ordering** — drag, chevron arrows (see linking/mobile spec Enhancement 4), or API.
+2. **Default entry** — each dictionary may designate exactly one entry as its "default" (used when creating a new record, e.g. a new company defaults to status = "active").
+
+#### Schema changes
+
+Migration `Migration20260410171544.ts` on `dictionary_entries`:
+
+- `ADD COLUMN position int NOT NULL DEFAULT 0` — manual ordering
+- `ADD COLUMN is_default boolean NOT NULL DEFAULT false`
+- Backfill `position` from `row_number() OVER (PARTITION BY dictionary_id, organization_id, tenant_id ORDER BY lower(label), lower(value), id) - 1` so existing entries get a deterministic initial order.
+- Partial unique index: `CREATE UNIQUE INDEX dictionary_entries_one_default_per_dict ON dictionary_entries (dictionary_id, organization_id, tenant_id) WHERE is_default = true` — enforces at most one default per dictionary per tenant+org.
+- Seeded `customers.status` dictionary's `active` entry is marked default, **only when no other entry in that dictionary is already marked default** (idempotent guard so tenants that customize defaults via UI after deploying this migration are not overridden on replay).
+
+#### API
+
+```
+POST /api/dictionaries/{dictionaryId}/entries/reorder       { entries: [{ id, position }] }
+POST /api/dictionaries/{dictionaryId}/entries/set-default   { entryId }
+```
+
+Both routes are command-backed: `dictionaries.entries.reorder` and `dictionaries.entries.set_default`. Each is wrapped in `withAtomicFlush({ transaction: true })` so either the whole reorder commits or nothing does.
+
+#### Events
+
+| ID | Meaning |
+| -- | ------- |
+| `dictionaries.entry.created` | New entry persisted |
+| `dictionaries.entry.updated` | Entry scalar, position, or default flag changed |
+| `dictionaries.entry.deleted` | Soft-deleted |
+
+The `dictionaries` module gains its own `events.ts` declaring these via `createModuleEvents({ moduleId: 'dictionaries', … })`.
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/dictionaries/migrations/Migration20260410171544.ts` | New |
+| `packages/core/src/modules/dictionaries/data/entities.ts` | +`position`, +`isDefault` |
+| `packages/core/src/modules/dictionaries/data/validators.ts` | +`reorderSchema`, +`setDefaultSchema` |
+| `packages/core/src/modules/dictionaries/events.ts` | New |
+| `packages/core/src/modules/dictionaries/commands/entry-operations.ts` | New — `reorder`, `set_default` commands |
+| `packages/core/src/modules/dictionaries/api/[dictionaryId]/entries/reorder/route.ts` | New |
+| `packages/core/src/modules/dictionaries/api/[dictionaryId]/entries/set-default/route.ts` | New |
+| `packages/core/src/modules/dictionaries/components/DictionaryTable.tsx` | Modified — render drag handles + default toggle |
+
+---
+
+### Enhancement 11 — Company Billing Extension (extension entity)
+
+#### Architecture
+
+Per the "never mutate another module's entity" rule, the CRM company sub-record for billing is implemented as an **extension entity** with a 1:1 FK to `customer_entities`.
+
+#### Data Model
+
+`customer_company_billing`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | |
+| `tenant_id` | uuid | |
+| `entity_id` | uuid | FK → `customer_entities.id`; **unique** (1:1 per company) |
+| `bank_name` | text | Nullable |
+| `bank_account_masked` | text | Nullable; stored masked (e.g., `****1234`) |
+| `payment_terms` | text | Nullable; dictionary-backed in UI |
+| `preferred_currency` | text | Nullable; ISO 4217 code |
+| `created_at`, `updated_at` | timestamptz | |
+
+Rendered inside the company CrudForm as a dedicated "Billing" group (collapsible per Enhancement 1). Managed via the existing company update command and response-enricher pattern (no new command).
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/data/entities.ts` | +`CustomerCompanyBilling` |
+| `packages/core/src/modules/customers/data/extensions.ts` | Declare extension link |
+| `packages/core/src/modules/customers/commands/people.ts` | Updated update flow to persist billing scalars transactionally |
+| `packages/core/src/modules/customers/components/formConfig.tsx` | Add billing group to the company form |
+
+---
+
+### Enhancement 12 — Person-Company Roles (junction)
+
+#### Architecture
+
+Distinct from the SPEC-072 "entity role" concept (which assigns a _staff user_ to a role on a company/person), this junction answers: "What role does person X play on company Y?" (e.g., CFO of Acme, Procurement lead at Globex). A single person can hold many such role records across different companies, and vice versa.
+
+#### Data Model
+
+`customer_person_company_roles`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | |
+| `tenant_id` | uuid | |
+| `person_entity_id` | uuid | FK → `customer_entities.id` (kind=person) |
+| `company_entity_id` | uuid | FK → `customer_entities.id` (kind=company) |
+| `role_value` | text | Dictionary-driven (`procurement`, `cfo`, `account_manager`, …) |
+| `created_at` | timestamptz | |
+
+**Unique:** `(person_entity_id, company_entity_id, role_value)` — one copy of each role per pair.
+
+#### API
+
+Exposed through the existing person-company link endpoints — roles are set as part of the link payload and rendered inside `PersonCompaniesSection` / `CompanyPeopleSection`.
+
+#### Files
+
+| File | Action |
+| ---- | ------ |
+| `packages/core/src/modules/customers/data/entities.ts` | +`CustomerPersonCompanyRole` |
+| `packages/core/src/modules/customers/lib/customerRoleTypes.ts` | New — default role type seeds |
+| `packages/core/src/modules/customers/lib/roleTypeUsage.ts` | New — checks role usage before deleting a role type from the dictionary |
+| `packages/core/src/modules/customers/commands/personCompanyLinks.ts` | Accepts and syncs role collection |
+| `packages/core/src/modules/customers/components/detail/DecisionMakersFooter.tsx` | New — renders roles as a compact footer on the company card |
+
+---
+
+### Enhancement 13 — Deal Stage Transitions Audit
+
+#### Architecture
+
+Every time a deal's pipeline stage changes, an immutable record is written to `customer_deal_stage_transitions`. This gives the Changelog tab (Phase 5) and downstream reporting a precise history independent of the generic `action_logs` projection.
+
+#### Data Model
+
+`customer_deal_stage_transitions`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | uuid | PK |
+| `organization_id` | uuid | |
+| `tenant_id` | uuid | |
+| `deal_id` | uuid | FK → `customer_deals.id` |
+| `from_stage_id` | uuid | Nullable (first-entry into pipeline) |
+| `to_stage_id` | uuid | Not null |
+| `actor_user_id` | uuid | Nullable |
+| `occurred_at` | timestamptz | |
+| `closure_outcome` | text | Nullable: `won`, `lost`, or null |
+| `loss_reason_id` | uuid | Nullable |
+
+Populated inside `customers.deals.update` command whenever `pipelineStageId` changes, using `withAtomicFlush({ transaction: true })` so deal scalar + transition row commit atomically.
+
+#### Consumer
+
+`packages/core/src/modules/customers/lib/dealStageTransitionTable.ts` exposes a helper used by `PipelineStepper` and the Changelog tab to render transition history with human-readable stage labels.
+
+---
+
+### Enhancement 14 — Decision Makers Footer
+
+Compact footer on the company detail card listing the linked people with their `role_value` (see Enhancement 12). Renders as a horizontal strip with avatars + role labels; click → navigates to the person's card. Primarily read-only; the actual edit affordance lives in the Zone 2 People tab.
+
+Files: `packages/core/src/modules/customers/components/detail/DecisionMakersFooter.tsx`.
+
+---
+
+### Enhancement 15 — Mini Week Calendar (Planned Activities)
+
+A compact horizontal 7-day strip injected above the Planned Activities section (Enhancement 5). Each day cell shows activity dots color-coded by type; click a day to filter the Planned list to that day.
+
+Files: `packages/core/src/modules/customers/components/detail/MiniWeekCalendar.tsx`.
+
+Key behavior:
+
+- Keyboard: `ArrowLeft` / `ArrowRight` move the focused day; `Enter` / `Space` selects.
+- Respects `prefers-reduced-motion` for week-swap transitions.
+- No new API — consumes the same planned-activities payload used by `PlannedActivitiesSection`.
+
+---
+
+### Enhancement 16 — Coming Soon Placeholder
+
+Shared `<ComingSoonPlaceholder>` component rendered in tab slots where the Phase 6–8 work lands incrementally (e.g., a company tab marked "Reports" that's scaffolded but not yet implemented). Gives the UX a consistent empty state instead of a blank tab during rollout.
+
+Files: `packages/core/src/modules/customers/components/detail/ComingSoonPlaceholder.tsx`.
+
+---
+
+## Cross-cutting — Enhancements 6–16
+
+- **Events** — all new commands declare and emit events (`customers.label.*`, `customers.label_assignment.*`, `customers.person_company_link.*`, `dictionaries.entry.*`). Already enumerated in the "Migration & Backward Compatibility" table.
+- **Tenant isolation** — every table has `(tenant_id, organization_id)` columns and every query filters by them.
+- **Undo/Redo** — every command (labels, dictionary settings, reorder, set-default, person-company links, entity roles) captures a before/after snapshot and supports undo per the Command pattern.
+- **i18n** — all user-facing strings routed through `useT()` / `resolveTranslations()`. New keys under `customers.dashboard.*`, `customers.ai.*`, `customers.labels.*`, `customers.config.dictionaries.*`, `customers.decisionMakers.*`, `customers.calendar.*`, `customers.comingSoon.*` are present in all four locale files.
+- **A11y** — dashboard widgets, AI action chips, decision makers footer, mini week calendar and coming soon placeholder all satisfy the WCAG checklist declared at the top of this spec (labeled landmarks, keyboard nav, 44px touch targets, `prefers-reduced-motion`, no color-only indicators).
 
 ---
 
@@ -937,6 +1374,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |
 | 2026-04-06 | Rev 2: Applied technical review — added Scope Classification, Out of Scope, form ownership contracts, stage transition rules, domain effects boundaries, v1 constraints, UMES extension boundary, Decisions to Confirm, additional risks, accessibility fixes |

@@ -852,6 +852,7 @@
   "customers.errors.deal_not_found": "Nie znaleziono szansy",
   "customers.errors.deal_required": "Wymagany identyfikator szansy",
   "customers.errors.entity_not_found": "Nie znaleziono encji",
+  "customers.errors.failed_to_assign_label": "Nie udało się przypisać etykiety",
   "customers.errors.failed_to_assign_role": "Nie udało się przypisać roli",
   "customers.errors.failed_to_delete_role": "Nie udało się usunąć roli",
   "customers.errors.failed_to_load_roles": "Nie udało się załadować ról",

@@ -852,6 +852,7 @@
   "customers.errors.deal_not_found": "Deal not found",
   "customers.errors.deal_required": "Deal id is required",
   "customers.errors.entity_not_found": "Entity not found",
+  "customers.errors.failed_to_assign_label": "Failed to assign label",
   "customers.errors.failed_to_assign_role": "Failed to assign role",
   "customers.errors.failed_to_delete_role": "Failed to delete role",
   "customers.errors.failed_to_load_roles": "Failed to load roles",

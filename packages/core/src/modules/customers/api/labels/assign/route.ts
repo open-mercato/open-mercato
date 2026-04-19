@@ -172,7 +172,11 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/labels/assign.POST]', err)
-    return NextResponse.json({ error: 'Failed to assign label' }, { status: 500 })
+    const { translate: fallbackTranslate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: fallbackTranslate('customers.errors.failed_to_assign_label', 'Failed to assign label') },
+      { status: 500 },
+    )
   }
 }
 

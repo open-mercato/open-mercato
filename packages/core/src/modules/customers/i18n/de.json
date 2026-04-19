@@ -852,6 +852,7 @@
   "customers.errors.deal_not_found": "Deal nicht gefunden",
   "customers.errors.deal_required": "Deal-ID ist erforderlich",
   "customers.errors.entity_not_found": "Entität nicht gefunden",
+  "customers.errors.failed_to_assign_label": "Label konnte nicht zugewiesen werden",
   "customers.errors.failed_to_assign_role": "Rolle konnte nicht zugewiesen werden",
   "customers.errors.failed_to_delete_role": "Rolle konnte nicht gelöscht werden",
   "customers.errors.failed_to_load_roles": "Rollen konnten nicht geladen werden",

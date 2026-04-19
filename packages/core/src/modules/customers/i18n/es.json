@@ -852,6 +852,7 @@
   "customers.errors.deal_not_found": "Oportunidad no encontrada",
   "customers.errors.deal_required": "Se requiere el ID de la oportunidad",
   "customers.errors.entity_not_found": "Entidad no encontrada",
+  "customers.errors.failed_to_assign_label": "No se pudo asignar la etiqueta",
   "customers.errors.failed_to_assign_role": "No se pudo asignar el rol",
   "customers.errors.failed_to_delete_role": "No se pudo eliminar el rol",
   "customers.errors.failed_to_load_roles": "No se pudieron cargar los roles",

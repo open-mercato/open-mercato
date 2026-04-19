@@ -136,6 +136,35 @@ function buildFilterableCustomFieldJoins(
 // For now, only supports basic base-entity querying by table name inferred from EntityId ('<module>:<entity>' -> '<entities>') via convention.
 // Extensions and custom fields will be added iteratively.
 
+const computeScore = (cfg: Record<string, unknown>, kind: string, entityIndex: number) => {
+  const listVisibleScore = cfg.listVisible === false ? 0 : 1
+  const formEditableScore = cfg.formEditable === false ? 0 : 1
+  const filterableScore = cfg.filterable ? 1 : 0
+  const kindScore = (() => {
+    switch (kind) {
+      case 'dictionary':
+        return 8
+      case 'relation':
+        return 6
+      case 'select':
+        return 4
+      case 'multiline':
+        return 3
+      case 'boolean':
+      case 'integer':
+      case 'float':
+        return 2
+      default:
+        return 1
+    }
+  })()
+  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+  const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
+  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+  return { base, penalty, entityIndex }
+}
+
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private tableCache = new Map<string, boolean>()
@@ -1105,31 +1134,3 @@ export class BasicQueryEngine implements QueryEngine {
   }
 
 }
-    const computeScore = (cfg: Record<string, unknown>, kind: string, entityIndex: number) => {
-      const listVisibleScore = cfg.listVisible === false ? 0 : 1
-      const formEditableScore = cfg.formEditable === false ? 0 : 1
-      const filterableScore = cfg.filterable ? 1 : 0
-      const kindScore = (() => {
-        switch (kind) {
-          case 'dictionary':
-            return 8
-          case 'relation':
-            return 6
-          case 'select':
-            return 4
-          case 'multiline':
-            return 3
-          case 'boolean':
-          case 'integer':
-          case 'float':
-            return 2
-          default:
-            return 1
-        }
-      })()
-      const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
-      const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
-      const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
-      const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
-      return { base, penalty, entityIndex }
-    }
