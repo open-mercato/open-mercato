@@ -1014,3 +1014,31 @@
 - `yarn generate` green, no output drift. `yarn i18n:check-sync` green, no new strings.
 - BC: strictly additive. No production code, no API / event / feature / DI key / DB / generator-output rename. Four new test files.
 - Next: Step 5.17 — full pending-action contract integration sweep (happy / cancel / expiry / stale-version / cross-tenant confirm denial / idempotent double-confirm / read-only-agent refusal / prompt-override escalation refusal / page-reload reconnect).
+
+## 2026-04-19T05:30:00Z — Step 5.17 committed (d3ee45368)
+- `test(ai-assistant): pending-action contract integration tests (Phase 3 WS-D)`
+- One new Jest-integration suite landed at `packages/ai-assistant/src/modules/ai_assistant/__tests__/integration/pending-action-contract.test.ts` (17 tests total) covering the full Step 5.5 → 5.12 pending-action contract:
+  1. Happy path — pending → executing → confirmed with `executionResult.recordId`, one typed `ai.action.confirmed` event.
+  2. Cancel with reason — one typed `ai.action.cancelled` event; `executionResult.error.code === 'cancelled_by_user'`.
+  3. Expiry via Step 5.12 cleanup worker — `resolvedByUserId: null`; typed `ai.action.expired`.
+  4. Expiry via opportunistic cancel path — atomic flip pending → expired.
+  5. Stale-version single-record — 412 `stale_version`, row stays pending, no event.
+  6. Stale-version batch partial — `failedRecords[]` carried onto the confirmed row; survivors proceed.
+  7. Stale-version batch all — 412 `stale_version` with aggregate `staleRecords`.
+  8. Cross-tenant read denial — tenant B gets `null` from the repo (route layer returns 404 `pending_action_not_found`).
+  9. Idempotent double-confirm — no re-execution, no re-emit.
+ 10. Idempotent double-cancel — no re-emit.
+ 11. Read-only-agent refusal — 403 `read_only_agent` at re-check time.
+ 12. Prompt-override escalation refusal — additive-only guarantee via `resolveEffectiveMutationPolicy`.
+ 13. Reconnect — GET re-hydration between propose and confirm; subsequent confirm proceeds.
+ 14. Illegal state-machine transitions — `AiPendingActionStateError` from the repo stub (mirrors production guard).
+ 15. Attachment cross-tenant — 403 `attachment_cross_tenant`.
+ +1 Typed event helper: confirm / cancel / expired payloads carry expected `resolvedByUserId`.
+ +1 Executor tool-handler context: `McpToolContext` surface intact.
+- Mock boundaries stayed narrow. An in-memory `AiPendingActionRepository` stub mirrors `AI_PENDING_ACTION_ALLOWED_TRANSITIONS` and throws `AiPendingActionStateError` on illegal edges just like the production transactional guard. The three under-test helpers — `executePendingActionConfirm`, `executePendingActionCancel`, `runPendingActionCleanup` — are exercised via the existing `emitEvent` / `repo` injection seams and are NOT mocked. Typed event id constants (`PENDING_ACTION_CONFIRMED_EVENT_ID` / `PENDING_ACTION_CANCELLED_EVENT_ID` / `PENDING_ACTION_EXPIRED_EVENT_ID`) and typed payloads (`AiActionConfirmedPayload` / `AiActionCancelledPayload` / `AiActionExpiredPayload`) from `events.ts` are asserted directly. The attachment-scope scenario mocks `findWithDecryption` at the `@open-mercato/shared/lib/encryption/find` module boundary plus a virtual mock for the core `Attachment` entity (core dist is ESM and ts-jest does not transform it); both mocks are scoped to the suite.
+- No new production code and no new public helpers needed. The existing `emitEvent` + `repo` injection seams on every executor were sufficient.
+- Baselines: ui 66/351 preserved; core 344/3180 preserved; ai-assistant 49/538 → 50/555 (+1 suite / +17 tests).
+- `yarn turbo run typecheck --filter=@open-mercato/ai-assistant --filter=@open-mercato/core --filter=@open-mercato/app` → 2/2 successful.
+- `yarn generate` green, no output drift. `yarn i18n:check-sync` green, no new strings.
+- BC: strictly additive. No production code, no API / event / feature / DI key / DB / generator-output rename. One new test file.
+- Next: Step 5.18 — full D18 bulk-edit demo end-to-end (`catalog.merchandising_assistant` × `bulk_update_products` under a single `[Confirm All]` approval; per-record `catalog.product.updated` events; DataTable refresh via DOM event bridge; `partialSuccess` handling).
