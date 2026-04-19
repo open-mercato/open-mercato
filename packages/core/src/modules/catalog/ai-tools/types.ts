@@ -23,6 +23,31 @@ export interface CatalogToolContext {
   sessionId?: string
 }
 
+/**
+ * Shape returned by `loadBeforeRecord` on a single-record mutation tool.
+ * Mirrors `AiToolLoadBeforeSingleRecord` from `@open-mercato/ai-assistant/lib/types`.
+ */
+export interface CatalogToolLoadBeforeSingleRecord {
+  recordId: string
+  entityType: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+}
+
+/**
+ * Shape returned by `loadBeforeRecords` on a bulk mutation tool. Mirrors
+ * `AiToolLoadBeforeRecord` from `@open-mercato/ai-assistant/lib/types` — the
+ * Step 5.6 `prepareMutation` runtime wraps this into the `records[]` array on
+ * the emitted `mutation-preview-card`.
+ */
+export interface CatalogToolLoadBeforeRecord {
+  recordId: string
+  entityType: string
+  label: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+}
+
 export interface CatalogAiToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string
   displayName?: string
@@ -31,9 +56,18 @@ export interface CatalogAiToolDefinition<TInput = unknown, TOutput = unknown> {
   requiredFeatures?: string[]
   tags?: string[]
   isMutation?: boolean
+  isBulk?: boolean
   maxCallsPerTurn?: number
   supportsAttachments?: boolean
   handler: (input: TInput, context: CatalogToolContext) => Promise<TOutput>
+  loadBeforeRecord?: (
+    input: TInput,
+    context: CatalogToolContext,
+  ) => Promise<CatalogToolLoadBeforeSingleRecord | null>
+  loadBeforeRecords?: (
+    input: TInput,
+    context: CatalogToolContext,
+  ) => Promise<CatalogToolLoadBeforeRecord[]>
 }
 
 export function assertTenantScope(ctx: CatalogToolContext): {

@@ -189,6 +189,13 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
     'catalog.suggest_price_adjustment',
   ]
 
+  const D18_MUTATION_TOOLS = [
+    'catalog.update_product',
+    'catalog.bulk_update_products',
+    'catalog.apply_attribute_extraction',
+    'catalog.update_product_media_descriptions',
+  ]
+
   const BASE_CATALOG_LIST_GET_DENY_LIST = [
     'catalog.list_products',
     'catalog.get_product',
@@ -238,6 +245,12 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
     }
   })
 
+  it('whitelists every D18 mutation tool (Step 5.14 — pending-action approval contract)', () => {
+    for (const toolName of D18_MUTATION_TOOLS) {
+      expect(merchandisingAgent.allowedTools).toContain(toolName)
+    }
+  })
+
   it('whitelists the general-purpose tool pack', () => {
     for (const toolName of GENERAL_PURPOSE_TOOLS) {
       expect(merchandisingAgent.allowedTools).toContain(toolName)
@@ -250,10 +263,15 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
     }
   })
 
-  it('never whitelists a mutation tool from the catalog pack', () => {
+  it('whitelists only the Step 5.14 D18 mutation tools from the catalog pack', () => {
+    const allowedMutationNames = new Set(D18_MUTATION_TOOLS)
     for (const tool of catalogAiTools) {
       if (!tool.isMutation) continue
-      expect(merchandisingAgent.allowedTools).not.toContain(tool.name)
+      if (allowedMutationNames.has(tool.name)) {
+        expect(merchandisingAgent.allowedTools).toContain(tool.name)
+      } else {
+        expect(merchandisingAgent.allowedTools).not.toContain(tool.name)
+      }
     }
   })
 

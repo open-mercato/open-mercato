@@ -15,8 +15,12 @@
  *    authoring tools (Step 3.12 — still `isMutation: false`, they
  *    produce structured proposals only), plus the general-purpose pack.
  *    Excludes the base catalog list/get tools so this agent cannot
- *    shadow `catalog.catalog_assistant`. Phase 5 adds the mutation
- *    counterpart via the pending-action contract.
+ *    shadow `catalog.catalog_assistant`. Step 5.14 lights up the four
+ *    D18 mutation tools (update_product / bulk_update_products /
+ *    apply_attribute_extraction / update_product_media_descriptions)
+ *    — readOnly / mutationPolicy on the agent stay UNCHANGED; the
+ *    per-tenant mutation-policy override (Step 5.4) is the only lever
+ *    that unlocks writes.
  *
  * Both agents expose structured `PromptTemplate` shapes via the
  * `promptTemplate` / `merchandisingPromptTemplate` exports so Phase 5.3
@@ -313,6 +317,11 @@ const MERCHANDISING_ALLOWED_TOOLS: readonly string[] = [
   'catalog.draft_description_from_media',
   'catalog.suggest_title_variants',
   'catalog.suggest_price_adjustment',
+  // D18 mutation tools (Step 5.14 — pending-action approval contract)
+  'catalog.update_product',
+  'catalog.bulk_update_products',
+  'catalog.apply_attribute_extraction',
+  'catalog.update_product_media_descriptions',
   // General-purpose pack (Step 3.8)
   'search.hybrid_search',
   'search.get_record_context',

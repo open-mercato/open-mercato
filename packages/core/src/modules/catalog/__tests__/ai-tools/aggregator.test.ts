@@ -1,7 +1,7 @@
 /**
- * Steps 3.10 + 3.11 + 3.12 — verifies the module-root catalog ai-tools
- * aggregator (base coverage + D18 merchandising read tools + D18 AI
- * authoring tools).
+ * Steps 3.10 + 3.11 + 3.12 + 5.14 — verifies the module-root catalog
+ * ai-tools aggregator (base coverage + D18 merchandising read tools +
+ * D18 AI authoring tools + D18 mutation tools).
  */
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -48,17 +48,37 @@ describe('catalog module-root ai-tools aggregator', () => {
         'catalog.draft_description_from_media',
         'catalog.suggest_title_variants',
         'catalog.suggest_price_adjustment',
+        // D18 mutation (Step 5.14)
+        'catalog.update_product',
+        'catalog.bulk_update_products',
+        'catalog.apply_attribute_extraction',
+        'catalog.update_product_media_descriptions',
       ].sort(),
     )
   })
 
-  it('every tool declares requiredFeatures that exist in acl.ts and none is a mutation', () => {
+  it('every tool declares requiredFeatures that exist in acl.ts', () => {
     for (const tool of aiTools) {
       expect(tool.requiredFeatures?.length ?? 0).toBeGreaterThan(0)
       for (const feature of tool.requiredFeatures!) {
         expect(knownFeatureIds.has(feature)).toBe(true)
       }
-      expect(tool.isMutation).toBeFalsy()
+    }
+  })
+
+  it('only the Step 5.14 D18 mutation tools declare isMutation=true', () => {
+    const D18_MUTATION_NAMES = new Set([
+      'catalog.update_product',
+      'catalog.bulk_update_products',
+      'catalog.apply_attribute_extraction',
+      'catalog.update_product_media_descriptions',
+    ])
+    for (const tool of aiTools) {
+      if (D18_MUTATION_NAMES.has(tool.name)) {
+        expect(tool.isMutation).toBe(true)
+      } else {
+        expect(tool.isMutation).toBeFalsy()
+      }
     }
   })
 
@@ -91,6 +111,18 @@ describe('catalog module-root ai-tools aggregator', () => {
       'catalog.draft_description_from_media',
       'catalog.suggest_title_variants',
       'catalog.suggest_price_adjustment',
+    ]) {
+      expect(names.has(expected)).toBe(true)
+    }
+  })
+
+  it('every D18 mutation tool name matches the spec exactly (Step 5.14)', () => {
+    const names = new Set(aiTools.map((tool) => tool.name))
+    for (const expected of [
+      'catalog.update_product',
+      'catalog.bulk_update_products',
+      'catalog.apply_attribute_extraction',
+      'catalog.update_product_media_descriptions',
     ]) {
       expect(names.has(expected)).toBe(true)
     }

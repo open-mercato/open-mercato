@@ -1,6 +1,8 @@
 /**
  * Module-root AI tool contribution for the catalog module
- * (Phase 1 WS-C, Steps 3.10 + 3.11 + 3.12 — read-only Phase 1 coverage).
+ * (Phase 1 WS-C, Steps 3.10 + 3.11 + 3.12 — read-only Phase 1 coverage;
+ *  Phase 3 WS-C, Step 5.14 — D18 mutation pack under the pending-action
+ *  approval contract).
  *
  * The generator walks every module for a top-level `ai-tools.ts` and takes
  * the default/`aiTools` export as the contribution. This file aggregates the
@@ -9,9 +11,15 @@
  * so they all flow through the existing `ai-tools.generated.ts` pipeline
  * without any generator changes.
  *
- * Mutation tools are deferred to Step 5.14 under the pending-action contract;
- * every tool here is read-only and enforces tenant + organization scoping via
- * the existing encryption helpers. The Step 3.12 authoring tools are
+ * Step 5.14 (D18) adds the four mutation tools in `mutation-pack.ts`:
+ * - `catalog.update_product`
+ * - `catalog.bulk_update_products`
+ * - `catalog.apply_attribute_extraction`
+ * - `catalog.update_product_media_descriptions`
+ *
+ * These route through the Step 5.6 `prepareMutation` wrapper and the
+ * Step 5.8 confirm route; all other tools remain read-only and enforce
+ * tenant + organization scoping via the existing encryption helpers. The Step 3.12 authoring tools are
  * structured-output helpers: they NEVER write and never open a second model
  * call from inside the handler — the surrounding agent turn performs
  * structured output against the handler's `outputSchemaDescriptor`.
@@ -50,6 +58,7 @@ import mediaTagsAiTools from './ai-tools/media-tags-pack'
 import configurationAiTools from './ai-tools/configuration-pack'
 import merchandisingAiTools from './ai-tools/merchandising-pack'
 import authoringAiTools from './ai-tools/authoring-pack'
+import mutationAiTools from './ai-tools/mutation-pack'
 import type { CatalogAiToolDefinition } from './ai-tools/types'
 
 export const aiTools: CatalogAiToolDefinition[] = [
@@ -61,6 +70,7 @@ export const aiTools: CatalogAiToolDefinition[] = [
   ...configurationAiTools,
   ...merchandisingAiTools,
   ...authoringAiTools,
+  ...mutationAiTools,
 ]
 
 export default aiTools
