@@ -67,7 +67,7 @@
 | 5 | 5.13 | Spec Phase 3 WS-C — First mutation-capable agent flow (candidate: `customers.account_assistant` for deal stage updates) end-to-end on the pending-action contract | done | 53cf4103b |
 | 5 | 5.14 | Spec §7 (D18) — Catalog mutation tools (`update_product`, `bulk_update_products`, `apply_attribute_extraction`, `update_product_media_descriptions`) with single `AiPendingAction` per batch + per-record `records[]` diff grouping | done | f13467221 |
 | 5 | 5.15 | Spec Phase 3 WS-D — Bind production agents to existing backend pages through normal injection/UI composition (pass `pageContext` from the page) | done | 2d6886130 |
-| 5 | 5.16 | Spec Phase 3 WS-D — Integration tests: page-context resolution + model-factory fallback chain + execution budget (`maxSteps`) | todo | — |
+| 5 | 5.16 | Spec Phase 3 WS-D — Integration tests: page-context resolution + model-factory fallback chain + execution budget (`maxSteps`) | done | ccf2d1292 |
 | 5 | 5.17 | Spec Phase 3 WS-D — Integration tests: pending-action contract (happy / cancel / expiry / stale-version / cross-tenant / idempotency / read-only-agent refusal / prompt-override escalation refusal / reconnect) | todo | — |
 | 5 | 5.18 | Spec §10 (D18) — Full bulk-edit demo end-to-end: `catalog.merchandising_assistant` runs all four named use cases through `bulk_update_products` with single `[Confirm All]` approval, per-record `catalog.product.updated` events, DataTable refresh via DOM event bridge, and `partialSuccess` handling | todo | — |
 | 5 | 5.19 | Spec Phase 3 WS-D — Docs + operator rollout notes (release notes, migration guide, coexistence with OpenCode) | todo | — |

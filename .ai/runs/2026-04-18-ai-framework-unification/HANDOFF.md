@@ -1,147 +1,101 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-19T02:45:00Z
+**Last updated:** 2026-04-19T04:15:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 5 Step 5.15 **complete**. Phase 3 WS-D
-production-rollout work starts here: `<AiChat>` now threads a stable
-`conversationId` per mount (or accepts one from the caller), and three
-production surfaces bind to the framework through widget injection
-rather than page edits — People list, Deal detail, and the catalog
-Products list merchandising trigger.
-**Last commit (code):** `2d6886130` — `feat(ai-assistant-bindings): thread conversationId + bind production agents via widget injection (Phase 3 WS-D)`
+**Current phase/step:** Phase 5 Step 5.16 **complete**. Phase 3 WS-D
+continues with Step 5.17 — the full pending-action contract integration
+sweep (happy / cancel / expiry / stale-version / cross-tenant /
+idempotent double-confirm / read-only-agent refusal / prompt-override
+escalation refusal / page-reload reconnect).
+**Last commit (code):** `ccf2d1292` — `test(ai-framework): integration tests for page-context + model-factory + maxSteps budget (Phase 3 WS-D)`
 
 ## What just happened
 
-- **`<AiChat>` / `useAiChat` conversation id threading.**
-  - New optional `conversationId?: string` prop. When omitted, the hook
-    mints a stable random id once on mount via `React.useRef` + a
-    `crypto.randomUUID` helper (falls back to a `conv_<time>_<rand>`
-    token when `crypto` isn't available). When caller-supplied, the prop
-    is forwarded verbatim — same prop across two remounts yields the
-    same id.
-  - The id is sent in the POST body to `/api/ai_assistant/ai/chat`,
-    accepted by the dispatcher schema
-    (`z.string().min(1).max(128).optional()`), and threaded through
-    `runAiAgentText` → `resolveAiAgentTools` → `prepareMutation` so the
-    Step 5.6 idempotency hash collapses repeated confirms / retries
-    within the same chat onto a single `AiPendingAction` row.
-  - Also exposed on the result of `useAiChat` and as
-    `data-ai-chat-conversation-id` on the region root for integration
-    observability.
+- **Four new Jest integration suites** landed per-module (no Playwright
+  required — Step 5.16 was integration-test-only):
+  - `packages/core/src/modules/customers/__tests__/ai-agents-context.integration.test.ts`
+    (7 tests) — drives the production `customers.account_assistant.resolvePageContext`
+    callback through the agent's module-root `ai-agents.ts` export so the
+    widget → runtime contract is pinned. Covers person / company / deal
+    happy paths, unknown recordType, missing recordId, cross-tenant
+    recordId (tenant isolation via `found: false`), and throwing service
+    with a `console.warn` spy.
+  - `packages/core/src/modules/catalog/__tests__/ai-agents-context.integration.test.ts`
+    (6 tests) — covers both `hydrateCatalogAssistantContext` (summary
+    projection) and `hydrateMerchandisingAssistantContext` (full
+    bundles). Asserts `SELECTION_CAP=10`, cross-tenant ids silently
+    dropped via `missingIds`, and no-parse recordId fallthrough.
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/model-factory.integration.test.ts`
+    (8 tests) — pins the full 4-layer chain
+    (`callerOverride > <MODULE>_AI_MODEL > agentDefaultModel > provider default`),
+    plus `no_provider_configured` throw, `moduleId: undefined` skip, and
+    empty / whitespace `callerOverride` fallthrough.
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/max-steps-budget.integration.test.ts`
+    (5 tests) — stubs the AI SDK module boundary (`streamText`,
+    `generateObject`, `stepCountIs`, `convertToModelMessages`) and
+    asserts `stopWhen: stepCountIs(agent.maxSteps)` wires for
+    runAiAgentText (positive / undefined / zero) plus object-mode parity
+    on `generateObject`.
 
-- **Customers People list trigger (Step 4.10 extension).**
-  - `customers.injection.ai-assistant-trigger` already rendered on
-    `data-table:customers.people.list:header` with a selection-aware
-    `pageContext`. This Step adds unit coverage for
-    `computeCustomersAiInjectPageContext` across four cases (no
-    selection / explicit selectedRowIds / selectedCount-only /
-    string `totalMatching` coercion).
+- **Mock boundaries held narrow.** Customers + catalog suites mock the
+  tool pack (`../ai-tools`); ai-assistant suites stub `ai` and the
+  provider registry at the Jest module boundary. No internal lib helpers
+  under test were mocked. No DI container, no DB.
 
-- **Customers Deal detail binding (new).**
-  - New widget `customers.injection.ai-deal-detail-trigger` on the new
-    spot `detail:customers.deal:header`. The deal detail page
-    (`backend/customers/deals/[id]/page.tsx`) gained one shared
-    `<InjectionSpot>` mount — the trigger, sheet, and `<AiChat>` embed
-    all live inside the widget.
-  - `pageContext` shape:
-    `{ view: 'customers.deal.detail', recordType: 'deal', recordId,
-       extra: { stage, pipelineStageId } }`.
-  - Wires `customers.account_assistant` (read-only by default). When
-    the Step 5.4 per-tenant mutation-policy override unlocks writes,
-    the Step 5.13 `customers.update_deal_stage` tool becomes
-    reachable through the same flow.
-  - Feature-gated behind `customers.deals.view` + `ai_assistant.view`.
-
-- **Catalog merchandising migration (page → injection).**
-  - New widget `catalog.injection.merchandising-assistant-trigger` on
-    spot `data-table:catalog.products:header`. Reuses the existing
-    `MerchandisingAssistantSheet` component verbatim so the Phase 2
-    read-only DOM contract is preserved.
-  - Removed the direct `MerchandisingAssistantSheet` import +
-    `useMerchandisingAssistantEligibility` polling from
-    `backend/catalog/products/page.tsx`; the page is now a thin shell
-    around `<ProductsDataTable>`. Feature gating moved to the widget's
-    `features` metadata.
-  - `ProductsDataTable.injectionContext` now surfaces
-    `total` / `totalMatching` so the widget can build the selection-
-    aware `MerchandisingPageContext` without a direct dependency on
-    the host page.
-
-- **Unit tests (new / extended).**
-  - `packages/ui/src/ai/__tests__/AiChat.conversation.test.tsx` — 3
-    tests: explicit-prop stability across remounts, auto-mint
-    uniqueness without a prop, POST-body forwarding.
-  - `ai-assistant-trigger/__tests__/widget.client.test.tsx` +4 tests
-    on the page-context derivation.
-  - `ai-deal-detail-trigger/__tests__/widget.client.test.tsx` — 6
-    tests covering widget render, null-on-missing-id, flat/nested
-    pageContext derivation, and flat/nested precedence.
-  - `merchandising-assistant-trigger/__tests__/widget.client.test.tsx` —
-    4 tests covering widget render + merchandising pageContext
-    derivation.
-  - `catalog/widgets/__tests__/injection-table.test.ts` extended with
-    the new `data-table:catalog.products:header` mapping assertion.
-
-- **Integration tests (new, per UI cadence).**
-  - `TC-AI-INJECT-012-deal-detail-inject.spec.ts` seeds a deal via the
-    customers CRUD API, asserts the trigger renders with the seeded id
-    on `data-ai-customers-deal-id`, opens the sheet, the `<AiChat>`
-    composer appears, then cleans up. Tolerant of API seed failures
-    (skips cleanly).
-  - `TC-AI-INJECT-013-merchandising-injection.spec.ts` exercises the
-    catalog migration path — same DOM contract as TC-AI-MERCHANDISING-008
-    but through the injection registry.
-  - TC-AI-INJECT-009 (people-list inject) and TC-AI-MERCHANDISING-008
-    (merchandising) continue to pass — every data- attribute they pin
-    on was preserved across the migration.
+- **No production code changes.** No new public helpers needed — the
+  Step 5.1 `CreateModelFactoryDependencies.registry`/`env` seam, the
+  agent's exported `resolvePageContext`, the catalog helpers, and the
+  existing `ai` import seam were all sufficient.
 
 ## Test + gate results
 
-- **Tests**: ui 65/348 → **66/351** (+1 suite / +3 tests); core (post-
-  5.14 ~342/~3114) → **342/3167** (mutation-pack additions from 5.14
-  + this Step's widget test additions); ai-assistant 47/525 preserved.
-- **Typecheck**: `yarn turbo run typecheck --filter=@open-mercato/ui
-  --filter=@open-mercato/ai-assistant --filter=@open-mercato/core
-  --filter=@open-mercato/app` — **3/3 successful** (ai-assistant gated
-  by build step as before).
-- **Generator**: `yarn generate` green; both new injection widgets
-  discovered and emitted into `injection-widgets.generated.ts` +
-  `injection-tables.generated.ts`. Structural cache purge ran as
-  normal.
-- **i18n**: `yarn i18n:check-sync` green — five new
-  `customers.ai_assistant.dealDetail.*` keys added in en/pl/es/de.
-- See `step-5.15-checks.md` for the per-test coverage matrix.
+- **Tests**: ui 66/351 preserved. core 342/3167 → **344/3180** (+2
+  suites / +13 tests). ai-assistant 47/525 → **49/538** (+2 suites /
+  +13 tests).
+- **Typecheck**: `yarn turbo run typecheck --filter=@open-mercato/ai-assistant
+  --filter=@open-mercato/core --filter=@open-mercato/app` → 2/2
+  successful (ai-assistant has no typecheck script by design — ts-jest +
+  build step is its gate).
+- **Generator**: `yarn generate` green; no output drift (test-only
+  Step). Structural cache purge ran as normal.
+- **i18n**: `yarn i18n:check-sync` green — no new strings added.
+- See `step-5.16-checks.md` for the per-suite coverage matrix and the
+  documented scope gap.
 
 ## BC posture (production inventory)
 
-- **Additive only.** New optional prop (`conversationId`) on
-  `<AiChat>` + `useAiChat`. New optional body field on the chat
-  dispatcher (bounded). New optional field on `RunAiAgentTextInput`.
-  Two new injection widgets. One new injection spot id
-  (`detail:customers.deal:header`). One new `data-` attribute on the
-  `<AiChat>` region root. Five new i18n keys per locale. No API route
-  rename, no event rename, no feature-id rename, no DI key rename, no
-  DB migration, no generator-output name change.
+- **Additive only.** Four new test files. No production code touched.
+  No generator output changed. No migration. No i18n additions. No API
+  / event / feature / DI key / DB rename.
 
-## Open follow-ups carried forward
+## Deliberate scope gap carried forward
 
-- **Step 5.16** — integration tests for page-context resolution +
-  model-factory fallback chain + `maxSteps` execution-budget
-  enforcement.
-- **Step 5.17** — full pending-action contract integration sweep (happy
-  / cancel / expiry / stale-version / cross-tenant confirm denial /
-  idempotent double-confirm / read-only-agent refusal / prompt-override
-  escalation refusal / page-reload reconnect).
+- **Caller-passed `stopWhen` / `maxSteps` override on
+  `runAiAgentText` / `runAiAgentObject`** — the Step 5.16 description
+  mentioned this scenario but the current public input shape does not
+  expose a per-call override surface (only `modelOverride`). Introducing
+  it would require new production code, which Step 5.16 explicitly
+  forbade. Deferred to a future Phase 5 hardening Step, likely bundled
+  with the agent-runtime `resolveAgentModel` migration that is also
+  still deferred from Step 5.1. The existing agent-level `maxSteps`
+  declaration remains fully covered.
+
+## Open follow-ups carried forward (unchanged)
+
+- **Step 5.17** — full pending-action contract integration sweep
+  (happy / cancel / expiry / stale-version / cross-tenant confirm
+  denial / idempotent double-confirm / read-only-agent refusal /
+  prompt-override escalation refusal / page-reload reconnect).
 - **Step 5.18** — full D18 bulk-edit demo end-to-end.
 - **Step 5.19** — docs + operator rollout notes.
 - **Dispatcher UI-part flushing** — still on the Step 5.10 backlog.
 - **Per-agent TTL override** (spec §8 `mutationApprovalTtlMs`) still
   deferred.
-- **`agent-runtime.ts` `resolveAgentModel` migration** still deferred
-  from Step 5.1.
+- **`agent-runtime.ts` `resolveAgentModel` migration to the shared
+  model factory** still deferred from Step 5.1.
 - **`inbox_ops/ai-tools.ts` + `translationProvider.ts`** still call
   `resolveExtractionProviderId` + `createStructuredModel` directly.
 - **Dedicated portal `ai_assistant.view` feature** — still gated on
@@ -153,62 +107,79 @@ Products list merchandising trigger.
 
 ## Next concrete action
 
-- **Step 5.16** — integration tests for page-context resolution,
-  model-factory fallback chain, and `maxSteps` execution-budget
-  enforcement. Primary surfaces:
-  1. `customers.account_assistant` with the Deal detail binding from
-     Step 5.15 — assert `resolvePageContext` hydrates the deal summary
-     on the system prompt via the new `detail:customers.deal:header`
-     mount.
-  2. `catalog.merchandising_assistant` with the injection-path trigger
-     from Step 5.15 — assert the filter/total snapshot flows into
-     `pageContext.extra` and back into the agent's system prompt.
-  3. `createModelFactory` — exercise the env-override precedence chain
-     (`callerOverride > <MODULE>_AI_MODEL > agentDefaultModel >
-     provider default`) against a mock provider registry.
-  4. `stopWhen: stepCountIs(agent.maxSteps)` — confirm the budget
-     caps multi-step runs once `maxSteps` is declared.
+- **Step 5.17** — pending-action contract integration tests. Primary
+  surfaces the executor should pin:
+  1. **Happy path** — `prepareMutation` → `AiPendingAction` row created
+     with expected snapshot, `mutation-preview-card` UI part emitted,
+     `confirm` executes the tool and emits `ai.action.confirmed`.
+  2. **Cancel** — `POST /api/ai/actions/:id/cancel` flips status to
+     `cancelled`, emits `ai.action.cancelled`, subsequent confirm
+     refuses.
+  3. **Expiry** — TTL past `expiresAt` → cancel route / cleanup worker
+     transitions to `expired` + emits `ai.action.expired`, subsequent
+     confirm refuses.
+  4. **Stale-version** — Step 5.8 §9.4 re-check: when the underlying
+     record changed since capture (`recordVersion` mismatch), confirm
+     returns the stale error without mutating.
+  5. **Cross-tenant confirm denial** — confirm signed by a session
+     scoped to a different tenant MUST refuse without disclosing
+     existence.
+  6. **Idempotent double-confirm** — second confirm on an already-
+     confirmed row returns the same result without re-executing the
+     tool / emitting a second `ai.action.confirmed`.
+  7. **Read-only-agent refusal** — `readOnly: true` agent whose
+     prompt-override tries to escalate — `prepareMutation` must reject
+     before even creating the row (spec §9.2).
+  8. **Prompt-override escalation refusal** — even with a permissive
+     prompt override, `mutationPolicy: 'read-only'` override wins
+     (Step 5.4 contract).
+  9. **Page-reload reconnect** — `GET /api/ai/actions/:id` returns the
+     current card payload unchanged across reconnects; the four
+     UI parts from Step 5.10 must re-render identically.
+
+  Expected placement: `packages/ai-assistant/src/modules/ai_assistant/__tests__/integration/`
+  for the runtime-level scenarios, and `__integration__/` Playwright
+  specs for any full page-reload reconnect coverage if the dev env is
+  runnable. Same mock boundary discipline as Step 5.16 — narrow, per-
+  module, no DI container mocked unless absolutely necessary.
 
 ## Cadence reminder
 
 - **5-Step checkpoint overdue.** Last full-gate checkpoint landed
-  after 5.12 (`checkpoint-5step-after-5.12.md`). Three Steps since
-  (5.13 → 5.14 → 5.15). Coordinator runs the next checkpoint batch
-  after 5.17 (the natural "close of Phase 3 WS-D integration-test
+  after 5.12 (`checkpoint-5step-after-5.12.md`). Four Steps since
+  (5.13 → 5.14 → 5.15 → 5.16). Coordinator runs the next checkpoint
+  batch after 5.17 (the natural "close of Phase 3 WS-D integration-test
   sweep").
 - Phase 3 WS-A (5.1 + 5.2) done; Phase 3 WS-B (5.3 + 5.4) done;
-  Phase 3 WS-C (5.5–5.14) done; Phase 3 WS-D: 5.15 done; 5.16 → 5.19
-  remain.
+  Phase 3 WS-C (5.5–5.14) done; Phase 3 WS-D: 5.15 + 5.16 done;
+  5.17 → 5.19 remain.
 
 ## Environment caveats
 
-- Dev runtime: `bgyb7opzt` on port 3000 — reuse for Step 5.16+
+- Dev runtime: `bgyb7opzt` on port 3000 — reuse for Step 5.17+
   validation. The dev DB still lacks Step 5.5's
   `Migration20260419134235_ai_assistant` (carried from Step 5.14);
   integration specs continue to be tolerant of both migration states.
   The next executor MAY run `yarn db:migrate` (with user
-  authorization) for stricter pending-action envelope coverage.
-- No migration in this Step.
-- Typecheck clean (`@open-mercato/core` + `@open-mercato/ui` +
-  `@open-mercato/app`); ai-assistant gated by build + ts-jest.
+  authorization) for stricter pending-action envelope coverage —
+  Step 5.17 is the place where this matters most, since the entire
+  sweep exercises the `ai_pending_actions` table.
+- No migration in this Step (test-only).
+- Typecheck clean (`@open-mercato/core` + `@open-mercato/app`);
+  ai-assistant gated by build + ts-jest.
 - TTL env var: `AI_PENDING_ACTION_TTL_SECONDS` (default 900s) —
   unchanged.
 
-## Scope-discipline note for Step 5.16
+## Scope-discipline note for Step 5.17
 
-Keep Step 5.16 strictly additive to the integration test suite — no
-runtime behavior changes. The expected deliverables are:
-
-- `TC-AI-PAGECTX-*` specs that exercise the Deal detail +
-  merchandising pageContext wiring end-to-end (assert system-prompt
-  hydration reflects the record- or filter-level context).
-- `TC-AI-MODEL-FACTORY-*` specs (or a pure-unit harness under
-  `packages/ai-assistant`) that exercise the four-layer precedence
-  chain.
-- `TC-AI-MAXSTEPS-*` spec that asserts `stopWhen: stepCountIs(...)` is
-  wired correctly when the agent declares `maxSteps`.
-
-None of this requires new public types / new routes / new widgets.
+Keep Step 5.17 strictly additive to the integration test suite. The
+expected deliverables are per-module Jest integration tests (and,
+where the dev env is runnable, Playwright reconnect specs) — no new
+public types, no new routes, no new widgets, no new events. If the
+scope forces a split (for example because the reconnect Playwright
+spec cannot run headless in CI and needs its own Step), land the
+Jest coverage first as 5.17 and split the Playwright piece off as
+5.17-b rather than fattening one commit.
 
 ## Worktree
 
