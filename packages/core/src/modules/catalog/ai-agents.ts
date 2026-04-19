@@ -1,39 +1,34 @@
 /**
- * Module-root AI agent contribution for the catalog module
- * (Phase 2 WS-C, Step 4.8 — first read-only catalog production agent).
+ * Module-root AI agent contributions for the catalog module.
  *
- * Mirrors the shape established by
- * `packages/core/src/modules/customers/ai-agents.ts` (Step 4.7). The
- * `catalog.catalog_assistant` agent is the generic operator-facing
- * catalog explorer: it can read products, categories, variants, prices,
- * offers, product media, tags, option schemas, and unit conversions via
- * the Step 3.10 base catalog pack and the Step 3.8 general-purpose pack
- * (`search.*`, `attachments.*`, `meta.describe_agent`).
+ * Two agents are exported:
  *
- * This agent is INTENTIONALLY separate from Step 4.9's
- * `catalog.merchandising_assistant` (the D18 demo agent). The D18
- * merchandising-specific tools (`catalog.search_products`,
- * `catalog.get_product_bundle`, `catalog.list_selected_products`,
- * `catalog.get_product_media`, `catalog.get_attribute_schema`,
- * `catalog.get_category_brief`, `catalog.list_price_kinds`) and every
- * authoring tool (`catalog.draft_*`, `catalog.extract_*`,
- * `catalog.suggest_*`) stay out of this whitelist so the generic
- * catalog agent cannot shadow the demo agent's entry point. The unit
- * test suite for this file asserts both the additive whitelist and the
- * explicit deny-list.
+ * 1. `catalog.catalog_assistant` (Step 4.8) — the generic operator-facing
+ *    catalog explorer, backed by the Step 3.10 base catalog pack plus the
+ *    general-purpose pack (`search.*`, `attachments.*`,
+ *    `meta.describe_agent`). Read-only.
  *
- * Prompt is declared as a structured `PromptTemplate` per spec §8 with
- * the seven named sections. The composed string is fed into
- * `systemPrompt` so the existing runtime continues to work; the
- * structured template is additionally exported so downstream Phases
- * (5.3 prompt-override merge, 5.2 resolvePageContext hydration) can
- * address sections by name.
+ * 2. `catalog.merchandising_assistant` (Step 4.9 / Spec §10 D18) — the
+ *    read-only Phase 2 exit demo agent that powers the `<AiChat>` sheet
+ *    on `/backend/catalog/catalog/products`. Whitelists the seven D18
+ *    merchandising read tools (Step 3.11) plus the five catalog
+ *    authoring tools (Step 3.12 — still `isMutation: false`, they
+ *    produce structured proposals only), plus the general-purpose pack.
+ *    Excludes the base catalog list/get tools so this agent cannot
+ *    shadow `catalog.catalog_assistant`. Phase 5 adds the mutation
+ *    counterpart via the pending-action contract.
+ *
+ * Both agents expose structured `PromptTemplate` shapes via the
+ * `promptTemplate` / `merchandisingPromptTemplate` exports so Phase 5.3
+ * prompt-override merges can address sections by name. The composed
+ * text is fed into `systemPrompt` so the current runtime continues to
+ * work.
  *
  * Local type declarations mirror the public shapes from
  * `@open-mercato/ai-assistant`. `@open-mercato/core` does not depend on
  * `@open-mercato/ai-assistant` (see the companion comment in
- * `ai-tools/types.ts` and the Step 4.7 implementation note), so the
- * generator imports this file via the app's bundler and the runtime
+ * `ai-tools/types.ts` and the Step 4.7 / 4.8 implementation notes), so
+ * the generator imports this file via the app's bundler and the runtime
  * graph resolves through `apps/mercato/.mercato/generated/ai-agents.generated.ts`.
  */
 import type { AwilixContainer } from 'awilix'
@@ -99,6 +94,10 @@ interface PromptTemplate {
   id: string
   sections: PromptSection[]
 }
+
+// ---------------------------------------------------------------------------
+// catalog.catalog_assistant (Step 4.8)
+// ---------------------------------------------------------------------------
 
 const AGENT_ID = 'catalog.catalog_assistant'
 const MODULE_ID = 'catalog'
@@ -286,6 +285,138 @@ const agent: AiAgentDefinition = {
   resolvePageContext,
 }
 
-export const aiAgents: AiAgentDefinition[] = [agent]
+// ---------------------------------------------------------------------------
+// catalog.merchandising_assistant (Step 4.9 — Spec §10 D18)
+// ---------------------------------------------------------------------------
+
+const MERCHANDISING_AGENT_ID = 'catalog.merchandising_assistant'
+
+const MERCHANDISING_ALLOWED_TOOLS: readonly string[] = [
+  // D18 read tools (Step 3.11)
+  'catalog.search_products',
+  'catalog.get_product_bundle',
+  'catalog.list_selected_products',
+  'catalog.get_product_media',
+  'catalog.get_attribute_schema',
+  'catalog.get_category_brief',
+  'catalog.list_price_kinds',
+  // D18 authoring tools (Step 3.12 — structured-output proposals, isMutation: false)
+  'catalog.draft_description_from_attributes',
+  'catalog.extract_attributes_from_description',
+  'catalog.draft_description_from_media',
+  'catalog.suggest_title_variants',
+  'catalog.suggest_price_adjustment',
+  // General-purpose pack (Step 3.8)
+  'search.hybrid_search',
+  'search.get_record_context',
+  'attachments.list_record_attachments',
+  'attachments.read_attachment',
+  'meta.describe_agent',
+]
+
+const MERCHANDISING_REQUIRED_FEATURES: readonly string[] = ['catalog.products.view']
+
+const MERCHANDISING_PROMPT_SECTIONS: PromptSection[] = [
+  {
+    name: 'role',
+    order: 1,
+    content: [
+      'ROLE',
+      'You are the catalog merchandising assistant. You help the user rewrite product copy, normalize attributes, and adjust prices across one product or many selected products at once.',
+    ].join('\n'),
+  },
+  {
+    name: 'scope',
+    order: 2,
+    content: [
+      'SCOPE',
+      'You may only act on products that are in the current tenant and organization. Always restrict batch work to the explicit selection in pageContext.recordId; if no selection is present, ask the user to select products or confirm that the current filter is the intended scope.',
+    ].join('\n'),
+  },
+  {
+    name: 'data',
+    order: 3,
+    content: [
+      'DATA',
+      'Prefer catalog.list_selected_products for the canonical bundle view of the selection. Use catalog.get_product_media when media matters for the answer — media is surfaced as real file parts, not links. Use catalog.get_attribute_schema before proposing attribute writes so the diff is schema-valid.',
+    ].join('\n'),
+  },
+  {
+    name: 'tools',
+    order: 4,
+    content: [
+      'TOOLS',
+      'Authoring helpers (catalog.draft_description_from_attributes, catalog.extract_attributes_from_description, catalog.draft_description_from_media, catalog.suggest_title_variants, catalog.suggest_price_adjustment) produce proposals only. Mutations (catalog.update_product, catalog.bulk_update_products, catalog.apply_attribute_extraction, catalog.update_product_media_descriptions) always route through the approval card — call them when you are ready to propose a write, then wait for the mutation-result-card.',
+    ].join('\n'),
+  },
+  {
+    name: 'attachments',
+    order: 5,
+    content: [
+      'ATTACHMENTS',
+      'Product media (images, spec PDFs) and user-uploaded files both arrive as AI SDK file parts. Summarize what you see, cite which media drove a recommendation, and flag when a proposal depends on visual interpretation.',
+    ].join('\n'),
+  },
+  {
+    name: 'mutationPolicy',
+    order: 6,
+    content: [
+      'MUTATION POLICY',
+      'Never claim a change has been saved until you receive a mutation-result-card success outcome. For multi-record edits, always prefer the batch tool (catalog.bulk_update_products) so the user sees one approval card with per-record diffs instead of a stream of one-record approvals.',
+    ].join('\n'),
+  },
+  {
+    name: 'responseStyle',
+    order: 7,
+    content: [
+      'RESPONSE STYLE',
+      'Be concise and merchandise-focused. Use product names, SKUs, and prices — not internal UUIDs — unless the user asks. When you propose a batch, summarize how many products are affected and what the high-level change is before the approval card appears.',
+    ].join('\n'),
+  },
+]
+
+export const merchandisingPromptTemplate: PromptTemplate = {
+  id: `${MERCHANDISING_AGENT_ID}.prompt`,
+  sections: MERCHANDISING_PROMPT_SECTIONS,
+}
+
+async function resolveMerchandisingPageContext(
+  input: AiAgentPageContextInput,
+): Promise<string | null> {
+  // Step 5.2 wires real record hydration. Phase 2 ships the stub; the
+  // products list page forms the real pageContext client-side and passes
+  // it on every chat request (see MerchandisingAssistantSheet.tsx).
+  void input
+  return null
+}
+
+const merchandisingAgent: AiAgentDefinition = {
+  id: MERCHANDISING_AGENT_ID,
+  moduleId: MODULE_ID,
+  label: 'Catalog Merchandising Assistant',
+  description:
+    'Read-only Phase 2 merchandising demo: proposes product descriptions, attribute extractions, title variants, and price adjustments for the current selection on the products list page.',
+  systemPrompt: compilePromptTemplate(merchandisingPromptTemplate),
+  allowedTools: [...MERCHANDISING_ALLOWED_TOOLS],
+  executionMode: 'chat',
+  acceptedMediaTypes: ['image', 'pdf', 'file'],
+  requiredFeatures: [...MERCHANDISING_REQUIRED_FEATURES],
+  readOnly: true,
+  mutationPolicy: 'read-only',
+  keywords: ['catalog', 'merchandising', 'products', 'attributes', 'pricing', 'copy'],
+  domain: 'catalog',
+  dataCapabilities: {
+    entities: [
+      'catalog.product',
+      'catalog.product_media',
+      'catalog.attribute_schema',
+      'catalog.category',
+    ],
+    operations: ['read', 'search'],
+  },
+  resolvePageContext: resolveMerchandisingPageContext,
+}
+
+export const aiAgents: AiAgentDefinition[] = [agent, merchandisingAgent]
 
 export default aiAgents

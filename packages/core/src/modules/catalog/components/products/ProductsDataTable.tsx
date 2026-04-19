@@ -139,7 +139,31 @@ function renderPrice(pricing: PricingInfo | undefined, currency?: string | null,
   )
 }
 
-export default function ProductsDataTable() {
+export type ProductsDataTableSnapshot = {
+  search: string
+  filterValues: FilterValues
+  total: number
+}
+
+export type ProductsDataTableProps = {
+  /**
+   * Extra actions rendered alongside the built-in Create button in the
+   * DataTable header. Used by the Step 4.9 AI merchandising sheet
+   * trigger without coupling DataTable to the AI module.
+   */
+  extraActions?: React.ReactNode
+  /**
+   * Optional callback invoked whenever the table's search / filter /
+   * total-matching snapshot changes. Used by the Step 4.9 AI merchandising
+   * sheet to form a selection-aware pageContext per spec §10.1.
+   */
+  onSnapshotChange?: (snapshot: ProductsDataTableSnapshot) => void
+}
+
+export default function ProductsDataTable({
+  extraActions,
+  onSnapshotChange,
+}: ProductsDataTableProps = {}) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
@@ -599,6 +623,11 @@ export default function ProductsDataTable() {
     }
   }, [confirm, t])
 
+  React.useEffect(() => {
+    if (!onSnapshotChange) return
+    onSnapshotChange({ search, filterValues, total })
+  }, [onSnapshotChange, search, filterValues, total])
+
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
 
   const exportConfig = React.useMemo(() => ({
@@ -624,11 +653,14 @@ export default function ProductsDataTable() {
           isRefreshing: isLoading,
         }}
         actions={(
-          <Button asChild>
-            <Link href="/backend/catalog/products/create">
-              {t('catalog.products.actions.create', 'Create')}
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {extraActions}
+            <Button asChild>
+              <Link href="/backend/catalog/products/create">
+                {t('catalog.products.actions.create', 'Create')}
+              </Link>
+            </Button>
+          </div>
         )}
         columns={columns}
         data={rows}

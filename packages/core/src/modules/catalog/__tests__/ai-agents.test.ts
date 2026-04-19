@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
-import aiAgents, { promptTemplate } from '../ai-agents'
+import aiAgents, { promptTemplate, merchandisingPromptTemplate } from '../ai-agents'
 import features from '../acl'
 import catalogAiTools from '../ai-tools'
 
@@ -74,10 +74,11 @@ const EXPECTED_SECTION_ORDER = [
 ] as const
 
 describe('catalog.catalog_assistant agent definition', () => {
-  const agent = aiAgents[0]
+  const agent = aiAgents.find((entry) => entry.id === 'catalog.catalog_assistant')!
 
-  it('registers a single agent exported as default and named aiAgents', () => {
-    expect(aiAgents).toHaveLength(1)
+  it('registers the catalog_assistant agent exported as default and named aiAgents', () => {
+    expect(aiAgents.length).toBeGreaterThanOrEqual(1)
+    expect(agent).toBeDefined()
     expect(agent.id).toBe('catalog.catalog_assistant')
     expect(agent.moduleId).toBe('catalog')
   })
@@ -157,6 +158,139 @@ describe('catalog.catalog_assistant agent definition', () => {
     const result = await agent.resolvePageContext!({
       entityType: 'catalog.product',
       recordId: 'fake-record-id',
+      container: {} as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+  })
+})
+
+describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10 D18)', () => {
+  const merchandisingAgent = aiAgents.find(
+    (entry) => entry.id === 'catalog.merchandising_assistant',
+  )!
+
+  const D18_READ_TOOLS = [
+    'catalog.search_products',
+    'catalog.get_product_bundle',
+    'catalog.list_selected_products',
+    'catalog.get_product_media',
+    'catalog.get_attribute_schema',
+    'catalog.get_category_brief',
+    'catalog.list_price_kinds',
+  ]
+
+  const D18_AUTHORING_TOOLS = [
+    'catalog.draft_description_from_attributes',
+    'catalog.extract_attributes_from_description',
+    'catalog.draft_description_from_media',
+    'catalog.suggest_title_variants',
+    'catalog.suggest_price_adjustment',
+  ]
+
+  const BASE_CATALOG_LIST_GET_DENY_LIST = [
+    'catalog.list_products',
+    'catalog.get_product',
+    'catalog.list_categories',
+    'catalog.get_category',
+    'catalog.list_variants',
+    'catalog.list_prices',
+    'catalog.list_price_kinds_base',
+    'catalog.list_offers',
+    'catalog.list_product_media',
+    'catalog.list_product_tags',
+    'catalog.list_option_schemas',
+    'catalog.list_unit_conversions',
+  ]
+
+  it('is registered as a second catalog agent with the canonical id and module', () => {
+    expect(merchandisingAgent).toBeDefined()
+    expect(merchandisingAgent.id).toBe('catalog.merchandising_assistant')
+    expect(merchandisingAgent.moduleId).toBe('catalog')
+    // Two agents coexist: catalog_assistant (Step 4.8) + merchandising_assistant (Step 4.9).
+    const ids = aiAgents.map((entry) => entry.id).sort()
+    expect(ids).toEqual(['catalog.catalog_assistant', 'catalog.merchandising_assistant'])
+  })
+
+  it('is strictly read-only for Phase 2 exit', () => {
+    expect(merchandisingAgent.readOnly).toBe(true)
+    expect(merchandisingAgent.mutationPolicy).toBe('read-only')
+  })
+
+  it('declares the expected execution metadata', () => {
+    expect(merchandisingAgent.executionMode).toBe('chat')
+    expect(merchandisingAgent.defaultModel).toBeUndefined()
+    expect(merchandisingAgent.maxSteps).toBeUndefined()
+    expect(merchandisingAgent.output).toBeUndefined()
+    expect(merchandisingAgent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
+  })
+
+  it('whitelists every D18 read tool', () => {
+    for (const toolName of D18_READ_TOOLS) {
+      expect(merchandisingAgent.allowedTools).toContain(toolName)
+    }
+  })
+
+  it('whitelists every D18 authoring tool (structured-output proposals only)', () => {
+    for (const toolName of D18_AUTHORING_TOOLS) {
+      expect(merchandisingAgent.allowedTools).toContain(toolName)
+    }
+  })
+
+  it('whitelists the general-purpose tool pack', () => {
+    for (const toolName of GENERAL_PURPOSE_TOOLS) {
+      expect(merchandisingAgent.allowedTools).toContain(toolName)
+    }
+  })
+
+  it('explicitly excludes every base catalog list/get tool (owned by catalog.catalog_assistant)', () => {
+    for (const toolName of BASE_CATALOG_LIST_GET_DENY_LIST) {
+      expect(merchandisingAgent.allowedTools).not.toContain(toolName)
+    }
+  })
+
+  it('never whitelists a mutation tool from the catalog pack', () => {
+    for (const tool of catalogAiTools) {
+      if (!tool.isMutation) continue
+      expect(merchandisingAgent.allowedTools).not.toContain(tool.name)
+    }
+  })
+
+  it('every requiredFeatures entry exists in catalog/acl.ts and scopes to catalog.products.view', () => {
+    const knownFeatureIds = new Set(features.map((entry) => entry.id))
+    expect(merchandisingAgent.requiredFeatures).toEqual(['catalog.products.view'])
+    for (const feature of merchandisingAgent.requiredFeatures ?? []) {
+      expect(knownFeatureIds.has(feature)).toBe(true)
+    }
+  })
+
+  it('declares the seven spec §8 prompt sections in the canonical order', () => {
+    expect(merchandisingPromptTemplate.id).toBe('catalog.merchandising_assistant.prompt')
+    const sectionNames = merchandisingPromptTemplate.sections
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((section) => section.name)
+    expect(sectionNames).toEqual(EXPECTED_SECTION_ORDER)
+
+    for (const section of merchandisingPromptTemplate.sections) {
+      expect(typeof section.content).toBe('string')
+      expect(section.content.trim().length).toBeGreaterThan(0)
+    }
+  })
+
+  it('compiles the prompt template into the agent systemPrompt', () => {
+    for (const section of merchandisingPromptTemplate.sections) {
+      const firstLine = section.content.split('\n')[0].trim()
+      expect(merchandisingAgent.systemPrompt).toContain(firstLine)
+    }
+  })
+
+  it('resolvePageContext is an async stub that yields no extra context in Phase 2', async () => {
+    expect(typeof merchandisingAgent.resolvePageContext).toBe('function')
+    const result = await merchandisingAgent.resolvePageContext!({
+      entityType: 'catalog:product-selection',
+      recordId: 'uuid-a,uuid-b',
       container: {} as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
