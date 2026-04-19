@@ -17,9 +17,10 @@ const contentSecurityPolicy = [
   "font-src 'self' data: https:",
   "form-action 'self'",
   "frame-ancestors 'self'",
+  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
   "img-src 'self' data: blob: https:",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' https: ws: wss:",
 ].join('; ')
