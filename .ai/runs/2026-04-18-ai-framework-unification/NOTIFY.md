@@ -781,3 +781,18 @@
 - **Behavior change for inbox_ops**: when `llmProviderRegistry` has at least one configured provider, the factory wins over the legacy `OPENCODE_MODEL` env + `resolveOpenCodeModel` path. For deployments where the registry is bootstrapped with the same providers the legacy envs point to, effective behavior is identical. Callers preserving the `OPENCODE_*` path get the legacy fallback whenever the registry is empty.
 - BC: additive-only at the package-export level (`createModelFactory`, `AiModelFactory`, `AiModelFactoryInput`, `AiModelResolution`, `AiModelFactoryError`, `AiModelFactoryErrorCode`, `AiModelInstance`, `CreateModelFactoryDependencies` all newly exported from `@open-mercato/ai-assistant`). The shim exports are unchanged.
 - Phase 3 WS-A **1/2 landed** (5.1). Next: Step 5.2 — production `ai-agents.ts` files with `resolvePageContext` callbacks.
+
+## 2026-04-19T03:40:00Z — Step 5.2 landed
+- Code commit: `e3076580a` — `feat(ai-agents): wire real resolvePageContext hydration for customers + catalog agents (Phase 3 WS-A)`.
+- The three shipped agents (`customers.account_assistant`, `catalog.catalog_assistant`, `catalog.merchandising_assistant`) now hydrate real record-level page context. Stubs replaced with delegation to two new neighbor helpers:
+  - `packages/core/src/modules/customers/ai-agents-context.ts` — dispatches on `entityType` to `customers.get_person` / `get_company` / `get_deal` with `includeRelated: true`. Emits a `## Page context — <label>` JSON context block.
+  - `packages/core/src/modules/catalog/ai-agents-context.ts` — two named exports: `hydrateCatalogAssistantContext` (summary view via `catalog.get_product` single / `catalog.list_selected_products` list projected to summaries) and `hydrateMerchandisingAssistantContext` (full bundle via `catalog.get_product_bundle` single / `catalog.list_selected_products` list). Selection list capped at 10 UUIDs before calling the tool.
+- Hardening on every hydrator: tenant-missing → null; non-UUID recordId → null; tool `{ found: false }` / `missingIds` → null; handler throws → `console.warn` + null. A hydration fault NEVER breaks the chat request.
+- No runtime-signature widening. The merchandising sheet ships `pageContext.extra.filter` client-side but `AiAgentPageContextInput` only forwards `entityType` + `recordId`. Widening is deferred until a downstream Step actually needs it.
+- Test deltas:
+  - core: 338/3073 → **338/3094** (+21 tests — 9 customers + 12 catalog hydration scenarios covering tenant-missing, non-UUID, per-record-type happy paths, not-found, throwing handler, 10-id cap, unknown entityType).
+  - ai-assistant: 31/363 preserved.
+  - ui: 60/328 preserved.
+- Typecheck (core + app) green. `yarn generate` no drift. `yarn i18n:check-sync` green (46 modules × 4 locales). Turbopack recipe applied: `cd packages/core && node build.mjs` + `touch apps/mercato/next.config.ts`.
+- BC: additive-only. `resolvePageContext` signature unchanged; hook just returns meaningful data now. Two new neighbor modules only.
+- Phase 3 WS-A **complete** (5.1 + 5.2). Next: Step 5.3 — versioned prompt-override persistence.
