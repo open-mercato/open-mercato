@@ -30,7 +30,7 @@ export default function CustomerAccountsSettingsPage() {
           mode="detail"
           title={t('customer_accounts.settings.title', 'Portal Settings')}
           backHref="/backend/customer_accounts/users"
-          backLabel={t('customer_accounts.settings.back', 'Users')}
+          backLabel={t('customer_accounts.settings.back', 'Customer Users')}
         />
       </div>
 

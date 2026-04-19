@@ -1272,6 +1272,7 @@
   "sales.returns.errors.linesRequired": "Selecciona al menos una línea para devolver.",
   "sales.returns.errors.load": "No se pudieron cargar las devoluciones.",
   "sales.returns.errors.quantityExceeded": "No se puede devolver más que la cantidad disponible.",
+  "sales.returns.errors.quantityNotInteger": "La cantidad de devolución debe ser un número entero.",
   "sales.returns.lineMissing": "No se encontró la línea del pedido.",
   "sales.returns.linesRequired": "Selecciona al menos una línea para devolver.",
   "sales.returns.loading": "Cargando devoluciones...",

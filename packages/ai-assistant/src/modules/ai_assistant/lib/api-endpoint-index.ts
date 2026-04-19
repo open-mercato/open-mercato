@@ -9,6 +9,7 @@ import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { SearchService } from '@open-mercato/search/service'
 import type { IndexableRecord } from '@open-mercato/search/types'
+import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import {
   API_ENDPOINT_ENTITY_ID,
   GLOBAL_TENANT_ID,
@@ -16,6 +17,14 @@ import {
   endpointToIndexableRecord,
   computeEndpointsChecksum,
 } from './api-endpoint-index-config'
+
+const DEFAULT_OPENAPI_FETCH_TIMEOUT_MS = 10_000
+
+function resolveOpenapiFetchTimeoutMs(): number {
+  const raw = process.env.AI_OPENAPI_FETCH_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_OPENAPI_FETCH_TIMEOUT_MS)
+}
 
 /**
  * Indexed API endpoint structure
@@ -208,7 +217,9 @@ async function loadRawOpenApiSpec(): Promise<OpenApiDocument | null> {
     'http://localhost:3000'
 
   try {
-    const response = await fetch(`${baseUrl}/api/docs/openapi`)
+    const response = await fetchWithTimeout(`${baseUrl}/api/docs/openapi`, {
+      timeoutMs: resolveOpenapiFetchTimeoutMs(),
+    })
     if (response.ok) {
       const doc = (await response.json()) as OpenApiDocument
       console.error('[API Index] Raw OpenAPI spec fetched via HTTP')
@@ -320,7 +331,9 @@ async function parseApiEndpointsFromHttp(): Promise<ApiEndpoint[]> {
 
   try {
     console.error(`[API Index] Fetching OpenAPI spec from ${openApiUrl}...`)
-    const response = await fetch(openApiUrl)
+    const response = await fetchWithTimeout(openApiUrl, {
+      timeoutMs: resolveOpenapiFetchTimeoutMs(),
+    })
 
     if (!response.ok) {
       console.error(`[API Index] Failed to fetch OpenAPI spec: ${response.status} ${response.statusText}`)
