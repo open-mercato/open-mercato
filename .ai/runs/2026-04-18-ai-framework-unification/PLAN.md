@@ -56,7 +56,7 @@
 | 5 | 5.2 | Spec Phase 3 WS-A — Production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context | done | e3076580a |
 | 5 | 5.3 | Spec Phase 3 WS-B — Versioned prompt-override persistence with safe additive merge rules | done | 656158c98 |
 | 5 | 5.4 | Spec Phase 3 WS-B — Surface `mutationPolicy` as a feature-gated field in the settings UI (separate from prompt editor) | done | ddc08903e |
-| 5 | 5.5 | Spec Phase 3 WS-C — `AiPendingAction` MikroORM entity + repository + migration (one new additive table, incl. optional `records[]` and `failedRecords[]`) | todo | — |
+| 5 | 5.5 | Spec Phase 3 WS-C — `AiPendingAction` MikroORM entity + repository + migration (one new additive table, incl. optional `records[]` and `failedRecords[]`) | done | 26c467112 |
 | 5 | 5.6 | Spec Phase 3 WS-C — `prepareMutation` runtime wrapper: intercepts `isMutation: true` tools for non-read-only agents, creates `AiPendingAction`, emits `mutation-preview-card` UI part | todo | — |
 | 5 | 5.7 | Spec Phase 3 WS-C — `GET /api/ai/actions/:id` route with `metadata` + `openApi` (reconnect/polling) | todo | — |
 | 5 | 5.8 | Spec Phase 3 WS-C — `POST /api/ai/actions/:id/confirm` route with full server-side re-check contract from §9.4 | todo | — |
