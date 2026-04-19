@@ -168,6 +168,13 @@ export {
   type AiPendingActionExecutionResult,
 } from './modules/ai_assistant/lib/pending-action-types'
 
+// Client-facing pending-action serializer (Phase 3 WS-C — Step 5.7, reused by 5.8 / 5.9 / 5.10)
+export {
+  serializePendingActionForClient,
+  type SerializedPendingAction,
+  type SerializablePendingActionRow,
+} from './modules/ai_assistant/lib/pending-action-client'
+
 // Shared AI model factory (Phase 3 WS-A — Step 5.1)
 export {
   createModelFactory,
