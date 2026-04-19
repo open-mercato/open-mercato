@@ -975,3 +975,12 @@
   - **Dev DB tolerance:** the live dev DB at port 3000 is still missing Step 5.5's `Migration20260419134235_ai_assistant` (the dispatcher was not authorized to run `yarn db:migrate`). The integration spec accepts both the happy-path `404 pending_action_not_found` envelope and the schema-gap `500 *_internal_error` envelope so it passes regardless of the migration state.
 - BC: additive only. New tool in the customers pack; new whitelist entry on the existing production agent; prompt section rewritten (prompt content is not a BC contract surface). `CustomersAiToolDefinition` grows an OPTIONAL `loadBeforeRecord` field. No DB migration, no event id rename, no API route moved, no DI registration renamed.
 - Next: Step 5.14 — D18 catalog mutation tool set (`update_product`, `bulk_update_products`, `apply_attribute_extraction`, `update_product_media_descriptions`) with a single `AiPendingAction` per batch and per-record `records[]` diff grouping via `loadBeforeRecords`.
+
+## 2026-04-19T13:15:00Z — Step 5.14 committed (f13467221)
+- `feat(catalog): D18 mutation tools (update_product / bulk / apply_attribute_extraction / media) (Phase 3 WS-C)`
+- 4 new mutation tools shipped via `packages/core/src/modules/catalog/ai-tools/mutation-pack.ts`: `update_product` (single), `bulk_update_products` (batch, per-record `loadBeforeRecords`), `apply_attribute_extraction` (batch), `update_product_media_descriptions` (batch-capable single-tool variant).
+- Agent whitelist for `catalog.merchandising_assistant` grew to **21 tools** (7 D18 reads + 5 D18 authoring + 5 general-purpose + 4 new mutation). Deny-list tests updated. Agent `readOnly: true` stays unchanged — the Step 5.4 override table is the only lever that unlocks writes per tenant.
+- `loadBeforeRecord` / `loadBeforeRecords` fields added to `CustomersToolContext`-sibling `catalog` types (optional, additive). `prepareMutation` runtime emits one `AiPendingAction` per batch with `records[]` populated.
+- Unit tests: 3 suites / **78 tests** passing (aggregator + ai-agents + mutation-pack). `.strict()` zod inputs reject hallucinated fields per spec §7.
+- Typecheck clean. `yarn generate` no drift. `yarn i18n:check-sync` green (no new user-facing server strings).
+- **Phase 3 WS-C is now fully closed** (Steps 5.5 → 5.14, 10 Steps). Next: Phase 3 WS-D with Step 5.15 (bind production agents to backend pages via injection).
