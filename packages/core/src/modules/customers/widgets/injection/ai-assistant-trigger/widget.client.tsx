@@ -45,6 +45,16 @@ export interface CustomersAiInjectPageContext {
   }
 }
 
+/**
+ * Exposed for unit tests so the `buildPageContext` derivation is
+ * exercisable without mounting the widget.
+ */
+export function computeCustomersAiInjectPageContext(
+  context: HostInjectionContext | undefined,
+): CustomersAiInjectPageContext {
+  return buildPageContext(context)
+}
+
 interface HostInjectionContext {
   tableId?: string | null
   title?: string

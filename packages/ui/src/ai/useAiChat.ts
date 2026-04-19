@@ -24,6 +24,15 @@ export interface UseAiChatInput {
   debug?: boolean
   initialMessages?: Array<Pick<AiChatMessage, 'role' | 'content'>>
   onError?: (err: { code?: string; message: string }) => void
+  /**
+   * Optional stable conversation id. When provided, the same id is forwarded
+   * to the dispatcher on every turn so `prepareMutation`'s idempotency hash
+   * (Step 5.6) stays stable across mutation preview / confirm / retry cycles.
+   * When omitted, the hook mints a fresh random id once on mount and reuses
+   * it for the lifetime of the component — callers can still override via
+   * props at any time to reset the conversation.
+   */
+  conversationId?: string
 }
 
 export interface AiChatErrorEnvelope {
@@ -37,6 +46,13 @@ export interface UseAiChatResult {
   error: AiChatErrorEnvelope | null
   lastRequestDebug: { url: string; body: unknown } | null
   lastResponseDebug: { status: number; text: string } | null
+  /**
+   * The conversation id currently in use for this chat instance. Equal to
+   * the caller-provided `conversationId` input when one is supplied;
+   * otherwise the random id minted on mount. Stable across re-renders for a
+   * given mount (Phase 3 WS-D contract with `prepareMutation`).
+   */
+  conversationId: string
   sendMessage: (input: string) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -46,6 +62,22 @@ function makeMessageId(): string {
   const random = Math.random().toString(36).slice(2, 10)
   const time = Date.now().toString(36)
   return `msg_${time}_${random}`
+}
+
+function makeConversationId(): string {
+  // Use crypto.randomUUID() when the browser exposes it (all evergreen
+  // runtimes do), otherwise fall back to a low-entropy token that is still
+  // unique enough for the idempotency-hash use case.
+  const g = globalThis as unknown as { crypto?: { randomUUID?: () => string } }
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+    try {
+      return g.crypto.randomUUID()
+    } catch {
+      // fall through to the random fallback
+    }
+  }
+  const rand = () => Math.random().toString(16).slice(2, 10)
+  return `conv_${Date.now().toString(16)}_${rand()}${rand()}`
 }
 
 function getTransportEndpoint(agent: string, apiPath?: string): string {
@@ -91,7 +123,20 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput } = input
+
+  // Minted once on mount when the caller does not supply a conversationId.
+  // The ref keeps the id stable across re-renders and is reused for every
+  // turn so the Phase 3 WS-C `prepareMutation` idempotency hash stays
+  // stable within the same chat.
+  const mintedConversationIdRef = React.useRef<string | null>(null)
+  if (mintedConversationIdRef.current === null) {
+    mintedConversationIdRef.current = makeConversationId()
+  }
+  const effectiveConversationId =
+    typeof conversationIdInput === 'string' && conversationIdInput.length > 0
+      ? conversationIdInput
+      : mintedConversationIdRef.current
 
   const [messages, setMessages] = React.useState<AiChatMessage[]>(() =>
     (initialMessages ?? []).map((entry) => ({
@@ -179,6 +224,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         pageContext,
         attachmentIds,
         debug,
+        conversationId: effectiveConversationId,
       }
       setLastRequestDebug({ url, body })
 
@@ -280,7 +326,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         setStatus('idle')
       }
     },
-    [agent, apiPath, attachmentIds, debug, emitError, messages, pageContext],
+    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, pageContext],
   )
 
   React.useEffect(() => {
@@ -298,6 +344,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     error,
     lastRequestDebug,
     lastResponseDebug,
+    conversationId: effectiveConversationId,
     sendMessage,
     cancel,
     reset,

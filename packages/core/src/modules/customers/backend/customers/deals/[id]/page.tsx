@@ -16,6 +16,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { DetailInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
@@ -399,10 +401,25 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const viewer = data.viewer ?? null
 
+  const dealInjectionContext = React.useMemo(
+    () => ({
+      dealId: data.deal.id,
+      recordId: data.deal.id,
+      stage: data.deal.status ?? null,
+      pipelineStageId: data.deal.pipelineStageId ?? null,
+    }),
+    [data.deal.id, data.deal.status, data.deal.pipelineStageId],
+  )
+
   return (
     <Page>
       <PageBody>
         <div className="flex flex-col gap-6">
+          <InjectionSpot
+            spotId={DetailInjectionSpots.header('customers.deal')}
+            context={dealInjectionContext}
+            data={data}
+          />
           <FormHeader
             mode="detail"
             backHref="/backend/customers/deals"

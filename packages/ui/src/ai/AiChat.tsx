@@ -54,6 +54,15 @@ export interface AiChatProps {
   onMutationRequested?: (pendingActionId: string) => void
   onError?: (err: { code?: string; message: string }) => void
   /**
+   * Optional stable conversation id. Forwarded verbatim to
+   * `POST /api/ai_assistant/ai/chat` request bodies and reused across
+   * turns so the Step 5.6 `prepareMutation` idempotency hash stays
+   * stable across retries within the same chat. When omitted, the hook
+   * mints a fresh random id once on mount — remounting the component
+   * resets the conversation.
+   */
+  conversationId?: string
+  /**
    * Optional UI-part registry. Defaults to the module-global
    * {@link defaultAiUiPartRegistry}. Pass a scoped registry from
    * {@link createAiUiPartRegistry} when embedding multiple `<AiChat>`
@@ -220,6 +229,7 @@ export function AiChat({
   uiParts: uiPartsProp,
   debugTools,
   debugPromptSections,
+  conversationId,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -234,6 +244,7 @@ export function AiChat({
     debug,
     initialMessages,
     onError,
+    conversationId,
   })
 
   const isStreaming = chat.status === 'streaming'
@@ -294,6 +305,7 @@ export function AiChat({
       )}
       aria-label={t('ai_assistant.chat.regionLabel', 'AI chat')}
       data-ai-chat-agent={agent}
+      data-ai-chat-conversation-id={chat.conversationId}
     >
       <div
         ref={transcriptRef}

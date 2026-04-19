@@ -10,7 +10,7 @@
  */
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
-import AiAssistantTriggerWidget from '../widget.client'
+import AiAssistantTriggerWidget, { computeCustomersAiInjectPageContext } from '../widget.client'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string, vars?: Record<string, unknown>) => {
@@ -39,5 +39,46 @@ describe('customers AiAssistantTriggerWidget', () => {
     expect(
       screen.getByRole('button', { name: /open ai assistant for people/i }),
     ).toBeTruthy()
+  })
+})
+
+describe('customers computeCustomersAiInjectPageContext (Step 5.15)', () => {
+  it('emits an empty selection pageContext when no rows are selected', () => {
+    const ctx = computeCustomersAiInjectPageContext({
+      selectedCount: 0,
+      totalMatching: 42,
+    })
+    expect(ctx.view).toBe('customers.people.list')
+    expect(ctx.recordType).toBeNull()
+    expect(ctx.recordId).toBeNull()
+    expect(ctx.extra).toEqual({ selectedCount: 0, totalMatching: 42 })
+  })
+
+  it('serializes selected row ids as a comma-separated recordId', () => {
+    const ctx = computeCustomersAiInjectPageContext({
+      selectedRowIds: ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'],
+      totalMatching: 10,
+    })
+    expect(ctx.recordId).toBe('11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222')
+    expect(ctx.extra.selectedCount).toBe(2)
+    expect(ctx.extra.totalMatching).toBe(10)
+  })
+
+  it('falls back to selectedCount when the host omits per-id data', () => {
+    const ctx = computeCustomersAiInjectPageContext({
+      selectedCount: 3,
+      totalMatching: 30,
+    })
+    expect(ctx.recordId).toBeNull()
+    expect(ctx.extra.selectedCount).toBe(3)
+    expect(ctx.extra.totalMatching).toBe(30)
+  })
+
+  it('accepts string totalMatching and coerces to number', () => {
+    const ctx = computeCustomersAiInjectPageContext({
+      selectedCount: 0,
+      totalMatching: '17' as unknown as number,
+    })
+    expect(ctx.extra.totalMatching).toBe(17)
   })
 })

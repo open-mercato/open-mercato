@@ -68,6 +68,14 @@ export interface RunAiAgentTextInput {
    * warning (callbacks that need database/DI cannot run safely without one).
    */
   container?: AwilixContainer
+  /**
+   * Optional stable chat-turn conversation id forwarded from `<AiChat>`.
+   * Bridged into the Step 5.6 `prepareMutation` idempotency hash so repeated
+   * turns within the same chat collapse onto the same pending action. When
+   * omitted, the idempotency hash falls back to `null` which still preserves
+   * per-tenant/org uniqueness within the TTL window.
+   */
+  conversationId?: string | null
 }
 
 interface ResolvedAgentModel {
@@ -317,6 +325,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     attachmentIds: input.attachmentIds,
     mutationPolicyOverride,
     container: input.container,
+    conversationId: input.conversationId ?? null,
   })
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({

@@ -681,6 +681,12 @@ export default function ProductsDataTable({
           page,
           sorting,
           scopeVersion,
+          // Step 5.15: surface `total` so the merchandising AI widget
+          // (rendered in `data-table:catalog.products:header`) can build
+          // a selection-aware pageContext per spec §10.1 without taking a
+          // dependency on the host page.
+          total,
+          totalMatching: total,
         }}
         pagination={{
           page,

@@ -16,4 +16,16 @@ describe('catalog injection table', () => {
       priority: 40,
     })
   })
+
+  it('registers the merchandising assistant trigger on the products list header (Step 5.15)', async () => {
+    const mod = await import('../injection-table')
+    const table = mod.injectionTable
+
+    expect(table['data-table:catalog.products:header']).toEqual([
+      {
+        widgetId: 'catalog.injection.merchandising-assistant-trigger',
+        priority: 100,
+      },
+    ])
+  })
 })

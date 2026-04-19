@@ -1,17 +1,29 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
 
 /**
- * Step 4.10 — customers module injection table.
+ * Step 4.10 / Step 5.15 — customers module injection table.
  *
- * Maps the `ai-assistant-trigger` injection widget to the People-list
- * `DataTable` header spot. The widget ships the Phase 2 WS-C backend
- * example of `<AiChat>` embedded via existing injection patterns (no
- * page edits).
+ * - Step 4.10 drops the `ai-assistant-trigger` widget on the People-list
+ *   `DataTable` header spot (`data-table:customers.people.list:header`).
+ * - Step 5.15 (Phase 3 WS-D) adds the `ai-deal-detail-trigger` widget on
+ *   the Deal detail page header spot (`detail:customers.deal:header`).
+ *
+ * Both widgets embed `<AiChat agent="customers.account_assistant" …>`
+ * with a selection- or record-aware `pageContext`. The page files
+ * themselves only register the shared `<InjectionSpot>` mount point —
+ * the trigger, sheet, and chat surface live entirely in the injection
+ * widgets so third-party modules can copy the pattern unchanged.
  */
 export const injectionTable: ModuleInjectionTable = {
   'data-table:customers.people.list:header': [
     {
       widgetId: 'customers.injection.ai-assistant-trigger',
+      priority: 100,
+    },
+  ],
+  'detail:customers.deal:header': [
+    {
+      widgetId: 'customers.injection.ai-deal-detail-trigger',
       priority: 100,
     },
   ],

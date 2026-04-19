@@ -35,6 +35,13 @@ const chatRequestSchema = z.object({
   attachmentIds: z.array(z.string()).optional(),
   debug: z.boolean().optional(),
   pageContext: pageContextSchema.optional(),
+  /**
+   * Optional stable conversation id forwarded from `<AiChat>`. Bridged into
+   * the Step 5.6 `prepareMutation` idempotency hash so repeated turns within
+   * the same chat collapse onto the same pending action. Additive; omitted
+   * bodies continue to work as before.
+   */
+  conversationId: z.string().min(1).max(128).optional(),
 })
 
 export type AiChatRequest = z.infer<typeof chatRequestSchema>
@@ -176,6 +183,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
       debug: bodyResult.data.debug,
+      conversationId: bodyResult.data.conversationId ?? null,
       authContext: {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
