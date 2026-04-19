@@ -6,6 +6,7 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 
 const BCRYPT_COST = 10
 
@@ -124,6 +125,7 @@ export async function deleteApiKey(
   if (!record) return
   record.deletedAt = new Date()
   await em.persistAndFlush(record)
+  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
   }
@@ -269,6 +271,7 @@ export async function deleteSessionApiKey(
 
   record.deletedAt = new Date()
   await em.persistAndFlush(record)
+  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
 }
 
 /**
@@ -309,6 +312,7 @@ export async function withOnetimeApiKey<T>(
     try {
       record.deletedAt = new Date()
       await em.persistAndFlush(record)
+      getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
     } catch (error) {
       console.error('[withOnetimeApiKey] Failed to soft-delete one-time API key:', error)
     }
