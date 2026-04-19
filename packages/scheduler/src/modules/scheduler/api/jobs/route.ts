@@ -99,6 +99,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       const tenantId = ctx.auth?.tenantId
       if (!tenantId) {
+        filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
         return filters
       }
 
