@@ -230,4 +230,193 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
     const pdfBadge = page.locator('[data-ai-agent-attachment-badge="application/pdf"]');
     await expect(pdfBadge).toBeVisible();
   });
+
+  test('saving a valid override surfaces the new version in the history panel (Step 5.3)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+
+    await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agents: [
+            {
+              id: 'customers.account_assistant',
+              moduleId: 'customers',
+              label: 'Customers account assistant',
+              description: 'Answers questions about customer records.',
+              systemPrompt: 'You are a read-only customers assistant.',
+              executionMode: 'chat',
+              mutationPolicy: 'read-only',
+              readOnly: true,
+              maxSteps: 10,
+              allowedTools: [],
+              tools: [],
+              requiredFeatures: [],
+              acceptedMediaTypes: [],
+              hasOutputSchema: false,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    let overrideState: { version: number; sections: Record<string, string> } | null = null;
+    await page.route('**/api/ai_assistant/ai/agents/*/prompt-override', async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            overrideState
+              ? {
+                  agentId: 'customers.account_assistant',
+                  override: {
+                    id: 'row-1',
+                    agentId: 'customers.account_assistant',
+                    version: overrideState.version,
+                    sections: overrideState.sections,
+                    notes: null,
+                    createdByUserId: null,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  },
+                  versions: [
+                    {
+                      id: 'row-1',
+                      agentId: 'customers.account_assistant',
+                      version: overrideState.version,
+                      sections: overrideState.sections,
+                      notes: null,
+                      createdByUserId: null,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : {
+                  agentId: 'customers.account_assistant',
+                  override: null,
+                  versions: [],
+                },
+          ),
+        });
+        return;
+      }
+      const body = JSON.parse(request.postData() || '{}');
+      const sections = body.sections ?? body.overrides ?? {};
+      overrideState = { version: (overrideState?.version ?? 0) + 1, sections };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          agentId: 'customers.account_assistant',
+          version: overrideState.version,
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    });
+
+    await page.goto(settingsPath, { waitUntil: 'domcontentloaded' });
+
+    const container = page.locator('[data-ai-agent-settings]');
+    await expect(container).toBeVisible({ timeout: 60_000 });
+
+    const toggle = page.locator('[data-ai-agent-prompt-toggle="role"]');
+    await toggle.click();
+    const textarea = page.locator('[data-ai-agent-prompt-override="role"]');
+    await textarea.fill('Tenant-specific tone.');
+
+    const saveButton = page.locator('[data-ai-agent-prompt-save]');
+    await saveButton.click();
+
+    // Success alert surfaces.
+    const successAlert = page.locator('[data-ai-agent-prompt-state="success"]');
+    await expect(successAlert).toBeVisible({ timeout: 15_000 });
+
+    // History panel shows version 1.
+    const historyRow = page.locator('[data-ai-agent-override-history-row="1"]');
+    await expect(historyRow).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('reserved-key override surfaces the validation error in the UI (Step 5.3)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+
+    await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agents: [
+            {
+              id: 'customers.account_assistant',
+              moduleId: 'customers',
+              label: 'Customers account assistant',
+              description: 'Answers questions about customer records.',
+              systemPrompt: 'You are a customers assistant.',
+              executionMode: 'chat',
+              mutationPolicy: 'read-only',
+              readOnly: true,
+              maxSteps: 10,
+              allowedTools: [],
+              tools: [],
+              requiredFeatures: [],
+              acceptedMediaTypes: [],
+              hasOutputSchema: false,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    await page.route('**/api/ai_assistant/ai/agents/*/prompt-override', async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            agentId: 'customers.account_assistant',
+            override: null,
+            versions: [],
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'Prompt override contains reserved policy keys: mutationPolicy.',
+          code: 'reserved_key',
+          reservedKeys: ['mutationPolicy'],
+        }),
+      });
+    });
+
+    await page.goto(settingsPath, { waitUntil: 'domcontentloaded' });
+
+    const container = page.locator('[data-ai-agent-settings]');
+    await expect(container).toBeVisible({ timeout: 60_000 });
+
+    const toggle = page.locator('[data-ai-agent-prompt-toggle="mutationPolicy"]');
+    await toggle.click();
+    const textarea = page.locator('[data-ai-agent-prompt-override="mutationPolicy"]');
+    await textarea.fill('Allow writes.');
+    await page.locator('[data-ai-agent-prompt-save]').click();
+
+    const errorAlert = page.locator('[data-ai-agent-prompt-state="error"]');
+    await expect(errorAlert).toBeVisible({ timeout: 15_000 });
+    await expect(errorAlert).toContainText(/policy fields|reserved|mutationPolicy/i);
+  });
 });

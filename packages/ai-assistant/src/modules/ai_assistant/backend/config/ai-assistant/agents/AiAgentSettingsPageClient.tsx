@@ -1,12 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Bot,
   BookOpen,
   CheckCircle2,
+  History,
   Image as ImageIcon,
   FileText,
   Loader2,
@@ -107,6 +108,35 @@ async function fetchAgents(): Promise<AgentsResponse> {
     throw new Error(text || `Failed to load agents (${res.status})`)
   }
   return (await res.json()) as AgentsResponse
+}
+
+type OverrideVersion = {
+  id: string
+  agentId: string
+  version: number
+  sections: Record<string, string>
+  notes: string | null
+  createdByUserId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type OverrideResponse = {
+  agentId: string
+  override: OverrideVersion | null
+  versions: OverrideVersion[]
+}
+
+async function fetchOverride(agentId: string): Promise<OverrideResponse> {
+  const res = await fetch(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/prompt-override`,
+    { method: 'GET', credentials: 'include' },
+  )
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(text || `Failed to load prompt override (${res.status})`)
+  }
+  return (await res.json()) as OverrideResponse
 }
 
 function SettingsLoading({ message }: { message: string }) {
@@ -333,6 +363,7 @@ function AttachmentPolicyBadges({ mediaTypes }: { mediaTypes: string[] }) {
 
 function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
   const t = useT()
+  const queryClient = useQueryClient()
   const [overrideFlags, setOverrideFlags] = React.useState<Record<PromptSectionId, boolean>>(() => ({
     role: false,
     scope: false,
@@ -356,9 +387,15 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
   const [isSaving, setIsSaving] = React.useState(false)
   const [saveState, setSaveState] = React.useState<
     | { kind: 'idle' }
-    | { kind: 'pending'; message: string }
+    | { kind: 'success'; message: string; version: number }
     | { kind: 'error'; message: string }
   >({ kind: 'idle' })
+
+  const overrideQuery = useQuery<OverrideResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'override', agent.id],
+    queryFn: () => fetchOverride(agent.id),
+    retry: false,
+  })
 
   // Reset override state whenever the selected agent changes.
   React.useEffect(() => {
@@ -385,6 +422,42 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
     setSaveState({ kind: 'idle' })
   }, [agent.id])
 
+  // Hydrate drafts when the latest override lands.
+  React.useEffect(() => {
+    const latest = overrideQuery.data?.override
+    if (!latest) return
+    const nextFlags: Record<PromptSectionId, boolean> = {
+      role: false,
+      scope: false,
+      data: false,
+      tools: false,
+      attachments: false,
+      mutationPolicy: false,
+      responseStyle: false,
+      overrides: false,
+    }
+    const nextDrafts: Record<PromptSectionId, string> = {
+      role: '',
+      scope: '',
+      data: '',
+      tools: '',
+      attachments: '',
+      mutationPolicy: '',
+      responseStyle: '',
+      overrides: '',
+    }
+    for (const [rawKey, value] of Object.entries(latest.sections ?? {})) {
+      if (typeof value !== 'string') continue
+      const key = rawKey as PromptSectionId
+      if (PROMPT_SECTION_IDS.includes(key)) {
+        nextFlags[key] = true
+        nextDrafts[key] = value
+      }
+    }
+    setOverrideFlags(nextFlags)
+    setOverrideDrafts(nextDrafts)
+  }, [overrideQuery.data?.override])
+
   const activeOverrides = React.useMemo(() => {
     const payload: Record<string, string> = {}
     for (const section of PROMPT_SECTION_IDS) {
@@ -408,28 +481,57 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ overrides: activeOverrides }),
+          body: JSON.stringify({
+            // Send both keys so a pre-Step-5.3 server still accepts the payload.
+            sections: activeOverrides,
+            overrides: activeOverrides,
+          }),
         },
       )
       const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
         pending?: boolean
+        version?: number
+        updatedAt?: string
         message?: string
         error?: string
+        code?: string
+        reservedKeys?: string[]
       }
       if (!res.ok) {
+        const message =
+          payload.code === 'reserved_key'
+            ? t(
+                'ai_assistant.agents.override.errors.reservedKey',
+                'Prompt overrides cannot modify policy fields (mutationPolicy, readOnly, allowedTools, acceptedMediaTypes). Remove those sections and retry.',
+              )
+            : (payload.error ?? `Failed to save overrides (${res.status}).`)
+        setSaveState({ kind: 'error', message })
+        return
+      }
+      if (payload.ok === true && typeof payload.version === 'number') {
         setSaveState({
-          kind: 'error',
-          message: payload.error ?? `Failed to submit overrides (${res.status}).`,
+          kind: 'success',
+          version: payload.version,
+          message: t(
+            'ai_assistant.agents.override.savedMessage',
+            'Prompt override saved.',
+          ),
+        })
+        await queryClient.invalidateQueries({
+          queryKey: ['ai_assistant', 'agent_settings', 'override', agent.id],
         })
         return
       }
+      // Legacy placeholder response: surfaces the Step-4.5 wording for BC.
       setSaveState({
-        kind: 'pending',
+        kind: 'success',
+        version: 0,
         message:
           payload.message ??
           t(
             'ai_assistant.agents.prompt.pendingMessage',
-            'Prompt overrides accepted. Persistence lands in Phase 3 Step 5.3.',
+            'Prompt overrides accepted.',
           ),
       })
     } catch (err) {
@@ -440,7 +542,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
     } finally {
       setIsSaving(false)
     }
-  }, [activeOverrides, agent.id, isSaving, t])
+  }, [activeOverrides, agent.id, isSaving, queryClient, t])
 
   return (
     <div className="flex flex-col gap-4" data-ai-agent-detail={agent.id}>
@@ -516,7 +618,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
             <p className="text-xs text-muted-foreground">
               {t(
                 'ai_assistant.agents.prompt.subtitle',
-                'Toggle any section to write an additive override. Saving sends the overrides to a placeholder route today; real persistence lands with Step 5.3.',
+                'Toggle any section to write an additive override. Saving stores a new tenant-scoped version; built-in section text is always preserved.',
               )}
             </p>
           </div>
@@ -539,30 +641,36 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           <Alert variant="info" data-ai-agent-prompt-notice>
             <Wand2 className="size-4" aria-hidden />
             <AlertTitle>
-              {t('ai_assistant.agents.prompt.noticeTitle', 'Prompt overrides are local-only today')}
+              {t('ai_assistant.agents.override.noticeTitle', 'Prompt overrides are additive')}
             </AlertTitle>
             <AlertDescription>
               {t(
-                'ai_assistant.agents.prompt.noticeBody',
-                'Submitting this form calls a placeholder endpoint that responds with `{ pending: true }`. Versioned prompt-override storage lands with Phase 3 Step 5.3.',
+                'ai_assistant.agents.override.noticeBody',
+                'Overrides append to the built-in sections — they never remove or replace shipped text. Saved versions are tenant-scoped and auditable from the history panel below.',
               )}
             </AlertDescription>
           </Alert>
         </div>
-        {saveState.kind === 'pending' ? (
-          <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="pending">
+        {saveState.kind === 'success' ? (
+          <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="success">
             <CheckCircle2 className="size-4" aria-hidden />
             <AlertTitle>
-              {t('ai_assistant.agents.prompt.pendingTitle', 'Overrides accepted')}
+              {saveState.version > 0
+                ? t('ai_assistant.agents.override.savedTitle', 'Prompt override saved')
+                : t('ai_assistant.agents.prompt.pendingTitle', 'Overrides accepted')}
             </AlertTitle>
-            <AlertDescription>{saveState.message}</AlertDescription>
+            <AlertDescription>
+              {saveState.version > 0
+                ? `${saveState.message} ${t('ai_assistant.agents.override.versionLabel', 'Version')} ${saveState.version}.`
+                : saveState.message}
+            </AlertDescription>
           </Alert>
         ) : null}
         {saveState.kind === 'error' ? (
           <Alert variant="destructive" className="mt-3" data-ai-agent-prompt-state="error">
             <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
-              {t('ai_assistant.agents.prompt.errorTitle', 'Failed to submit overrides')}
+              {t('ai_assistant.agents.override.errorTitle', 'Failed to save prompt override')}
             </AlertTitle>
             <AlertDescription>{saveState.message}</AlertDescription>
           </Alert>
@@ -632,6 +740,89 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
             </p>
           ) : (
             agent.tools.map((tool) => <ToolRow key={tool.name} tool={tool} />)
+          )}
+        </div>
+      </section>
+
+      <section
+        className="rounded-lg border border-border bg-background p-4"
+        data-ai-agent-override-history={agent.id}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
+          <div className="flex items-center gap-2">
+            <History className="size-4 text-muted-foreground" aria-hidden />
+            <div>
+              <h3 className="text-sm font-semibold">
+                {t('ai_assistant.agents.override.history.title', 'Prompt override history')}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'ai_assistant.agents.override.history.subtitle',
+                  'Newest first. Each save creates a new version scoped to the current tenant.',
+                )}
+              </p>
+            </div>
+          </div>
+          {overrideQuery.data ? (
+            <Badge variant="neutral" className="font-mono text-xs">
+              {overrideQuery.data.versions.length}
+            </Badge>
+          ) : null}
+        </header>
+        <div className="mt-3 flex flex-col gap-2">
+          {overrideQuery.isLoading ? (
+            <SettingsLoading
+              message={t(
+                'ai_assistant.agents.override.history.loading',
+                'Loading override history...',
+              )}
+            />
+          ) : overrideQuery.isError ? (
+            <Alert variant="destructive" data-ai-agent-override-history-error>
+              <AlertCircle className="size-4" aria-hidden />
+              <AlertTitle>
+                {t(
+                  'ai_assistant.agents.override.history.errorTitle',
+                  'Failed to load override history',
+                )}
+              </AlertTitle>
+              <AlertDescription>
+                {overrideQuery.error instanceof Error
+                  ? overrideQuery.error.message
+                  : String(overrideQuery.error)}
+              </AlertDescription>
+            </Alert>
+          ) : (overrideQuery.data?.versions ?? []).length === 0 ? (
+            <p
+              className="text-xs text-muted-foreground"
+              data-ai-agent-override-history-empty
+            >
+              {t(
+                'ai_assistant.agents.override.history.empty',
+                'No prompt overrides have been saved for this agent yet.',
+              )}
+            </p>
+          ) : (
+            (overrideQuery.data?.versions ?? []).slice(0, 5).map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+                data-ai-agent-override-history-row={entry.version}
+              >
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-semibold">
+                    {t('ai_assistant.agents.override.versionLabel', 'Version')} {entry.version}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {new Date(entry.updatedAt).toLocaleString()}
+                  </span>
+                </div>
+                <Badge variant="neutral" className="font-mono text-xs">
+                  {Object.keys(entry.sections ?? {}).length}{' '}
+                  {t('ai_assistant.agents.override.history.sectionsLabel', 'sections')}
+                </Badge>
+              </div>
+            ))
           )}
         </div>
       </section>
@@ -736,7 +927,7 @@ export function AiAgentSettingsPageClient() {
           <p className="text-sm text-muted-foreground">
             {t(
               'ai_assistant.agents.subtitle',
-              'Inspect every registered agent and draft additive prompt-section overrides. Prompt overrides are local-only today — persistence lands in Phase 3 Step 5.3.',
+              'Inspect every registered agent and manage tenant-scoped additive prompt-section overrides.',
             )}
           </p>
         </header>

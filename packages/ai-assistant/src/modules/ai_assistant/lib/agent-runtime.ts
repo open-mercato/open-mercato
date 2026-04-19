@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LanguageModel, UIMessage } from 'ai'
 import {
   convertToModelMessages,
@@ -24,6 +25,8 @@ import {
   resolveAttachmentPartsForAgent,
   summarizeAttachmentPartsForPrompt,
 } from './attachment-parts'
+import { AiAgentPromptOverrideRepository } from '../data/repositories/AiAgentPromptOverrideRepository'
+import { composeSystemPromptWithOverride } from './prompt-override-merge'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -109,18 +112,23 @@ export async function composeSystemPrompt(
   tenantId: string | null,
   organizationId: string | null,
 ): Promise<string> {
-  const base = agent.systemPrompt
+  const baseFromOverride = await resolveBaseSystemPromptWithOverride(
+    agent,
+    container,
+    tenantId,
+    organizationId,
+  )
   const resolve = agent.resolvePageContext
-  if (!resolve) return base
+  if (!resolve) return baseFromOverride
   const entityType = pageContext?.entityType
   const recordId = pageContext?.recordId
-  if (typeof entityType !== 'string' || entityType.length === 0) return base
-  if (typeof recordId !== 'string' || recordId.length === 0) return base
+  if (typeof entityType !== 'string' || entityType.length === 0) return baseFromOverride
+  if (typeof recordId !== 'string' || recordId.length === 0) return baseFromOverride
   if (!container) {
     console.warn(
       `[AI Agents] Agent "${agent.id}" declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration.`,
     )
-    return base
+    return baseFromOverride
   }
   const hydrationInput: AiAgentPageContextInput = {
     entityType,
@@ -132,7 +140,7 @@ export async function composeSystemPrompt(
   try {
     const hydrated = await resolve(hydrationInput)
     if (typeof hydrated === 'string' && hydrated.trim().length > 0) {
-      return `${base}\n\n${hydrated}`
+      return `${baseFromOverride}\n\n${hydrated}`
     }
   } catch (error) {
     console.error(
@@ -140,7 +148,51 @@ export async function composeSystemPrompt(
       error,
     )
   }
-  return base
+  return baseFromOverride
+}
+
+/**
+ * Fetches the latest tenant-scoped prompt override for `agent` (if any) and
+ * layers it onto the built-in `systemPrompt` via the additive merge helper.
+ *
+ * BC + fail-open: every failure mode — missing container, missing `em`
+ * registration, repository throw, missing migration — is logged at `warn`
+ * and falls back to `agent.systemPrompt`. A chat turn MUST never fail on
+ * override lookup (per Step 5.3 spec: "If the repo call throws, log and
+ * fall back to the built-in prompt — never fail the chat request").
+ */
+async function resolveBaseSystemPromptWithOverride(
+  agent: AiAgentDefinition,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<string> {
+  const base = agent.systemPrompt
+  if (!tenantId || !container) return base
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return base
+  try {
+    const repo = new AiAgentPromptOverrideRepository(em)
+    const latest = await repo.getLatest(agent.id, {
+      tenantId,
+      organizationId: organizationId ?? null,
+    })
+    if (!latest || !latest.sections || Object.keys(latest.sections).length === 0) {
+      return base
+    }
+    return composeSystemPromptWithOverride(base, { sections: latest.sections })
+  } catch (error) {
+    console.warn(
+      `[AI Agents] Prompt-override lookup failed for agent "${agent.id}"; falling back to built-in prompt.`,
+      error,
+    )
+    return base
+  }
 }
 
 /**
