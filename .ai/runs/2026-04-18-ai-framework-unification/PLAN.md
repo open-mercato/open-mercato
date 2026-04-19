@@ -64,7 +64,7 @@
 | 5 | 5.10 | Spec Phase 3 WS-C — Four new UI parts in `@open-mercato/ui/src/ai/parts/`: `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card` (with keyboard shortcuts + reconnect behavior) | done | 0797f0e9b |
 | 5 | 5.11 | Spec Phase 3 WS-C — Typed `ai.action.confirmed` / `ai.action.cancelled` / `ai.action.expired` events via `createModuleEvents` | done | 26e304f29 |
 | 5 | 5.12 | Spec Phase 3 WS-C — Cleanup worker sweeping expired pending actions (`status=pending` + `expiresAt < now` → `expired` + event) | done | 4fc11ed48 |
-| 5 | 5.13 | Spec Phase 3 WS-C — First mutation-capable agent flow (candidate: `customers.account_assistant` for deal stage updates) end-to-end on the pending-action contract | todo | — |
+| 5 | 5.13 | Spec Phase 3 WS-C — First mutation-capable agent flow (candidate: `customers.account_assistant` for deal stage updates) end-to-end on the pending-action contract | done | 53cf4103b |
 | 5 | 5.14 | Spec §7 (D18) — Catalog mutation tools (`update_product`, `bulk_update_products`, `apply_attribute_extraction`, `update_product_media_descriptions`) with single `AiPendingAction` per batch + per-record `records[]` diff grouping | todo | — |
 | 5 | 5.15 | Spec Phase 3 WS-D — Bind production agents to existing backend pages through normal injection/UI composition (pass `pageContext` from the page) | todo | — |
 | 5 | 5.16 | Spec Phase 3 WS-D — Integration tests: page-context resolution + model-factory fallback chain + execution budget (`maxSteps`) | todo | — |
