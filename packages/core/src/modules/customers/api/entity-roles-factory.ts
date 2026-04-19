@@ -275,8 +275,9 @@ export function createEntityRolesHandlers(entityType: EntityType) {
     const { translate } = await resolveTranslations()
     try {
       const { id: entityId } = paramsSchema.parse(params)
-      const { em, auth, scope } = await buildContext(request)
+      const { container, em, auth, scope } = await buildContext(request)
       const targetScope = await resolveEntityRouteScope(em, auth, scope, entityType, entityId, translate)
+      await ensureFeatureOnOrganization(container, auth, 'customers.roles.view', targetScope.organizationId, translate)
 
       const roles = await findWithDecryption(
         em,

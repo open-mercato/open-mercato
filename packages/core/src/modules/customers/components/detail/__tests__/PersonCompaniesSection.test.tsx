@@ -207,4 +207,141 @@ describe('PersonCompaniesSection', () => {
 
     expect(await screen.findByText('Gamma Industries')).toBeInTheDocument()
   })
+
+  it('allows promoting another linked company to primary', async () => {
+    const linkedItems = [
+      {
+        linkId: 'link-1',
+        companyId: 'company-1',
+        displayName: 'Alpha Corp',
+        isPrimary: true,
+        subtitle: 'alpha.example',
+        profile: null,
+        billing: null,
+        primaryAddress: null,
+        tags: [],
+        roles: [],
+        activeDeal: null,
+        lastContactAt: null,
+        clv: null,
+        status: null,
+        lifecycleStage: null,
+        temperature: null,
+        renewalQuarter: null,
+      },
+      {
+        linkId: 'link-2',
+        companyId: 'company-2',
+        displayName: 'Beta Holdings',
+        isPrimary: false,
+        subtitle: 'beta.example',
+        profile: null,
+        billing: null,
+        primaryAddress: null,
+        tags: [],
+        roles: [],
+        activeDeal: null,
+        lastContactAt: null,
+        clv: null,
+        status: null,
+        lifecycleStage: null,
+        temperature: null,
+        renewalQuarter: null,
+      },
+    ]
+
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/people/person-1/companies/enriched')) {
+        return {
+          items: linkedItems,
+          totalPages: 1,
+        }
+      }
+      if (url.includes('/api/customers/companies?ids=')) {
+        return {
+          items: [
+            {
+              id: 'company-1',
+              display_name: 'Alpha Corp',
+              website_url: 'alpha.example',
+            },
+            {
+              id: 'company-2',
+              display_name: 'Beta Holdings',
+              website_url: 'beta.example',
+            },
+          ],
+          totalPages: 1,
+        }
+      }
+      if (url.startsWith('/api/customers/companies?')) {
+        return {
+          items: [
+            {
+              id: 'company-1',
+              display_name: 'Alpha Corp',
+              website_url: 'alpha.example',
+            },
+            {
+              id: 'company-2',
+              display_name: 'Beta Holdings',
+              website_url: 'beta.example',
+            },
+          ],
+          totalPages: 1,
+        }
+      }
+      throw new Error(`Unexpected read: ${url}`)
+    })
+
+    apiCallOrThrowMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/customers/people/person-1/companies/company-2') {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: 'PATCH',
+            body: JSON.stringify({ isPrimary: true }),
+          }),
+        )
+        return { ok: true }
+      }
+      throw new Error(`Unexpected write: ${url}`)
+    })
+
+    const onChanged = jest.fn()
+    const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
+
+    renderWithProviders(
+      <PersonCompaniesSection
+        personId="person-1"
+        personName="Lena Ortiz"
+        initialLinkedCompanies={[
+          { id: 'company-1', displayName: 'Alpha Corp', isPrimary: true },
+          { id: 'company-2', displayName: 'Beta Holdings', isPrimary: false },
+        ]}
+        onChanged={onChanged}
+        runGuardedMutation={runGuardedMutation}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage links' }))
+    await waitFor(() => expect(screen.getByText('Beta Holdings')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Set primary' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
+    })
+
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/people/person-1/companies/company-2',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ isPrimary: true }),
+        }),
+      )
+    })
+    expect(onChanged).toHaveBeenCalled()
+  })
 })

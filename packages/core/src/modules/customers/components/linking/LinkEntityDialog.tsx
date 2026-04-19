@@ -369,6 +369,22 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
     return searchResults.filter((option) => predicate(option, effectiveFilter))
   }, [adapter.filters, activeFilter, searchResults])
 
+  const selectedOptions = React.useMemo(
+    () =>
+      draftIds.map((id) => optionCache.get(id) ?? { id, label: id }).filter((entry): entry is LinkEntityOption => Boolean(entry)),
+    [draftIds, optionCache],
+  )
+
+  React.useEffect(() => {
+    if (!primarySupported) return
+    setDraftPrimaryId((current) => {
+      const normalizedCurrent = current ?? null
+      if (draftIds.length === 0) return null
+      if (normalizedCurrent && draftIds.includes(normalizedCurrent)) return normalizedCurrent
+      return draftIds[0]
+    })
+  }, [draftIds, primarySupported])
+
   const toggleDraftId = React.useCallback((id: string, checked: boolean) => {
     setDraftIds((current) => {
       if (checked) {
@@ -404,6 +420,15 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
       onOpenChange(next)
     },
     [nestedOpen, onOpenChange],
+  )
+
+  const handleSetPrimary = React.useCallback(
+    (id: string) => {
+      if (!primarySupported || !draftSet.has(id)) return
+      setDraftPrimaryId(id)
+      setFocusedId(id)
+    },
+    [draftSet, primarySupported],
   )
 
   const hasChanges = React.useMemo(() => {
@@ -716,6 +741,79 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto bg-muted/20 p-5">
+              <div className="rounded-[12px] border border-border/70 bg-card p-[18px]">
+                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  {t('customers.linking.selected.label', 'Selected')}
+                </div>
+                {selectedOptions.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedOptions.map((option) => {
+                      const isPrimary = primarySupported && draftPrimaryId === option.id
+                      return (
+                        <div
+                          key={option.id}
+                          className={cn(
+                            'flex items-center gap-3 rounded-[10px] border px-3 py-2.5 transition-colors',
+                            focusedId === option.id
+                              ? 'border-border bg-muted/50'
+                              : 'border-border/70 bg-card',
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setFocusedId(option.id)}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          >
+                            <Avatar
+                              label={option.label}
+                              variant={avatarVariant}
+                              size="sm"
+                              icon={option.icon ?? adapter.defaultAvatarIcon}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-foreground">
+                                {option.label}
+                              </span>
+                              {option.subtitle ? (
+                                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                  {option.subtitle}
+                                </span>
+                              ) : null}
+                            </span>
+                          </button>
+                          {primarySupported ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isPrimary ? 'default' : 'outline'}
+                              className="h-7 rounded-full px-3 text-[11px]"
+                              onClick={() => handleSetPrimary(option.id)}
+                              disabled={isPrimary}
+                            >
+                              {isPrimary
+                                ? t('customers.linking.primary.current', 'Primary')
+                                : t('customers.linking.primary.set', 'Set primary')}
+                            </Button>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-[10px] border border-dashed border-border/70 px-4 py-4 text-sm text-muted-foreground">
+                    {adapter.selectedEmptyHint}
+                  </div>
+                )}
+                {primarySupported && selectedOptions.length > 0 ? (
+                  <div className="mt-3 text-[11px] text-muted-foreground">
+                    {t(
+                      'customers.linking.primary.help',
+                      'Choose which linked company should remain primary.',
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
               <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
                 {t('customers.linking.preview.label', 'Preview')}
               </div>

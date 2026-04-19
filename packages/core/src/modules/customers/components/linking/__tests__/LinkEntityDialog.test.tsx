@@ -35,6 +35,17 @@ function buildAdapter(
   }
 }
 
+function getSearchResultRow(label: string): HTMLElement {
+  const row = screen
+    .getAllByText(label)
+    .map((element) => element.closest('[role="button"]'))
+    .find((button): button is HTMLElement => button instanceof HTMLElement && button.getAttribute('aria-pressed') !== null)
+  if (!row) {
+    throw new Error(`Unable to find search result row for ${label}`)
+  }
+  return row
+}
+
 describe('LinkEntityDialog', () => {
   it('renders dialog title and subtitle', async () => {
     const adapter = buildAdapter()
@@ -72,10 +83,10 @@ describe('LinkEntityDialog', () => {
     await waitFor(() => expect(screen.getByText('Globex')).toBeInTheDocument())
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Acme Corp').closest('[role="button"]')!)
+      fireEvent.click(getSearchResultRow('Acme Corp'))
     })
     await act(async () => {
-      fireEvent.click(screen.getByText('Globex').closest('[role="button"]')!)
+      fireEvent.click(getSearchResultRow('Globex'))
     })
 
     const saveButton = screen.getAllByRole('button', { name: /Link company/ }).find((b) => b.textContent?.includes('Link company'))!
@@ -90,7 +101,7 @@ describe('LinkEntityDialog', () => {
     expect(call.nextSelectedIds).toEqual(['b'])
   })
 
-  it('includes primaryId in diff when primarySupported is true (via external control)', async () => {
+  it('allows selecting a different primary item when primarySupported is enabled', async () => {
     const adapter = buildAdapter()
     const onConfirm = jest.fn(async () => undefined)
     renderWithProviders(
@@ -107,7 +118,10 @@ describe('LinkEntityDialog', () => {
 
     await waitFor(() => expect(screen.getByText('Globex')).toBeInTheDocument())
     await act(async () => {
-      fireEvent.click(screen.getByText('Globex').closest('[role="button"]')!)
+      fireEvent.click(getSearchResultRow('Globex'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Set primary' }))
     })
 
     const saveButton = screen
@@ -119,7 +133,7 @@ describe('LinkEntityDialog', () => {
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
     const call = onConfirm.mock.calls[0][0] as Parameters<typeof onConfirm>[0]
-    expect(call.primaryId).toBe('a')
+    expect(call.primaryId).toBe('b')
   })
 
   it('renders computed orphan warning message via fetchDetails adapter behavior', async () => {
@@ -143,10 +157,13 @@ describe('LinkEntityDialog', () => {
     )
     await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument())
 
-    // Click row to focus (also toggles selection — off then on sequence would be 2 clicks; 1 click deselects since 'a' is initial)
-    // Focus the row by clicking; the renderPreview output should appear.
+    const selectedItemButton = screen
+      .getAllByRole('button')
+      .find((button) => button.getAttribute('aria-pressed') === null && button.textContent?.includes('Acme Corp'))
+    expect(selectedItemButton).toBeDefined()
+
     await act(async () => {
-      fireEvent.click(screen.getByText('Acme Corp').closest('[role="button"]')!)
+      fireEvent.click(selectedItemButton!)
     })
 
     await waitFor(() =>

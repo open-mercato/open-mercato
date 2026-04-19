@@ -31,14 +31,12 @@ export class Migration20260410171544 extends Migration {
       where "entries"."dictionary_id" = "dictionaries"."id"
         and "dictionaries"."key" = 'customers.status'
         and "entries"."normalized_value" = 'active'
-        and "entries"."deleted_at" is null
         and not exists (
           select 1 from "dictionary_entries" as "existing"
           where "existing"."dictionary_id" = "entries"."dictionary_id"
             and "existing"."organization_id" = "entries"."organization_id"
             and "existing"."tenant_id" = "entries"."tenant_id"
             and "existing"."is_default" = true
-            and "existing"."deleted_at" is null
         );
     `);
   }

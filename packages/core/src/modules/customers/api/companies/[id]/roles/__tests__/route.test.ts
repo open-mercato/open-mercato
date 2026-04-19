@@ -62,6 +62,7 @@ mockContext.commandContext.container = mockContext.container
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
+const findWithDecryptionMock = jest.fn()
 
 jest.mock('../../../../../lib/interactionRequestContext', () => ({
   resolveCustomersRequestContext: jest.fn(async () => mockContext),
@@ -81,10 +82,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
-  findWithDecryption: jest.fn(),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
 }))
 
-describe('POST /api/customers/companies/[id]/roles', () => {
+describe('/api/customers/companies/[id]/roles', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockCommandBus.execute.mockResolvedValue({
@@ -103,6 +104,7 @@ describe('POST /api/customers/companies/[id]/roles', () => {
       organizationId,
       tenantId,
     })
+    findWithDecryptionMock.mockResolvedValue([])
   })
 
   it('uses the target company scope when the current org selector is empty', async () => {
@@ -167,5 +169,21 @@ describe('POST /api/customers/companies/[id]/roles', () => {
         resourceId: companyId,
       }),
     )
+  })
+
+  it('denies GET when the actor lacks the customers.roles.view feature', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const { GET } = await import('../route')
+
+    const response = await GET(
+      new Request(`http://localhost/api/customers/companies/${companyId}/roles`, {
+        method: 'GET',
+      }),
+      { params: { id: companyId } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Access denied' })
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
 })

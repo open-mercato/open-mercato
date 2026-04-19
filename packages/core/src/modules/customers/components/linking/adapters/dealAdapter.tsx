@@ -46,9 +46,58 @@ type DealAdapterOptions = {
 
 const DEFAULT_PAGE_SIZE = 20
 
+type DealAssociationRecord = {
+  id: string
+  label: string
+  subtitle: string | null
+}
+
 function parseStatusFilter(filterId?: string): string | null {
   if (!filterId || filterId === 'all' || filterId === 'orphan') return null
   return filterId
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function readTrimmedString(record: Record<string, unknown> | null, ...keys: string[]): string | null {
+  if (!record) return null
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim().length) {
+      return value.trim()
+    }
+  }
+  return null
+}
+
+function readDecimalValue(record: Record<string, unknown> | null, ...keys: string[]): string | null {
+  if (!record) return null
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim().length) {
+      return value.trim()
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value)
+    }
+  }
+  return null
+}
+
+function normalizeAssociationRecord(entry: unknown): DealAssociationRecord | null {
+  const record = asRecord(entry)
+  const id = readTrimmedString(record, 'id')
+  if (!id) return null
+  return {
+    id,
+    label:
+      readTrimmedString(record, 'label', 'displayName', 'display_name', 'name', 'title') ?? id,
+    subtitle: readTrimmedString(record, 'subtitle', 'role', 'roleLabel'),
+  }
 }
 
 function normalizeDealRecord(record: Record<string, unknown>): LinkEntityOption | null {
@@ -110,9 +159,7 @@ function normalizeDealRecord(record: Record<string, unknown>): LinkEntityOption 
     typeof record.companyName === 'string'
       ? record.companyName
       : Array.isArray(record.companies) && record.companies.length > 0
-        ? (record.companies[0] as Record<string, unknown>).displayName ||
-          (record.companies[0] as Record<string, unknown>).display_name ||
-          null
+        ? normalizeAssociationRecord(record.companies[0])?.label ?? null
         : null
   return {
     id,
@@ -135,71 +182,41 @@ async function fetchDealDetails(id: string, contextEntityId?: string): Promise<D
     const payload = await readApiResultOrThrow<Record<string, unknown>>(
       `/api/customers/deals/${encodeURIComponent(id)}`,
     )
+    const rootRecord = asRecord(payload)
+    const dealRecord = asRecord(rootRecord?.deal) ?? rootRecord
     const title =
-      typeof payload.title === 'string' && payload.title.trim().length
-        ? payload.title.trim()
-        : typeof payload.name === 'string' && payload.name.trim().length
-          ? payload.name.trim()
-          : id
-    const code =
-      typeof payload.code === 'string'
-        ? payload.code
-        : typeof payload.reference === 'string'
-          ? payload.reference
-          : null
-    const createdAt =
-      typeof payload.createdAt === 'string'
-        ? payload.createdAt
-        : typeof payload.created_at === 'string'
-          ? payload.created_at
-          : null
-    const valueAmount =
-      typeof payload.valueAmount === 'string'
-        ? payload.valueAmount
-        : typeof payload.value_amount === 'string'
-          ? payload.value_amount
-          : null
-    const valueCurrency =
-      typeof payload.valueCurrency === 'string'
-        ? payload.valueCurrency
-        : typeof payload.value_currency === 'string'
-          ? payload.value_currency
-          : null
-    const stage =
-      typeof payload.pipelineStage === 'string'
-        ? payload.pipelineStage
-        : typeof payload.pipeline_stage === 'string'
-          ? payload.pipeline_stage
-          : null
-    const companies = Array.isArray(payload.companies) ? payload.companies : []
-    const people = Array.isArray(payload.people) ? payload.people : []
+      readTrimmedString(dealRecord, 'title', 'name') ?? id
+    const code = readTrimmedString(dealRecord, 'code', 'reference')
+    const createdAt = readTrimmedString(dealRecord, 'createdAt', 'created_at')
+    const valueAmount = readDecimalValue(dealRecord, 'valueAmount', 'value_amount', 'value')
+    const valueCurrency = readTrimmedString(
+      dealRecord,
+      'valueCurrency',
+      'value_currency',
+      'currency',
+    )
+    const stage = readTrimmedString(dealRecord, 'pipelineStage', 'pipeline_stage', 'status')
+    const companies = Array.isArray(rootRecord?.companies)
+      ? rootRecord.companies
+          .map((entry) => normalizeAssociationRecord(entry))
+          .filter((entry): entry is DealAssociationRecord => entry !== null)
+      : []
+    const people = Array.isArray(rootRecord?.people)
+      ? rootRecord.people
+          .map((entry) => normalizeAssociationRecord(entry))
+          .filter((entry): entry is DealAssociationRecord => entry !== null)
+      : []
     const companiesCount = companies.filter((entry) => {
-      if (!entry || typeof entry !== 'object') return false
-      const companyId = (entry as Record<string, unknown>).id
-      return typeof companyId === 'string' && (!contextEntityId || companyId !== contextEntityId)
+      return !contextEntityId || entry.id !== contextEntityId
     }).length
     const peopleCount = people.filter((entry) => {
-      if (!entry || typeof entry !== 'object') return false
-      const personId = (entry as Record<string, unknown>).id
-      return typeof personId === 'string' && (!contextEntityId || personId !== contextEntityId)
+      return !contextEntityId || entry.id !== contextEntityId
     }).length
-    const keyPeople = people.slice(0, 3).map((entry) => {
-      const record = entry as Record<string, unknown>
-      const personId = typeof record.id === 'string' ? record.id : ''
-      const name =
-        typeof record.displayName === 'string'
-          ? record.displayName
-          : typeof record.display_name === 'string'
-            ? record.display_name
-            : personId
-      const role =
-        typeof record.role === 'string'
-          ? record.role
-          : typeof record.roleLabel === 'string'
-            ? record.roleLabel
-            : null
-      return { id: personId, name, role }
-    })
+    const keyPeople = people.slice(0, 3).map((entry) => ({
+      id: entry.id,
+      name: entry.label,
+      role: entry.subtitle,
+    }))
     return {
       id,
       title,
