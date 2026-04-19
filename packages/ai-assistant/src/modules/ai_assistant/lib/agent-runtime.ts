@@ -316,6 +316,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     pageContext: input.pageContext,
     attachmentIds: input.attachmentIds,
     mutationPolicyOverride,
+    container: input.container,
   })
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({
@@ -489,6 +490,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     attachmentIds: input.attachmentIds,
     requestedExecutionMode: 'object',
     mutationPolicyOverride,
+    container: input.container,
   })
 
   const resolvedOutput = resolveStructuredOutput(agent, input.output)

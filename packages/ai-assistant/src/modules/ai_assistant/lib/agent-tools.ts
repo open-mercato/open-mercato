@@ -1,12 +1,18 @@
 import { dynamicTool, type Tool } from 'ai'
+import type { AwilixContainer } from 'awilix'
 import type { ZodType } from 'zod'
 import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
-import type { AiChatRequestContext } from './attachment-bridge-types'
+import type { AiChatRequestContext, AiUiPart } from './attachment-bridge-types'
 import type { AiToolDefinition, McpToolContext } from './types'
 import { loadAgentRegistry } from './agent-registry'
-import { checkAgentPolicy, type AgentPolicyDenyCode } from './agent-policy'
+import {
+  checkAgentPolicy,
+  resolveEffectiveMutationPolicy,
+  type AgentPolicyDenyCode,
+} from './agent-policy'
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
+import { prepareMutation } from './prepare-mutation'
 
 /**
  * Error thrown by `resolveAiAgentTools` (and downstream `runAiAgentText`) when
@@ -43,11 +49,65 @@ export interface ResolveAiAgentToolsInput {
    * values produced by the override repository.
    */
   mutationPolicyOverride?: AiAgentMutationPolicy | null
+  /**
+   * DI container used by the `prepareMutation` tool-call wrapper (Step 5.6).
+   * When present AND the agent's effective mutation policy is non-read-only,
+   * `isMutation: true` tools are intercepted: the runtime creates an
+   * `AiPendingAction` row and enqueues a `mutation-preview-card` UI part in
+   * the returned {@link ResolvedAgentTools.uiPartQueue} instead of running the
+   * tool's handler. When absent, mutation tools degrade-gracefully to the
+   * pre-5.6 pass-through adapter — existing read-only agents are unaffected.
+   */
+  container?: AwilixContainer
+  /**
+   * Optional chat-turn correlation id used when hashing the
+   * `AiPendingAction.idempotencyKey` so retries of the same mutation collapse
+   * to a single row. The chat dispatcher supplies the OpenCode / AI SDK turn
+   * id here; when omitted the hash falls back to `null` which still preserves
+   * per-tenant/org uniqueness within the TTL window.
+   */
+  conversationId?: string | null
+}
+
+/**
+ * Queue of UI parts the mutation-preview wrapper accumulates during a turn.
+ * The chat/object dispatcher flushes these on the next emission boundary
+ * (spec §9 allows either direct streaming or this queue pattern — we ship the
+ * queue in Step 5.6 and the chat dispatcher will drain it in Step 5.10 when
+ * the `mutation-preview-card` component registers). BC: callers that ignore
+ * the field are unaffected.
+ */
+export interface AiUiPartQueue {
+  /** Pushed by the mutation wrapper; drained by the dispatcher in order. */
+  enqueue: (part: AiUiPart) => void
+  drain: () => AiUiPart[]
+  size: () => number
+}
+
+function createAiUiPartQueue(): AiUiPartQueue {
+  const buffer: AiUiPart[] = []
+  return {
+    enqueue: (part) => {
+      buffer.push(part)
+    },
+    drain: () => {
+      const snapshot = buffer.slice()
+      buffer.length = 0
+      return snapshot
+    },
+    size: () => buffer.length,
+  }
 }
 
 export interface ResolvedAgentTools {
   agent: AiAgentDefinition
   tools: Record<string, Tool<unknown, unknown>>
+  /**
+   * Per-request UI-part queue the chat dispatcher drains between streamText
+   * chunks (Step 5.10 contract). Always present; empty when no mutation-tool
+   * calls fire during the turn.
+   */
+  uiPartQueue: AiUiPartQueue
 }
 
 function toPolicyAuthContext(ctx: AiChatRequestContext): {
@@ -86,9 +146,36 @@ function buildToolHandlerContext(ctx: AiChatRequestContext): McpToolContext {
   }
 }
 
+interface MutationInterceptorOptions {
+  agent: AiAgentDefinition
+  tool: AiToolDefinition
+  container: AwilixContainer
+  ctx: AiChatRequestContext
+  mutationPolicyOverride: AiAgentMutationPolicy | null
+  conversationId: string | null
+  uiPartQueue: AiUiPartQueue
+}
+
+function formatPendingActionToolResult(
+  agent: AiAgentDefinition,
+  tool: AiToolDefinition,
+  pendingActionId: string,
+  expiresAt: Date,
+): string {
+  return formatToolResult({
+    status: 'pending-confirmation',
+    agentId: agent.id,
+    toolName: tool.name,
+    pendingActionId,
+    expiresAt: expiresAt.toISOString(),
+    message: `Awaiting user confirmation for mutation "${tool.name}". The action will NOT run until the user approves it.`,
+  })
+}
+
 function adaptToolToAiSdk(
   tool: AiToolDefinition,
   ctx: AiChatRequestContext,
+  mutation: MutationInterceptorOptions | null,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
   const handlerContext = buildToolHandlerContext(ctx)
@@ -96,6 +183,43 @@ function adaptToolToAiSdk(
     description: tool.description,
     inputSchema: safeSchema,
     execute: async (args: unknown) => {
+      if (mutation) {
+        try {
+          const toolCallArgs =
+            args && typeof args === 'object' && !Array.isArray(args)
+              ? { ...(args as Record<string, unknown>) }
+              : {}
+          const { uiPart, pendingAction } = await prepareMutation(
+            {
+              agent: mutation.agent,
+              tool: mutation.tool,
+              toolCallArgs,
+              conversationId: mutation.conversationId,
+              mutationPolicyOverride: mutation.mutationPolicyOverride,
+            },
+            {
+              tenantId: mutation.ctx.tenantId,
+              organizationId: mutation.ctx.organizationId,
+              userId: mutation.ctx.userId,
+              features: mutation.ctx.features,
+              isSuperAdmin: mutation.ctx.isSuperAdmin,
+              container: mutation.container,
+            },
+          )
+          mutation.uiPartQueue.enqueue(uiPart)
+          return formatPendingActionToolResult(
+            mutation.agent,
+            mutation.tool,
+            pendingAction.id,
+            pendingAction.expiresAt,
+          )
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          throw new Error(
+            `Tool "${tool.name}" could not be prepared for confirmation: ${message}`,
+          )
+        }
+      }
       try {
         const result = await tool.handler(args as never, handlerContext)
         return formatToolResult(result)
@@ -134,6 +258,14 @@ export async function resolveAiAgentTools(
 
   const { agent } = agentDecision
   const tools: Record<string, Tool<unknown, unknown>> = {}
+  const uiPartQueue = createAiUiPartQueue()
+  const effectiveMutationPolicy = resolveEffectiveMutationPolicy(
+    agent.mutationPolicy,
+    mutationPolicyOverride,
+    agent.id,
+  )
+  const canInterceptMutations =
+    effectiveMutationPolicy !== 'read-only' && typeof input.container !== 'undefined'
 
   for (const toolName of agent.allowedTools) {
     const toolDecision = checkAgentPolicy({
@@ -160,7 +292,19 @@ export async function resolveAiAgentTools(
     }
 
     try {
-      tools[toolName] = adaptToolToAiSdk(record, input.authContext)
+      const mutationOptions: MutationInterceptorOptions | null =
+        record.isMutation === true && canInterceptMutations && input.container
+          ? {
+              agent,
+              tool: record,
+              container: input.container,
+              ctx: input.authContext,
+              mutationPolicyOverride,
+              conversationId: input.conversationId ?? null,
+              uiPartQueue,
+            }
+          : null
+      tools[toolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions)
     } catch (error) {
       console.error(
         `[AI Agents] Failed to adapt tool "${toolName}" for agent "${agent.id}":`,
@@ -169,5 +313,5 @@ export async function resolveAiAgentTools(
     }
   }
 
-  return { agent, tools }
+  return { agent, tools, uiPartQueue }
 }

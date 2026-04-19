@@ -114,7 +114,19 @@ export {
   AgentPolicyError,
   type ResolveAiAgentToolsInput,
   type ResolvedAgentTools,
+  type AiUiPartQueue,
 } from './modules/ai_assistant/lib/agent-tools'
+
+// Mutation-preparation helper (Phase 3 WS-C — Step 5.6)
+export {
+  prepareMutation,
+  computeMutationIdempotencyKey,
+  AiMutationPreparationError,
+  MUTATION_PREVIEW_CARD_COMPONENT,
+  type PrepareMutationInput,
+  type PrepareMutationContext,
+  type PrepareMutationResult,
+} from './modules/ai_assistant/lib/prepare-mutation'
 
 export {
   runAiAgentText,

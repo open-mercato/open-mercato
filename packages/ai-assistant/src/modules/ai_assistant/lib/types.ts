@@ -35,6 +35,33 @@ export interface McpToolDefinition<TInput = unknown, TOutput = unknown> {
 }
 
 /**
+ * Per-record batch-diff descriptor returned by `loadBeforeRecords` on a bulk
+ * mutation tool (Step 5.6 `prepareMutation`). Shape is a strict prefix of the
+ * stored `AiPendingActionRecordDiff` — `prepareMutation` fills in the per-field
+ * diff itself after matching the patch payload from `toolCallArgs.records[]`.
+ */
+export interface AiToolLoadBeforeRecord {
+  recordId: string
+  entityType: string
+  label: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+}
+
+/**
+ * Single-record before-snapshot returned by `loadBeforeRecord` on a mutation
+ * tool. Used by `prepareMutation` to compute a per-field diff against the
+ * proposed patch in `toolCallArgs`. Tools that do not declare this resolver
+ * fall back to `fieldDiff: []` with a `sideEffectsSummary` warning.
+ */
+export interface AiToolLoadBeforeSingleRecord {
+  recordId: string
+  entityType: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+}
+
+/**
  * Public MCP-compatible tool definition consumed by `ai-tools.ts` files and
  * `defineAiTool()`. Extends `McpToolDefinition` with optional focused-agent
  * metadata. All additive fields are optional so existing plain-object
@@ -59,6 +86,32 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
    * and must be explicitly whitelisted via the agent's `allowedTools`.
    */
   isMutation?: boolean
+  /**
+   * True when the tool acts on multiple records in a single call. Routes the
+   * `prepareMutation` wrapper into the batch code path (Step 5.6) — the tool
+   * MUST carry `loadBeforeRecords` and emit a `records[]` array in its input.
+   * Defaults to `false`.
+   */
+  isBulk?: boolean
+  /**
+   * Optional single-record before-snapshot resolver used by `prepareMutation`
+   * to compute a `fieldDiff[]` against the proposed patch in `toolCallArgs`.
+   * When absent, the preview card ships with `fieldDiff: []` and a
+   * `sideEffectsSummary` fallback message (spec Phase 3 WS-C §9).
+   */
+  loadBeforeRecord?: (
+    input: TInput,
+    context: McpToolContext,
+  ) => Promise<AiToolLoadBeforeSingleRecord | null>
+  /**
+   * Optional batch before-snapshot resolver used by `prepareMutation` when
+   * `isBulk === true`. Returns one entry per record being touched; each entry
+   * is diffed against the matching patch shape inside `toolCallArgs.records[]`.
+   */
+  loadBeforeRecords?: (
+    input: TInput,
+    context: McpToolContext,
+  ) => Promise<AiToolLoadBeforeRecord[]>
   /** Optional per-turn call budget enforced by the focused-agent runtime. */
   maxCallsPerTurn?: number
   /** Declares the tool can receive resolved attachment parts at runtime. */
