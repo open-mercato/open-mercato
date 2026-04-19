@@ -51,7 +51,7 @@
 | 4 | 4.8 | Spec Phase 2 WS-C — First catalog agent with prompt template (read-only) | done | 2d2679502 |
 | 4 | 4.9 | Spec §10 (D18) — `catalog.merchandising_assistant` agent (read-only Phase 2 exit): definition in `packages/core/src/modules/catalog/ai-agents.ts`, `<AiChat>` sheet on `/backend/catalog/catalog/products`, selection-aware `pageContext`, structured-output proposals only | done | ebb060c5f |
 | 4 | 4.10 | Spec Phase 2 WS-C — Backend + portal examples using existing injection/replacement patterns | done | e41732027 |
-| 4 | 4.11 | Spec Phase 2 — Integration tests: playground + settings + D18 read-only demo | todo | — |
+| 4 | 4.11 | Spec Phase 2 — Integration tests: playground + settings + D18 read-only demo | done | 17e754c04 |
 | 5 | 5.1 | Spec Phase 3 WS-A — Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`; support `defaultModel` + `<MODULE>_AI_MODEL` env override | todo | — |
 | 5 | 5.2 | Spec Phase 3 WS-A — Production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context | todo | — |
 | 5 | 5.3 | Spec Phase 3 WS-B — Versioned prompt-override persistence with safe additive merge rules | todo | — |

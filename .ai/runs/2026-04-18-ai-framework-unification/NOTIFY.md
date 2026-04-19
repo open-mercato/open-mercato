@@ -749,3 +749,19 @@
 - Dev server flake: port 3000 returning 500 with peak memory 12.6 GB; restart not authorized by the user. TC-AI-INJECT-009 live Playwright run could not close in this window — Step 4.11 will re-run it against a fresh dev runtime.
 - BC: additive only. 0 new routes, 0 new ACL features, 0 edits to host pages.
 - Phase 4 WS-C now **4/5 landed** (4.7, 4.8, 4.9, 4.10). Phase 4 overall **10/11**. Next: Step 4.11 — Phase 2 integration tests (playground + settings + D18 demo), closes Phase 2.
+
+## 2026-04-19T01:35:00Z — Step 4.11 committed (17e754c04) — Phase 2 closed
+- `test(ai-framework): close Phase 2 with playground + settings + D18 + injection integration tests`
+- **Test-only Step.** No production code. Extended the five existing TC-AI integration specs under each owning module's `__integration__/` folder.
+- TC-AI integration suite: **17 / 17 green** (was 10). Per-spec delta:
+  - `TC-AI-PLAYGROUND-004`: 1 → 3 (+ all-three-agents picker, + object-mode disabled alert, + stubbed-SSE chat happy-path).
+  - `TC-AI-AGENT-SETTINGS-005`: 3 → 4 (+ detail panel with disabled tool toggles + attachment-policy badges).
+  - `TC-AI-MERCHANDISING-008`: 4 → 5 (+ sheet title + chat composer post-trigger).
+  - `TC-AI-INJECT-009`: 1 → 3 (+ dialog/composer opens, + selection-pill DOM contract). Prior dev-server 500 flake resolved.
+  - `TC-AI-INJECT-010`: 1 → 2 (+ real injection-table registration assertion, + deferred-UI-smoke placeholder). Portal customer UI login helper still missing → full portal UI smoke deferred to Phase 5.
+- Jest regressions preserved: ai-assistant 30/353, core 337/3069, ui 60/328.
+- Typecheck (core + app) clean. `yarn generate` no drift. `yarn i18n:check-sync` green.
+- SSE + agents endpoints stubbed via `page.route` — no real LLM provider hit.
+- **Phase 4 WS-C now 5/5 landed** (4.7 – 4.11). **Phase 4 overall 11/11** (4.1 – 4.11 all `done`). **Spec Phase 2 CLOSED.**
+- BC: additive only. 0 new routes, 0 new ACL features, 0 production-code touches.
+- Next: **Step 5.1** — Spec Phase 3 WS-A: extract shared model factory from `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`.
