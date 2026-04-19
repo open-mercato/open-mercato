@@ -17,6 +17,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { E } from '#generated/entities.ids.generated'
 import { ProductImageCell } from './ProductImageCell'
 
@@ -177,6 +178,15 @@ export default function ProductsDataTable({
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  // Step 5.18 (spec §10 line 836, D18 demo): refresh the list when a
+  // catalog.product.* event arrives via the DOM event bridge. Confirmed
+  // AI bulk mutations (one `ai.action.confirmed` + one
+  // `catalog.product.updated` per record) and direct API writes both
+  // surface here so the table reflects the new state without a manual
+  // reload.
+  useAppEvent('catalog.product.*', () => {
+    setReloadToken((token) => token + 1)
+  })
   const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
   const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
     keyExtras: [scopeVersion, reloadToken],

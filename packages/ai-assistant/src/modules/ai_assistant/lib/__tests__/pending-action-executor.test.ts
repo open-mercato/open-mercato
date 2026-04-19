@@ -239,4 +239,110 @@ describe('executePendingActionConfirm', () => {
     const firstCallExtra = repo.setStatus.mock.calls[0][3]
     expect(firstCallExtra).toMatchObject({ failedRecords: failed })
   })
+
+  it('Step 5.18 — batch handler returns per-record failures: merged into row.failedRecords[]', async () => {
+    const repo = makeRepoStub(makeAction({ toolName: 'catalog.bulk_update_products' }))
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const batchTool = makeTool({
+      name: 'catalog.bulk_update_products',
+      handler: async () => ({
+        commandName: 'catalog.products.update',
+        records: [
+          { recordId: 'p-1', status: 'updated', before: { title: 'A' }, after: { title: 'A*' } },
+          { recordId: 'p-2', status: 'updated', before: { title: 'B' }, after: { title: 'B*' } },
+          {
+            recordId: 'p-3',
+            status: 'failed',
+            before: { title: 'C' },
+            after: null,
+            error: { code: 'command_failed', message: 'db constraint' },
+          },
+        ],
+        failedRecordIds: ['p-3'],
+      }),
+    })
+    const result = await executePendingActionConfirm({
+      action: makeAction({ toolName: 'catalog.bulk_update_products' }),
+      agent: makeAgent(),
+      tool: batchTool,
+      ctx: makeCtx(),
+      repo: repo as unknown as never,
+      emitEvent,
+    })
+    expect(result.ok).toBe(true)
+    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
+      'confirmed',
+      'executing',
+      'confirmed',
+    ])
+    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    expect(finalExtra.failedRecords).toEqual([
+      { recordId: 'p-3', error: { code: 'command_failed', message: 'db constraint' } },
+    ])
+    expect(repo.current.failedRecords).toEqual([
+      { recordId: 'p-3', error: { code: 'command_failed', message: 'db constraint' } },
+    ])
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    const [, emittedPayload] = emitEvent.mock.calls[0] as [
+      'ai.action.confirmed',
+      AiActionConfirmedPayload,
+    ]
+    expect(emittedPayload.failedRecords).toEqual([
+      { recordId: 'p-3', error: { code: 'command_failed', message: 'db constraint' } },
+    ])
+  })
+
+  it('Step 5.18 — partial-stale + handler failure merged into one failedRecords[] list', async () => {
+    const repo = makeRepoStub(makeAction({ toolName: 'catalog.bulk_update_products' }))
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const stale = [
+      { recordId: 'p-2', error: { code: 'stale_version', message: 'x' } },
+    ]
+    const batchTool = makeTool({
+      name: 'catalog.bulk_update_products',
+      handler: async () => ({
+        commandName: 'catalog.products.update',
+        records: [
+          { recordId: 'p-1', status: 'updated', before: { title: 'A' }, after: { title: 'A*' } },
+          {
+            recordId: 'p-3',
+            status: 'failed',
+            before: { title: 'C' },
+            after: null,
+            error: { code: 'command_failed', message: 'db constraint' },
+          },
+        ],
+        failedRecordIds: ['p-3'],
+      }),
+    })
+    const result = await executePendingActionConfirm({
+      action: makeAction({ toolName: 'catalog.bulk_update_products' }),
+      agent: makeAgent(),
+      tool: batchTool,
+      ctx: makeCtx(),
+      repo: repo as unknown as never,
+      emitEvent,
+      failedRecords: stale,
+    })
+    expect(result.ok).toBe(true)
+    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    const merged = finalExtra.failedRecords as Array<{ recordId: string }>
+    expect(merged.map((entry) => entry.recordId).sort()).toEqual(['p-2', 'p-3'])
+  })
+
+  it('Step 5.18 — single-record success: row.failedRecords remains null', async () => {
+    const repo = makeRepoStub(makeAction())
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const result = await executePendingActionConfirm({
+      action: makeAction(),
+      agent: makeAgent(),
+      tool: makeTool(),
+      ctx: makeCtx(),
+      repo: repo as unknown as never,
+      emitEvent,
+    })
+    expect(result.ok).toBe(true)
+    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    expect(finalExtra.failedRecords).toBeNull()
+  })
 })

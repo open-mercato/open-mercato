@@ -110,6 +110,70 @@ function normalizeExecutionResult(
   return result
 }
 
+/**
+ * Extract per-record handler failures from a bulk tool's return value so
+ * they can be persisted onto the pending-action row's `failedRecords[]`.
+ *
+ * Bulk mutation tools (Step 5.14) return a result of the shape:
+ *   { commandName, records: [{ recordId, status, before, after, error? }],
+ *     failedRecordIds: string[], error? }
+ *
+ * We pull the entries whose `status !== 'updated'` AND carry an `error`
+ * object, coerce them to the `AiPendingActionFailedRecord` shape, and
+ * return them so the executor can merge with re-check-sourced failures
+ * at the final `executing → confirmed` transition (spec §9.8 line 746:
+ * "a failure inside the confirm handler ... is recorded per-record in
+ * executionResult.failedRecords[] / row.failedRecords").
+ *
+ * Returns an empty array when the handler output does not carry the
+ * batch shape (single-record tools never populate this — their failures
+ * either throw from the handler and land in `executionResult.error` or
+ * succeed cleanly).
+ */
+function extractHandlerFailedRecords(raw: unknown): AiPendingActionFailedRecord[] {
+  if (!raw || typeof raw !== 'object') return []
+  const source = raw as Record<string, unknown>
+  const records = source.records
+  if (!Array.isArray(records) || records.length === 0) return []
+  const out: AiPendingActionFailedRecord[] = []
+  for (const entry of records) {
+    if (!entry || typeof entry !== 'object') continue
+    const record = entry as Record<string, unknown>
+    if (typeof record.recordId !== 'string') continue
+    const status = typeof record.status === 'string' ? record.status : null
+    if (status === 'updated') continue
+    const errorField = record.error
+    if (!errorField || typeof errorField !== 'object') continue
+    const error = errorField as Record<string, unknown>
+    const code = typeof error.code === 'string' ? error.code : 'handler_error'
+    const message = typeof error.message === 'string' ? error.message : 'Record update failed.'
+    out.push({
+      recordId: record.recordId,
+      error: { code, message },
+    })
+  }
+  return out
+}
+
+function mergeFailedRecords(
+  recheck: AiPendingActionFailedRecord[] | null | undefined,
+  handler: AiPendingActionFailedRecord[] | null | undefined,
+): AiPendingActionFailedRecord[] | null {
+  const seen = new Map<string, AiPendingActionFailedRecord>()
+  for (const entry of recheck ?? []) {
+    if (entry && typeof entry.recordId === 'string' && !seen.has(entry.recordId)) {
+      seen.set(entry.recordId, entry)
+    }
+  }
+  for (const entry of handler ?? []) {
+    if (entry && typeof entry.recordId === 'string' && !seen.has(entry.recordId)) {
+      seen.set(entry.recordId, entry)
+    }
+  }
+  if (seen.size === 0) return null
+  return Array.from(seen.values())
+}
+
 function toToolHandlerContext(ctx: PendingActionExecuteContext): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -210,10 +274,23 @@ export async function executePendingActionConfirm(
   }
 
   const successResult = normalizeExecutionResult(handlerOutput)
-  const confirmedFinal = await repo.setStatus(executingRow.id, 'confirmed', scope, {
+  const handlerFailedRecords = extractHandlerFailedRecords(handlerOutput)
+  const mergedFailedRecords = mergeFailedRecords(partialFailedRecords, handlerFailedRecords)
+  const confirmedExtra: Record<string, unknown> = {
     executionResult: successResult,
     now: clock,
-  })
+  }
+  // Always write `failedRecords` on the final transition so a batch that
+  // had re-check-stale records but zero handler failures keeps the
+  // original list, and a batch with handler failures merges both sets.
+  // Explicit `null` collapses to "no failures" in the repository's
+  // `normalizeFailedRecords` helper.
+  confirmedExtra.failedRecords = mergedFailedRecords
+  const confirmedFinal = await repo.setStatus(executingRow.id, 'confirmed', scope, confirmedExtra)
+  const emitFailedRecordsPayload =
+    Array.isArray(mergedFailedRecords) && mergedFailedRecords.length > 0
+      ? mergedFailedRecords
+      : null
   await emitConfirmed(emitter, {
     pendingActionId: confirmedFinal.id,
     agentId: agent.id,
@@ -225,6 +302,7 @@ export async function executePendingActionConfirm(
     resolvedByUserId: ctx.userId,
     resolvedAt: (confirmedFinal.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString(),
     executionResult: successResult,
+    ...(emitFailedRecordsPayload ? { failedRecords: emitFailedRecordsPayload } : {}),
   })
   return { ok: true, action: confirmedFinal, executionResult: successResult }
 }
