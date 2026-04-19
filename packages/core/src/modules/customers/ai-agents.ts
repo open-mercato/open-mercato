@@ -109,6 +109,10 @@ const ALLOWED_TOOLS: readonly string[] = [
   'customers.list_addresses',
   'customers.list_tags',
   'customers.get_settings',
+  // Step 5.13 — first mutation-capable tool for the customers account
+  // assistant. Remains gated behind the per-tenant mutation-policy override
+  // table (Step 5.4); the code-declared `readOnly: true` is NOT relaxed here.
+  'customers.update_deal_stage',
   'search.hybrid_search',
   'search.get_record_context',
   'attachments.list_record_attachments',
@@ -191,11 +195,18 @@ const PROMPT_SECTIONS: PromptSection[] = [
     order: 6,
     content: [
       'MUTATION POLICY',
-      'This agent is strictly read-only. You MUST NOT call any tool that',
-      'modifies data; the runtime will block you if you try. If the operator',
-      'asks you to update, delete, merge, or create a record, explain that you',
-      'cannot perform mutations and suggest they use the matching Open Mercato',
-      'backoffice page (for example `/backend/customers/people/<id>`).',
+      'This agent ships read-only by default. The tenant administrator may',
+      'raise the mutation policy through the settings override table; when',
+      'they do, ONE mutation tool is unlocked: `customers.update_deal_stage`.',
+      'When the operator asks to move a deal to a new stage (or flip status',
+      'between open / won / lost), call `customers.update_deal_stage`. The',
+      'runtime will short-circuit the call into a mutation-preview-card — do',
+      'NOT promise the change is saved until the mutation-result-card arrives.',
+      'If the override is still read-only the runtime will refuse the call;',
+      'tell the operator the write is blocked and suggest the matching',
+      'Open Mercato backoffice page (for example `/backend/customers/deals/<id>`).',
+      'For any other write (update person / create company / delete activity),',
+      'explain that you cannot perform that mutation and point to the backoffice.',
     ].join('\n'),
   },
   {

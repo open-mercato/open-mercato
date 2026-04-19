@@ -47,6 +47,9 @@ describe('customers.account_assistant agent definition', () => {
   })
 
   it('is strictly read-only at the definition level', () => {
+    // Step 5.13 — the agent's code-declared policy remains read-only. The
+    // per-tenant override table (Step 5.4) is the only lever that unlocks
+    // the whitelisted mutation tool(s) at runtime.
     expect(agent.readOnly).toBe(true)
     expect(agent.mutationPolicy).toBe('read-only')
   })
@@ -68,11 +71,38 @@ describe('customers.account_assistant agent definition', () => {
     }
   })
 
-  it('never whitelists a mutation tool from the customers pack', () => {
+  it('whitelists only the explicitly approved mutation tool(s) from the customers pack', () => {
+    // Step 5.13 — the agent exposes exactly one mutation tool at the
+    // code-declaration layer: `customers.update_deal_stage`. Any other
+    // mutation tool that lands in the customers pack MUST stay behind an
+    // explicit whitelist review.
+    const APPROVED_MUTATION_TOOLS = new Set<string>(['customers.update_deal_stage'])
     for (const tool of customersAiTools) {
       if (!tool.isMutation) continue
-      expect(agent.allowedTools).not.toContain(tool.name)
+      if (APPROVED_MUTATION_TOOLS.has(tool.name)) {
+        expect(agent.allowedTools).toContain(tool.name)
+      } else {
+        expect(agent.allowedTools).not.toContain(tool.name)
+      }
     }
+  })
+
+  it('exposes customers.update_deal_stage with the existing customers.deals.manage feature', () => {
+    const tool = customersAiTools.find((entry) => entry.name === 'customers.update_deal_stage')
+    expect(tool).toBeDefined()
+    expect(tool!.isMutation).toBe(true)
+    expect(agent.allowedTools).toContain('customers.update_deal_stage')
+    const knownFeatureIds = new Set(features.map((entry) => entry.id))
+    for (const feature of tool!.requiredFeatures ?? []) {
+      expect(knownFeatureIds.has(feature)).toBe(true)
+    }
+    expect(tool!.requiredFeatures).toContain('customers.deals.manage')
+  })
+
+  it('MUTATION POLICY section documents customers.update_deal_stage', () => {
+    const section = promptTemplate.sections.find((entry) => entry.name === 'mutationPolicy')
+    expect(section).toBeDefined()
+    expect(section!.content).toMatch(/customers\.update_deal_stage/)
   })
 
   it('every requiredFeatures entry exists in customers/acl.ts', () => {

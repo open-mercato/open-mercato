@@ -14,7 +14,7 @@ import aiTools from '../../ai-tools'
 import { knownFeatureIds } from './shared'
 
 describe('customers module-root ai-tools aggregator', () => {
-  it('exports every required read-only tool', () => {
+  it('exports every required tool (read-only + mutation)', () => {
     const names = aiTools.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
@@ -24,6 +24,7 @@ describe('customers module-root ai-tools aggregator', () => {
         'customers.get_company',
         'customers.list_deals',
         'customers.get_deal',
+        'customers.update_deal_stage',
         'customers.list_activities',
         'customers.list_tasks',
         'customers.list_addresses',
@@ -33,12 +34,18 @@ describe('customers module-root ai-tools aggregator', () => {
     )
   })
 
-  it('every tool declares requiredFeatures that exist in acl.ts and none is a mutation', () => {
+  it('every tool declares requiredFeatures that exist in acl.ts', () => {
     for (const tool of aiTools) {
       expect(tool.requiredFeatures?.length ?? 0).toBeGreaterThan(0)
       for (const feature of tool.requiredFeatures!) {
         expect(knownFeatureIds.has(feature)).toBe(true)
       }
+    }
+  })
+
+  it('every read-only tool does not declare isMutation', () => {
+    for (const tool of aiTools) {
+      if (tool.isMutation) continue
       expect(tool.isMutation).toBeFalsy()
     }
   })

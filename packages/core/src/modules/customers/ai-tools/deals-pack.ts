@@ -1,5 +1,6 @@
 /**
  * `customers.list_deals` + `customers.get_deal` (Phase 1 WS-C, Step 3.9).
+ * `customers.update_deal_stage` mutation tool (Phase 3 WS-C, Step 5.13).
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
@@ -7,6 +8,8 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import {
   CustomerDeal,
   CustomerDealCompanyLink,
@@ -14,8 +17,14 @@ import {
   CustomerActivity,
   CustomerComment,
   CustomerEntity,
+  CustomerPipelineStage,
 } from '../data/entities'
-import { assertTenantScope, type CustomersAiToolDefinition, type CustomersToolContext } from './types'
+import {
+  assertTenantScope,
+  type CustomersAiToolDefinition,
+  type CustomersToolContext,
+  type CustomersToolLoadBeforeSingleRecord,
+} from './types'
 
 function resolveEm(ctx: CustomersToolContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
@@ -289,6 +298,172 @@ const getDealTool: CustomersAiToolDefinition = {
   },
 }
 
-export const dealsAiTools: CustomersAiToolDefinition[] = [listDealsTool, getDealTool]
+/**
+ * Mutation tool: move a deal to a different pipeline stage. Step 5.13 — first
+ * mutation-capable flow on the pending-action contract.
+ *
+ * Accepts either `toPipelineStageId` (UUID — preferred, tenant-scoped stage
+ * record) or `toStage` (free-form string that maps to `CustomerDeal.status`
+ * for pipeline roots like `open`/`won`/`lost`). Exactly one must be provided.
+ *
+ * The handler delegates to the existing `customers.deals.update` command so
+ * all side effects (audit log, `customers.deal.updated` event, query index
+ * refresh, notifications) stay identical to a direct API write.
+ */
+const updateDealStageInput = z
+  .object({
+    dealId: z.string().uuid().describe('Deal id (UUID) to update.'),
+    toPipelineStageId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe('Target pipeline stage id (UUID). Preferred — tenant-scoped stage record.'),
+    toStage: z
+      .string()
+      .trim()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe(
+        'Target status slug (e.g. "open", "won", "lost"). Used when the deal does not belong to a managed pipeline.',
+      ),
+  })
+  .refine(
+    (value) => Boolean(value.toPipelineStageId) !== Boolean(value.toStage),
+    {
+      message: 'Provide exactly one of toPipelineStageId or toStage.',
+      path: ['toPipelineStageId'],
+    },
+  )
+
+type UpdateDealStageInput = z.infer<typeof updateDealStageInput>
+
+function recordVersionFromUpdatedAt(updatedAt: Date | null | undefined): string | null {
+  if (!updatedAt) return null
+  const value = updatedAt instanceof Date ? updatedAt : new Date(updatedAt)
+  if (Number.isNaN(value.getTime())) return null
+  return value.toISOString()
+}
+
+async function loadDealWithStage(
+  em: EntityManager,
+  ctx: CustomersToolContext,
+  tenantId: string,
+  dealId: string,
+): Promise<CustomerDeal | null> {
+  const where: Record<string, unknown> = { id: dealId, tenantId, deletedAt: null }
+  if (ctx.organizationId) where.organizationId = ctx.organizationId
+  const deal = await findOneWithDecryption<CustomerDeal>(
+    em,
+    CustomerDeal,
+    where as any,
+    undefined,
+    buildScope(ctx, tenantId),
+  )
+  if (!deal || deal.tenantId !== tenantId) return null
+  if (ctx.organizationId && deal.organizationId !== ctx.organizationId) return null
+  return deal
+}
+
+function buildAuthContextFromTool(ctx: CustomersToolContext, tenantId: string): AuthContext {
+  return {
+    sub: ctx.userId ?? 'ai-agent',
+    tenantId,
+    orgId: ctx.organizationId ?? null,
+    roles: [],
+    isApiKey: false,
+  } as AuthContext
+}
+
+const updateDealStageTool: CustomersAiToolDefinition = {
+  name: 'customers.update_deal_stage',
+  displayName: 'Update deal stage',
+  description:
+    'Move a deal to a different pipeline stage (by stage id) or change its top-level status (e.g. "open", "won", "lost"). Mutation tool — flows through the AI pending-action approval gate.',
+  inputSchema: updateDealStageInput as z.ZodType<unknown>,
+  requiredFeatures: ['customers.deals.manage'],
+  tags: ['write', 'customers'],
+  isMutation: true,
+  loadBeforeRecord: async (rawInput, ctx): Promise<CustomersToolLoadBeforeSingleRecord | null> => {
+    const { tenantId } = assertTenantScope(ctx)
+    const input: UpdateDealStageInput = updateDealStageInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    const deal = await loadDealWithStage(em, ctx, tenantId, input.dealId)
+    if (!deal) return null
+    return {
+      recordId: deal.id,
+      entityType: 'customers.deal',
+      recordVersion: recordVersionFromUpdatedAt(deal.updatedAt),
+      before: {
+        status: deal.status ?? null,
+        pipelineStage: deal.pipelineStage ?? null,
+        pipelineStageId: deal.pipelineStageId ?? null,
+      },
+    }
+  },
+  handler: async (rawInput, ctx) => {
+    const { tenantId } = assertTenantScope(ctx)
+    const input: UpdateDealStageInput = updateDealStageInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    const deal = await loadDealWithStage(em, ctx, tenantId, input.dealId)
+    if (!deal) {
+      throw new Error(`Deal "${input.dealId}" is not accessible to the caller.`)
+    }
+    const organizationId = deal.organizationId
+    if (!organizationId) {
+      throw new Error(`Deal "${input.dealId}" has no organization scope.`)
+    }
+
+    const before = {
+      status: deal.status ?? null,
+      pipelineStage: deal.pipelineStage ?? null,
+      pipelineStageId: deal.pipelineStageId ?? null,
+    }
+
+    const commandInput: Record<string, unknown> = {
+      id: deal.id,
+      tenantId,
+      organizationId,
+    }
+    if (input.toPipelineStageId) {
+      const stage = await em.findOne(CustomerPipelineStage, { id: input.toPipelineStageId })
+      if (!stage) {
+        throw new Error(`Pipeline stage "${input.toPipelineStageId}" not found.`)
+      }
+      commandInput.pipelineStageId = input.toPipelineStageId
+    } else if (input.toStage) {
+      commandInput.status = input.toStage
+    }
+
+    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandRuntimeCtx: CommandRuntimeContext = {
+      container: ctx.container,
+      auth: buildAuthContextFromTool(ctx, tenantId),
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
+    }
+    await commandBus.execute<Record<string, unknown>, { dealId: string }>(
+      'customers.deals.update',
+      { input: commandInput, ctx: commandRuntimeCtx },
+    )
+
+    const after = await loadDealWithStage(em, ctx, tenantId, deal.id)
+    return {
+      recordId: deal.id,
+      commandName: 'customers.deals.update',
+      before,
+      after: after
+        ? {
+            status: after.status ?? null,
+            pipelineStage: after.pipelineStage ?? null,
+            pipelineStageId: after.pipelineStageId ?? null,
+          }
+        : null,
+    }
+  },
+}
+
+export const dealsAiTools: CustomersAiToolDefinition[] = [listDealsTool, getDealTool, updateDealStageTool]
 
 export default dealsAiTools

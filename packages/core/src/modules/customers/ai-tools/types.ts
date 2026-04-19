@@ -23,6 +23,19 @@ export interface CustomersToolContext {
   sessionId?: string
 }
 
+/**
+ * Shape returned by `loadBeforeRecord` on a mutation tool. Mirrors
+ * `AiToolLoadBeforeSingleRecord` from `@open-mercato/ai-assistant/lib/types`;
+ * the customers module deliberately does not import that package so we keep a
+ * local prefix-compatible declaration (same rule as `CustomersAiToolDefinition`).
+ */
+export interface CustomersToolLoadBeforeSingleRecord {
+  recordId: string
+  entityType: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+}
+
 export interface CustomersAiToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string
   displayName?: string
@@ -34,6 +47,10 @@ export interface CustomersAiToolDefinition<TInput = unknown, TOutput = unknown> 
   maxCallsPerTurn?: number
   supportsAttachments?: boolean
   handler: (input: TInput, context: CustomersToolContext) => Promise<TOutput>
+  loadBeforeRecord?: (
+    input: TInput,
+    context: CustomersToolContext,
+  ) => Promise<CustomersToolLoadBeforeSingleRecord | null>
 }
 
 export function assertTenantScope(ctx: CustomersToolContext): {
