@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import fs from "node:fs";
 import path from "node:path";
+import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const appPackageJsonPath = new URL('./package.json', import.meta.url)
@@ -10,6 +11,7 @@ const appPackageJson = JSON.parse(fs.readFileSync(appPackageJsonPath, 'utf8')) a
 const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {}).filter(
   (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
 )
+const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -40,6 +42,7 @@ const nextConfig: NextConfig = {
     // Monorepo root is two levels up from apps/mercato
     root: path.resolve(process.cwd(), "../.."),
   },
+  allowedDevOrigins: allowedDevOrigins.length > 0 ? allowedDevOrigins : undefined,
   // Externalize packages that are only used in CLI context, not Next.js
   serverExternalPackages: [
     'esbuild',
