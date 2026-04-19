@@ -77,6 +77,9 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
   test('Cmd/Ctrl+Enter inside a prompt-override textarea triggers the placeholder save', async ({
     page,
   }) => {
+    // CI cold-compile of the settings page + stubbed agents fetch can exceed
+    // the default 20s test timeout; give this test 2 minutes.
+    test.setTimeout(120_000);
     await login(page, 'superadmin');
 
     // Non-empty registry so the detail panel renders and the textareas exist.
@@ -117,6 +120,19 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
 
     let saveCalls = 0;
     await page.route('**/api/ai_assistant/ai/agents/*/prompt-override', async (route) => {
+      const method = route.request().method();
+      if (method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            agentId: 'customers.assistant',
+            override: null,
+            versions: [],
+          }),
+        });
+        return;
+      }
       saveCalls += 1;
       await route.fulfill({
         status: 200,
@@ -129,14 +145,28 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
       });
     });
 
+    // Also stub the mutation-policy GET so selecting the fake agent doesn't
+    // 404 into an error panel on CI (the real route doesn't know our fake id).
+    await page.route('**/api/ai_assistant/ai/agents/*/mutation-policy', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agentId: 'customers.assistant',
+          codeDeclared: 'read-only',
+          override: null,
+        }),
+      });
+    });
+
     await page.goto(settingsPath, { waitUntil: 'domcontentloaded' });
 
     const container = page.locator('[data-ai-agent-settings]');
-    await expect(container).toBeVisible({ timeout: 15_000 });
+    await expect(container).toBeVisible({ timeout: 60_000 });
 
     // Flip the `role` section into override mode so a textarea is present.
     const toggle = page.locator('[data-ai-agent-prompt-toggle="role"]');
-    await toggle.click();
+    await toggle.click({ timeout: 30_000 });
 
     const textarea = page.locator('[data-ai-agent-prompt-override="role"]');
     await expect(textarea).toBeVisible();
