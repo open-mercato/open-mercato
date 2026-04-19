@@ -189,6 +189,7 @@ export const updateBusinessRuleSchema = z
     successActions: actionsArraySchema,
     failureActions: actionsArraySchema,
   })
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
   .partial()
   .extend({ id: uuid })
   .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx))
@@ -221,6 +222,7 @@ export function createLocalizedUpdateBusinessRuleSchema(t: TranslatorFn) {
       successActions: actionsSchema,
       failureActions: actionsSchema,
     })
+    .omit({ tenantId: true, organizationId: true, createdBy: true })
     .partial()
     .extend({ id: uuid })
     .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx, message))
@@ -288,9 +290,10 @@ export const createRuleSetSchema = z.object({
 export type CreateRuleSetInput = z.infer<typeof createRuleSetSchema>
 
 // RuleSet Update Schema
-export const updateRuleSetSchema = createRuleSetSchema.partial().extend({
-  id: uuid,
-})
+export const updateRuleSetSchema = createRuleSetSchema
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
+  .partial()
+  .extend({ id: uuid })
 
 export type UpdateRuleSetInput = z.infer<typeof updateRuleSetSchema>
 

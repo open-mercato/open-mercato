@@ -8,7 +8,7 @@ jest.mock('ai', () => ({
 jest.mock('@open-mercato/shared/lib/ai/opencode-provider', () => ({
   resolveFirstConfiguredOpenCodeProvider: jest.fn(() => 'openai'),
   resolveOpenCodeModel: jest.fn(() => ({ modelId: 'gpt-4o', modelWithProvider: 'openai:gpt-4o' })),
-  resolveOpenCodeProviderApiKey: jest.fn(() => 'test-key'),
+  requireOpenCodeProviderApiKey: jest.fn(() => 'test-key'),
   resolveOpenCodeProviderId: jest.fn((id: string) => id || 'openai'),
 }))
 
@@ -84,8 +84,10 @@ describe('translateProposalContent', () => {
   })
 
   it('throws when API key is missing', async () => {
-    const { resolveOpenCodeProviderApiKey } = require('@open-mercato/shared/lib/ai/opencode-provider')
-    resolveOpenCodeProviderApiKey.mockReturnValueOnce(null)
+    const { requireOpenCodeProviderApiKey } = require('@open-mercato/shared/lib/ai/opencode-provider')
+    requireOpenCodeProviderApiKey.mockImplementationOnce(() => {
+      throw new Error('Missing API key for provider "openai". Set OPENAI_API_KEY or OPENCODE_OPENAI_API_KEY in your .env file.')
+    })
 
     await expect(
       translateProposalContent({
