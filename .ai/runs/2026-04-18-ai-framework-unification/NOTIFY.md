@@ -1042,3 +1042,18 @@
 - `yarn generate` green, no output drift. `yarn i18n:check-sync` green, no new strings.
 - BC: strictly additive. No production code, no API / event / feature / DI key / DB / generator-output rename. One new test file.
 - Next: Step 5.18 — full D18 bulk-edit demo end-to-end (`catalog.merchandising_assistant` × `bulk_update_products` under a single `[Confirm All]` approval; per-record `catalog.product.updated` events; DataTable refresh via DOM event bridge; `partialSuccess` handling).
+
+## 2026-04-20T02:30:00Z — Step 5.18 landed (D18 bulk-edit demo end-to-end)
+
+- Commit: `df8606cd1` — `test(catalog): D18 bulk-edit demo end-to-end — single Confirm All, per-record events, partial-success (Phase 3 WS-D)`.
+- Closed the D18 demo wiring for the `catalog.merchandising_assistant` agent:
+  - Executor (`pending-action-executor.ts`) now extracts per-record handler failures from a batch tool's return shape (`records[]` where `status !== 'updated'` + `error: { code, message }`) and merges them with re-check-sourced stale records into a single `row.failedRecords[]` at the final `executing → confirmed` transition. The `ai.action.confirmed` event payload carries the merged list. Closes spec §9.8 line 746 gap.
+  - `catalog.product.{created,updated,deleted}` now carry `clientBroadcast: true` so the DOM event bridge streams them to the browser per spec §10 line 836 + §9.8 line 743.
+  - `ProductsDataTable` subscribes to `catalog.product.*` via `useAppEvent` and bumps the existing `reloadToken` on every received event, so confirmed AI bulk mutations and direct API writes both auto-refresh the list.
+- **New Playwright spec** `TC-AI-D18-018-bulk-edit-demo.spec.ts` with 4 live-server scenarios (A agent+tool whitelist contract, B confirm endpoint error envelope, C products list + three fixtures, D PUT-catalog-products wire smoke-check). 4/4 pass against dev server on port 3000.
+- **Three new unit tests** in `pending-action-executor.test.ts` covering the batch partial-success merge, the combined stale+handler failure path, and the single-record "no failures" baseline.
+- Baselines: ai-assistant 50/555 → 50/**558** (+3 unit tests). core 344/3180 preserved. ui 66/351 preserved.
+- `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/ai-assistant --filter=@open-mercato/app` → 2/2 successful (cache-bust forced for `core`).
+- `yarn generate` green; no openapi drift. `yarn i18n:check-sync` green; no new strings. `yarn mercato configs cache structural --all-tenants` → 0 keys (no navigation drift).
+- BC: additive only. `AiPendingActionFailedRecord` / executor return shape / `executionResult` envelope / 3 catalog CRUD event ids unchanged. `clientBroadcast: true` is additive per `BACKWARD_COMPATIBILITY.md` §5. `useAppEvent('catalog.product.*', ...)` is a brand-new subscription with no existing callers impacted.
+- Next: Step 5.19 — docs + operator rollout notes (release notes, migration guide, OpenCode coexistence). LAST Step of the spec.
