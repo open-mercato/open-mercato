@@ -29,6 +29,7 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 import {
   detectAttachmentMimeType,
+  hasDangerousExecutableExtension,
   isActiveContentAttachment,
   sanitizeUploadedFileName,
 } from '../lib/security'
@@ -273,6 +274,11 @@ export async function POST(req: Request) {
         partitionFromField = sanitizePartitionCode(cfg.partitionCode)
       }
     } catch {}
+  }
+  if (hasDangerousExecutableExtension(file.name)) {
+    return NextResponse.json({
+      error: t('attachments.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.'),
+    }, { status: 400 })
   }
   const effectiveMaxBytes = resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb)
   if (file.size > effectiveMaxBytes) {

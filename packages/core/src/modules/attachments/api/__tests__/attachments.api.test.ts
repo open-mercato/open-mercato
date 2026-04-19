@@ -148,6 +148,26 @@ describe('attachments API', () => {
     expect(j.error).toMatch(/not allowed/i)
   })
 
+  it('rejects uploads whose filename has a dangerous double extension like .pdf.exe', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'faktura.pdf.exe', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/executable/i)
+  })
+
+  it('rejects uploads whose final extension is a known executable type', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'installer.msi', { type: 'application/octet-stream' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/executable/i)
+  })
+
   it('rejects active content uploads even when the client claims a safe image mime type', async () => {
     const { POST: upload } = await loadHandlers()
     const file = new File(
