@@ -796,3 +796,22 @@
 - Typecheck (core + app) green. `yarn generate` no drift. `yarn i18n:check-sync` green (46 modules × 4 locales). Turbopack recipe applied: `cd packages/core && node build.mjs` + `touch apps/mercato/next.config.ts`.
 - BC: additive-only. `resolvePageContext` signature unchanged; hook just returns meaningful data now. Two new neighbor modules only.
 - Phase 3 WS-A **complete** (5.1 + 5.2). Next: Step 5.3 — versioned prompt-override persistence.
+
+## 2026-04-19T10:20:00Z — Step 5.3 landed (656158c98)
+- `feat(ai-assistant): versioned prompt override persistence + merge rules (Phase 3 WS-B)`.
+- Replaced the Step-4.5 placeholder `POST .../prompt-override` route (`{ pending: true }`) with tenant-scoped versioned persistence. GET added for read + history.
+- New additive entity `AiAgentPromptOverride` (table `ai_agent_prompt_overrides`) + migration `Migration20260419100521_ai_assistant.ts` + snapshot. Reversible (`down()` drops table cascade).
+- `AiAgentPromptOverrideRepository` (`getLatest` / `save` / `listVersions`). Monotonic version allocation inside `em.transactional`; collision safety provided by `(tenantId, organizationId, agentId, version)` unique constraint.
+- `lib/prompt-override-merge.ts`: additive merge only. Canonical keys APPEND (never replace); brand-new headers insert after RESPONSE STYLE; reserved policy keys (`mutationPolicy`, `readOnly`, `allowedTools`, `acceptedMediaTypes`) throw. `composeSystemPromptWithOverride` handles the common plain-string-base-prompt case that every shipped agent uses today.
+- Runtime: `composeSystemPrompt` in `agent-runtime.ts` now layers override before the `resolvePageContext` hydration, so both `runAiAgentText` and `runAiAgentObject` honor overrides identically (Step 3.6 parity preserved). Fail-open — lookup errors log at `warn` and fall back to built-in prompt.
+- Settings page: GET-hydrates current + history; saves via POST; success alert shows the new version; reserved-key errors surface an i18n-keyed destructive alert. BC-safe response parsing accepts both `{ pending: true }` (legacy) and `{ ok: true, version }` (new).
+- Integration spec TC-AI-AGENT-SETTINGS-005: +2 scenarios (happy-path history surface, reserved-key error surface).
+- i18n: 13 new keys under `ai_assistant.agents.override.*` with full en/pl/es/de translations (no placeholder rows).
+- Test deltas:
+  - ai-assistant: 31/363 → **33/386** (+2 suites / +23 tests — 11 merge, 7 repo, 12 route).
+  - core: 338/3094 preserved.
+  - ui: 60/328 preserved.
+- Typecheck (core + app) green. `yarn generate` no drift. `yarn db:generate` emitted the clean migration (filtered to the new table; pre-existing monorepo snapshot drift in other modules reverted so this PR stays scoped). `yarn i18n:check-sync` green.
+- Turbopack recipe applied: `cd packages/ai-assistant && node build.mjs` + `touch apps/mercato/next.config.ts`.
+- BC: additive-only. Response shape migrated `{ pending: true }` → `{ ok: true, version, updatedAt }` on 200; legacy callers that only check HTTP status keep working. POST body accepts both `sections` (canonical) and `overrides` (Step-4.5 alias).
+- Phase 3 WS-B half-complete. Next: Step 5.4 — feature-gated `mutationPolicy` surface in the settings UI.

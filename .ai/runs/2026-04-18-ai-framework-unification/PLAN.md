@@ -54,7 +54,7 @@
 | 4 | 4.11 | Spec Phase 2 — Integration tests: playground + settings + D18 read-only demo | done | 17e754c04 |
 | 5 | 5.1 | Spec Phase 3 WS-A — Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`; support `defaultModel` + `<MODULE>_AI_MODEL` env override | done | 3b86061b4 |
 | 5 | 5.2 | Spec Phase 3 WS-A — Production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context | done | e3076580a |
-| 5 | 5.3 | Spec Phase 3 WS-B — Versioned prompt-override persistence with safe additive merge rules | todo | — |
+| 5 | 5.3 | Spec Phase 3 WS-B — Versioned prompt-override persistence with safe additive merge rules | done | 656158c98 |
 | 5 | 5.4 | Spec Phase 3 WS-B — Surface `mutationPolicy` as a feature-gated field in the settings UI (separate from prompt editor) | todo | — |
 | 5 | 5.5 | Spec Phase 3 WS-C — `AiPendingAction` MikroORM entity + repository + migration (one new additive table, incl. optional `records[]` and `failedRecords[]`) | todo | — |
 | 5 | 5.6 | Spec Phase 3 WS-C — `prepareMutation` runtime wrapper: intercepts `isMutation: true` tools for non-read-only agents, creates `AiPendingAction`, emits `mutation-preview-card` UI part | todo | — |
