@@ -175,6 +175,33 @@ export {
   type SerializablePendingActionRow,
 } from './modules/ai_assistant/lib/pending-action-client'
 
+// Pending-action confirm re-check contract (Phase 3 WS-C — Step 5.8, reused by 5.9)
+export {
+  runPendingActionRechecks,
+  checkStatusAndExpiry,
+  checkAgentAndFeatures,
+  checkToolWhitelist,
+  checkAttachmentScope,
+  checkRecordVersion,
+  PENDING_ACTION_RECHECK_CODES,
+  isPendingActionRecheckCode,
+  type PendingActionRecheckCode,
+  type PendingActionRecheckResult,
+  type PendingActionRecheckInput,
+  type PendingActionAuthContext,
+} from './modules/ai_assistant/lib/pending-action-recheck'
+
+// Pending-action confirm executor (Phase 3 WS-C — Step 5.8)
+export {
+  executePendingActionConfirm,
+  PENDING_ACTION_CONFIRMED_EVENT_ID,
+  type PendingActionExecuteInput,
+  type PendingActionExecuteContext,
+  type PendingActionExecuteResult,
+  type PendingActionExecuteOk,
+  type PendingActionExecuteFail,
+} from './modules/ai_assistant/lib/pending-action-executor'
+
 // Shared AI model factory (Phase 3 WS-A — Step 5.1)
 export {
   createModelFactory,
