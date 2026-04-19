@@ -984,3 +984,17 @@
 - Unit tests: 3 suites / **78 tests** passing (aggregator + ai-agents + mutation-pack). `.strict()` zod inputs reject hallucinated fields per spec §7.
 - Typecheck clean. `yarn generate` no drift. `yarn i18n:check-sync` green (no new user-facing server strings).
 - **Phase 3 WS-C is now fully closed** (Steps 5.5 → 5.14, 10 Steps). Next: Phase 3 WS-D with Step 5.15 (bind production agents to backend pages via injection).
+
+## 2026-04-19T02:45:00Z — Step 5.15 complete
+- Commit (code): `2d6886130` — `feat(ai-assistant-bindings): thread conversationId + bind production agents via widget injection (Phase 3 WS-D)`.
+- `<AiChat>` / `useAiChat` now accept an optional `conversationId` prop; hooks mint one on mount when the caller omits it, and forward it verbatim when provided. Threaded end-to-end through `runAiAgentText` → `resolveAiAgentTools` → `prepareMutation` so the Step 5.6 idempotency hash stays stable across turns. Exposed as `data-ai-chat-conversation-id` on the region root for integration observability.
+- Three production surfaces now reach `<AiChat>` through widget injection rather than page edits:
+  1. Customers **People list** (`customers.injection.ai-assistant-trigger`, spot `data-table:customers.people.list:header`) — Step 4.10 widget extended with unit coverage on the `pageContext` derivation (selection vs empty).
+  2. Customers **Deal detail** (`customers.injection.ai-deal-detail-trigger`, new spot `detail:customers.deal:header`) — page gains one shared `<InjectionSpot>` mount; everything else lives in the widget.
+  3. Catalog **products list** (`catalog.injection.merchandising-assistant-trigger`, spot `data-table:catalog.products:header`) — migrated away from direct page wiring; page is now a thin shell around `<ProductsDataTable>`. Feature gating moved to widget metadata.
+- Unit tests: +1 suite / +3 tests on `packages/ui`; +3 suites (new deal-detail + catalog merchandising + extended existing people-list) / ~+14 tests on `packages/core`. ai-assistant preserved at 47/525.
+- Two new integration specs: `TC-AI-INJECT-012-deal-detail-inject` (customers) and `TC-AI-INJECT-013-merchandising-injection` (catalog). Existing TC-AI-INJECT-009 and TC-AI-MERCHANDISING-008 continue to pass unchanged because every data- attribute they pin on was preserved across the migration.
+- i18n: five new `customers.ai_assistant.dealDetail.*` keys in en/pl/es/de; `yarn i18n:check-sync` green.
+- `yarn turbo run typecheck` (ui/ai-assistant/core/app) clean. `yarn generate` green with the two new widgets discovered and emitted. Structural cache purged as normal.
+- BC: additive only. New optional prop / new optional body field / new optional `RunAiAgentTextInput` field / new injection spot / new `data-` attribute / two new widgets. No route move, no event rename, no feature-id change, no DB migration.
+- Next: Step 5.16 — integration tests for page-context resolution + model-factory fallback chain + `maxSteps` execution-budget enforcement.
