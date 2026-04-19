@@ -765,3 +765,19 @@
 - **Phase 4 WS-C now 5/5 landed** (4.7 – 4.11). **Phase 4 overall 11/11** (4.1 – 4.11 all `done`). **Spec Phase 2 CLOSED.**
 - BC: additive only. 0 new routes, 0 new ACL features, 0 production-code touches.
 - Next: **Step 5.1** — Spec Phase 3 WS-A: extract shared model factory from `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`.
+
+## 2026-04-19T02:10:00Z — Step 5.1 committed (3b86061b4) — Phase 3 WS-A opened
+- `feat(ai-assistant): extract shared AI model factory with module env-override support (Phase 3 WS-A)`
+- New port `createModelFactory(container)` at `packages/ai-assistant/src/modules/ai_assistant/lib/model-factory.ts` — resolution order: `callerOverride` → `<MODULE>_AI_MODEL` env (uppercased `moduleId`) → `agentDefaultModel` → provider default. Throws typed `AiModelFactoryError` (`no_provider_configured` / `api_key_missing`).
+- `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` is now a thin BC shim. Public API (`resolveExtractionProviderId`, `createStructuredModel`, `withTimeout`, `runExtractionWithConfiguredProvider`) unchanged; `runExtractionWithConfiguredProvider` delegates model instantiation to `createModelFactory({ moduleId: 'inbox_ops' })` with the legacy `OPENCODE_*`-era path as fallback (preserves historical error messages).
+- Added `@open-mercato/ai-assistant` as a peer + dev dep of `@open-mercato/core`. Added `packages/core/jest.config.cjs` moduleNameMapper entry for the new dep.
+- Added `packages/ai-assistant/AGENTS.md` "Model resolution" section documenting the factory and `<MODULE>_AI_MODEL` pattern.
+- Test deltas:
+  - ai-assistant: 30/353 → **31/363** (+1 suite, +10 tests — resolution order, missing-provider throw, empty-override fallthrough, env-name casing, moduleId-undefined safe path).
+  - core: 337/3069 → **338/3073** (+1 suite, +4 tests — shim public shape, factory delegation, model identity, undefined callerOverride).
+  - ui: 60/328 preserved.
+- Typecheck (core + app) clean. `yarn generate` no drift. `yarn i18n:check-sync` green. `yarn build:packages` green.
+- **Explicitly deferred**: `agent-runtime.ts` inline `resolveAgentModel` migration — Step 5.2+ will migrate it.
+- **Behavior change for inbox_ops**: when `llmProviderRegistry` has at least one configured provider, the factory wins over the legacy `OPENCODE_MODEL` env + `resolveOpenCodeModel` path. For deployments where the registry is bootstrapped with the same providers the legacy envs point to, effective behavior is identical. Callers preserving the `OPENCODE_*` path get the legacy fallback whenever the registry is empty.
+- BC: additive-only at the package-export level (`createModelFactory`, `AiModelFactory`, `AiModelFactoryInput`, `AiModelResolution`, `AiModelFactoryError`, `AiModelFactoryErrorCode`, `AiModelInstance`, `CreateModelFactoryDependencies` all newly exported from `@open-mercato/ai-assistant`). The shim exports are unchanged.
+- Phase 3 WS-A **1/2 landed** (5.1). Next: Step 5.2 — production `ai-agents.ts` files with `resolvePageContext` callbacks.
