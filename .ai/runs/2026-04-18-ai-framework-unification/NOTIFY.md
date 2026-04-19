@@ -723,3 +723,17 @@
 - BC: additive only. 3 new files, 1 new agent id, 0 removed exports, 0 new routes, 0 new ACL features, 0 new i18n keys, 0 migrations.
 - Phase 4 WS-C now **2/5 landed** (4.7, 4.8). Phase 4 overall **8/11**. Next: Step 4.9 — D18 `catalog.merchandising_assistant` (read-only Phase 2 exit) with `<AiChat>` sheet on `/backend/catalog/catalog/products` and selection-aware `pageContext`.
 
+
+## 2026-04-18T23:45:00Z — Step 4.9 committed (ebb060c5f)
+- `feat(catalog): add catalog.merchandising_assistant agent + products-list AiChat sheet (Phase 2 WS-C, spec §10 D18)`
+- Files touched: `packages/core/src/modules/catalog/ai-agents.ts`, `__tests__/ai-agents.test.ts`, `backend/catalog/products/MerchandisingAssistantSheet.tsx` (new), `backend/catalog/products/page.tsx`, `components/products/ProductsDataTable.tsx`, 4 catalog i18n files (+6 keys each), `__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts` (new).
+- Verification: catalog ai-agents Jest **23/23** (was 11; +12 for merchandising). Typecheck clean. `yarn generate` no drift, both agents in `ai-agents.generated.ts`'s `aiAgents` barrel. `yarn i18n:check-sync` green (46 modules × 4 locales).
+- Browser smoke: 3 screenshots under `step-4.9-artifacts/` (products-list trigger; sheet open with composer; playground picker with all three agents).
+- Decisions:
+  - **UI primitive**: existing `packages/ui` `Sheet` — no new primitive.
+  - **`pageContext`** matches spec §10.1 exactly (view / recordType / recordId / extra.filter / extra.totalMatching / extra.selectedCount). Live-updates on selection + filter change.
+  - **Prompt template** = spec §10.5 verbatim, seven structured sections.
+  - **17-tool whitelist** with deny-list tests for no mutation + no base catalog list/get overlap.
+  - **No RTL test for the sheet**: behavior covered end-to-end by the Playwright integration spec; the sheet is a thin listener over the DataTable.
+  - **Zero new ACL features / routes.**
+- BC: additive only. Phase 4 WS-C now **3/5 landed** (4.7, 4.8, 4.9). Phase 4 overall **9/11**. Next: Step 4.10 — Backend + portal examples via existing injection patterns.
