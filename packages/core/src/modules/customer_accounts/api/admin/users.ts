@@ -99,30 +99,36 @@ export async function GET(req: Request) {
     offset,
   })
 
-  const items = await Promise.all(users.map(async (user) => {
-    const userRoles = await em.find(CustomerUserRole, {
-      user: user.id as any,
-      deletedAt: null,
-    }, { populate: ['role'] })
-    const roles = userRoles.map((ur) => ({
-      id: (ur.role as any).id,
-      name: (ur.role as any).name,
-      slug: (ur.role as any).slug,
-    }))
+  const pageUserIds = users.map((user) => user.id)
+  const userRoleLinks = pageUserIds.length > 0
+    ? await em.find(CustomerUserRole, {
+        user: { $in: pageUserIds } as any,
+        deletedAt: null,
+      }, { populate: ['role'] })
+    : []
 
-    return {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      emailVerified: !!user.emailVerifiedAt,
-      isActive: user.isActive,
-      lockedUntil: user.lockedUntil || null,
-      lastLoginAt: user.lastLoginAt || null,
-      customerEntityId: user.customerEntityId || null,
-      personEntityId: user.personEntityId || null,
-      createdAt: user.createdAt,
-      roles,
-    }
+  const rolesByUserId = new Map<string, Array<{ id: string; name: string; slug: string }>>()
+  for (const link of userRoleLinks) {
+    const linkUserId = (link.user as any)?.id ?? (link.user as unknown as string)
+    const role = link.role as any
+    const bucket = rolesByUserId.get(linkUserId)
+    const entry = { id: role.id, name: role.name, slug: role.slug }
+    if (bucket) bucket.push(entry)
+    else rolesByUserId.set(linkUserId, [entry])
+  }
+
+  const items = users.map((user) => ({
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    emailVerified: !!user.emailVerifiedAt,
+    isActive: user.isActive,
+    lockedUntil: user.lockedUntil || null,
+    lastLoginAt: user.lastLoginAt || null,
+    customerEntityId: user.customerEntityId || null,
+    personEntityId: user.personEntityId || null,
+    createdAt: user.createdAt,
+    roles: rolesByUserId.get(user.id) ?? [],
   }))
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -183,11 +189,11 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const validRoles: InstanceType<typeof CustomerRole>[] = []
-    for (const roleId of parsed.data.roleIds) {
-      const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
-      if (role) validRoles.push(role)
-    }
+    const validRoles = await em.find(CustomerRole, {
+      id: { $in: parsed.data.roleIds } as any,
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    })
     for (const role of validRoles) {
       const userRole = em.create(CustomerUserRole, {
         user,

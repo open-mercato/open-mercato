@@ -88,16 +88,20 @@ export class CustomerInvitationService {
 
     // Assign roles
     const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-    for (const roleId of roleIds) {
-      const role = await this.em.findOne(CustomerRole, { id: roleId, tenantId: invitation.tenantId, deletedAt: null })
-      if (role) {
-        const userRole = this.em.create(CustomerUserRole, {
-          user,
-          role,
-          createdAt: new Date(),
-        } as any)
-        this.em.persist(userRole)
-      }
+    const roles = roleIds.length > 0
+      ? await this.em.find(CustomerRole, {
+          id: { $in: roleIds } as any,
+          tenantId: invitation.tenantId,
+          deletedAt: null,
+        })
+      : []
+    for (const role of roles) {
+      const userRole = this.em.create(CustomerUserRole, {
+        user,
+        role,
+        createdAt: new Date(),
+      } as any)
+      this.em.persist(userRole)
     }
 
     // Mark invitation as accepted

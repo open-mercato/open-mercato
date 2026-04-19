@@ -135,13 +135,18 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
-    const validRoles: InstanceType<typeof CustomerRole>[] = []
-    for (const roleId of parsed.data.roleIds) {
-      const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
-      if (!role) {
-        return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
-      }
-      validRoles.push(role)
+    const requestedRoleIds = parsed.data.roleIds
+    const validRoles = requestedRoleIds.length > 0
+      ? await em.find(CustomerRole, {
+          id: { $in: requestedRoleIds } as any,
+          tenantId: auth.tenantId,
+          deletedAt: null,
+        })
+      : []
+    if (validRoles.length !== requestedRoleIds.length) {
+      const foundIds = new Set(validRoles.map((role) => role.id))
+      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
+      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
     }
 
     await em.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
