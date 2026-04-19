@@ -32,6 +32,8 @@ function serializePartition(entry: AttachmentPartition) {
     isPublic: entry.isPublic ?? false,
     requiresOcr: entry.requiresOcr ?? resolveDefaultAttachmentOcrEnabled(),
     ocrModel: entry.ocrModel ?? null,
+    storageDriver: entry.storageDriver ?? 'local',
+    configJson: entry.configJson ?? null,
     createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
     updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : null,
     envKey: resolvePartitionEnvKey(entry.code),
@@ -96,7 +98,8 @@ export async function POST(req: Request) {
     code,
     title: parsed.data.title.trim(),
     description: parsed.data.description?.trim() ?? null,
-    storageDriver: 'local',
+    storageDriver: parsed.data.storageDriver ?? 'local',
+    configJson: parsed.data.configJson ?? null,
     isPublic: parsed.data.isPublic ?? false,
     requiresOcr:
       typeof parsed.data.requiresOcr === 'boolean'
@@ -145,6 +148,12 @@ export async function PUT(req: Request) {
   }
   if (parsed.data.ocrModel !== undefined) {
     entry.ocrModel = parsed.data.ocrModel?.trim() || null
+  }
+  if (parsed.data.storageDriver !== undefined) {
+    entry.storageDriver = parsed.data.storageDriver
+  }
+  if (parsed.data.configJson !== undefined) {
+    entry.configJson = parsed.data.configJson ?? null
   }
   await em.persistAndFlush(entry)
   return NextResponse.json({ item: serializePartition(entry) })

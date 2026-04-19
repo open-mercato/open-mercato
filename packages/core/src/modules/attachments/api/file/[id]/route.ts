@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
@@ -7,7 +6,6 @@ import {
   Attachment,
   AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
-import { resolveAttachmentAbsolutePath } from "@open-mercato/core/modules/attachments/lib/storage";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { checkAttachmentAccess } from "@open-mercato/core/modules/attachments/lib/access";
 import { z } from "zod";
@@ -16,6 +14,7 @@ import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
+import type { StorageDriverFactory } from '../../../lib/drivers';
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -35,6 +34,7 @@ export async function GET(
   const auth = await getAuthFromRequest(req);
   const { resolve } = await createRequestContainer();
   const em = resolve("em") as EntityManager;
+  const storageDriverFactory = resolve("storageDriverFactory") as StorageDriverFactory;
 
   const attachment = await em.findOne(Attachment, { id });
   if (!attachment) {
@@ -59,14 +59,14 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: access.status });
   }
 
-  const filePath = resolveAttachmentAbsolutePath(
-    attachment.partitionCode,
-    attachment.storagePath,
+  const driver = storageDriverFactory.resolveForAttachment(
     attachment.storageDriver,
+    partition.configJson,
   );
   let buffer: Buffer;
   try {
-    buffer = await fs.readFile(filePath);
+    const result = await driver.read(attachment.partitionCode, attachment.storagePath);
+    buffer = result.buffer;
   } catch {
     return NextResponse.json({ error: "File not available" }, { status: 404 });
   }

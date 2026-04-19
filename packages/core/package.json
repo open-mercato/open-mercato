@@ -223,6 +223,8 @@
     }
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.821.0",
+    "@aws-sdk/s3-request-presigner": "^3.821.0",
     "@xyflow/react": "^12.6.0",
     "ai": "^6.0.0",
     "date-fns": "^4.1.0",

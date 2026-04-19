@@ -44,6 +44,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'storage_s3', from: '@open-mercato/storage-s3' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },

@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { OcrService } from './ocrService'
+import type { StorageDriver } from './drivers/types'
 
 export type OcrRequestedEvent = {
   attachmentId: string
-  filePath: string
+  storagePath: string
   mimeType: string
   partitionCode: string
   organizationId: string | null
@@ -13,13 +14,15 @@ export type OcrRequestedEvent = {
 
 export async function processAttachmentOcr(
   em: EntityManager,
-  payload: OcrRequestedEvent
+  payload: OcrRequestedEvent,
+  driver: StorageDriver,
 ): Promise<void> {
-  const { attachmentId, filePath, mimeType, partitionCode } = payload
+  const { attachmentId, storagePath, mimeType, partitionCode } = payload
 
   console.log(`[attachments.ocr] Processing started for attachment: ${attachmentId}`)
   const startTime = Date.now()
 
+  const { filePath, cleanup } = await driver.toLocalPath(partitionCode, storagePath)
   try {
     const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
     const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-4o'
@@ -63,17 +66,22 @@ export async function processAttachmentOcr(
       attachmentId,
       error: error instanceof Error ? error.message : String(error),
     })
+  } finally {
+    await cleanup().catch((cleanupError) => {
+      console.warn(`[attachments.ocr] Temp file cleanup failed:`, cleanupError)
+    })
   }
 }
 
 export async function requestOcrProcessing(
   em: EntityManager,
   attachment: Attachment,
-  filePath: string
+  driver: StorageDriver,
+  storagePath: string,
 ): Promise<void> {
   const payload: OcrRequestedEvent = {
     attachmentId: attachment.id,
-    filePath,
+    storagePath,
     mimeType: attachment.mimeType,
     partitionCode: attachment.partitionCode,
     organizationId: attachment.organizationId ?? null,
@@ -82,7 +90,7 @@ export async function requestOcrProcessing(
 
   setImmediate(() => {
     const workerEm = typeof (em as any)?.fork === 'function' ? (em as any).fork() : em
-    processAttachmentOcr(workerEm, payload).catch((error) => {
+    processAttachmentOcr(workerEm, payload, driver).catch((error) => {
       console.error(`[attachments.ocr] Background processing error:`, error)
     })
   })

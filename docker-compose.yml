@@ -78,6 +78,26 @@ services:
     networks:
       - mercato-network
 
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mercato-localstack
+    restart: unless-stopped
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network
+
   verdaccio:
     image: verdaccio/verdaccio:6
     container_name: mercato-verdaccio
@@ -106,6 +126,8 @@ volumes:
     name: mercato-redis-data
   meilisearch_data:
     name: mercato-meilisearch-data
+  localstack_data:
+    name: mercato-localstack-data
   verdaccio_storage:
     name: mercato-verdaccio-storage
   verdaccio_plugins:
