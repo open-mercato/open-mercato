@@ -150,9 +150,10 @@ export const createBusinessRuleSchema = z.object({
 
 export type CreateBusinessRuleInput = z.input<typeof createBusinessRuleSchema>
 
-export const updateBusinessRuleSchema = createBusinessRuleSchema.partial().extend({
-  id: uuid,
-})
+export const updateBusinessRuleSchema = createBusinessRuleSchema
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
+  .partial()
+  .extend({ id: uuid })
 
 export type UpdateBusinessRuleInput = z.input<typeof updateBusinessRuleSchema>
 
@@ -169,9 +170,10 @@ export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
 }
 
 export function createLocalizedUpdateBusinessRuleSchema(t: TranslatorFn) {
-  return createLocalizedBusinessRuleSchema(t).partial().extend({
-    id: uuid,
-  })
+  return createLocalizedBusinessRuleSchema(t)
+    .omit({ tenantId: true, organizationId: true, createdBy: true })
+    .partial()
+    .extend({ id: uuid })
 }
 
 // Query/Filter Schema
@@ -236,9 +238,10 @@ export const createRuleSetSchema = z.object({
 export type CreateRuleSetInput = z.infer<typeof createRuleSetSchema>
 
 // RuleSet Update Schema
-export const updateRuleSetSchema = createRuleSetSchema.partial().extend({
-  id: uuid,
-})
+export const updateRuleSetSchema = createRuleSetSchema
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
+  .partial()
+  .extend({ id: uuid })
 
 export type UpdateRuleSetInput = z.infer<typeof updateRuleSetSchema>
 
