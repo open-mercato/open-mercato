@@ -815,3 +815,23 @@
 - Turbopack recipe applied: `cd packages/ai-assistant && node build.mjs` + `touch apps/mercato/next.config.ts`.
 - BC: additive-only. Response shape migrated `{ pending: true }` → `{ ok: true, version, updatedAt }` on 200; legacy callers that only check HTTP status keep working. POST body accepts both `sections` (canonical) and `overrides` (Step-4.5 alias).
 - Phase 3 WS-B half-complete. Next: Step 5.4 — feature-gated `mutationPolicy` surface in the settings UI.
+
+## 2026-04-19T14:00:00Z — Step 5.4 landed (ddc08903e)
+- `feat(ai-assistant): feature-gated mutationPolicy override with escalation guard (Phase 3 WS-B)`.
+- New additive entity `AiAgentMutationPolicyOverride` (table `ai_agent_mutation_policy_overrides`) + migration `Migration20260419132948_ai_assistant.ts` + reversible `down()`. Snapshot updated.
+- Repository `AiAgentMutationPolicyOverrideRepository` with `get` / `set` / `clear`. One current override per `(tenantId, organizationId, agentId)` (NOT versioned — unlike prompt overrides). `set` replaces atomically via `em.transactional`. Reads via `findOneWithDecryption`.
+- Route `/api/ai_assistant/ai/agents/[agentId]/mutation-policy` (GET/POST/DELETE). `GET` → `{ agentId, codeDeclared, override }` (requires `ai_assistant.view`). `POST` / `DELETE` require `ai_assistant.settings.manage`. Unknown agent → 404 / `agent_unknown`. `metadata` + `openApi` declared per verb.
+- **Escalation guard (load-bearing).** POST rejects any body whose `mutationPolicy` would widen the code-declared policy with 400 + `code: 'escalation_not_allowed'`. Hierarchy (most restrictive → least): `read-only` (0) < `destructive-confirm-required` (1) < `confirm-required` (2). Helpers `isMutationPolicyEscalation` + `resolveEffectiveMutationPolicy` landed in `lib/agent-policy.ts` so route + runtime + tests share one source of truth.
+- Runtime wiring (additive): `checkAgentPolicy` accepts optional `mutationPolicyOverride`. Effective policy = MOST RESTRICTIVE of `{ code, override }`. Corrupt override value (unknown enum string) → logs at `warn` and falls back to code-declared (fail-safe). `resolveAiAgentTools` + `runAiAgentText` + `runAiAgentObject` load the override via the repo and forward it through every `checkAgentPolicy` call. Lookup failures never fail a chat turn.
+- Settings UI: new `MutationPolicySection` rendered as a separate collapsible panel inside `AgentDetailPanel` between the metadata block and the prompt editor. Radio group with all three policies; escalation options disabled with tooltip. "Clear override" when one exists. Errors surface `escalation_not_allowed` verbatim. Explicitly NOT inside the prompt editor (different surface, different shape, per spec).
+- **Task glossary decision.** The Step-5.4 brief used colloquial names `write-capable` / `stack-approval`; implementation uses the actual enum (`read-only | confirm-required | destructive-confirm-required`) from the spec (§4 / §9 / §K3). Changing the enum is frozen by the BC contract (surface #2 + event IDs); renaming it would cascade across generated files, tests, and the `meta-pack` tool. Documented in HANDOFF.
+- Integration spec TC-AI-AGENT-SETTINGS-005: +2 scenarios (settings page disables escalation option with tooltip on a read-only agent; POST escalation attempt rejected with 400 + `escalation_not_allowed`).
+- i18n: 22 new keys under `ai_assistant.agents.mutation_policy.*` with full en/pl/es/de translations (no placeholder rows).
+- Test deltas:
+  - ai-assistant: 33/386 → **36/419** (+3 suites / +33 tests — 7 repo + 11 policy-override algebra + 15 route).
+  - core: 338/3094 preserved.
+  - ui: 60/328 preserved.
+- Typecheck (core + app) green. `yarn generate` no drift. `yarn db:generate` emitted one clean migration (`Migration20260419132948_ai_assistant.ts`). Out-of-scope snapshot drift in `business_rules` / `catalog` / `shipping_carriers` reverted so this PR stays scoped. `yarn i18n:check-sync` green.
+- Turbopack recipe applied: `cd packages/ai-assistant && node build.mjs` + `touch apps/mercato/next.config.ts`.
+- BC: additive-only. New entity, new table, new route, new optional `mutationPolicyOverride` parameter on `checkAgentPolicy` / `resolveAiAgentTools`. Every existing caller keeps pre-Step-5.4 behavior.
+- Phase 3 WS-B **complete**. Next: Step 5.5 — `AiPendingAction` entity + migration (opens Phase 3 WS-C / D16 mutation approval gate).
