@@ -213,8 +213,11 @@ export async function POST(req: Request) {
   try {
     await em.persistAndFlush(rule)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: `Failed to create rule: ${message}` }, { status: 500 })
+    console.error('[business_rules.rules] Failed to persist new rule:', error)
+    return NextResponse.json(
+      { error: t('business_rules.errors.createFailed') },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ id: rule.id }, { status: 201 })
@@ -269,8 +272,11 @@ export async function PUT(req: Request) {
   try {
     await em.persistAndFlush(rule)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: `Failed to update rule: ${message}` }, { status: 500 })
+    console.error('[business_rules.rules] Failed to persist rule update:', error)
+    return NextResponse.json(
+      { error: t('business_rules.errors.updateFailed') },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ ok: true })
