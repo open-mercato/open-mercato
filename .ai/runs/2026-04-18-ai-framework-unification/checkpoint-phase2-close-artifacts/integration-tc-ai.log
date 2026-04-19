@@ -1,0 +1,162 @@
+[dotenv@17.2.3] injecting env (56) from apps/mercato/.env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from apps/mercato/.env -- tip: ⚙️  override existing env vars with { override: true }
+
+Running 29 tests using 1 worker
+
+  ✓   1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:30:3 › TC-AI-002: AI agent dispatcher policy gate › unknown agent returns 404 agent_unknown (328ms)
+  ✓   2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:49:3 › TC-AI-002: AI agent dispatcher policy gate › malformed agent query param returns 400 validation_error (181ms)
+  ✓   3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:68:3 › TC-AI-002: AI agent dispatcher policy gate › missing agent query param returns 400 validation_error (176ms)
+  ✓   4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002-agent-policy.spec.ts:87:3 › TC-AI-002: AI agent dispatcher policy gate › unauthenticated caller returns 401 (25ms)
+  ✓   5 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts:21:3 › TC-AI-AGENT-SETTINGS-005: AI Agent settings › page loads and renders empty-state for superadmin when no agents are registered (1.8s)
+  ✓   6 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts:65:3 › TC-AI-AGENT-SETTINGS-005: AI Agent settings › unauthenticated visit redirects to login (568ms)
+  ✓   7 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts:77:3 › TC-AI-AGENT-SETTINGS-005: AI Agent settings › Cmd/Ctrl+Enter inside a prompt-override textarea triggers the placeholder save (1.7s)
+  ✓   8 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-SETTINGS-005-settings-page.spec.ts:156:3 › TC-AI-AGENT-SETTINGS-005: AI Agent settings › selecting an agent renders detail panel with meta badges, tool toggles, and attachment policy (1.5s)
+  ✓   9 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts:22:3 › TC-AI-PLAYGROUND-004: AI Playground › playground renders agent picker or empty state for superadmin (1.4s)
+  ✓  10 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts:136:3 › TC-AI-PLAYGROUND-004: AI Playground › picker lists all three Phase 2 agents and chat-mode selection disables object-mode tab (1.4s)
+  ✓  11 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-PLAYGROUND-004-playground.spec.ts:179:3 › TC-AI-PLAYGROUND-004: AI Playground › chat happy path — stubbed SSE response appears in the transcript (1.6s)
+  ✓  12 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:17:3 › TC-AI-001: AI framework auth sanity › superadmin login reaches /backend (556ms)
+  ✓  13 packages/core/src/modules/auth/__integration__/TC-AI-001-auth-sanity.spec.ts:22:3 › TC-AI-001: AI framework auth sanity › wrong password stays on /login and surfaces an error (675ms)
+  ✓  14 packages/core/src/modules/catalog/__integration__/TC-AI-CATALOG-007-catalog-assistant.spec.ts:34:3 › TC-AI-CATALOG-007: catalog.catalog_assistant agent › agent is listed via /api/ai_assistant/ai/agents as read-only (132ms)
+  ✓  15 packages/core/src/modules/catalog/__integration__/TC-AI-CATALOG-007-catalog-assistant.spec.ts:75:3 › TC-AI-CATALOG-007: catalog.catalog_assistant agent › meta.describe_agent returns the seven prompt sections (141ms)
+  ✓  16 packages/core/src/modules/catalog/__integration__/TC-AI-CATALOG-007-catalog-assistant.spec.ts:113:3 › TC-AI-CATALOG-007: catalog.catalog_assistant agent › playground picker lists both the customers and catalog agents for superadmin (1.2s)
+  ✓  17 packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts:28:3 › TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet › merchandising_assistant is listed via /api/ai_assistant/ai/agents as read-only (135ms)
+  ✓  18 packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts:75:3 › TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet › trigger renders on products list page and opens the merchandising sheet (2.1s)
+  ✓  19 packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts:93:3 › TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet › selection pill reflects the current selected count when selection changes (2.1s)
+  ✓  20 packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts:125:3 › TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet › playground picker lists all three agents for superadmin (1.4s)
+  ✓  21 packages/core/src/modules/catalog/__integration__/TC-AI-MERCHANDISING-008-products-sheet.spec.ts:135:3 › TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet › merchandising sheet title and chat region render after trigger click (2.0s)
+  ✓  22 packages/core/src/modules/customer_accounts/__integration__/TC-AI-INJECT-010-portal-inject.spec.ts:27:3 › TC-AI-INJECT-010: portal AiChat injection › portal-ai-assistant-trigger is mapped to portal:profile:after (0ms)
+  ✓  23 packages/core/src/modules/customer_accounts/__integration__/TC-AI-INJECT-010-portal-inject.spec.ts:45:3 › TC-AI-INJECT-010: portal AiChat injection › portal login UI helper is not yet available — UI smoke deferred to Phase 5 (0ms)
+  ✓  24 packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:36:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › agent is listed via /api/ai_assistant/ai/agents as read-only (132ms)
+  ✘  25 packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:77:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › meta.describe_agent returns the seven prompt sections (57ms)
+  ✘  26 packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:77:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › meta.describe_agent returns the seven prompt sections (retry #1) (95ms)
+  ✘  27 packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:115:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › playground picker lists the agent for superadmin (20.0s)
+  ✘  28 packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:115:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › playground picker lists the agent for superadmin (retry #1) (20.1s)
+  ✘  29 packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:13:3 › TC-AI-INJECT-009: backend AiChat injection › people list header shows the injected AI trigger for superadmin (20.9s)
+  ✓  30 packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:13:3 › TC-AI-INJECT-009: backend AiChat injection › people list header shows the injected AI trigger for superadmin (retry #1) (3.8s)
+  ✓  31 packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:30:3 › TC-AI-INJECT-009: backend AiChat injection › clicking the injected trigger opens a dialog with the AiChat composer (3.7s)
+  ✓  32 packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:51:3 › TC-AI-INJECT-009: backend AiChat injection › selection pill reflects the current row selection count when selection is simulated (3.6s)
+
+
+  1) packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:77:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › meta.describe_agent returns the seven prompt sections 
+
+    Error: Failed to obtain auth token (status 429)
+
+       at packages/core/src/helpers/integration/api.ts:56
+
+      54 |   }
+      55 |
+    > 56 |   throw new Error(`Failed to obtain auth token (status ${lastStatus})`);
+         |         ^
+      57 | }
+      58 |
+      59 | export async function apiRequest(
+        at getAuthToken (/Users/piotrkarwatka/Projects/mercato-development/packages/core/src/helpers/integration/api.ts:56:9)
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:78:19
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Failed to obtain auth token (status 429)
+
+       at packages/core/src/helpers/integration/api.ts:56
+
+      54 |   }
+      55 |
+    > 56 |   throw new Error(`Failed to obtain auth token (status ${lastStatus})`);
+         |         ^
+      57 | }
+      58 |
+      59 | export async function apiRequest(
+        at getAuthToken (/Users/piotrkarwatka/Projects/mercato-development/packages/core/src/helpers/integration/api.ts:56:9)
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:78:19
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--92f45-s-the-seven-prompt-sections-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-core-src-modules--92f45-s-the-seven-prompt-sections-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:115:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › playground picker lists the agent for superadmin 
+
+    [31mTest timeout of 20000ms exceeded.[39m
+
+    Error: Login did not reach backend for role: superadmin; current URL: http://localhost:3000/login
+
+       at packages/core/src/helpers/integration/auth.ts:229
+
+      227 |   if (await waitForBackend(8_000)) return;
+      228 |
+    > 229 |   throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
+          |         ^
+      230 | }
+      231 |
+        at login (/Users/piotrkarwatka/Projects/mercato-development/packages/core/src/helpers/integration/auth.ts:229:9)
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:116:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    [31mTest timeout of 20000ms exceeded.[39m
+
+    Error: Login did not reach backend for role: superadmin; current URL: http://localhost:3000/login
+
+       at packages/core/src/helpers/integration/auth.ts:229
+
+      227 |   if (await waitForBackend(8_000)) return;
+      228 |
+    > 229 |   throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
+          |         ^
+      230 | }
+      231 |
+        at login (/Users/piotrkarwatka/Projects/mercato-development/packages/core/src/helpers/integration/auth.ts:229:9)
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:116:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin-retry1/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-core-src-modules--f0cc5-ts-the-agent-for-superadmin-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:13:3 › TC-AI-INJECT-009: backend AiChat injection › people list header shows the injected AI trigger for superadmin 
+
+    Error: Login did not reach backend for role: superadmin; current URL: http://localhost:3000/login
+
+       at packages/core/src/helpers/integration/auth.ts:229
+
+      227 |   if (await waitForBackend(8_000)) return;
+      228 |
+    > 229 |   throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
+          |         ^
+      230 | }
+      231 |
+        at login (/Users/piotrkarwatka/Projects/mercato-development/packages/core/src/helpers/integration/auth.ts:229:9)
+        at /Users/piotrkarwatka/Projects/mercato-development/packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:23:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-core-src-modules--b15c8-d-AI-trigger-for-superadmin/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--b15c8-d-AI-trigger-for-superadmin/error-context.md
+
+  2 failed
+    packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:77:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › meta.describe_agent returns the seven prompt sections 
+    packages/core/src/modules/customers/__integration__/TC-AI-CUSTOMERS-006-account-assistant.spec.ts:115:3 › TC-AI-CUSTOMERS-006: customers.account_assistant agent › playground picker lists the agent for superadmin 
+  1 flaky
+    packages/core/src/modules/customers/__integration__/TC-AI-INJECT-009-backend-inject.spec.ts:13:3 › TC-AI-INJECT-009: backend AiChat injection › people list header shows the injected AI trigger for superadmin 
+  26 passed (3.4m)
