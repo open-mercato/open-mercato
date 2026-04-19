@@ -30,6 +30,7 @@
  * handles `AiToolDefinition`.
  */
 import type { AwilixContainer } from 'awilix'
+import { hydrateCustomersAccountContext } from './ai-agents-context'
 
 type AiAgentExecutionMode = 'chat' | 'object'
 type AiAgentMutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
@@ -228,10 +229,12 @@ function compilePromptTemplate(template: PromptTemplate): string {
 async function resolvePageContext(
   input: AiAgentPageContextInput,
 ): Promise<string | null> {
-  // Step 5.2 wires real record hydration; the stub simply yields no extra
-  // context so the runtime path stays exercised without leaking data.
-  void input
-  return null
+  // Step 5.2 — hydrate record-level context for person / company / deal
+  // entities. Delegates to `ai-agents-context.ts`, which reuses the
+  // tool-pack handlers so there is exactly one read-path per record type.
+  // Errors are swallowed inside the helper; the runtime proceeds without
+  // extra context on any failure.
+  return hydrateCustomersAccountContext(input)
 }
 
 const agent: AiAgentDefinition = {

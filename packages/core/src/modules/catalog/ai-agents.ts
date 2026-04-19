@@ -32,6 +32,10 @@
  * graph resolves through `apps/mercato/.mercato/generated/ai-agents.generated.ts`.
  */
 import type { AwilixContainer } from 'awilix'
+import {
+  hydrateCatalogAssistantContext,
+  hydrateMerchandisingAssistantContext,
+} from './ai-agents-context'
 
 type AiAgentExecutionMode = 'chat' | 'object'
 type AiAgentMutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
@@ -247,10 +251,13 @@ function compilePromptTemplate(template: PromptTemplate): string {
 async function resolvePageContext(
   input: AiAgentPageContextInput,
 ): Promise<string | null> {
-  // Step 5.2 wires real record hydration; the stub simply yields no extra
-  // context so the runtime path stays exercised without leaking data.
-  void input
-  return null
+  // Step 5.2 — hydrate product-level context for `catalog.product` +
+  // `catalog.products.list` entity types. Delegates to
+  // `ai-agents-context.ts`, which reuses the Step 3.10 / 3.11 tool-pack
+  // handlers so there is exactly one read-path per record type. Errors
+  // are swallowed inside the helper; the runtime proceeds without extra
+  // context on any failure.
+  return hydrateCatalogAssistantContext(input)
 }
 
 const agent: AiAgentDefinition = {
@@ -383,11 +390,16 @@ export const merchandisingPromptTemplate: PromptTemplate = {
 async function resolveMerchandisingPageContext(
   input: AiAgentPageContextInput,
 ): Promise<string | null> {
-  // Step 5.2 wires real record hydration. Phase 2 ships the stub; the
-  // products list page forms the real pageContext client-side and passes
-  // it on every chat request (see MerchandisingAssistantSheet.tsx).
-  void input
-  return null
+  // Step 5.2 — hydrate record-level context using the Step 3.11 D18
+  // merchandising pack. A single `catalog.product` resolves to the full
+  // product bundle; `catalog.products.list` (or `.selection`) with a
+  // comma-separated UUID list resolves to the bundle aggregate capped at
+  // 10 ids. The companion filter/extra payload carried by the
+  // products-list page rides along the outer pageContext object — it is
+  // intentionally not surfaced into the hydration blurb here because the
+  // Phase-1 runtime signature does not forward it to the callback; a
+  // future Step may extend the contract once a wider use-case exists.
+  return hydrateMerchandisingAssistantContext(input)
 }
 
 const merchandisingAgent: AiAgentDefinition = {

@@ -104,12 +104,219 @@ describe('customers.account_assistant agent definition', () => {
     }
   })
 
-  it('resolvePageContext is an async identity stub that yields no extra context', async () => {
+  it('resolvePageContext yields no extra context for non-UUID recordIds', async () => {
     expect(typeof agent.resolvePageContext).toBe('function')
     const result = await agent.resolvePageContext!({
       entityType: 'customers.person',
       recordId: 'fake-record-id',
       container: {} as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+  })
+})
+
+// Step 5.2 — resolvePageContext hydration path.
+const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+function makeAgent() {
+  return (aiAgents[0] as any)
+}
+
+function buildContainer(ctxOverrides: Record<string, unknown> = {}) {
+  return {
+    resolve: (name: string) => {
+      if (name === 'em') return { count: jest.fn() }
+      return (ctxOverrides as Record<string, unknown>)[name] ?? null
+    },
+  }
+}
+
+describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', () => {
+  const agent = aiAgents[0]
+  const originalWarn = console.warn
+  beforeEach(() => {
+    jest.resetModules()
+    jest.clearAllMocks()
+  })
+  afterEach(() => {
+    console.warn = originalWarn
+  })
+
+  async function mockTool(toolName: string, handler: jest.Mock) {
+    jest.doMock('../ai-tools', () => ({
+      __esModule: true,
+      default: [
+        {
+          name: toolName,
+          description: 'mock',
+          inputSchema: { parse: (value: unknown) => value },
+          handler,
+        },
+      ],
+      aiTools: [
+        {
+          name: toolName,
+          description: 'mock',
+          inputSchema: { parse: (value: unknown) => value },
+          handler,
+        },
+      ],
+    }))
+    const { hydrateCustomersAccountContext } = await import('../ai-agents-context')
+    return hydrateCustomersAccountContext
+  }
+
+  it('returns null when tenantId is missing (cross-tenant guard)', async () => {
+    const handler = jest.fn()
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.person',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: null,
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('returns null when recordId is not a UUID', async () => {
+    const handler = jest.fn()
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.person',
+      recordId: 'not-a-uuid',
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('hydrates person bundles for entityType=customers.person', async () => {
+    const handler = jest.fn(async () => ({
+      found: true,
+      person: { id: VALID_UUID_A, displayName: 'Taylor' },
+    }))
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.person',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler.mock.calls[0][0]).toEqual({ personId: VALID_UUID_A, includeRelated: true })
+    expect(handler.mock.calls[0][1]).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(result).not.toBeNull()
+    expect(result).toContain('## Page context — Person')
+    expect(result).toContain('Taylor')
+  })
+
+  it('hydrates company bundles for entityType=customers.company', async () => {
+    const handler = jest.fn(async () => ({
+      found: true,
+      company: { id: VALID_UUID_A, displayName: 'Acme Corp' },
+    }))
+    const hydrate = await mockTool('customers.get_company', handler)
+    const result = await hydrate({
+      entityType: 'customers.company',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(handler).toHaveBeenCalledWith(
+      { companyId: VALID_UUID_A, includeRelated: true },
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+    expect(result).toContain('Company')
+    expect(result).toContain('Acme Corp')
+  })
+
+  it('hydrates deal bundles for entityType=customers.deal', async () => {
+    const handler = jest.fn(async () => ({
+      found: true,
+      deal: { id: VALID_UUID_A, title: 'Q3 renewal' },
+    }))
+    const hydrate = await mockTool('customers.get_deal', handler)
+    const result = await hydrate({
+      entityType: 'customers.deal',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(handler).toHaveBeenCalledWith(
+      { dealId: VALID_UUID_A, includeRelated: true },
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+    expect(result).toContain('Deal')
+    expect(result).toContain('Q3 renewal')
+  })
+
+  it('returns null when tool reports found=false (cross-tenant / missing)', async () => {
+    const handler = jest.fn(async () => ({ found: false, personId: VALID_UUID_B }))
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.person',
+      recordId: VALID_UUID_B,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(result).toBeNull()
+  })
+
+  it('returns null without throwing when the tool handler throws', async () => {
+    const warn = jest.fn()
+    console.warn = warn
+    const handler = jest.fn(async () => {
+      throw new Error('downstream blew up')
+    })
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.person',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('returns null for unknown entityType (no-op fall-through)', async () => {
+    const handler = jest.fn()
+    const hydrate = await mockTool('customers.get_person', handler)
+    const result = await hydrate({
+      entityType: 'customers.task',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('production agent callback delegates to the hydrator', async () => {
+    expect(typeof agent.resolvePageContext).toBe('function')
+    // Hitting the production callback with a valid UUID but no DI tools
+    // registered should not throw — the tool-lookup miss returns null
+    // via the warn + swallow path.
+    const warn = jest.fn()
+    console.warn = warn
+    const result = await agent.resolvePageContext!({
+      entityType: 'customers.notset',
+      recordId: VALID_UUID_A,
+      container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
