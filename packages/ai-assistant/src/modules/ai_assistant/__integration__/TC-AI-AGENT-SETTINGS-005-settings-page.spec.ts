@@ -152,4 +152,82 @@ test.describe('TC-AI-AGENT-SETTINGS-005: AI Agent settings', () => {
 
     expect(saveCalls).toBeGreaterThanOrEqual(1);
   });
+
+  test('selecting an agent renders detail panel with meta badges, tool toggles, and attachment policy', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+
+    await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agents: [
+            {
+              id: 'customers.account_assistant',
+              moduleId: 'customers',
+              label: 'Customers account assistant',
+              description: 'Answers questions about customer records.',
+              systemPrompt: 'You are a helpful read-only customers assistant.',
+              executionMode: 'chat',
+              mutationPolicy: 'read-only',
+              readOnly: true,
+              maxSteps: 10,
+              allowedTools: ['customers.list_people', 'customers.get_person'],
+              tools: [
+                {
+                  name: 'customers.list_people',
+                  displayName: 'List people',
+                  isMutation: false,
+                  registered: true,
+                },
+                {
+                  name: 'customers.get_person',
+                  displayName: 'Get person',
+                  isMutation: false,
+                  registered: true,
+                },
+              ],
+              requiredFeatures: ['customers.people.view'],
+              acceptedMediaTypes: ['image/png', 'application/pdf'],
+              hasOutputSchema: false,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    await page.goto(settingsPath, { waitUntil: 'domcontentloaded' });
+
+    const container = page.locator('[data-ai-agent-settings]');
+    await expect(container).toBeVisible({ timeout: 60_000 });
+
+    // Detail panel renders for the first (only) agent.
+    const detailPanel = page.locator('[data-ai-agent-detail="customers.account_assistant"]');
+    await expect(detailPanel).toBeVisible();
+
+    // Tool rows render for every declared tool, with disabled switches.
+    const listRow = page.locator('[data-ai-agent-tool-row="customers.list_people"]');
+    await expect(listRow).toBeVisible();
+    const listSwitch = page.locator('[data-ai-agent-tool-switch="customers.list_people"]');
+    // Radix `Switch` primitives surface the disabled state via
+    // `aria-disabled`/`data-disabled` rather than the native attribute,
+    // so assert both. Either one is sufficient evidence the switch is
+    // read-only in Phase 2.
+    const ariaDisabled = await listSwitch.getAttribute('aria-disabled');
+    const dataDisabled = await listSwitch.getAttribute('data-disabled');
+    const disabledAttr = await listSwitch.getAttribute('disabled');
+    expect(
+      ariaDisabled === 'true' || dataDisabled !== null || disabledAttr !== null,
+    ).toBe(true);
+
+    // Attachment policy badges surface for each declared media type.
+    const pngBadge = page.locator('[data-ai-agent-attachment-badge="image/png"]');
+    await expect(pngBadge).toBeVisible();
+    const pdfBadge = page.locator('[data-ai-agent-attachment-badge="application/pdf"]');
+    await expect(pdfBadge).toBeVisible();
+  });
 });

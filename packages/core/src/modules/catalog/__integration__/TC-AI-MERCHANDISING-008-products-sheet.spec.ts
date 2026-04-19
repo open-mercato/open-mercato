@@ -131,4 +131,28 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await expect(picker.locator(`option[value="${CATALOG_AGENT_ID}"]`)).toHaveCount(1);
     await expect(picker.locator(`option[value="${MERCHANDISING_AGENT_ID}"]`)).toHaveCount(1);
   });
+
+  test('merchandising sheet title and chat region render after trigger click', async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+    await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
+
+    const trigger = page.locator('[data-ai-merchandising-trigger]');
+    await expect(trigger).toBeVisible({ timeout: 60_000 });
+    await trigger.click();
+
+    const sheet = page.locator('[data-ai-merchandising-sheet]');
+    await expect(sheet).toBeVisible();
+
+    // The sheet header should carry a localized title (English default copy
+    // starts with "Catalog"). Fall back to asserting the region `aria-label`
+    // on the AiChat surface for locales where the backend copy differs.
+    const titleCandidate = sheet.getByRole('heading').first();
+    await expect(titleCandidate).toBeVisible();
+
+    const chatRegion = page.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
+    await expect(chatRegion).toBeVisible();
+    const composer = page.locator('#ai-chat-composer');
+    await expect(composer).toBeVisible();
+  });
 });
