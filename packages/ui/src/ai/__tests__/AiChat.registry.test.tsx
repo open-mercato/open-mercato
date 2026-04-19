@@ -74,10 +74,15 @@ describe('<AiChat> × UI-part registry', () => {
     resetAiUiPartRegistryForTests()
   })
 
-  it('renders the Phase 3 placeholder for a reserved id when no override is registered', () => {
+  it('renders the Phase 3 placeholder for a reserved id on a scoped registry without live seeding', () => {
+    // Step 5.10 flipped the DEFAULT registry over to live approval cards,
+    // so we use a scoped registry (the placeholder default) to exercise the
+    // pending-chip renderer path.
+    const scoped = createAiUiPartRegistry()
     renderWithProviders(
       <AiChat
         agent="customers.account_assistant"
+        registry={scoped}
         uiParts={[{ componentId: 'mutation-preview-card', payload: { foo: 1 } }]}
       />,
       { dict },

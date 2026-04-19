@@ -176,15 +176,53 @@ function buildDebugPromptSections(agent: PlaygroundAgent): AiChatDebugPromptSect
   return sections
 }
 
+type PlaygroundUiPartSeed = {
+  componentId: string
+  pendingActionId?: string
+  payload?: unknown
+}
+
+function readPlaygroundUiPartSeeds(): PlaygroundUiPartSeed[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const componentId = params.get('uiPart')
+    if (!componentId) return []
+    const pendingActionId = params.get('pendingActionId') ?? undefined
+    return [{ componentId, pendingActionId }]
+  } catch {
+    return []
+  }
+}
+
 function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) {
   const t = useT()
   // Scoped registry so repeated mounts do not share state with other pages.
-  const registry = React.useMemo(() => createAiUiPartRegistry(), [])
+  // Step 5.10: opt in to the LIVE mutation-approval cards so the playground
+  // exercises the real cards when the chat response surfaces a pending
+  // action (via the `?uiPart=...` debug seed for Playwright).
+  const registry = React.useMemo(
+    () => createAiUiPartRegistry({ seedLiveApprovalCards: true }),
+    [],
+  )
   const debugTools = React.useMemo(() => buildDebugTools(agent), [agent])
   const debugPromptSections = React.useMemo(
     () => buildDebugPromptSections(agent),
     [agent],
   )
+  const [uiParts, setUiParts] = React.useState<PlaygroundUiPartSeed[]>([])
+
+  // Step 5.10: the dispatcher does not yet surface `AiUiPart` entries through
+  // the plain-text stream consumed by `useAiChat`. For now the playground
+  // reads a `?uiPart=<componentId>&pendingActionId=...` seed from the URL
+  // so Playwright + operator debug flows can render the approval cards
+  // against a stubbed `/api/ai_assistant/ai/actions/:id` endpoint. When the
+  // dispatcher switches to the UIMessageChunk format this effect swaps over
+  // to the streamed `uiParts` payload.
+  React.useEffect(() => {
+    const seeds = readPlaygroundUiPartSeeds()
+    if (seeds.length > 0) setUiParts(seeds)
+  }, [])
 
   if (agent.executionMode !== 'chat') {
     return (
@@ -215,6 +253,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
       className="min-h-[360px]"
       debugTools={debugTools}
       debugPromptSections={debugPromptSections}
+      uiParts={uiParts}
     />
   )
 }

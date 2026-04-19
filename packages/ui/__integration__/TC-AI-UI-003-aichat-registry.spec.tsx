@@ -142,10 +142,15 @@ describe('TC-AI-UI-003: <AiChat> UI-part registry integration', () => {
     ).toBeNull()
   })
 
-  it('shows the Phase 3 placeholder when nothing is registered for a reserved id', () => {
+  it('shows the Phase 3 placeholder when nothing is registered for a reserved id on a scoped registry', () => {
+    // Step 5.10 flipped the DEFAULT registry to live approval cards; scoped
+    // registries still seed placeholders by default so the pending-chip path
+    // is covered here with an explicit scoped registry.
+    const scoped = createAiUiPartRegistry()
     renderWithProviders(
       <AiChat
         agent="customers.account_assistant"
+        registry={scoped}
         uiParts={[{ componentId: 'confirmation-card' }]}
       />,
       { dict },

@@ -25,6 +25,27 @@ export {
 } from './ui-part-registry'
 export { PendingPhase3Placeholder } from './ui-parts/pending-phase3-placeholder'
 export {
+  MutationPreviewCard,
+  FieldDiffCard,
+  ConfirmationCard,
+  MutationResultCard,
+  AI_MUTATION_APPROVAL_CARDS,
+  useAiPendingActionPolling,
+  confirmPendingAction,
+  cancelPendingAction,
+  type UseAiPendingActionPollingOptions,
+  type UseAiPendingActionPollingResult,
+  type PendingActionMutationOk,
+  type PendingActionMutationError,
+  type PendingActionMutationResult,
+  type AiPendingActionCardAction,
+  type AiPendingActionCardStatus,
+  type AiPendingActionCardFieldDiff,
+  type AiPendingActionCardRecordDiff,
+  type AiPendingActionCardFailedRecord,
+  type AiPendingActionCardExecutionResult,
+} from './parts'
+export {
   uploadAttachmentsForChat,
   type UploadAttachmentsForChatOptions,
   type UploadAttachmentsForChatResult,

@@ -10,6 +10,11 @@ import {
   type AiUiPartComponent,
 } from '../ui-part-registry'
 import { PendingPhase3Placeholder } from '../ui-parts/pending-phase3-placeholder'
+import { AI_MUTATION_APPROVAL_CARDS } from '../parts/approval-cards-map'
+import { MutationPreviewCard } from '../parts/MutationPreviewCard'
+import { FieldDiffCard } from '../parts/FieldDiffCard'
+import { ConfirmationCard } from '../parts/ConfirmationCard'
+import { MutationResultCard } from '../parts/MutationResultCard'
 
 const NullComponent = (() => null) as unknown as AiUiPartComponent
 
@@ -22,9 +27,17 @@ describe('ai-part-registry', () => {
     resetAiUiPartRegistryForTests()
   })
 
-  it('returns the seeded Phase 3 placeholder for reserved ids by default', () => {
-    const resolved = resolveAiUiPart('mutation-preview-card')
-    expect(resolved).toBe(PendingPhase3Placeholder)
+  it('resolves the LIVE mutation-approval cards on the default registry (Step 5.10)', () => {
+    expect(resolveAiUiPart('mutation-preview-card')).toBe(MutationPreviewCard)
+    expect(resolveAiUiPart('field-diff-card')).toBe(FieldDiffCard)
+    expect(resolveAiUiPart('confirmation-card')).toBe(ConfirmationCard)
+    expect(resolveAiUiPart('mutation-result-card')).toBe(MutationResultCard)
+  })
+
+  it('AI_MUTATION_APPROVAL_CARDS includes every reserved Phase 3 slot id', () => {
+    for (const reservedId of RESERVED_AI_UI_PART_IDS) {
+      expect(AI_MUTATION_APPROVAL_CARDS[reservedId]).toBeDefined()
+    }
   })
 
   it('round-trips a registered component, overwriting the seeded placeholder', () => {
@@ -82,23 +95,31 @@ describe('ai-part-registry', () => {
       expect(defaultAiUiPartRegistry.resolve('custom-widget')).toBe(NullComponent)
     })
 
-    it('clear() empties everything and re-seeds the reserved placeholders', () => {
+    it('clear() empties everything and re-seeds the LIVE approval cards on the default registry', () => {
       registerAiUiPart('custom-widget', NullComponent)
       defaultAiUiPartRegistry.clear()
       expect(defaultAiUiPartRegistry.has('custom-widget')).toBe(false)
       expect(defaultAiUiPartRegistry.resolve('mutation-preview-card')).toBe(
-        PendingPhase3Placeholder,
+        MutationPreviewCard,
       )
     })
   })
 
   describe('createAiUiPartRegistry()', () => {
-    it('seeds reserved placeholders by default', () => {
+    it('seeds reserved placeholders by default (scoped isolation preserved)', () => {
       const registry = createAiUiPartRegistry()
       for (const reserved of RESERVED_AI_UI_PART_IDS) {
         expect(registry.resolve(reserved)).toBe(PendingPhase3Placeholder)
         expect(registry.has(reserved)).toBe(true)
       }
+    })
+
+    it('seeds the LIVE approval cards when seedLiveApprovalCards: true', () => {
+      const registry = createAiUiPartRegistry({ seedLiveApprovalCards: true })
+      expect(registry.resolve('mutation-preview-card')).toBe(MutationPreviewCard)
+      expect(registry.resolve('field-diff-card')).toBe(FieldDiffCard)
+      expect(registry.resolve('confirmation-card')).toBe(ConfirmationCard)
+      expect(registry.resolve('mutation-result-card')).toBe(MutationResultCard)
     })
 
     it('does NOT seed placeholders when seedReservedPlaceholders is false', () => {

@@ -7,6 +7,7 @@ import {
   type ReservedAiUiPartId,
 } from './ui-part-slots'
 import { PendingPhase3Placeholder } from './ui-parts/pending-phase3-placeholder'
+import { AI_MUTATION_APPROVAL_CARDS } from './parts/approval-cards-map'
 
 export { RESERVED_AI_UI_PART_IDS, isReservedAiUiPartId }
 export type { ReservedAiUiPartId }
@@ -59,16 +60,35 @@ export interface CreateAiUiPartRegistryOptions {
    * assert the registry is genuinely empty.
    */
   seedReservedPlaceholders?: boolean
+  /**
+   * When true, the registry is pre-seeded with the live Phase 3 mutation
+   * approval cards from `@open-mercato/ui/ai/parts` instead of the humane
+   * pending placeholder. The app-wide {@link defaultAiUiPartRegistry}
+   * opts in, so end users see the real cards without any bootstrap wiring;
+   * scoped registries created via {@link createAiUiPartRegistry} keep the
+   * placeholder by default so unit tests and embedded playground mounts
+   * stay deterministic and isolated.
+   */
+  seedLiveApprovalCards?: boolean
 }
 
-function seedReservedSlots(store: RegistryStore): void {
+function seedReservedSlots(
+  store: RegistryStore,
+  options: { seedLive: boolean } = { seedLive: false },
+): void {
   for (const reservedId of RESERVED_AI_UI_PART_IDS) {
-    if (!store.has(reservedId)) {
+    if (store.has(reservedId)) continue
+    if (options.seedLive && AI_MUTATION_APPROVAL_CARDS[reservedId]) {
       store.set(
         reservedId,
-        PendingPhase3Placeholder as AiUiPartComponent<AiUiPartProps>,
+        AI_MUTATION_APPROVAL_CARDS[reservedId] as AiUiPartComponent<AiUiPartProps>,
       )
+      continue
     }
+    store.set(
+      reservedId,
+      PendingPhase3Placeholder as AiUiPartComponent<AiUiPartProps>,
+    )
   }
 }
 
@@ -82,9 +102,10 @@ export function createAiUiPartRegistry(
   options?: CreateAiUiPartRegistryOptions,
 ): AiUiPartRegistry {
   const seedReserved = options?.seedReservedPlaceholders !== false
+  const seedLive = options?.seedLiveApprovalCards === true
   const store: RegistryStore = new Map()
   if (seedReserved) {
-    seedReservedSlots(store)
+    seedReservedSlots(store, { seedLive })
   }
 
   const registry: AiUiPartRegistry = {
@@ -118,7 +139,7 @@ export function createAiUiPartRegistry(
     clear() {
       store.clear()
       if (seedReserved) {
-        seedReservedSlots(store)
+        seedReservedSlots(store, { seedLive })
       }
     },
   }
@@ -132,7 +153,11 @@ function getDefaultRegistry(): AiUiPartRegistry {
     [REGISTRY_GLOBAL_KEY]?: AiUiPartRegistry
   }
   if (!scope[REGISTRY_GLOBAL_KEY]) {
-    scope[REGISTRY_GLOBAL_KEY] = createAiUiPartRegistry()
+    // Default registry seeds the LIVE mutation-approval cards (Step 5.10).
+    // Scoped registries created via `createAiUiPartRegistry()` still default
+    // to the humane placeholder so playground embeds + unit tests stay
+    // deterministic and isolated.
+    scope[REGISTRY_GLOBAL_KEY] = createAiUiPartRegistry({ seedLiveApprovalCards: true })
   }
   return scope[REGISTRY_GLOBAL_KEY]
 }

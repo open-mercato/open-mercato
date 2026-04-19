@@ -249,4 +249,85 @@ test.describe('TC-AI-PLAYGROUND-004: AI Playground', () => {
       expect(cleared || rendered > 0 || thinking > 0).toBe(true);
     }).toPass({ timeout: 10_000 });
   });
+
+  test('mutation-preview-card renders inside the playground transcript when a pending action is emitted', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await login(page, 'superadmin');
+
+    // Deterministic agent registry — a mutation-capable chat agent.
+    await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agents: [
+            {
+              id: 'customers.account_assistant',
+              moduleId: 'customers',
+              label: 'Customers account assistant',
+              description: 'Mutation-capable agent for Phase 3 approval flow.',
+              executionMode: 'chat',
+              mutationPolicy: 'require-approval',
+              allowedTools: ['customers.update_person'],
+              requiredFeatures: [],
+              acceptedMediaTypes: [],
+              hasOutputSchema: false,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    });
+
+    // Stub the polling endpoint with a pending row so the preview card
+    // resolves its state. The Playwright test never hits a real DB.
+    const pendingRow = {
+      pendingAction: {
+        id: 'pa-stub-001',
+        agentId: 'customers.account_assistant',
+        toolName: 'customers.update_person',
+        status: 'pending',
+        fieldDiff: [
+          { field: 'name', before: 'Alice', after: 'Alicia' },
+        ],
+        records: null,
+        failedRecords: null,
+        sideEffectsSummary: 'Rename Alice to Alicia.',
+        attachmentIds: [],
+        targetEntityType: 'customers.person',
+        targetRecordId: 'p-1',
+        recordVersion: '1',
+        executionResult: null,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        resolvedAt: null,
+        resolvedByUserId: null,
+      },
+    };
+    await page.route('**/api/ai_assistant/ai/actions/pa-stub-001', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(pendingRow),
+      });
+    });
+
+    // Navigate with the debug seed that instructs the playground to inject
+    // the `mutation-preview-card` UI part. This is the Step 5.10 stub path
+    // until the dispatcher surfaces UI parts through the streamed body.
+    await page.goto(
+      `${playgroundPath}?uiPart=mutation-preview-card&pendingActionId=pa-stub-001`,
+      { waitUntil: 'domcontentloaded' },
+    );
+
+    const container = page.locator('[data-ai-playground]');
+    await expect(container).toBeVisible({ timeout: 60_000 });
+
+    const previewCard = page.locator('[data-ai-mutation-preview]').first();
+    await expect(previewCard).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-ai-mutation-preview-confirm]')).toBeVisible();
+    await expect(page.locator('[data-ai-mutation-preview-cancel]')).toBeVisible();
+  });
 });
