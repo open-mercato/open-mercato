@@ -1,3 +1,10 @@
+// This file is mirrored verbatim between:
+//   - apps/mercato/src/lib/dev-origins.ts
+//   - packages/create-app/template/src/lib/dev-origins.ts
+// Scaffolded standalone apps cannot import @open-mercato/*, so the
+// duplication is deliberate. Keep both copies in sync when editing; CI
+// runs `yarn template:sync` to enforce parity.
+
 function readOriginHostname(raw: string | undefined): string | null {
   const value = raw?.trim()
   if (!value) return null
