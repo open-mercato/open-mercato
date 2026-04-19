@@ -707,3 +707,19 @@
 - BC: additive only. 1 new file, 1 new agent id, 0 removed exports, 0 new routes, 0 new ACL features, 0 new i18n keys, 0 migrations.
 - Phase 4 WS-C now **1/5 landed** (4.7). Phase 4 overall **7/11**. Next: Step 4.8 — first catalog agent read-only prompt template.
 
+## 2026-04-18T19:15:00Z — Step 4.8 committed (2d2679502)
+- `feat(catalog): add catalog.catalog_assistant read-only AI agent (Phase 2 WS-C)`
+- Files added: `packages/core/src/modules/catalog/ai-agents.ts`, `packages/core/src/modules/catalog/__tests__/ai-agents.test.ts`, `packages/core/src/modules/catalog/__integration__/TC-AI-CATALOG-007-catalog-assistant.spec.ts`. Generated output `apps/mercato/.mercato/generated/ai-agents.generated.ts` regenerated (gitignored).
+- Declares `catalog.catalog_assistant` (module `catalog`, read-only, chat mode, 17-tool whitelist = 12 base catalog read tools + 5 general-purpose). Required features `catalog.products.view` + `catalog.categories.view`. No D18 merchandising tools and no authoring tools — those stay reserved for Step 4.9's `catalog.merchandising_assistant`; a deny-list test enforces that boundary.
+- Structured `PromptTemplate` with the seven §8 sections (ROLE, SCOPE, DATA, TOOLS, ATTACHMENTS, MUTATION POLICY, RESPONSE STYLE); compiled into `systemPrompt` for the runtime and exported independently for Phase 5.3 prompt-override merge work.
+- `resolvePageContext` async stub (returns `null`); Step 5.2 will wire real record hydration.
+- Agent-definition types redeclared locally (same pattern as Step 4.7). `@open-mercato/core` remains off the `@open-mercato/ai-assistant` module graph.
+- Unit tests (11) under `packages/core/src/modules/catalog/__tests__/ai-agents.test.ts` cover read-only flag, execution metadata, whitelist membership (catalog base OR general), no pack-mutation leak, D18 deny-list (7 ids), authoring deny-list (5 ids), ACL feature existence, seven-section order, systemPrompt compilation, and `resolvePageContext` stub. Core: **335 suites / 3053 tests** (was 334 / 3042 after Step 4.7; delta is the new suite +1 / +11).
+- Integration spec `TC-AI-CATALOG-007` under `packages/core/src/modules/catalog/__integration__/` asserts `/api/ai_assistant/ai/agents` (incl. deny-list guards), `meta.describe_agent` via `/api/ai_assistant/tools/execute`, and the playground picker DOM listing BOTH agents.
+- `yarn generate`: 313 routes (no drift). `ai-agents.generated.ts` now imports BOTH the customers and the catalog `ai-agents.ts` files.
+- `yarn i18n:check-sync`: green (no new keys).
+- Typecheck: clean (core cache miss rebuilt; app cached).
+- Browser smoke: `step-4.8-artifacts/playground-catalog-agent.png` shows the playground picker with "Catalog Assistant (catalog.catalog_assistant)" selected and "Customers Account Assistant (customers.account_assistant)" as the alternate option. Allowed tools `17`. Reused the existing `yarn dev:app` task on port 3000; rebuilt `@open-mercato/core` once and touched `apps/mercato/next.config.ts` to bust Turbopack's cached module graph. The dev server itself was never restarted.
+- BC: additive only. 3 new files, 1 new agent id, 0 removed exports, 0 new routes, 0 new ACL features, 0 new i18n keys, 0 migrations.
+- Phase 4 WS-C now **2/5 landed** (4.7, 4.8). Phase 4 overall **8/11**. Next: Step 4.9 — D18 `catalog.merchandising_assistant` (read-only Phase 2 exit) with `<AiChat>` sheet on `/backend/catalog/catalog/products` and selection-aware `pageContext`.
+

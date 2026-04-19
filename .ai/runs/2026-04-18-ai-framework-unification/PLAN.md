@@ -48,7 +48,7 @@
 | 4 | 4.5 | Spec Phase 2 WS-B — Backend agent settings page (`/backend/config/ai-assistant/agents`) with prompt overrides + tool toggles + attachment policy | done | ce011a9e5 |
 | 4 | 4.6 | Spec Phase 2 WS-B — i18n keys, keyboard shortcuts (`Cmd/Ctrl+Enter`, `Escape`), debug support | done | ee68a0030 |
 | 4 | 4.7 | Spec Phase 2 WS-C — First customers agent with prompt template (read-only) | done | c4cba55ad |
-| 4 | 4.8 | Spec Phase 2 WS-C — First catalog agent with prompt template (read-only) | todo | — |
+| 4 | 4.8 | Spec Phase 2 WS-C — First catalog agent with prompt template (read-only) | done | 2d2679502 |
 | 4 | 4.9 | Spec §10 (D18) — `catalog.merchandising_assistant` agent (read-only Phase 2 exit): definition in `packages/core/src/modules/catalog/ai-agents.ts`, `<AiChat>` sheet on `/backend/catalog/catalog/products`, selection-aware `pageContext`, structured-output proposals only | todo | — |
 | 4 | 4.10 | Spec Phase 2 WS-C — Backend + portal examples using existing injection/replacement patterns | todo | — |
 | 4 | 4.11 | Spec Phase 2 — Integration tests: playground + settings + D18 read-only demo | todo | — |
