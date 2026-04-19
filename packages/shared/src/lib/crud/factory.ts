@@ -183,11 +183,16 @@ export type ListConfig<TList> = {
   joins?: QueryJoinEdge[]
   decorateCustomFields?: CrudListCustomFieldDecorator
   /**
-   * When true, list queries skip QueryEngine default organization_id / tenant_id guards and
-   * the empty-`organizationIds` short-circuit in both the query-engine and ORM-fallback paths.
+   * When true, LIST queries skip the default organization_id / tenant_id guards in both the
+   * query-engine path and the ORM-fallback path (including the empty-`organizationIds`
+   * short-circuit and the automatic scope injection into `buildScopedWhere`).
    *
    * `buildFilters` MUST fully encode row visibility (typically as `$or` of scoped branches) and
    * MUST fail closed when the principal lacks a resolvable tenant/org.
+   *
+   * Scope: this flag only affects GET/list reads. Update and delete operations always keep
+   * their automatic tenant/org scoping in `buildScopedWhere` as a write-side safety guard, so
+   * callers cannot accidentally mutate rows outside the caller's tenant/org.
    *
    * With this flag, `HybridQueryEngine` delegates to the basic engine, so custom-field (`cf:*`)
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
@@ -1694,12 +1699,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         em,
         ormCfg.entity,
       )
+      const omitListScope = !!opts.list?.omitAutomaticTenantOrgScope
       const where: any = buildScopedWhere(
         ormFilters as Record<string, any>,
         {
-          organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
-          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
-          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
+          organizationId: !omitListScope && ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
+          organizationIds: !omitListScope && ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: !omitListScope && ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
           softDeleteField: ormCfg.softDeleteField,
