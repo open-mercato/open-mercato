@@ -33,6 +33,7 @@ import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHe
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
+import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
 import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
@@ -392,13 +393,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             }}
           />
 
-          {/* Two-column layout: Zone 1 (collapsible form) + Zone 2 (tabs + tab content) */}
-          <CollapsibleZoneLayout
-            pageType="person-v2"
-            entityName={personName}
-            isDirty={isDirty}
-            sections={zoneSections}
-            zone1={
+          {/* Zone content shared between desktop (CollapsibleZoneLayout) and mobile (MobilePersonDetail). */}
+          {(() => {
+            const zone1Content = (
               <div ref={formWrapperRef}>
                 <CrudForm<PersonEditFormValues>
                   embedded
@@ -417,8 +414,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   onDirtyChange={setIsDirty}
                 />
               </div>
-            }
-            zone2={
+            )
+            const zone2Content = (
               <PersonDetailTabs
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
@@ -543,8 +540,25 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 })()}
                 </div>
               </PersonDetailTabs>
-            }
-          />
+            )
+            return (
+              <>
+                <div className="md:hidden">
+                  <MobilePersonDetail zone1={zone1Content} zone2={zone2Content} />
+                </div>
+                <div className="hidden md:block">
+                  <CollapsibleZoneLayout
+                    pageType="person-v2"
+                    entityName={personName}
+                    isDirty={isDirty}
+                    sections={zoneSections}
+                    zone1={zone1Content}
+                    zone2={zone2Content}
+                  />
+                </div>
+              </>
+            )
+          })()}
 
           {/* UMES footer injection */}
           <InjectionSpot spotId="detail:customers.person:footer" context={injectionContext} data={data} />

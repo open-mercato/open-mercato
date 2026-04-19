@@ -5,6 +5,8 @@ import {
   CalendarDays,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
+  ChevronUp,
   Check,
   GripVertical,
   Hash,
@@ -312,19 +314,27 @@ function serializeEntries(entries: TagEntryDraft[]): string {
 
 function SortableEntryRow({
   entry,
+  index,
+  total,
   isDefault,
   onLabelChange,
   onValueChange,
   onColorChange,
   onDelete,
+  onMoveUp,
+  onMoveDown,
   t,
 }: {
   entry: TagEntryDraft
+  index: number
+  total: number
   isDefault: boolean
   onLabelChange: (value: string) => void
   onValueChange: (value: string) => void
   onColorChange: (value: string) => void
   onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
   t: ReturnType<typeof useT>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -336,6 +346,9 @@ function SortableEntryRow({
     opacity: isDragging ? 0.5 : 1,
   }
 
+  const isFirst = index === 0
+  const isLast = index === total - 1
+
   return (
     <div
       ref={setNodeRef}
@@ -344,11 +357,39 @@ function SortableEntryRow({
     >
       {/* Grip handle */}
       <div
+        aria-label={t('customers.tags.manage.dragHandle', 'Drag to reorder')}
+        title={t('customers.tags.manage.dragHandle', 'Drag to reorder')}
         className="flex size-[18px] shrink-0 cursor-grab items-center justify-center text-muted-foreground/70"
         {...attributes}
         {...listeners}
       >
         <GripVertical className="size-[14px]" />
+      </div>
+
+      {/* Arrow reorder buttons — additive alternative to drag */}
+      <div className="flex shrink-0 flex-col gap-[2px]">
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-label={t('customers.tags.manage.moveUp', 'Move up')}
+          disabled={isFirst}
+          onClick={onMoveUp}
+          className="h-5 w-5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+        >
+          <ChevronUp className="size-3" />
+        </IconButton>
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-label={t('customers.tags.manage.moveDown', 'Move down')}
+          disabled={isLast}
+          onClick={onMoveDown}
+          className="h-5 w-5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+        >
+          <ChevronDown className="size-3" />
+        </IconButton>
       </div>
 
       {/* Label + default indicator */}
@@ -666,6 +707,23 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         if (oldIndex === -1 || newIndex === -1) return current
         const reordered = arrayMove(liveEntries, oldIndex, newIndex)
         const deletedEntries = entries.filter((e) => e.deleted)
+        return { ...current, [activeTab]: [...reordered, ...deletedEntries] }
+      })
+    },
+    [activeTab],
+  )
+
+  const moveEntryByDelta = React.useCallback(
+    (localId: string, delta: -1 | 1) => {
+      setDraftsByKind((current) => {
+        const entries = current[activeTab] ?? []
+        const liveEntries = entries.filter((entry) => !entry.deleted)
+        const oldIndex = liveEntries.findIndex((entry) => entry.localId === localId)
+        if (oldIndex < 0) return current
+        const newIndex = oldIndex + delta
+        if (newIndex < 0 || newIndex >= liveEntries.length) return current
+        const reordered = arrayMove(liveEntries, oldIndex, newIndex)
+        const deletedEntries = entries.filter((entry) => entry.deleted)
         return { ...current, [activeTab]: [...reordered, ...deletedEntries] }
       })
     },
@@ -1152,6 +1210,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                           <SortableEntryRow
                             key={entry.localId}
                             entry={entry}
+                            index={index}
+                            total={visibleEntries.length}
                             isDefault={index === 0 && entry.id !== null}
                             onLabelChange={(value) => {
                               updateDraftEntry(activeTab, entry.localId, (current) => ({
@@ -1176,6 +1236,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                               }))
                             }}
                             onDelete={() => handleDeleteEntry(activeTab, entry.localId)}
+                            onMoveUp={() => moveEntryByDelta(entry.localId, -1)}
+                            onMoveDown={() => moveEntryByDelta(entry.localId, 1)}
                             t={t}
                           />
                         ))}

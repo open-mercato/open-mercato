@@ -17,7 +17,8 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div>{children}</div> : null),
   DialogContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="dialog-content" {...props}>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
@@ -77,10 +78,12 @@ describe('DealLinkedEntitiesTab', () => {
       expect(screen.getByText('Linus Torvalds')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select visible' }))
+    const graceCheckbox = screen.getByRole('checkbox', { name: 'Select Grace Hopper' })
+    fireEvent.click(graceCheckbox)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Linus Torvalds' }))
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
     })
 
     await waitFor(() => {
@@ -93,74 +96,49 @@ describe('DealLinkedEntitiesTab', () => {
     })
   })
 
-  it('keeps visible results mounted while loading more search results', async () => {
-    jest.useFakeTimers()
-    let resolvePageTwo: ((value: { items: Array<{ id: string; label: string; subtitle: string }>; totalPages: number }) => void) | null = null
-
+  it('navigates between search pages via numbered pagination', async () => {
     const catalog = {
       'person-1': { id: 'person-1', label: 'Ada Lovelace', subtitle: 'Lead buyer' },
       'person-2': { id: 'person-2', label: 'Grace Hopper', subtitle: 'Procurement lead' },
       'person-3': { id: 'person-3', label: 'Linus Torvalds', subtitle: 'CTO' },
     }
 
-    try {
-      renderWithProviders(
-        <DealLinkedEntitiesTab
-          entityLabel="Person"
-          entityLabelPlural="People"
-          manageLabel="Manage linked people"
-          searchPlaceholder="Search linked people…"
-          linkedItems={[catalog['person-1']]}
-          linkedCount={1}
-          selectedIds={['person-1']}
-          hrefBuilder={(id) => `/backend/customers/people-v2/${id}`}
-          onSaveSelection={async () => {}}
-          searchEntities={async (_query, page) => {
-            if (page === 1) {
-              return {
-                items: [catalog['person-2']],
-                totalPages: 2,
-              }
+    renderWithProviders(
+      <DealLinkedEntitiesTab
+        entityLabel="Person"
+        entityLabelPlural="People"
+        manageLabel="Manage linked people"
+        searchPlaceholder="Search linked people…"
+        linkedItems={[catalog['person-1']]}
+        linkedCount={1}
+        selectedIds={['person-1']}
+        hrefBuilder={(id) => `/backend/customers/people-v2/${id}`}
+        onSaveSelection={async () => {}}
+        searchEntities={async (_query, page) => {
+          if (page === 1) {
+            return {
+              items: [catalog['person-2']],
+              totalPages: 2,
             }
-            return new Promise<{ items: Array<{ id: string; label: string; subtitle: string }>; totalPages: number }>((resolve) => {
-              resolvePageTwo = resolve
-            })
-          }}
-          fetchEntitiesByIds={async (ids) => ids.map((id) => catalog[id as keyof typeof catalog])}
-          icon={<span>icon</span>}
-        />,
-      )
+          }
+          return {
+            items: [catalog['person-3']],
+            totalPages: 2,
+          }
+        }}
+        fetchEntitiesByIds={async (ids) => ids.map((id) => catalog[id as keyof typeof catalog])}
+        icon={<span>icon</span>}
+      />,
+    )
 
-      fireEvent.click(screen.getByRole('button', { name: 'Manage links' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Manage links' }))
 
-      await act(async () => {
-        jest.advanceTimersByTime(200)
-      })
+    expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
 
-      expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Next$/ }))
+    })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
-
-      await act(async () => {
-        jest.advanceTimersByTime(200)
-      })
-
-      await waitFor(() => {
-        expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Load more' })).toBeDisabled()
-      })
-
-      await act(async () => {
-        resolvePageTwo?.({
-          items: [catalog['person-3']],
-          totalPages: 2,
-        })
-      })
-
-      expect(await screen.findByText('Linus Torvalds')).toBeInTheDocument()
-      expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
-    } finally {
-      jest.useRealTimers()
-    }
+    expect(await screen.findByText('Linus Torvalds')).toBeInTheDocument()
   })
 })

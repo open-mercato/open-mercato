@@ -25,13 +25,20 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
+export type CreatedPersonSummary = {
+  id: string
+  displayName: string
+  companyId: string
+  companyName: string
+}
+
 interface CreatePersonDialogProps {
   open: boolean
   onClose: () => void
   companyId: string
   companyName: string
   runGuardedMutation?: GuardedMutationRunner
-  onPersonCreated?: () => void
+  onPersonCreated?: (created?: CreatedPersonSummary) => void
 }
 
 export function CreatePersonDialog({
@@ -110,16 +117,21 @@ export function CreatePersonDialog({
     }
 
     const operation = () => createCrud<{ id?: string; entityId?: string }>('customers/people', payload)
-    if (runGuardedMutation) {
-      await runGuardedMutation(operation, payload)
-    } else {
-      await operation()
-    }
+    const response = runGuardedMutation
+      ? await runGuardedMutation(operation, payload)
+      : await operation()
 
     flash(t('customers.people.createDialog.success', 'Person created and linked to company'), 'success')
-    onPersonCreated?.()
+    const newId = response?.result?.id ?? response?.result?.entityId ?? ''
+    const displayNameFromPayload = typeof payload.displayName === 'string' ? payload.displayName : ''
+    onPersonCreated?.({
+      id: newId,
+      displayName: displayNameFromPayload,
+      companyId,
+      companyName,
+    })
     onClose()
-  }, [onClose, onPersonCreated, organizationId, runGuardedMutation, t])
+  }, [companyId, companyName, onClose, onPersonCreated, organizationId, runGuardedMutation, t])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {

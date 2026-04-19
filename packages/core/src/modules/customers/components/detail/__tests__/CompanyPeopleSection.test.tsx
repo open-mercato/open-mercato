@@ -149,7 +149,7 @@ describe('CompanyPeopleSection', () => {
     fireEvent.click(checkbox)
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Link selected' }))
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
     })
 
     expect(runGuardedMutation).toHaveBeenCalled()
@@ -209,7 +209,7 @@ describe('CompanyPeopleSection', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Hopper' }))
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Link selected' }))
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
     })
 
     expect(apiCallOrThrowMock).toHaveBeenNthCalledWith(
@@ -240,7 +240,7 @@ describe('CompanyPeopleSection', () => {
     })
   })
 
-  it('selects all visible candidates and updates the visible people list without a reload', async () => {
+  it('selects multiple visible candidates via checkboxes and links them in one save', async () => {
     let linkedPeople: CompanyPersonSummary[] = []
     const searchablePeople = [
       {
@@ -308,14 +308,12 @@ describe('CompanyPeopleSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Select visible' })).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Select visible' }))
+    const adaCheckbox = await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' })
+    fireEvent.click(adaCheckbox)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Hopper' }))
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Link selected' }))
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
     })
 
     await waitFor(() => {
@@ -421,7 +419,7 @@ describe('CompanyPeopleSection', () => {
       fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
 
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Link selected' }))
+        fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
       })
 
       await waitFor(() => {
@@ -515,9 +513,7 @@ describe('CompanyPeopleSection', () => {
     )
   })
 
-  it('keeps visible candidates mounted while loading more people', async () => {
-    let resolvePageTwo: ((value: { items: Array<Record<string, unknown>>; totalPages: number }) => void) | null = null
-
+  it('navigates to the next search page via numbered pagination', async () => {
     readApiResultOrThrowMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/companies/company-123/people')) {
         return {
@@ -541,9 +537,16 @@ describe('CompanyPeopleSection', () => {
           totalPages: 2,
         }
       }
-      return new Promise<{ items: Array<Record<string, unknown>>; totalPages: number }>((resolve) => {
-        resolvePageTwo = resolve
-      })
+      return {
+        items: [
+          {
+            id: 'person-3',
+            display_name: 'Grace Hopper',
+            primary_email: 'grace@example.com',
+          },
+        ],
+        totalPages: 2,
+      }
     })
 
     renderWithProviders(
@@ -559,28 +562,11 @@ describe('CompanyPeopleSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
     expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load more people' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Load more people' })).toBeDisabled()
-    })
-
     await act(async () => {
-      resolvePageTwo?.({
-        items: [
-          {
-            id: 'person-3',
-            display_name: 'Grace Hopper',
-            primary_email: 'grace@example.com',
-          },
-        ],
-        totalPages: 2,
-      })
+      fireEvent.click(screen.getByRole('button', { name: /^Next$/ }))
     })
 
     expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
-    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
   })
 
   it('shows the people search controls by default when linked people exist', () => {

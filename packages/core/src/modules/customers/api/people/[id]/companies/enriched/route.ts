@@ -215,7 +215,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
         findWithDecryption(em, CustomerCompanyBilling, { entity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
         findWithDecryption(em, CustomerTagAssignment, { entity: { $in: companyIds }, ...tenantScope }, { populate: ['tag'] }, entityScope),
         findWithDecryption(em, CustomerPersonCompanyRole, { personEntity: person, companyEntity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
-        findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds }, ...tenantScope }, { populate: ['deal'] }, entityScope),
+        // CustomerDealCompanyLink is a pure junction table without tenantId/organizationId columns;
+        // scoping flows transitively through the already-tenant-scoped `company` filter.
+        findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds } }, { populate: ['deal'] }, entityScope),
         findWithDecryption(em, CustomerInteraction, {
           entity: { $in: companyIds },
           occurredAt: { $ne: null },
@@ -376,6 +378,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    console.error('[customers/people/[id]/companies/enriched] GET failed', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

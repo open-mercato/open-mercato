@@ -2,12 +2,14 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Pencil } from 'lucide-react'
+import { Link2, Pencil, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LinkEntityDialog } from '../linking/LinkEntityDialog'
+import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -564,6 +566,139 @@ export function DealsSection({
     setDialogOpen(true)
   }, [scope])
 
+  const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
+  const openLinkDialog = React.useCallback(() => {
+    if (!scope) return
+    setLinkDialogOpen(true)
+  }, [scope])
+
+  const existingDealIds = React.useMemo(() => deals.map((deal) => deal.id), [deals])
+
+  const dealLinkAdapter = React.useMemo(
+    () =>
+      createDealLinkAdapter({
+        dialogTitle: t('customers.linking.deal.dialogTitle', 'Link deal'),
+        dialogSubtitle: t(
+          'customers.linking.deal.dialogSubtitle',
+          'Link an existing deal to this record',
+        ),
+        sectionLabel: t('customers.linking.deal.sectionLabel', 'MATCHING DEALS'),
+        searchPlaceholder: t('customers.linking.deal.searchPlaceholder', 'Search all deals…'),
+        searchEmptyHint: t('customers.linking.deal.searchEmpty', 'No matching deals found.'),
+        selectedEmptyHint: t('customers.linking.deal.selectedEmpty', 'No deals selected.'),
+        confirmButtonLabel: t('customers.linking.deal.confirmButton', 'Link deal'),
+        orphanWarningTitle: t('customers.linking.deal.orphanWarningTitle', 'Deal without company'),
+        orphanWarningMessage: t(
+          'customers.linking.deal.orphanWarning',
+          'This deal has no other linked entities. If you unlink it later, it will become unreachable.',
+        ),
+        contextEntityId: scope?.entityId,
+      }),
+    [scope?.entityId, t],
+  )
+
+  const handleLinkConfirm = React.useCallback(
+    async ({
+      addedIds,
+      removedIds,
+    }: {
+      addedIds: string[]
+      removedIds: string[]
+    }) => {
+      if (!scope) return
+      if (!addedIds.length && !removedIds.length) return
+      pushLoading()
+      try {
+        for (const dealId of addedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person' && !currentPersonIds.includes(scope.entityId)
+              ? [...currentPersonIds, scope.entityId]
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company' && !currentCompanyIds.includes(scope.entityId)
+              ? [...currentCompanyIds, scope.entityId]
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.linkError',
+                    'Failed to link deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'linkDeal' },
+          )
+        }
+        for (const dealId of removedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person'
+              ? currentPersonIds.filter((id) => id !== scope.entityId)
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company'
+              ? currentCompanyIds.filter((id) => id !== scope.entityId)
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.unlinkError',
+                    'Failed to unlink deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'unlinkDeal' },
+          )
+        }
+        await loadDeals({ append: false })
+        await refreshParentData()
+        if (addedIds.length + removedIds.length > 0) {
+          onCountDelta?.(addedIds.length - removedIds.length)
+        }
+        flash(
+          addedIds.length > 0
+            ? t('customers.people.detail.deals.linkSuccess', 'Deal linked.')
+            : t('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'),
+          'success',
+        )
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : t('customers.people.detail.deals.linkError', 'Failed to link deal.')
+        flash(message, 'error')
+      } finally {
+        popLoading()
+      }
+    },
+    [loadDeals, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, t],
+  )
+
   const closeDialog = React.useCallback(() => {
     setDialogOpen(false)
     setInitialValues(undefined)
@@ -762,6 +897,28 @@ export function DealsSection({
           {loadError}
         </div>
       ) : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={openLinkDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Link2 className="mr-1.5 size-3.5" />
+          {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={openCreateDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Plus className="mr-1.5 size-3.5" />
+          {addActionLabel}
+        </Button>
+      </div>
       {isLoading && sortedDeals.length === 0 ? (
         <LoadingMessage
           label={t('customers.people.detail.deals.loading', 'Loading deals…')}
@@ -911,6 +1068,13 @@ export function DealsSection({
           await handleDialogSubmit(payload)
         }}
         isSubmitting={Boolean(isFormPending)}
+      />
+      <LinkEntityDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        adapter={dealLinkAdapter}
+        initialSelectedIds={existingDealIds}
+        onConfirm={handleLinkConfirm}
       />
       {ConfirmDialogElement}
     </div>

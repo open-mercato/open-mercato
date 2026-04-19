@@ -141,11 +141,11 @@ describe('PersonCompaniesSection', () => {
     expect(await screen.findByText('1 linked companies')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage links' }))
-    expect(await screen.findByText('Beta Holdings')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Select visible' }))
+    const betaCheckbox = await screen.findByRole('checkbox', { name: 'Select Beta Holdings' })
+    fireEvent.click(betaCheckbox)
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+      fireEvent.click(screen.getByRole('button', { name: /Link (person|company|deal)/ }))
     })
 
     await waitFor(() => {
@@ -156,9 +156,7 @@ describe('PersonCompaniesSection', () => {
     expect(runGuardedMutation).toHaveBeenCalled()
   })
 
-  it('keeps visible company results mounted while loading more candidates', async () => {
-    let resolvePageTwo: ((value: { items: Array<Record<string, unknown>>; totalPages: number }) => void) | null = null
-
+  it('navigates search results via numbered pagination', async () => {
     readApiResultOrThrowMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/people/person-1/companies/enriched')) {
         return {
@@ -180,9 +178,16 @@ describe('PersonCompaniesSection', () => {
           totalPages: 2,
         }
       }
-      return new Promise<{ items: Array<Record<string, unknown>>; totalPages: number }>((resolve) => {
-        resolvePageTwo = resolve
-      })
+      return {
+        items: [
+          {
+            id: 'company-3',
+            display_name: 'Gamma Industries',
+            website_url: 'gamma.example',
+          },
+        ],
+        totalPages: 2,
+      }
     })
 
     renderWithProviders(
@@ -196,27 +201,10 @@ describe('PersonCompaniesSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Manage links' }))
     expect(await screen.findByText('Beta Holdings')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load more companies' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Beta Holdings')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Load more companies' })).toBeDisabled()
-    })
-
     await act(async () => {
-      resolvePageTwo?.({
-        items: [
-          {
-            id: 'company-3',
-            display_name: 'Gamma Industries',
-            website_url: 'gamma.example',
-          },
-        ],
-        totalPages: 2,
-      })
+      fireEvent.click(screen.getByRole('button', { name: /^Next$/ }))
     })
 
     expect(await screen.findByText('Gamma Industries')).toBeInTheDocument()
-    expect(screen.getByText('Beta Holdings')).toBeInTheDocument()
   })
 })

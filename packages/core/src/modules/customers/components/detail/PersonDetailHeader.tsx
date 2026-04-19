@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Trash2, Pencil, Plus } from 'lucide-react'
+import { Phone, Mail, Building2, Trash2, Pencil } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -28,6 +28,11 @@ type PersonDetailHeaderProps = {
   isSaving: boolean
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
+  /**
+   * @deprecated Kept for backward compatibility. The "+ Link company" header CTA was removed;
+   * company linking now happens exclusively through the Zone 2 Companies tab via
+   * `PersonCompaniesSection`. This prop is a no-op and will be removed in a future major release.
+   */
   onOpenCompaniesTab?: () => void
   /** Callback to reload person data after tags dialog save. */
   onDataReload?: () => void
@@ -192,18 +197,6 @@ export function PersonDetailHeader({
                 <Badge variant="outline" className="rounded-[4px] text-xs font-semibold">
                   +{hiddenCompaniesCount} {t('customers.people.detail.header.more', 'more')}
                 </Badge>
-              ) : null}
-              {onOpenCompaniesTab ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={onOpenCompaniesTab}
-                  className="h-auto rounded-[4px] border-dashed px-2 py-[3px] text-xs font-semibold text-muted-foreground"
-                >
-                  <Plus className="size-[11px]" />
-                  {t('customers.people.detail.header.linkCompany', 'Link company')}
-                </Button>
               ) : null}
             </div>
           )}

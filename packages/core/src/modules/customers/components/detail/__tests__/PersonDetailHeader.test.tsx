@@ -100,4 +100,44 @@ describe('PersonDetailHeader', () => {
 
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
+
+  it('does not render a "Link company" CTA in the header (SPEC-2026-04-19 removal)', () => {
+    const onOpenCompaniesTab = jest.fn()
+    renderWithProviders(
+      <PersonDetailHeader
+        data={{
+          person: {
+            id: 'person-1',
+            displayName: 'Jane Doe',
+            organizationId: 'org-1',
+            status: null,
+            lifecycleStage: null,
+            source: null,
+            temperature: null,
+            renewalQuarter: null,
+          },
+          profile: null,
+          customFields: {},
+          tags: [],
+          comments: [],
+          activities: [],
+          interactions: [],
+          deals: [],
+          todos: [],
+          companies: [],
+          viewer: null,
+        }}
+        onTagsChange={jest.fn()}
+        tagsSectionControllerRef={{ current: null }}
+        onSave={jest.fn()}
+        onDelete={jest.fn(async () => undefined)}
+        isDirty={false}
+        isSaving={false}
+        onOpenCompaniesTab={onOpenCompaniesTab}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Link company' })).not.toBeInTheDocument()
+    expect(onOpenCompaniesTab).not.toHaveBeenCalled()
+  })
 })
