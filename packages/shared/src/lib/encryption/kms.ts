@@ -1,6 +1,15 @@
 import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
+import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
+
+const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 5_000
+
+function resolveVaultRequestTimeoutMs(): number {
+  const raw = process.env.VAULT_REQUEST_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_VAULT_REQUEST_TIMEOUT_MS)
+}
 
 export type TenantDek = {
   tenantId: string
@@ -191,9 +200,10 @@ export class HashicorpVaultKmsService implements KmsService {
       return null
     }
     try {
-      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
+      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'GET',
         headers: { 'X-Vault-Token': this.vaultToken },
+        timeoutMs: resolveVaultRequestTimeoutMs(),
       })
       if (!res.ok) {
         this.healthy = res.status < 500
@@ -217,14 +227,14 @@ export class HashicorpVaultKmsService implements KmsService {
       return false
     }
     try {
-      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
-
+      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'POST',
         headers: {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ data: { key } }),
+        timeoutMs: resolveVaultRequestTimeoutMs(),
       })
       this.healthy = res.ok
       if (!res.ok) {
