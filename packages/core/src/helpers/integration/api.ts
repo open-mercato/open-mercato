@@ -7,6 +7,12 @@ function resolveUrl(path: string): string {
   return BASE_URL ? `${BASE_URL}${path}` : path;
 }
 
+// Cached tokens per credential to dodge the login rate limit
+// (5 attempts/60s per email). Tokens are reused across tests in the same
+// Playwright worker; each worker still mints its own.
+const tokenCache = new Map<string, { token: string; mintedAt: number }>();
+const TOKEN_TTL_MS = 45 * 60 * 1000; // 45 min; well under the default 2h session TTL.
+
 export async function getAuthToken(
   request: APIRequestContext,
   roleOrEmail: Role | string = 'admin',
@@ -23,6 +29,14 @@ export async function getAuthToken(
     }
   } else {
     credentialAttempts.push({ email: roleOrEmail, password: password ?? 'secret' });
+  }
+
+  const cacheKey = credentialAttempts
+    .map((entry) => `${entry.email}:${entry.password}`)
+    .join('|');
+  const cached = tokenCache.get(cacheKey);
+  if (cached && Date.now() - cached.mintedAt < TOKEN_TTL_MS) {
+    return cached.token;
   }
 
   let lastStatus = 0;
@@ -52,6 +66,7 @@ export async function getAuthToken(
 
       lastStatus = response.status();
       if (response.ok() && body && typeof body.token === 'string' && body.token) {
+        tokenCache.set(cacheKey, { token: body.token, mintedAt: Date.now() });
         return body.token;
       }
       if (response.status() !== 429) break;
