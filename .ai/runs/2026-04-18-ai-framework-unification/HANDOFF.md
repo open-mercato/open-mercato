@@ -1,111 +1,102 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T23:30:00Z
+**Last updated:** 2026-04-19T00:45:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 5 Step 5.11 **complete**. A new
-`packages/ai-assistant/src/modules/ai_assistant/events.ts` declares the
-three FROZEN pending-action lifecycle events
-(`ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`)
-via `createModuleEvents({ moduleId: 'ai_assistant', events })`. Both
-Step 5.8 (`executePendingActionConfirm`) and Step 5.9
-(`executePendingActionCancel`) now emit through the typed
-`emitAiAssistantEvent` helper; the `TODO(step 5.11)` markers on both
-call sites are gone. Typed payload interfaces
-(`AiActionConfirmedPayload` / `AiActionCancelledPayload` /
-`AiActionExpiredPayload`) live alongside the declarations and are
-consumed by the unit suites so future drift surfaces as a test
-failure. `yarn generate` picks the module up automatically
-(`EVENTS_ai_assistant_1223` in `apps/mercato/.mercato/generated/events.generated.ts`).
-**Last commit (code):** `26e304f29` — `feat(ai-assistant): declare typed ai.action.* events + migrate confirm/cancel emissions (Phase 3 WS-C)`
+**Current phase/step:** Phase 5 Step 5.12 **complete**. A new
+`packages/ai-assistant/src/modules/ai_assistant/workers/ai-pending-action-cleanup.ts`
+periodically sweeps `AiPendingAction` rows whose TTL elapsed without a
+confirm/cancel touch, flipping them `pending → expired` via the Step
+5.5 repo's state-machine guard and emitting
+`ai.action.expired` through the Step 5.11 typed helper. A
+`run-pending-action-cleanup` CLI subcommand lets operators invoke it
+manually, and `setup.ts` registers a system-scope 5-minute interval
+schedule via `schedulerService.register` (stable id
+`ai_assistant:pending-action-cleanup`, upsert = idempotent across
+tenants).
+**Last commit (code):** `4fc11ed48` — `feat(ai-assistant): cleanup worker for expired pending actions with typed expired event (Phase 3 WS-C)`
 
 ## What just happened
 
-- **New events module** `packages/ai-assistant/src/modules/ai_assistant/events.ts`:
-  - `eventsConfig` built via `createModuleEvents({ moduleId: 'ai_assistant', events })`.
-  - Three entries, all `category: 'system'`, `entity: 'ai_pending_action'`:
-    `ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`.
-  - Typed exports: `emitAiAssistantEvent` (helper), `AiAssistantEventId`
-    (union type), `AiActionConfirmedPayload`, `AiActionCancelledPayload`,
-    `AiActionExpiredPayload`.
-- **Emission swap** at the two Step 5.8 / 5.9 call sites:
-  - `lib/pending-action-executor.ts` now imports `emitAiAssistantEvent`
-    and routes `ai.action.confirmed` emissions through a
-    `defaultConfirmedEmitter` that calls the typed helper with
-    `{ persistent: true }`. The old `container.resolve('eventBus')`
-    path is gone; the injection seam on `PendingActionExecuteInput`
-    was renamed from `eventBus?` to a typed `emitEvent?: ConfirmedEmitter`
-    so the unit suite can still assert emission without the global bus.
-  - `lib/pending-action-cancel.ts` does the same for
-    `ai.action.cancelled` + `ai.action.expired`, with a shared
-    `CancelEmitter` type that covers both ids. Additive payload
-    extensions (all zero-impact): cancelled now carries an optional
-    `reason`, expired carries `expiresAt` + `expiredAt`.
-  - Both `TODO(step 5.11)` markers are deleted; the cancel helper's
-    module doc-comment is updated to drop the "Step 5.11 will migrate"
-    line.
-- **New unit suite** `src/modules/ai_assistant/__tests__/events.test.ts`
-  (6 tests): FROZEN-id declaration assertion, category/entity
-  consistency assertion, typed forwarding verified for each of the
-  three events (calls `setGlobalEventBus` with a spy, awaits
-  `emitAiAssistantEvent`, asserts the spy receives `(id, payload,
-  options)` verbatim), and an undeclared-id safety-net test asserting
-  the factory logs an error through `console.error` in non-strict mode.
-- **Existing unit suites updated** so the mock assertions target the
-  new typed `emitEvent` helper rather than the raw-bus `emitEvent` id:
-  - `lib/__tests__/pending-action-executor.test.ts` (happy path,
-    handler-throw, idempotent, partial-stale — 4 tests touched, 0
-    removed).
-  - `lib/__tests__/pending-action-cancel.test.ts` (5 tests touched,
-    explicit payload-shape assertions added for cancelled + expired).
-  - `api/ai/actions/[id]/cancel/__tests__/route.test.ts` installs a
-    global event bus via `setGlobalEventBus` so its emitted-id
-    assertions stay green now that the helper bypasses the DI
-    container.
-- **AGENTS.md** (`packages/ai-assistant/AGENTS.md`) grew a short Events
-  section documenting the three typed ids, their payload shapes, and
-  the FROZEN status (one short paragraph inserted immediately after
-  Permissions (ACL) and before the OpenCode Client rules).
-- **Generator** picks up the new module automatically — the generated
-  events registry (`apps/mercato/.mercato/generated/events.generated.ts`)
-  now imports `EVENTS_ai_assistant_1223 from
-  "@open-mercato/ai-assistant/modules/ai_assistant/events"` alongside
-  the other 28 event modules. Runtime registration wires the three ids
-  into the global declaration set.
+- **New worker** `packages/ai-assistant/src/modules/ai_assistant/workers/ai-pending-action-cleanup.ts`:
+  - `metadata = { queue: 'ai-pending-action-cleanup', id: 'ai_assistant:cleanup-expired-pending-actions', concurrency: 1 }`.
+  - Discovers tenants via a narrow native `select distinct tenant_id, organization_id from ai_pending_actions where status = 'pending' and expires_at < ?`
+    query (no row contents read — only scoping keys). Injection seam
+    `discoverTenants` keeps the test suite container-free.
+  - Per tenant, loops `AiPendingActionRepository.listExpired` at
+    `pageSize = 100` until the queue drains (capped at
+    `MAX_PAGES_PER_TENANT = 50` to prevent runaway sweeps — the next
+    scheduled tick picks up any leftovers).
+  - Each row: `repo.setStatus(row.id, 'expired', { tenantId, organizationId, userId: null }, { resolvedByUserId: null, now })`.
+    Race safety: if the state-machine guard rejects the transition via
+    `AiPendingActionStateError`, the worker catches, logs (info), and
+    skips WITHOUT emitting — the winning path (confirm/cancel) already
+    emitted the canonical signal. Generic errors log + continue, they
+    never abort the batch.
+  - Successful flips emit `ai.action.expired` via the Step 5.11
+    `emitAiAssistantEvent` helper with `resolvedByUserId: null`,
+    `expiresAt`, and `expiredAt` — the payload distinguishes
+    worker-driven expirations from cancel-helper TTL short-circuits.
+  - Default export handler resolves `em` from DI and calls
+    `runPendingActionCleanup({ em })`; the pure helper is testable
+    without a queue context.
+- **New CLI subcommand** `yarn mercato ai_assistant run-pending-action-cleanup`
+  bootstraps DI, resolves `em`, invokes `runPendingActionCleanup`, and
+  prints the `{ tenantsScanned, rowsProcessed, rowsExpired, rowsSkipped, rowsErrored }`
+  summary. Useful for operator ad-hoc sweeps + integration smoke.
+- **Scheduler wiring** in `packages/ai-assistant/src/modules/ai_assistant/setup.ts`:
+  `seedDefaults` calls `ensurePendingActionCleanupSchedule(container)`
+  which resolves `schedulerService` via DI (optional — if the scheduler
+  module is disabled the call is a no-op) and registers a
+  `scopeType: 'system'` `interval` schedule targeting queue
+  `ai-pending-action-cleanup`. Stable id
+  `ai_assistant:pending-action-cleanup`, `scheduleValue: '5m'`,
+  `sourceType: 'module'`, `sourceModule: 'ai_assistant'`. Because
+  `schedulerService.register` is an upsert keyed by `id`, re-running
+  `seedDefaults` for every tenant leaves a single system-scope row.
+- **New unit suite** `src/modules/ai_assistant/workers/__tests__/ai-pending-action-cleanup.test.ts`
+  (7 tests): happy path (3 expired → 3 setStatus + 3 emits);
+  race-safe (concurrent `AiPendingActionStateError` → skip without
+  emit); pagination (5 rows at `pageSize = 2` → 3 listExpired calls,
+  5 emits); cross-tenant (tenant-alpha + tenant-beta both processed
+  with correct scope); zero-expired (no listExpired, no setStatus, no
+  emit); single-row generic error (continues batch, emits for good
+  rows only); already-expired idempotency (listExpired filters them
+  out, setStatus never called).
+- **AGENTS.md** (`packages/ai-assistant/AGENTS.md`) grew a Workers
+  section documenting the new worker, its race-safety contract, the
+  CLI subcommand, and the 5-minute system-scope schedule.
 
 ## Test + gate results
 
-- **Tests**: ai-assistant 45/512 → **46/518** (+1 suite / +6 tests);
+- **Tests**: ai-assistant 46/518 → **47/525** (+1 suite / +7 tests);
   core 338/3094 preserved; ui 65/348 preserved.
-- **Typecheck**: `yarn turbo run typecheck --filter=@open-mercato/ai-assistant
-  --filter=@open-mercato/core --filter=@open-mercato/app` clean
-  (ai-assistant has no typecheck script — ts-jest gates TS).
-- **Generator**: `yarn generate` green; no drift beyond the new
-  `EVENTS_ai_assistant_1223` import.
+- **Typecheck**: `yarn turbo run typecheck --filter=@open-mercato/core
+  --filter=@open-mercato/app --force` clean; `yarn build` of
+  `@open-mercato/ai-assistant` clean (143 entry points; the package has
+  no typecheck script — ts-jest + build gate the TS).
+- **Generator**: `yarn generate` green; the worker now appears in
+  `apps/mercato/.mercato/generated/modules.generated.ts` as
+  `{ id: "ai_assistant:cleanup-expired-pending-actions", queue: "ai-pending-action-cleanup", concurrency: 1, ... }`.
 - **i18n**: `yarn i18n:check-sync` green — no user-facing strings.
 
 ## BC posture (production inventory)
 
-- **Additive only.** Event ids are FROZEN and unchanged. Payload
-  additions (`cancelled.reason?`, `expired.expiresAt` + `expired.expiredAt`)
-  are optional — no existing field removed or narrowed. The helper
-  `emitEvent?` seam replaces the previous `eventBus?` seam; the only
-  in-codebase callers are the two routes (default path) and the three
-  test files (updated). No external consumer relied on the raw bus
-  seam.
-- **DI service names**: the `eventBus` registration is untouched. The
-  cancel + confirm helpers no longer resolve it, but other modules
-  still do — registration is preserved.
+- **Additive only.** New worker file, new queue name, new stable
+  scheduler id, new CLI subcommand. No existing event id renamed — the
+  `ai.action.expired` event was declared in Step 5.11 and its payload
+  is extended only through already-optional fields (`expiresAt`,
+  `expiredAt` — both declared in 5.11). No DB schema change; the
+  entity and migration remain from Step 5.5. No DI registration
+  renamed; the worker reuses `em` and the optional `schedulerService`.
 
 ## Open follow-ups carried forward
 
-- **Step 5.12** — cleanup worker sweeping `status='pending' AND
-  expiresAt < now` → `expired` + emit `ai.action.expired` via the
-  typed helper landed in 5.11. No events.ts edit required.
-- **Step 5.13** — first mutation-capable agent flow
-  (`customers.account_assistant` deal-stage updates).
+- **Step 5.13** — first mutation-capable agent flow (candidate
+  `customers.account_assistant` for deal-stage updates) end-to-end on
+  the pending-action contract.
 - **Step 5.14** — D18 catalog mutation tools batch + single-approval
   flow.
 - **Dispatcher UI-part flushing** — still on the Step 5.10 backlog.
@@ -119,50 +110,69 @@ failure. `yarn generate` picks the module up automatically
   `portal.account.manage`; tighten in a later Phase 5 Step.
 - **Dedicated `ai_assistant.settings.manage_mutation_policy` feature**
   — carried from Step 5.5.
+- **Dev-env integration test for the cleanup worker** — gated on the
+  coordinator's next checkpoint batch (needs Postgres + scheduler
+  runtime). The unit suite covers the decision logic; an integration
+  test that seeds a pending action via the repo, rewinds `expiresAt`
+  in SQL, runs the CLI subcommand, and asserts the row flipped is the
+  natural follow-up.
 
 ## Next concrete action
 
-- **Step 5.12** — cleanup worker sweeping expired pending actions.
-  Implement a `workers/ai-pending-action-expire.ts` (or similar)
-  declaring `metadata.queue` via the existing queue convention, iterate
-  `AiPendingActionRepository` rows with `status='pending' AND
-  expiresAt < now`, flip each to `expired` via `repo.setStatus`, and
-  emit `ai.action.expired` via `emitAiAssistantEvent` (already
-  declared in 5.11). Scheduler wiring: register the worker in the
-  scheduled-jobs registry (same pattern the other lifecycle workers
-  use). Idempotent: running the worker twice on the same row must be
-  a no-op. The typed `emitAiAssistantEvent` payload interface
-  (`AiActionExpiredPayload`) already carries `expiresAt` + `expiredAt`
-  so the worker can distinguish "just expired now" from "expired
-  earlier but never swept" in subscribers without a second lookup.
+- **Step 5.13** — first mutation-capable agent flow. Candidate
+  `customers.account_assistant` driving deal-stage updates through the
+  pending-action contract. The agent needs: (1) an `isMutation: true`
+  tool schema that pipes through the Step 5.6 `prepareMutation` wrapper,
+  (2) a mutation policy (Step 5.4) declaring the allowed stage
+  transitions as `allowList`, (3) concrete field-diff rendering in
+  the Step 5.10 UI parts keyed on the `deal.stage` column, (4) an
+  end-to-end integration test that walks a conversational "move DealX
+  to won" → Preview → Confirm → `deals.updated` event → DataTable
+  refresh. Must honour the state-machine contract: Preview → Confirm
+  → Executing → {Confirmed | Failed}, and the Step 5.8 server-side
+  re-check (stale-version refusal).
 
 ## Cadence reminder
 
 - **5-Step checkpoint overdue.** Last full-gate checkpoint landed
-  after 5.5 (`checkpoint-5step-after-5.5.md`); Steps 5.6–5.11 are the
-  6 Steps since. **Coordinator should run the checkpoint batch after
-  5.11** so the full validation gate + integration suites + ds-guardian
-  sweep cover the new routes, the four UI parts, and the typed events
-  in one pass.
+  after 5.5 (`checkpoint-5step-after-5.5.md`); Steps 5.6–5.12 are the
+  7 Steps since. **Coordinator should run the checkpoint batch after
+  5.12** so the full validation gate + integration suites + ds-guardian
+  sweep cover the new routes, the four UI parts, the typed events, and
+  the cleanup worker + scheduler entry in one pass.
 - Phase 3 WS-A (5.1 + 5.2) done; Phase 3 WS-B (5.3 + 5.4) done;
-  Phase 3 WS-C: 5.5 + 5.6 + 5.7 + 5.8 + 5.9 + 5.10 + 5.11 done; 5.12–5.14
-  remaining.
+  Phase 3 WS-C: 5.5 + 5.6 + 5.7 + 5.8 + 5.9 + 5.10 + 5.11 + 5.12 done;
+  5.13–5.14 remaining.
 
 ## Environment caveats
 
-- Dev runtime: `bgyb7opzt` on port 3000 — reuse for Phase 5 Step 5.12
-  validation. No dev-server restart required for Step 5.11 (the new
-  module is picked up at generator time; the server will re-register
-  the event ids on next restart but the existing routes kept working
-  through the whole swap).
+- Dev runtime: `bgyb7opzt` on port 3000 — reuse for Phase 5 Step 5.13
+  validation. The new worker is picked up at generator time; a
+  dev-server restart is NOT required for the unit gate, but IS needed
+  before the scheduler actually enqueues the first sweep (the existing
+  runtime won't notice the new system-scope schedule row until it
+  re-seeds / reboots, which is fine for this async polish Step).
 - Database / migration state: no migration in this Step. Step 5.5's
   `Migration20260419134235_ai_assistant` remains the active delta.
-- Typecheck clean (`@open-mercato/ai-assistant` + `@open-mercato/core` +
-  `@open-mercato/app`); the ai-assistant package still has no
-  `typecheck` script — its Jest suite acts as the TS gate via
-  `ts-jest`.
-- TTL env var: `AI_PENDING_ACTION_TTL_SECONDS` (default 900s).
-  Unchanged. Step 5.12 will read it.
+- Typecheck clean (`@open-mercato/core` + `@open-mercato/app`);
+  ai-assistant gated by build + ts-jest.
+- TTL env var: `AI_PENDING_ACTION_TTL_SECONDS` (default 900s) —
+  unchanged. The worker reads nothing explicit from it — the repo's
+  `expires_at` comparison against `now()` is the sole input.
+- Scheduler runtime: `QUEUE_STRATEGY=local` in dev polls every 30s;
+  the 5m interval schedule wakes the worker every ~5 min. Production
+  with `QUEUE_STRATEGY=async` uses BullMQ's repeatable jobs via the
+  scheduler's sync path.
+
+## State-machine guard note for executors
+
+The repo throws `AiPendingActionStateError` (NOT a generic error with
+`code === 'invalid_status'`) when a transition is rejected. The
+cleanup worker keys off `error instanceof AiPendingActionStateError`
+for the race-safe skip branch. If a future Step adds new terminal
+statuses, update the error-class check — do NOT replace it with string
+matching on `error.code` (the class also exposes `from` / `to`
+properties the log line uses).
 
 ## Worktree
 
