@@ -1,9 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import ReactMarkdown from 'react-markdown'
+import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { useMarkdownRemarkPlugins } from './useMarkdownRemarkPlugins'
+
+const ReactMarkdown = dynamic(() => import('react-markdown'), {
+  ssr: false,
+  loading: () => null,
+})
 
 export type MarkdownContentProps = {
   body: string
@@ -12,15 +17,20 @@ export type MarkdownContentProps = {
   remarkPlugins?: PluggableList
 }
 
+const EMPTY_PLUGINS: PluggableList = []
+
 export function MarkdownContent({
   body,
   format = 'text',
   className,
   remarkPlugins,
 }: MarkdownContentProps) {
-  const plugins = useMarkdownRemarkPlugins(remarkPlugins)
+  const shouldRenderMarkdown = format === 'markdown'
+  const plugins = useMarkdownRemarkPlugins(
+    shouldRenderMarkdown ? remarkPlugins : EMPTY_PLUGINS,
+  )
 
-  if (format !== 'markdown') {
+  if (!shouldRenderMarkdown) {
     return <div className={className}>{body}</div>
   }
 
