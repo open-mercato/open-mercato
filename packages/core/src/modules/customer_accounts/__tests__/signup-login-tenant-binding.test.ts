@@ -15,21 +15,28 @@ function readSource(relPath: string): string {
 }
 
 describe('customer_accounts signup — organization lookup must bind tenantId', () => {
-  const source = readSource('api/signup.ts')
+  const signupSource = readSource('api/signup.ts')
+  const helperSource = readSource('lib/organizationLookup.ts')
 
-  test('organization lookup SQL filters by tenant_id as well as id', () => {
-    const lookupSqlPattern = /FROM\s+organizations\s+WHERE\s+id\s*=\s*\?\s+AND\s+tenant_id\s*=\s*\?/i
-    expect(source).toMatch(lookupSqlPattern)
+  test('signup delegates the lookup to the shared helper (no raw SQL in the route)', () => {
+    expect(signupSource).toMatch(/findOrganizationInTenant\s*\(\s*em\s*,\s*organizationId\s*,\s*tenantId\s*\)/)
+    expect(signupSource).not.toMatch(/FROM\s+organizations\s+WHERE/i)
   })
 
-  test('organization lookup passes both organizationId and tenantId as parameters', () => {
+  test('helper lookup SQL filters by tenant_id as well as id', () => {
+    const lookupSqlPattern = /FROM\s+organizations\s+WHERE\s+id\s*=\s*\?\s+AND\s+tenant_id\s*=\s*\?/i
+    expect(helperSource).toMatch(lookupSqlPattern)
+  })
+
+  test('helper passes both organizationId and tenantId as parameters in order', () => {
     const paramsPattern = /\[\s*organizationId\s*,\s*tenantId\s*\]/
-    expect(source).toMatch(paramsPattern)
+    expect(helperSource).toMatch(paramsPattern)
   })
 
   test('mismatched pair no longer slips through — legacy id-only lookup removed', () => {
     const legacyPattern = /FROM\s+organizations\s+WHERE\s+id\s*=\s*\?\s+AND\s+deleted_at\s+IS\s+NULL\s+LIMIT\s+1/i
-    expect(source).not.toMatch(legacyPattern)
+    expect(signupSource).not.toMatch(legacyPattern)
+    expect(helperSource).not.toMatch(legacyPattern)
   })
 })
 
