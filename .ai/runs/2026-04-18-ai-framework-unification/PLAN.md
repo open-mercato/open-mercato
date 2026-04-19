@@ -4,7 +4,7 @@
 **Slug:** `ai-framework-unification`
 **Branch:** `feat/ai-framework-unification`
 **Owner:** @peter (piotr.karwatka@gmail.com)
-**Source spec:** `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`
+**Source spec:** `.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`
 
 ## Tasks
 
@@ -81,7 +81,7 @@ scatter of ad-hoc skills, separate MCP tools, and one-off scripts.
 
 Phase 1 of **this PR** laid the autonomous-runbook foundation (how agents
 plan, resume, and verify). Phases 2–5 execute the
-[`2026-04-11-unified-ai-tooling-and-subagents`](../../specs/2026-04-11-unified-ai-tooling-and-subagents.md)
+[`2026-04-11-unified-ai-tooling-and-subagents`](../../specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md)
 spec, which itself defines four phases (Phase 0 Alignment through Phase 3
 Production Hardening + Mutation Approval). Those map one-to-one to Phases 2,
 3, 4, 5 of this plan respectively, preserving the spec's own Workstream A/B/C
@@ -252,7 +252,7 @@ mutation policy; all spec-defined integration tests pass.
 ## External References
 
 - None outside this repo. The spec
-  [`.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`](../../specs/2026-04-11-unified-ai-tooling-and-subagents.md)
+  [`.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`](../../specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md)
   is the single source of truth.
 
 ## Source spec

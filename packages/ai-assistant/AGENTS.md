@@ -1194,6 +1194,87 @@ See git history for earlier changes including:
 
 ---
 
+## Upgrading / Operator rollout notes
+
+This section captures what existing deployments need to know when picking up the **AI Framework Unification** release (#1593, spec [`2026-04-11-unified-ai-tooling-and-subagents`](../../.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md)). All changes are additive; no runtime contract was renamed or removed.
+
+### New environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 minutes) | Expiry window for pending mutation approvals. After this window the cleanup worker flips `status = 'pending'` rows whose `expires_at < now` to `expired` and emits `ai.action.expired`. |
+| `<MODULE>_AI_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
+
+### New database table
+
+- Migration `Migration20260419134235_ai_assistant` lands automatically on `yarn db:migrate`. It adds the additive `ai_pending_actions` table that backs the mutation approval gate.
+- No data migration is needed. Existing rows in other tables are untouched.
+- The runtime gracefully falls back if the table is absent (the mutation gate fails closed rather than blocking the app build).
+
+### New cleanup worker registration
+
+- Worker id: `ai_assistant:pending-action-cleanup` (queue: `ai-pending-action-cleanup`, concurrency: `1`, interval: 5 minutes system-scope).
+- Auto-registered via the module's `setup.ts` `seedDefaults`. For existing tenants the worker activates once structural cache is refreshed:
+
+  ```bash
+  yarn mercato configs cache structural --all-tenants
+  ```
+
+- Manual invocation (useful when debugging or running outside the scheduler):
+
+  ```bash
+  yarn mercato ai_assistant run-pending-action-cleanup
+  ```
+
+- See the **Workers** section above for the full description.
+
+### New prompt-override + mutation-policy-override tables
+
+- Additive tables: `ai_agent_prompt_overrides`, `ai_agent_mutation_policy_overrides`.
+- Both are feature-gated behind `ai_assistant.settings.manage` (standard ACL feature). Operators who don't want the settings UI exposed can remove that feature from role grants — the UI hides itself and the runtime falls back to agent defaults.
+- Prompt overrides are versioned with safe additive merge rules (see Step 5.3 of the spec).
+- Mutation-policy overrides can NEVER escalate an agent's `mutationPolicy` above what the agent definition declares — the runtime re-checks on every confirm call and refuses at the pending-action gate.
+
+### Backward-compatibility posture
+
+- `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` keeps its public API. The implementation now delegates to `createModelFactory(container)` (see **Model Resolution** above), so callers don't change.
+- No existing event IDs, API routes, widget injection spot IDs, DI service names, ACL feature IDs, notification type IDs, CLI commands, or generated file contracts were renamed or removed.
+- New routes are namespaced under `/api/ai_assistant/ai/...` and `/api/ai/actions/:id/...`; they do not collide with the existing OpenCode Code Mode routes.
+
+### Coexistence with OpenCode Code Mode
+
+The AI framework unification **does not replace OpenCode Code Mode.** Both stacks run side-by-side and can be enabled independently per tenant and per agent.
+
+| Surface | OpenCode Code Mode (unchanged) | New AI Framework |
+|---------|--------------------------------|------------------|
+| Chat entrypoint | `POST /api/chat` (SSE, OpenCode in Docker) | `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` (typed agent dispatcher) |
+| Tool discovery | `/api/tools`, `/api/tools/execute` (2 meta-tools: `search` + `execute`) | Typed tool packs (`search.*`, `attachments.*`, `meta.*`, customers, catalog) registered via `defineAiTool()` |
+| CLI | `mcp:serve`, `mcp:serve-http`, `mcp:dev` | (none — the dispatcher is an HTTP route, not an MCP process) |
+| UI | Raycast-style Command Palette (`Cmd+K`) | `<AiChat>` component, playground page, agent settings page |
+| Mutation approvals | N/A (tool call → tool result) | `ai_pending_actions` + approval cards (`mutation-preview-card` / `field-diff-card` / `confirmation-card` / `mutation-result-card`) |
+| Demo | General-purpose chat | D18 `catalog.merchandising_assistant` on `/backend/catalog/catalog/products` |
+
+Operators who don't want the new surfaces can:
+
+- remove `ai_assistant.settings.manage` from role grants to hide the settings UI, **or**
+- omit individual agents from a tenant via the mutation-policy override table (see Step 5.4), **or**
+- simply not mount `<AiChat>` anywhere in custom UIs — the runtime does not activate until an agent is invoked.
+
+Tenants who want both keep OpenCode Code Mode for ad-hoc chat and Code-Mode-style exploration, and use the new framework for focused, mutation-capable agents (e.g., `customers.account_assistant`, `catalog.merchandising_assistant`) with the D16 pending-action contract.
+
+### Operator QA checklist (D18 demo)
+
+For a live end-to-end walkthrough against a real LLM:
+
+1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `CATALOG_AI_MODEL`.
+2. Run `yarn db:migrate` to pick up `Migration20260419134235_ai_assistant`.
+3. Run `yarn mercato configs cache structural --all-tenants` to register the cleanup worker on existing tenants.
+4. Open `/backend/catalog/catalog/products`, pick a handful of rows, open the `<AiChat>` sheet, and walk through each of the four named use cases (description drafting, attribute extraction, title variants, price adjustment suggestion).
+5. Confirm the proposal card shows a single `[Confirm All]` approval and that after confirmation the DataTable refreshes via the DOM event bridge as `catalog.product.updated` events arrive per record.
+6. Force a partial-success case (e.g., stale-version on one row) and confirm the result card renders the mixed outcome correctly.
+
+---
+
 ## Future Development
 
 Refer to git history and specs for planned features:
