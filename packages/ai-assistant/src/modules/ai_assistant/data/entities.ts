@@ -6,6 +6,14 @@ import {
   Property,
   Unique,
 } from '@mikro-orm/core'
+import type {
+  AiPendingActionExecutionResult,
+  AiPendingActionFailedRecord,
+  AiPendingActionFieldDiff,
+  AiPendingActionQueueMode,
+  AiPendingActionRecordDiff,
+  AiPendingActionStatus,
+} from '../lib/pending-action-types'
 
 /**
  * Versioned additive prompt-override for a registered AI agent (Step 5.3).
@@ -66,6 +74,129 @@ export class AiAgentPromptOverride {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+/**
+ * Persistent mutation-approval gate row backing the Phase 3 WS-C contract
+ * (spec §8 `AiPendingAction` + §9 confirm/cancel flow, Step 5.5).
+ *
+ * One row is created by `prepareMutation` (Step 5.6) whenever the runtime
+ * intercepts an `isMutation: true` tool call from a non-read-only agent.
+ * The row stores the normalized tool input, a precomputed `fieldDiff` (or
+ * per-record batch diff in `records[]`), the target record version, an
+ * `idempotencyKey` that dedupes double-submits within the TTL, and a
+ * `status` that walks the state machine defined in
+ * {@link AI_PENDING_ACTION_ALLOWED_TRANSITIONS}.
+ *
+ * The cleanup worker (Step 5.12) sweeps `status='pending' AND expiresAt < now`
+ * rows and transitions them to `expired`. The confirm route (Step 5.8)
+ * walks `pending → confirmed → executing → (failed | terminal success)`.
+ * Reads always flow through `findOneWithDecryption` /
+ * `findWithDecryption`, even though no column is GDPR-flagged today, so
+ * future encrypted columns (e.g. `normalizedInput`) are handled.
+ */
+@Entity({ tableName: 'ai_pending_actions' })
+@Unique({
+  name: 'ai_pending_actions_tenant_org_idempotency_uq',
+  properties: ['tenantId', 'organizationId', 'idempotencyKey'],
+})
+@Index({
+  name: 'ai_pending_actions_tenant_org_status_expires_idx',
+  properties: ['tenantId', 'organizationId', 'status', 'expiresAt'],
+})
+@Index({
+  name: 'ai_pending_actions_tenant_org_agent_status_idx',
+  properties: ['tenantId', 'organizationId', 'agentId', 'status'],
+})
+export class AiPendingAction {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'organizationId'
+    | 'conversationId'
+    | 'targetEntityType'
+    | 'targetRecordId'
+    | 'fieldDiff'
+    | 'records'
+    | 'failedRecords'
+    | 'sideEffectsSummary'
+    | 'recordVersion'
+    | 'attachmentIds'
+    | 'executionResult'
+    | 'resolvedAt'
+    | 'resolvedByUserId'
+    | 'queueMode'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'tool_name', type: 'text' })
+  toolName!: string
+
+  @Property({ name: 'conversation_id', type: 'text', nullable: true })
+  conversationId?: string | null
+
+  @Property({ name: 'target_entity_type', type: 'text', nullable: true })
+  targetEntityType?: string | null
+
+  @Property({ name: 'target_record_id', type: 'text', nullable: true })
+  targetRecordId?: string | null
+
+  @Property({ name: 'normalized_input', type: 'jsonb' })
+  normalizedInput!: Record<string, unknown>
+
+  @Property({ name: 'field_diff', type: 'jsonb', default: [] })
+  fieldDiff: AiPendingActionFieldDiff[] = []
+
+  @Property({ name: 'records', type: 'jsonb', nullable: true })
+  records?: AiPendingActionRecordDiff[] | null
+
+  @Property({ name: 'failed_records', type: 'jsonb', nullable: true })
+  failedRecords?: AiPendingActionFailedRecord[] | null
+
+  @Property({ name: 'side_effects_summary', type: 'text', nullable: true })
+  sideEffectsSummary?: string | null
+
+  @Property({ name: 'record_version', type: 'text', nullable: true })
+  recordVersion?: string | null
+
+  @Property({ name: 'attachment_ids', type: 'jsonb', default: [] })
+  attachmentIds: string[] = []
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  @Property({ name: 'created_by_user_id', type: 'uuid' })
+  createdByUserId!: string
+
+  @Property({ name: 'status', type: 'text' })
+  status!: AiPendingActionStatus
+
+  @Property({ name: 'queue_mode', type: 'text', default: 'inline' })
+  queueMode: AiPendingActionQueueMode = 'inline'
+
+  @Property({ name: 'execution_result', type: 'jsonb', nullable: true })
+  executionResult?: AiPendingActionExecutionResult | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'resolved_at', type: Date, nullable: true })
+  resolvedAt?: Date | null
+
+  @Property({ name: 'resolved_by_user_id', type: 'uuid', nullable: true })
+  resolvedByUserId?: string | null
 }
 
 /**

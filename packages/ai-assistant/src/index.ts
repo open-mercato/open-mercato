@@ -134,6 +134,28 @@ export {
   type CreateAiAgentTransportInput,
 } from './modules/ai_assistant/lib/agent-transport'
 
+// Pending-action types / enums / state-machine guard (Phase 3 WS-C — Step 5.5)
+export {
+  AI_PENDING_ACTION_STATUSES,
+  AI_PENDING_ACTION_QUEUE_MODES,
+  AI_PENDING_ACTION_ALLOWED_TRANSITIONS,
+  AI_PENDING_ACTION_TERMINAL_STATUSES,
+  AI_PENDING_ACTION_DEFAULT_TTL_SECONDS,
+  AI_PENDING_ACTION_TTL_ENV_VAR,
+  AiPendingActionStateError,
+  isAiPendingActionStatus,
+  isAiPendingActionQueueMode,
+  isTerminalAiPendingActionStatus,
+  isAllowedAiPendingActionTransition,
+  resolveAiPendingActionTtlSeconds,
+  type AiPendingActionStatus,
+  type AiPendingActionQueueMode,
+  type AiPendingActionRecordDiff,
+  type AiPendingActionFailedRecord,
+  type AiPendingActionFieldDiff,
+  type AiPendingActionExecutionResult,
+} from './modules/ai_assistant/lib/pending-action-types'
+
 // Shared AI model factory (Phase 3 WS-A — Step 5.1)
 export {
   createModelFactory,
