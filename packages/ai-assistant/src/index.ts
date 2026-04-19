@@ -134,6 +134,18 @@ export {
   type CreateAiAgentTransportInput,
 } from './modules/ai_assistant/lib/agent-transport'
 
+// Shared AI model factory (Phase 3 WS-A — Step 5.1)
+export {
+  createModelFactory,
+  AiModelFactoryError,
+  type AiModelFactory,
+  type AiModelFactoryInput,
+  type AiModelResolution,
+  type AiModelFactoryErrorCode,
+  type AiModelInstance,
+  type CreateModelFactoryDependencies,
+} from './modules/ai_assistant/lib/model-factory'
+
 // Attachment-to-model bridge (Phase 1 WS-C — Step 3.7)
 export {
   resolveAttachmentParts,

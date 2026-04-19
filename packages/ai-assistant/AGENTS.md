@@ -247,6 +247,34 @@ Use 2 meta-tools instead of individual endpoint/schema tools. The AI writes Java
 
 **When modifying Code Mode tools**: Edit `lib/codemode-tools.ts` for tool definitions, `lib/sandbox.ts` for the sandbox engine, `lib/truncate.ts` for response size limiting.
 
+## Model Resolution
+
+Use `createModelFactory(container)` from
+`@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` whenever a
+runtime needs to materialize an AI SDK `LanguageModel` instance. The factory
+consolidates what was previously duplicated across `inbox_ops/lib/llmProvider.ts`
+and the agent-runtime's inline `resolveAgentModel`. Do NOT reintroduce ad-hoc
+`createAnthropic` / `createOpenAI` / `createGoogleGenerativeAI` lookups in new
+modules — route them through the factory instead.
+
+Resolution order (highest precedence first):
+
+1. `callerOverride` (non-empty string) — typically `runAiAgentText({ modelOverride })`.
+2. `<MODULE>_AI_MODEL` env variable (uppercased from `moduleId`) —
+   e.g. `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention;
+   no need to enumerate each one in `.env.example`.
+3. `agentDefaultModel` (typically `AiAgentDefinition.defaultModel`).
+4. The configured provider's own default (`llmProvider.defaultModel`).
+
+The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'`
+when the registry has no configured provider and `code: 'api_key_missing'`
+when the picked provider returns an empty key — every current call site
+already relies on the throw bubbling up, do not swallow it.
+
+The `agent-runtime.ts` inline `resolveAgentModel` will migrate to
+`createModelFactory` in a follow-up Step (5.2+). New agents should accept
+the factory-backed path from day one.
+
 ## MANDATORY: Use AskUserQuestion for Confirmations
 
 > **This is the MOST IMPORTANT rule. NEVER skip this.**
