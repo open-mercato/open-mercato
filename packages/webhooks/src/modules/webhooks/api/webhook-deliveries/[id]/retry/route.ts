@@ -63,6 +63,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   delivery.status = 'pending'
   delivery.nextRetryAt = null
   delivery.errorMessage = null
+  delivery.attemptNumber = 0
   await em.flush()
 
   await enqueueWebhookDelivery({
