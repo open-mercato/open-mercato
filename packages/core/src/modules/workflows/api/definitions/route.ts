@@ -20,7 +20,6 @@ import {
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
-import { codeWorkflowUuid } from '../../lib/find-definition'
 
 export const metadata = {
   requireAuth: true,
@@ -99,54 +98,36 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [definitions, dbTotal] = await em.findAndCount(
-      WorkflowDefinition,
-      where,
-      {
-        orderBy: { createdAt: 'DESC' },
-        limit: limit + offset, // fetch enough to merge with code defs
-        offset: 0,
-      }
-    )
+    const definitions = await em.find(WorkflowDefinition, where, {
+      orderBy: { createdAt: 'DESC' },
+    })
 
-    // Build set of workflowIds that exist in DB for this tenant
     const dbWorkflowIds = new Set(definitions.map((d: WorkflowDefinition) => d.workflowId))
-
-    // Serialize DB definitions with source field
     const serializedDb = definitions.map(serializeWorkflowDefinition)
 
-    // Get code definitions not overridden in DB
-    const codeWorkflows = getAllCodeWorkflows()
-    const codeOnly = codeWorkflows
+    const enabledFilter = enabled !== null ? enabled === 'true' : null
+    const searchLower = search ? search.toLowerCase() : null
+
+    const codeOnly = getAllCodeWorkflows()
       .filter((cw) => !dbWorkflowIds.has(cw.workflowId))
       .filter((cw) => {
-        // Apply search filter to code defs
-        if (search) {
-          const lower = search.toLowerCase()
-          return (
-            cw.workflowId.toLowerCase().includes(lower) ||
-            cw.workflowName.toLowerCase().includes(lower)
-          )
+        if (searchLower) {
+          const matches =
+            cw.workflowId.toLowerCase().includes(searchLower) ||
+            cw.workflowName.toLowerCase().includes(searchLower)
+          if (!matches) return false
         }
-        // Apply enabled filter
-        if (enabled !== null) {
-          return cw.enabled === (enabled === 'true')
-        }
-        // Apply workflowId filter
-        if (workflowId) {
-          return cw.workflowId === workflowId
-        }
+        if (enabledFilter !== null && cw.enabled !== enabledFilter) return false
+        if (workflowId && cw.workflowId !== workflowId) return false
         return true
       })
       .map((cw) => serializeCodeWorkflowDefinition(cw, `code:${cw.workflowId}`))
 
-    // Merge and sort by workflowName
     const merged = [...serializedDb, ...codeOnly].sort((a, b) =>
       a.workflowName.localeCompare(b.workflowName),
     )
 
-    // Apply pagination to merged results
-    const total = dbTotal + codeOnly.length
+    const total = merged.length
     const paginated = merged.slice(offset, offset + limit)
 
     return NextResponse.json({
