@@ -70,7 +70,7 @@
 | 5 | 5.16 | Spec Phase 3 WS-D — Integration tests: page-context resolution + model-factory fallback chain + execution budget (`maxSteps`) | done | ccf2d1292 |
 | 5 | 5.17 | Spec Phase 3 WS-D — Integration tests: pending-action contract (happy / cancel / expiry / stale-version / cross-tenant / idempotency / read-only-agent refusal / prompt-override escalation refusal / reconnect) | done | d3ee45368 |
 | 5 | 5.18 | Spec §10 (D18) — Full bulk-edit demo end-to-end: `catalog.merchandising_assistant` runs all four named use cases through `bulk_update_products` with single `[Confirm All]` approval, per-record `catalog.product.updated` events, DataTable refresh via DOM event bridge, and `partialSuccess` handling | done | df8606cd1 |
-| 5 | 5.19 | Spec Phase 3 WS-D — Docs + operator rollout notes (release notes, migration guide, coexistence with OpenCode) | todo | — |
+| 5 | 5.19 | Spec Phase 3 WS-D — Docs + operator rollout notes (release notes, migration guide, coexistence with OpenCode) | done | 4fd867e41 |
 
 ## Goal
 

@@ -1057,3 +1057,10 @@
 - `yarn generate` green; no openapi drift. `yarn i18n:check-sync` green; no new strings. `yarn mercato configs cache structural --all-tenants` → 0 keys (no navigation drift).
 - BC: additive only. `AiPendingActionFailedRecord` / executor return shape / `executionResult` envelope / 3 catalog CRUD event ids unchanged. `clientBroadcast: true` is additive per `BACKWARD_COMPATIBILITY.md` §5. `useAppEvent('catalog.product.*', ...)` is a brand-new subscription with no existing callers impacted.
 - Next: Step 5.19 — docs + operator rollout notes (release notes, migration guide, OpenCode coexistence). LAST Step of the spec.
+
+## 2026-04-20T00:00:00Z — Step 5.19 committed (4fd867e41) — SPEC FULLY IMPLEMENTED
+- `docs(ai-assistant): operator rollout notes + OpenCode coexistence + release notes (Phase 3 WS-D)`
+- Spec moved: `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` → `.ai/specs/implemented/` (git mv, history preserved).
+- RELEASE_NOTES + CHANGELOG + `packages/ai-assistant/AGENTS.md` updated with upgrade/rollout section.
+- All 19 PLAN rows now `done`. Phase 1–5 complete.
+- Next: main coordinator runs the full validation gate, flips PR `Status: in-progress → complete`, and posts the final comprehensive summary comment.
