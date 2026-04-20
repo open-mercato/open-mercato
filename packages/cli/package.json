@@ -60,8 +60,8 @@
     "@mikro-orm/postgresql": "^6.6.10",
     "@open-mercato/shared": "workspace:*",
     "pg": "8.20.0",
-    "semver": "^7.7.3",
-    "testcontainers": "^11.12.0",
+    "semver": "^7.7.4",
+    "testcontainers": "^11.14.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
@@ -71,8 +71,8 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "jest": "^30.2.0",
-    "ts-jest": "^29.4.6"
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9"
   },
   "publishConfig": {
     "access": "public"
