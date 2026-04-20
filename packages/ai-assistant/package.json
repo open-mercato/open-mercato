@@ -86,15 +86,15 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.12",
-    "@ai-sdk/google": "^2.0.0",
+    "@ai-sdk/google": "^3.0.64",
     "@ai-sdk/openai": "^3.0.5",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ai": "^6.0.33",
     "cmdk": "^1.0.0",
-    "framer-motion": "^11.0.0",
+    "framer-motion": "^12.38.0",
     "isolated-vm": "^6.1.2",
     "react-json-view-lite": "^2.5.0",
-    "react-markdown": "^9.0.0",
+    "react-markdown": "^10.1.0",
     "zod-to-json-schema": "^3.25.1"
   },
   "peerDependencies": {
