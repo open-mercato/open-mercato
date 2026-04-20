@@ -146,7 +146,7 @@ const crud = makeCrudRoute({
         
         if (scopeType === 'system') {
           // System scope requires superadmin privileges
-          const isSuperAdmin = Array.isArray(ctx.auth?.roles) && ctx.auth.role.some(
+          const isSuperAdmin = Array.isArray(ctx.auth?.roles) && ctx.auth.roles.some(
             (role: unknown) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
           )
           if (!isSuperAdmin) {

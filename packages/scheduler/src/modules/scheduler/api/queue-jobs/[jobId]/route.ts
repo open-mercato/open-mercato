@@ -90,7 +90,7 @@ export async function GET(
     const jobOrgId = jobData?.organizationId ?? jobPayload?.organizationId ?? null
 
     // System-scoped jobs (no tenantId/orgId) require superadmin
-    const isSuperAdmin = Array.isArray(auth.roles) && auth.role.some(
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
       (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
     )
     if (!jobTenantId && !jobOrgId && !isSuperAdmin) {

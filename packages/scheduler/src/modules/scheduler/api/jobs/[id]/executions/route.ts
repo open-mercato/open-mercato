@@ -58,7 +58,7 @@ export async function GET(
     }
 
     // System-scoped schedules (no tenantId/orgId) require superadmin
-    const isSuperAdmin = Array.isArray(auth.roles) && auth.role.some(
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
       (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
     )
     if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
