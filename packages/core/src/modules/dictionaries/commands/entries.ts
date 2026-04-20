@@ -32,7 +32,7 @@ async function ensureDictionary(em: EntityManager, id: string): Promise<Dictiona
 }
 
 registerDictionaryEntryCommands({
-  commandPrefix: 'dictionaries.entries',
+  commandPrefix: 'dictionaries.entry',
   resourceKind: 'dictionaries.entry',
   translationKeyPrefix: 'dictionaries.entries',
   createSchema: dictionaryEntryCommandCreateSchema,

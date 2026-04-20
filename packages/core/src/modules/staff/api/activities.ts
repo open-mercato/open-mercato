@@ -15,7 +15,7 @@ const route = makeActivityRoute({
   features: { view: 'staff.view', manage: 'staff.manage_team' },
   createSchema: staffTeamMemberActivityCreateSchema,
   updateSchema: staffTeamMemberActivityUpdateSchema,
-  commandPrefix: 'staff.team-member-activities',
+  commandPrefix: 'staff.team-member-activity',
   logPrefix: '[staff.activities]',
   openApiFactory: createStaffCrudOpenApi,
   openApi: {

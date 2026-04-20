@@ -12,7 +12,7 @@ const route = makeSalesLineRoute({
   parentFkParam: "quoteId",
   createSchema: quoteLineCreateSchema,
   features: { view: "sales.quote.view", manage: "sales.quote.manage" },
-  commandPrefix: "sales.quote.lines",
+  commandPrefix: "sales.quote.line",
   openApi: {
     resourceName: "Quote line",
     description: "a quote line and recalculates totals",

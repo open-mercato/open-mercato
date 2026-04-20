@@ -76,7 +76,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     // These nested routes don't use the CRUD factory, so invoke the command bus explicitly.
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const input = { ...(payload as Record<string, unknown>), id: entryId }
-    const { result, logEntry } = await commandBus.execute('dictionaries.entries.update', {
+    const { result, logEntry } = await commandBus.execute('dictionaries.entry.update', {
       input,
       ctx: context.ctx,
     })
@@ -138,7 +138,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
-    const { logEntry } = await commandBus.execute('dictionaries.entries.delete', {
+    const { logEntry } = await commandBus.execute('dictionaries.entry.delete', {
       input: { body: { id: entry.id } },
       ctx: context.ctx,
     })

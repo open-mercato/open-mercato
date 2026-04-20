@@ -15,7 +15,7 @@ const route = makeActivityRoute({
   features: { view: 'resources.view', manage: 'resources.manage_resources' },
   createSchema: resourcesResourceActivityCreateSchema,
   updateSchema: resourcesResourceActivityUpdateSchema,
-  commandPrefix: 'resources.resource-activities',
+  commandPrefix: 'resources.resource-activity',
   logPrefix: '[resources.activities]',
   openApiFactory: createResourcesCrudOpenApi,
   openApi: {

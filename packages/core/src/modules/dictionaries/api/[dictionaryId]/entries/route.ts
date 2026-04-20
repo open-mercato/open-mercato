@@ -104,7 +104,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
     // These nested routes do not use makeCrudRoute, so we invoke the command bus directly.
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
-    const { result, logEntry } = await commandBus.execute('dictionaries.entries.create', {
+    const { result, logEntry } = await commandBus.execute('dictionaries.entry.create', {
       input: { ...payload, dictionaryId },
       ctx: context.ctx,
     })
