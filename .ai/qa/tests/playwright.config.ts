@@ -10,6 +10,12 @@ const normalizePath = (value: string) => value.split(path.sep).join('/');
 const STATIC_TEST_IGNORES = [
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
   `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
+  // Exclude stale worktrees used by auto-create-pr / auto-continue-pr /
+  // auto-review-pr. Their source trees live under `.ai/tmp/` with their
+  // own `__integration__/` folders; the Playwright discovery would
+  // otherwise pick those up and run them against the current dev server,
+  // which produces thousands of false failures.
+  `${normalizePath(path.join(projectRoot, '.ai', 'tmp'))}/**`,
 ];
 const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, path.join(projectRoot, '.ai', 'qa', 'tests'));
 
