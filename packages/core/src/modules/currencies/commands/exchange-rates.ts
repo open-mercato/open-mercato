@@ -93,7 +93,7 @@ async function validateCurrenciesExist(
 }
 
 const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { exchangeRateId: string }> = {
-  id: 'currencies.exchange_rates.create',
+  id: 'currencies.exchange-rate.create',
   async execute(input, ctx) {
     const parsed = exchangeRateCreateSchema.parse(input)
 
@@ -182,7 +182,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
 }
 
 const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { exchangeRateId: string }> = {
-  id: 'currencies.exchange_rates.update',
+  id: 'currencies.exchange-rate.update',
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
     const em = ctx.container.resolve('em') as EntityManager
@@ -318,7 +318,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
 }
 
 const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { exchangeRateId: string }> = {
-  id: 'currencies.exchange_rates.delete',
+  id: 'currencies.exchange-rate.delete',
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
     const em = ctx.container.resolve('em') as EntityManager

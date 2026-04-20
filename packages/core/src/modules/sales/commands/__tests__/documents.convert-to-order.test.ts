@@ -67,7 +67,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 const mockedFindOneWithDecryption = jest.mocked(findOneWithDecryption)
 const mockedFindWithDecryption = jest.mocked(findWithDecryption)
 
-describe('sales.quotes.convert_to_order', () => {
+describe('sales.quote.convert_to_order', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
     await import('../documents')
@@ -75,7 +75,7 @@ describe('sales.quotes.convert_to_order', () => {
 
   test('serializes concurrent conversions on the same quote with a pessimistic lock', async () => {
     const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
-      'sales.quotes.convert_to_order',
+      'sales.quote.convert_to_order',
     )
     expect(handler).toBeTruthy()
 

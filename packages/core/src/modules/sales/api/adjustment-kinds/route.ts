@@ -31,7 +31,7 @@ const kind: SalesDictionaryKind = 'adjustment-kind'
 const definition = getSalesDictionaryDefinition(kind)
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.orders.view'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.order.view'] },
   POST: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },

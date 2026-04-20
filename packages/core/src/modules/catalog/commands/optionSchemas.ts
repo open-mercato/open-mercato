@@ -80,7 +80,7 @@ const createOptionSchemaCommand: CommandHandler<
   OptionSchemaTemplateCreateInput,
   { schemaId: string }
 > = {
-  id: 'catalog.optionSchemas.create',
+  id: 'catalog.option-schema.create',
   async execute(input, ctx) {
     const parsed = optionSchemaTemplateCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -145,7 +145,7 @@ const updateOptionSchemaCommand: CommandHandler<
   OptionSchemaTemplateUpdateInput,
   { schemaId: string }
 > = {
-  id: 'catalog.optionSchemas.update',
+  id: 'catalog.option-schema.update',
   async prepare(input, ctx) {
     const em = ctx.container.resolve('em') as EntityManager
     const snapshot = await loadOptionSchemaSnapshot(em, input.id as string)
@@ -240,7 +240,7 @@ const updateOptionSchemaCommand: CommandHandler<
 }
 
 const deleteOptionSchemaCommand: CommandHandler<{ id: string }, { schemaId: string }> = {
-  id: 'catalog.optionSchemas.delete',
+  id: 'catalog.option-schema.delete',
   async prepare(input, ctx) {
     const em = ctx.container.resolve('em') as EntityManager
     const snapshot = await loadOptionSchemaSnapshot(em, input.id)

@@ -60,7 +60,7 @@ async function loadJobHistorySnapshot(em: EntityManager, id: string): Promise<Jo
 }
 
 const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInput, { jobHistoryId: string }> = {
-  id: 'staff.team-member-job-histories.create',
+  id: 'staff.team-member-job-history.create',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -138,7 +138,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
 }
 
 const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInput, { jobHistoryId: string }> = {
-  id: 'staff.team-member-job-histories.update',
+  id: 'staff.team-member-job-history.update',
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -270,7 +270,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
 
 const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { jobHistoryId: string }> =
   {
-    id: 'staff.team-member-job-histories.delete',
+    id: 'staff.team-member-job-history.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Job history id required')
       const em = (ctx.container.resolve('em') as EntityManager)

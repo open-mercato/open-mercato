@@ -22,9 +22,9 @@ jest.mock('../../events', () => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../tokens')
 
-const consumeCommand = registeredHandlers.find((h) => h.id === 'messages.tokens.consume')
+const consumeCommand = registeredHandlers.find((h) => h.id === 'messages.token.consume')
 if (!consumeCommand) {
-  throw new Error('messages.tokens.consume command was not registered')
+  throw new Error('messages.token.consume command was not registered')
 }
 
 type TokenRecord = {
@@ -89,7 +89,7 @@ function buildCtx(tokenRecord: TokenRecord | null, knexUpdateResult = 1) {
   return { ctx: { container }, em, knexFn, chain }
 }
 
-describe('messages.tokens.consume command', () => {
+describe('messages.token.consume command', () => {
   beforeEach(() => jest.clearAllMocks())
 
   describe('hashed token lookup', () => {

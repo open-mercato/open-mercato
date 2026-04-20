@@ -31,10 +31,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.orders.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.shipments.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.shipments.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.shipments.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.order.view'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.shipment.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.shipment.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.shipment.manage'] },
 }
 
 const deleteSchema = shipmentUpdateSchema.pick({
@@ -104,7 +104,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.shipments.create',
+      commandId: 'sales.shipment.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -119,7 +119,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'sales.shipments.update',
+      commandId: 'sales.shipment.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -133,7 +133,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'sales.shipments.delete',
+      commandId: 'sales.shipment.delete',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -144,7 +144,7 @@ const crud = makeCrudRoute({
         const payload = deleteSchema.parse(withScopedPayload(merged, ctx, translate))
         if (!payload.id || !payload.orderId) {
           throw new CrudHttpError(400, {
-            error: translate('sales.shipments.not_found', 'Shipment not found'),
+            error: translate('sales.shipment.not_found', 'Shipment not found'),
           })
         }
         return payload

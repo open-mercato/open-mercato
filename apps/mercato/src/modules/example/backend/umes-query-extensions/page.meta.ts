@@ -10,7 +10,7 @@ const databaseIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['example.todos.view'],
+  requireFeatures: ['example.todo.view'],
   pageTitle: 'Phase N query extensions',
   pageTitleKey: 'example.menu.umesQueryExtensions',
   pageGroup: 'Example',
@@ -18,7 +18,7 @@ export const metadata = {
   pageOrder: 20800,
   icon: databaseIcon,
   breadcrumb: [
-    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todo.page.title', href: '/backend/todos' },
     { label: 'Phase N query extensions', labelKey: 'example.umes.queryExtensions.title' },
   ],
 }

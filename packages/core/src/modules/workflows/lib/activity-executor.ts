@@ -472,7 +472,7 @@ export async function executeEmitEvent(
  * Alternative format with statusValue (auto-resolves to statusEntryId):
  * ```json
  * {
- *   "commandId": "sales.orders.update",
+ *   "commandId": "sales.order.update",
  *   "statusDictionary": "sales.order_status",
  *   "input": {
  *     "id": "{{context.id}}",

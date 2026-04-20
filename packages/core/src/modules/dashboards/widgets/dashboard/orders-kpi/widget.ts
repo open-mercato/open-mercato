@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<OrdersKpiSettings> = {
     id: 'dashboards.analytics.ordersKpi',
     title: 'Orders',
     description: 'Total order count with period comparison',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'sm',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

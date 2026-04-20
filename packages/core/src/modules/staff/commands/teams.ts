@@ -64,7 +64,7 @@ async function loadTeamCustomSnapshot(em: EntityManager, snapshot: TeamSnapshot)
 }
 
 const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }> = {
-  id: 'staff.teams.create',
+  id: 'staff.team.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -166,7 +166,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
 }
 
 const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }> = {
-  id: 'staff.teams.update',
+  id: 'staff.team.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -301,7 +301,7 @@ const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }
 }
 
 const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
-  id: 'staff.teams.delete',
+  id: 'staff.team.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Team id is required.' })
@@ -335,7 +335,7 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
     if (assignedMemberCount > 0) {
       const { t } = await resolveTranslations()
       throw new CrudHttpError(409, {
-        error: t('staff.teams.errors.deleteAssigned', 'Team has assigned members and cannot be deleted.'),
+        error: t('staff.team.errors.deleteAssigned', 'Team has assigned members and cannot be deleted.'),
       })
     }
 

@@ -11,13 +11,13 @@ const cartIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.quotes.view'],
+  requireFeatures: ['sales.quote.view'],
   pageTitle: 'Quotes',
-  pageTitleKey: 'sales.quotes.list.title',
+  pageTitleKey: 'sales.quote.list.title',
   pageGroup: 'Sales',
   pageGroupKey: 'customers~sales.nav.group',
   pagePriority: 40,
   pageOrder: 100,
   icon: cartIcon,
-  breadcrumb: [{ label: 'Quotes', labelKey: 'sales.quotes.list.title' }],
+  breadcrumb: [{ label: 'Quotes', labelKey: 'sales.quote.list.title' }],
 } as const

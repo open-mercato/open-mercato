@@ -18,7 +18,7 @@
  *   name: 'customers.search',
  *   description: 'Search for customers',
  *   inputSchema: z.object({ query: z.string() }),
- *   requiredFeatures: ['customers.people.view'],
+ *   requiredFeatures: ['customers.person.view'],
  *   handler: async (input, ctx) => {
  *     // Implementation
  *   }

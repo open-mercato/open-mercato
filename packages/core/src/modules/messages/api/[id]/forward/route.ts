@@ -21,7 +21,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   let commandResult: { result: MessageCommandExecuteResult; logEntry: unknown }
   try {
-    commandResult = await commandBus.execute<unknown, MessageCommandExecuteResult>('messages.messages.forward', {
+    commandResult = await commandBus.execute<unknown, MessageCommandExecuteResult>('messages.message.forward', {
       input: {
         ...input,
         messageId: params.id,

@@ -56,7 +56,7 @@ const listSchema = z
 type PriceQuery = z.infer<typeof listSchema>;
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ["catalog.products.view"] },
+  GET: { requireAuth: true, requireFeatures: ["catalog.product.view"] },
   POST: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
   PUT: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
   DELETE: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
@@ -318,7 +318,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: "catalog.prices.create",
+      commandId: "catalog.price.create",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
@@ -333,7 +333,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: "catalog.prices.update",
+      commandId: "catalog.price.update",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
@@ -347,7 +347,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: "catalog.prices.delete",
+      commandId: "catalog.price.delete",
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations();

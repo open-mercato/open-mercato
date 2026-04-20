@@ -65,7 +65,7 @@ describe('messages /api/messages/[id]/read', () => {
 
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.recipients.mark_read',
+      'messages.recipient.mark_read',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',
@@ -90,7 +90,7 @@ describe('messages /api/messages/[id]/read', () => {
 
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.recipients.mark_unread',
+      'messages.recipient.mark_unread',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',

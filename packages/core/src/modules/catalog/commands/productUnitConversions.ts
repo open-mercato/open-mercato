@@ -236,7 +236,7 @@ const createProductUnitConversionCommand: CommandHandler<
   ProductUnitConversionCreateInput,
   { conversionId: string }
 > = {
-  id: "catalog.product-unit-conversions.create",
+  id: "catalog.product-unit-conversion.create",
   async execute(rawInput, ctx) {
     const parsed = productUnitConversionCreateSchema.parse(rawInput);
     ensureTenantScope(ctx, parsed.tenantId);
@@ -346,7 +346,7 @@ const updateProductUnitConversionCommand: CommandHandler<
   ProductUnitConversionUpdateInput,
   { conversionId: string }
 > = {
-  id: "catalog.product-unit-conversions.update",
+  id: "catalog.product-unit-conversion.update",
   async prepare(input, ctx) {
     const id = requireId(input, "Product unit conversion id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -512,7 +512,7 @@ const deleteProductUnitConversionCommand: CommandHandler<
   ProductUnitConversionDeleteInput,
   { conversionId: string }
 > = {
-  id: "catalog.product-unit-conversions.delete",
+  id: "catalog.product-unit-conversion.delete",
   async prepare(input, ctx) {
     const id = requireId(input, "Product unit conversion id is required");
     const em = ctx.container.resolve("em") as EntityManager;

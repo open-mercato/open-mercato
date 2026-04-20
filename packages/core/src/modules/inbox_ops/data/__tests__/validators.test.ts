@@ -288,7 +288,7 @@ describe('extractionOutputSchema', () => {
         actionType: 'create_order',
         description: 'Create order for Widget A',
         confidence: 0.9,
-        requiredFeature: 'sales.orders.manage',
+        requiredFeature: 'sales.order.manage',
         payloadJson: '{"customerName":"John","channelId":"abc","currencyCode":"USD","lineItems":[]}',
       },
     ],

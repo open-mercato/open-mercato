@@ -158,7 +158,7 @@ const widget: InjectionBulkActionWidget = {
   },
   bulkActions: [
     {
-      id: 'catalog.products.bulk-delete-selected',
+      id: 'catalog.product.bulk-delete-selected',
       label: 'catalog.bulkDelete.selected.label',
       icon: 'trash-2',
       onExecute: async (selectedRows, rawContext) => {
@@ -198,7 +198,7 @@ const widget: InjectionBulkActionWidget = {
       },
     },
     {
-      id: 'catalog.products.bulk-delete-filtered',
+      id: 'catalog.product.bulk-delete-filtered',
       label: 'catalog.bulkDelete.filtered.label',
       icon: 'filter-x',
       requiresSelection: false,

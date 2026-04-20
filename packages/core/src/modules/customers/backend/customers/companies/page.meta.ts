@@ -23,7 +23,7 @@ const companyIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.companies.view'],
+  requireFeatures: ['customers.company.view'],
   pageTitle: 'Companies',
   pageTitleKey: 'customers.nav.companies',
   pageGroup: 'Customers',

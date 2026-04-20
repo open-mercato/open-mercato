@@ -11,12 +11,12 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['resources.manage_resources'],
   pageTitle: 'Edit resource type',
-  pageTitleKey: 'resources.resourceTypes.form.editTitle',
+  pageTitleKey: 'resources.resource-type.form.editTitle',
   pageGroup: 'Resource planning',
   pageGroupKey: 'resources.nav.group',
   icon: editIcon,
   breadcrumb: [
-    { label: 'Resource types', labelKey: 'resources.resourceTypes.page.title', href: '/backend/resources/resource-types' },
+    { label: 'Resource types', labelKey: 'resources.resource-type.page.title', href: '/backend/resources/resource-types' },
     { label: 'Edit', labelKey: 'common.edit' },
   ],
 }

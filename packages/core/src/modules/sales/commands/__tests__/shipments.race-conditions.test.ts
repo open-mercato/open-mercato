@@ -77,7 +77,7 @@ describe('createShipmentCommand — order line locking for race condition preven
   })
 
   it('validateShipmentItems acquires PESSIMISTIC_WRITE lock on order lines', async () => {
-    const execute = commandRegistry.get('sales.shipments.create')?.execute
+    const execute = commandRegistry.get('sales.shipment.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const mockOrder = {
@@ -146,7 +146,7 @@ describe('createShipmentCommand — order line locking for race condition preven
   })
 
   it('recomputeFulfilledQuantities uses findWithDecryption instead of raw em.find', async () => {
-    const execute = commandRegistry.get('sales.shipments.create')?.execute
+    const execute = commandRegistry.get('sales.shipment.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const mockOrder = {

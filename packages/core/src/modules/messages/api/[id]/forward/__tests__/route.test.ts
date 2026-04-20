@@ -56,7 +56,7 @@ describe('messages /api/messages/[id]/forward', () => {
     expect(response.status).toBe(201)
     await expect(response.json()).resolves.toEqual({ id: 'forwarded-message-id' })
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.forward',
+      'messages.message.forward',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',
@@ -83,7 +83,7 @@ describe('messages /api/messages/[id]/forward', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.forward',
+      'messages.message.forward',
       expect.objectContaining({
         input: expect.objectContaining({
           body: 'thread-aware forwarded body',
@@ -106,7 +106,7 @@ describe('messages /api/messages/[id]/forward', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.forward',
+      'messages.message.forward',
       expect.objectContaining({
         input: expect.objectContaining({
           includeAttachments: true,

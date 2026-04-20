@@ -13,13 +13,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['staff.manage_team'],
   pageTitle: 'Create team',
-  pageTitleKey: 'staff.teams.form.createTitle',
+  pageTitleKey: 'staff.team.form.createTitle',
   pageGroup: 'Employees',
   pageGroupKey: 'staff.nav.group',
   pageOrder: 79.5,
   icon: createPageIcon,
   breadcrumb: [
-    { label: 'Teams', labelKey: 'staff.teams.page.title', href: '/backend/staff/teams' },
+    { label: 'Teams', labelKey: 'staff.team.page.title', href: '/backend/staff/teams' },
     { label: 'Create', labelKey: 'common.create' },
   ],
 }

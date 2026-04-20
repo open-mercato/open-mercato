@@ -969,7 +969,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         }
         if (!options?.createIfMissing) return null
 
-        const created = await executeCommand<{ channelId: string }>('sales.channels.create', {
+        const created = await executeCommand<{ channelId: string }>('sales.channel.create', {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           name: options.label?.trim() || titleizeCode(normalizedCode),
@@ -1118,7 +1118,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
 
     if (existingId) {
-      await executeCommand('catalog.categories.update', {
+      await executeCommand('catalog.category.update', {
         id: existingId,
         ...input,
       })
@@ -1126,7 +1126,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       return { localId: existingId, action: 'update' }
     }
 
-    const created = await executeCommand<{ categoryId: string }>('catalog.categories.create', input)
+    const created = await executeCommand<{ categoryId: string }>('catalog.category.create', input)
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_product_category', created.categoryId, category.code, scope)
     return { localId: created.categoryId, action: 'create' }
   }
@@ -1264,7 +1264,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         }
 
         if (existing) {
-          await executeCommand('catalog.optionSchemas.update', {
+          await executeCommand('catalog.option-schema.update', {
             id: existing.id,
             ...schemaInput,
           })
@@ -1272,7 +1272,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           return { localId: existing.id, action: 'update' }
         }
 
-        const created = await executeCommand<{ schemaId: string }>('catalog.optionSchemas.create', schemaInput)
+        const created = await executeCommand<{ schemaId: string }>('catalog.option-schema.create', schemaInput)
         await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_option_schema', created.schemaId, externalId, scope)
         return { localId: created.schemaId, action: 'create' }
       })())
@@ -2048,13 +2048,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     await Promise.all([
       params.fieldsetPlan?.product?.code
-        ? executeCommand('catalog.products.update', {
+        ? executeCommand('catalog.product.update', {
             id: params.localProductId,
             customFieldsetCode: params.fieldsetPlan.product.code,
           })
         : Promise.resolve(),
       params.fieldsetPlan?.variant?.code
-        ? executeCommand('catalog.variants.update', {
+        ? executeCommand('catalog.variant.update', {
             id: params.localVariantId,
             customFieldsetCode: params.fieldsetPlan.variant.code,
           })
@@ -2188,8 +2188,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         isActive: true,
       }
       const offerId = existingOffer
-        ? (await executeCommand<{ offerId: string }>('catalog.offers.update', { id: existingOffer.id, ...input })).offerId
-        : (await executeCommand<{ offerId: string }>('catalog.offers.create', input)).offerId
+        ? (await executeCommand<{ offerId: string }>('catalog.offer.update', { id: existingOffer.id, ...input })).offerId
+        : (await executeCommand<{ offerId: string }>('catalog.offer.create', input)).offerId
       await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_offer', offerId, offer.externalId, scope)
 
       const existingPrices = await findWithDecryption(
@@ -2233,8 +2233,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           },
         }
         const priceId = existingPrice
-          ? (await executeCommand<{ priceId: string }>('catalog.prices.update', { id: existingPrice.id, ...input })).priceId
-          : (await executeCommand<{ priceId: string }>('catalog.prices.create', input)).priceId
+          ? (await executeCommand<{ priceId: string }>('catalog.price.update', { id: existingPrice.id, ...input })).priceId
+          : (await executeCommand<{ priceId: string }>('catalog.price.create', input)).priceId
         await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_product_price', priceId, price.externalId, scope)
       }
 
@@ -2242,7 +2242,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         for (const existingPrice of existingPrices) {
           const externalId = await externalIdMappingService.lookupExternalId('sync_akeneo', 'catalog_product_price', existingPrice.id, scope)
           if (externalId && !desiredPriceExternalIds.has(externalId)) {
-            await executeCommand('catalog.prices.delete', { id: existingPrice.id })
+            await executeCommand('catalog.price.delete', { id: existingPrice.id })
           }
         }
       }
@@ -2260,9 +2260,9 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             scope,
           )
           for (const price of offerPrices) {
-            await executeCommand('catalog.prices.delete', { id: price.id })
+            await executeCommand('catalog.price.delete', { id: price.id })
           }
-          await executeCommand('catalog.offers.delete', { id: existingOffer.id })
+          await executeCommand('catalog.offer.delete', { id: existingOffer.id })
         }
       }
     }
@@ -2572,14 +2572,14 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     let localProductId: string
     let productAction: 'create' | 'update'
     if (existingProductId) {
-      await executeCommand('catalog.products.update', {
+      await executeCommand('catalog.product.update', {
         id: existingProductId,
         ...productInput,
       })
       localProductId = existingProductId
       productAction = 'update'
     } else {
-      const created = await executeCommand<{ productId?: string; id?: string }>('catalog.products.create', productInput)
+      const created = await executeCommand<{ productId?: string; id?: string }>('catalog.product.create', productInput)
       localProductId = created.productId ?? created.id ?? ''
       if (!localProductId) {
         throw new Error(`Akeneo product ${product.uuid} did not return a local product id`)
@@ -2650,14 +2650,14 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     let localVariantId: string
     let variantAction: 'create' | 'update'
     if (existingVariantId) {
-      await executeCommand('catalog.variants.update', {
+      await executeCommand('catalog.variant.update', {
         id: existingVariantId,
         ...variantInput,
       })
       localVariantId = existingVariantId
       variantAction = 'update'
     } else {
-      const created = await executeCommand<{ variantId?: string; id?: string }>('catalog.variants.create', variantInput)
+      const created = await executeCommand<{ variantId?: string; id?: string }>('catalog.variant.create', variantInput)
       localVariantId = created.variantId ?? created.id ?? ''
       if (!localVariantId) {
         throw new Error(`Akeneo variant ${variantExternalId} did not return a local variant id`)
@@ -2750,7 +2750,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         reconciliation: settings.reconciliation,
       })
       if (firstAsset.entityId === PRODUCT_ENTITY_ID) {
-        await executeCommand('catalog.products.update', {
+        await executeCommand('catalog.product.update', {
           id: localProductId,
           defaultMediaId: hero.heroAttachmentId,
           defaultMediaUrl: hero.heroAttachmentUrl,
@@ -2807,7 +2807,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
 
     if (mirroredProductHeroFromVariant) {
-      await executeCommand('catalog.products.update', {
+      await executeCommand('catalog.product.update', {
         id: localProductId,
         defaultMediaId: mirroredProductHeroFromVariant.defaultMediaId,
         defaultMediaUrl: mirroredProductHeroFromVariant.defaultMediaUrl,
@@ -2855,7 +2855,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
   async function reconcileCategories(seenExternalIds: Set<string>, locale: string, reconciliation: AkeneoReconciliationSettings): Promise<void> {
     if (!reconciliation.deactivateMissingCategories || seenExternalIds.size === 0) return
-    await deactivateMappedEntities('catalog_product_category', seenExternalIds, 'catalog.categories.update')
+    await deactivateMappedEntities('catalog_product_category', seenExternalIds, 'catalog.category.update')
   }
 
   async function reconcileAttributes(params: {
@@ -2865,7 +2865,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }): Promise<void> {
     if (!params.reconciliation.deactivateMissingAttributes) return
     if (params.seenFamilyExternalIds.size > 0) {
-      await deactivateMappedEntities('catalog_option_schema', params.seenFamilyExternalIds, 'catalog.optionSchemas.update')
+      await deactivateMappedEntities('catalog_option_schema', params.seenFamilyExternalIds, 'catalog.option-schema.update')
     }
     const defs = await findWithDecryption(em, CustomFieldDef, {
       entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] },
@@ -2885,10 +2885,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   async function reconcileProducts(seenProductExternalIds: Set<string>, seenVariantExternalIds: Set<string>, reconciliation: AkeneoReconciliationSettings): Promise<void> {
     if (!reconciliation.deactivateMissingProducts) return
     if (seenProductExternalIds.size > 0) {
-      await deactivateMappedEntities('catalog_product', seenProductExternalIds, 'catalog.products.update')
+      await deactivateMappedEntities('catalog_product', seenProductExternalIds, 'catalog.product.update')
     }
     if (seenVariantExternalIds.size > 0) {
-      await deactivateMappedEntities('catalog_product_variant', seenVariantExternalIds, 'catalog.variants.update')
+      await deactivateMappedEntities('catalog_product_variant', seenVariantExternalIds, 'catalog.variant.update')
     }
   }
 

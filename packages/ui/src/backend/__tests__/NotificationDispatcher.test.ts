@@ -80,7 +80,7 @@ describe('NotificationDispatcher', () => {
           {
             id: 'secure',
             notificationType: 'example.todo.created',
-            features: ['example.todos.manage'],
+            features: ['example.todo.manage'],
             handle(notification) {
               calls.push(notification.id)
             },
@@ -90,7 +90,7 @@ describe('NotificationDispatcher', () => {
     ])
 
     dispatchNotificationHandlers([makeNotification('n1', 'example.todo.created')], runtime([]))
-    dispatchNotificationHandlers([makeNotification('n2', 'example.todo.created')], runtime(['example.todos.manage']))
+    dispatchNotificationHandlers([makeNotification('n2', 'example.todo.created')], runtime(['example.todo.manage']))
     expect(calls).toEqual(['n2'])
   })
 
@@ -103,7 +103,7 @@ describe('NotificationDispatcher', () => {
           {
             id: 'secure',
             notificationType: 'example.todo.created',
-            features: ['example.todos.manage'],
+            features: ['example.todo.manage'],
             handle(notification) {
               calls.push(notification.id)
             },
@@ -112,7 +112,7 @@ describe('NotificationDispatcher', () => {
       },
     ])
 
-    dispatchNotificationHandlers([makeNotification('n1', 'example.todo.created')], runtime(['example.todos.*']))
+    dispatchNotificationHandlers([makeNotification('n1', 'example.todo.created')], runtime(['example.todo.*']))
 
     expect(calls).toEqual(['n1'])
   })
@@ -158,15 +158,15 @@ describe('NotificationDispatcher', () => {
       {
         moduleId: 'example',
         handlers: [
-          { id: 'a', notificationType: '*', features: ['example.todos.manage'], handle: () => {} },
-          { id: 'b', notificationType: '*', features: ['example.todos.manage', 'customers.people.view'], handle: () => {} },
+          { id: 'a', notificationType: '*', features: ['example.todo.manage'], handle: () => {} },
+          { id: 'b', notificationType: '*', features: ['example.todo.manage', 'customers.person.view'], handle: () => {} },
         ],
       },
     ])
 
     expect(getRequiredNotificationHandlerFeatures().sort()).toEqual([
-      'customers.people.view',
-      'example.todos.manage',
+      'customers.person.view',
+      'example.todo.manage',
     ])
   })
 })

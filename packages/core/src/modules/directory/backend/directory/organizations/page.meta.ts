@@ -9,7 +9,7 @@ const orgIcon = React.createElement('svg', { width: 16, height: 16, viewBox: '0 
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['directory.organizations.view'],
+  requireFeatures: ['directory.organization.view'],
   pageTitle: 'Organizations',
   pageTitleKey: 'directory.nav.organizations',
   pageGroup: 'Directory',

@@ -94,7 +94,7 @@ async function requireContext(
   if (contextType === 'order') {
     const order = await em.findOne(SalesOrder, { id: contextId })
     if (!order) {
-      throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+      throw new CrudHttpError(404, { error: 'sales.note.context_not_found' })
     }
     if (organizationId && tenantId) {
       ensureSameScope(order, organizationId, tenantId)
@@ -109,7 +109,7 @@ async function requireContext(
   if (contextType === 'quote') {
     const quote = await em.findOne(SalesQuote, { id: contextId })
     if (!quote) {
-      throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+      throw new CrudHttpError(404, { error: 'sales.note.context_not_found' })
     }
     if (organizationId && tenantId) {
       ensureSameScope(quote, organizationId, tenantId)
@@ -124,7 +124,7 @@ async function requireContext(
   const repo = contextType === 'invoice' ? SalesInvoice : SalesCreditMemo
   const entity = await em.findOne(repo, { id: contextId })
   if (!entity) {
-    throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+    throw new CrudHttpError(404, { error: 'sales.note.context_not_found' })
   }
   if (organizationId && tenantId) {
     ensureSameScope(entity, organizationId, tenantId)
@@ -145,7 +145,7 @@ function resolveAuthor(inputAuthor: string | undefined, authSub: string | null):
 }
 
 const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; authorUserId: string | null }> = {
-  id: 'sales.notes.create',
+  id: 'sales.note.create',
   async execute(rawInput, ctx) {
     const parsed = noteCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -223,7 +223,7 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
 }
 
 const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
-  id: 'sales.notes.update',
+  id: 'sales.note.update',
   async prepare(rawInput, ctx) {
     const parsed = noteUpdateSchema.parse(rawInput ?? {})
     const em = ctx.container.resolve('em') as EntityManager
@@ -234,7 +234,7 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
     const parsed = noteUpdateSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const note = await em.findOne(SalesNote, { id: parsed.id })
-    if (!note) throw new CrudHttpError(404, { error: 'sales.notes.not_found' })
+    if (!note) throw new CrudHttpError(404, { error: 'sales.note.not_found' })
     ensureTenantScope(ctx, note.tenantId)
     ensureOrganizationScope(ctx, note.organizationId)
 
@@ -355,7 +355,7 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
 
 const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { noteId: string }> =
   {
-    id: 'sales.notes.delete',
+    id: 'sales.note.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Note id required')
       const em = ctx.container.resolve('em') as EntityManager
@@ -366,7 +366,7 @@ const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const id = requireId(input, 'Note id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const note = await em.findOne(SalesNote, { id })
-      if (!note) throw new CrudHttpError(404, { error: 'sales.notes.not_found' })
+      if (!note) throw new CrudHttpError(404, { error: 'sales.note.not_found' })
       ensureTenantScope(ctx, note.tenantId)
       ensureOrganizationScope(ctx, note.organizationId)
       em.remove(note)

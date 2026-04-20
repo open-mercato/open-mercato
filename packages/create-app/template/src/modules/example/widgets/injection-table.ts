@@ -51,7 +51,7 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.customer-priority-column',
     priority: 30,
   },
-  'data-table:customers.people.list:columns': {
+  'data-table:customers.person.list:columns': {
     widgetId: 'example.injection.customer-priority-column',
     priority: 30,
   },
@@ -59,7 +59,7 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.customer-priority-filter',
     priority: 30,
   },
-  'data-table:customers.people.list:filters': {
+  'data-table:customers.person.list:filters': {
     widgetId: 'example.injection.customer-priority-filter',
     priority: 30,
   },
@@ -67,7 +67,7 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.customer-priority-row-action',
     priority: 30,
   },
-  'data-table:customers.people.list:row-actions': {
+  'data-table:customers.person.list:row-actions': {
     widgetId: 'example.injection.customer-priority-row-action',
     priority: 30,
   },
@@ -75,7 +75,7 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.customer-priority-bulk-actions',
     priority: 30,
   },
-  'data-table:customers.people.list:bulk-actions': {
+  'data-table:customers.person.list:bulk-actions': {
     widgetId: 'example.injection.customer-priority-bulk-actions',
     priority: 30,
   },

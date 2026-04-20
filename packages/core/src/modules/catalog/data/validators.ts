@@ -150,7 +150,7 @@ function productUomCrossFieldRefinement(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['defaultSalesUnit'],
-      message: 'catalog.products.validation.baseUnitRequired',
+      message: 'catalog.product.validation.baseUnitRequired',
     })
   }
   const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
@@ -163,14 +163,14 @@ function productUomCrossFieldRefinement(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['unitPrice'],
-      message: 'catalog.products.validation.referenceUnitRequired',
+      message: 'catalog.product.validation.referenceUnitRequired',
     })
   }
   if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['unitPrice'],
-      message: 'catalog.products.unitPrice.errors.baseQuantity',
+      message: 'catalog.product.unitPrice.errors.baseQuantity',
     })
   }
 }

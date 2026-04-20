@@ -35,10 +35,10 @@ type TenantRow = {
 } & Record<string, unknown>
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['directory.tenants.view'] },
-  POST: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['directory.tenant.view'] },
+  POST: { requireAuth: true, requireFeatures: ['directory.tenant.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['directory.tenant.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['directory.tenant.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -59,20 +59,20 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   indexer: tenantCrudIndexer,
   actions: {
     create: {
-      commandId: 'directory.tenants.create',
+      commandId: 'directory.tenant.create',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
-      commandId: 'directory.tenants.update',
+      commandId: 'directory.tenant.update',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'directory.tenants.delete',
+      commandId: 'directory.tenant.delete',
       response: () => ({ ok: true }),
     },
   },
@@ -261,7 +261,7 @@ const tenantPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenant.manage feature', schema: directoryErrorSchema },
   ],
 }
 
@@ -280,7 +280,7 @@ const tenantPutDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenant.manage feature', schema: directoryErrorSchema },
   ],
 }
 
@@ -299,7 +299,7 @@ const tenantDeleteDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenant.manage feature', schema: directoryErrorSchema },
   ],
 }
 

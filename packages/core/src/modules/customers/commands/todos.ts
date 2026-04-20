@@ -157,7 +157,7 @@ async function loadInteractionSnapshot(
   const canonicalDelete = getRequiredHandler<
     { body?: Record<string, unknown>; query?: Record<string, unknown> },
     { interactionId: string }
-  >('customers.interactions.delete')
+  >('customers.interaction.delete')
   const prepared = await canonicalDelete.prepare?.({ body: { id: interactionId } }, ctx)
   if (!prepared || typeof prepared !== 'object' || !('before' in prepared)) return null
   return (prepared.before as InteractionSnapshot | undefined) ?? null
@@ -311,7 +311,7 @@ const unlinkTodoCommand: CommandHandler<
   z.infer<typeof unlinkSchema>,
   { linkId: string; interactionId: string }
 > = {
-  id: 'customers.todos.unlink',
+  id: 'customers.todo.unlink',
   async prepare(rawInput, ctx) {
     const parsed = unlinkSchema.parse(rawInput)
     const target = await resolveTodoTarget(parsed.linkId, ctx)
@@ -330,7 +330,7 @@ const unlinkTodoCommand: CommandHandler<
       const canonicalCreate = getRequiredHandler<
         InteractionCreateInput & { customValues?: Record<string, unknown> },
         { interactionId: string }
-      >('customers.interactions.create')
+      >('customers.interaction.create')
       await canonicalCreate.execute(
         mapLegacyLinkToInteractionCreateInput(target.legacyLink, target.detail),
         ctx,
@@ -340,7 +340,7 @@ const unlinkTodoCommand: CommandHandler<
     const canonicalDelete = getRequiredHandler<
       { body?: Record<string, unknown>; query?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.delete')
+    >('customers.interaction.delete')
     await canonicalDelete.execute({ body: { id: target.interactionId } }, ctx)
 
     return { linkId: parsed.linkId, interactionId: target.interactionId }
@@ -368,7 +368,7 @@ const unlinkTodoCommand: CommandHandler<
     const canonicalDelete = getRequiredHandler<
       { body?: Record<string, unknown>; query?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.delete')
+    >('customers.interaction.delete')
     if (!canonicalDelete.undo) return
     await canonicalDelete.undo({
       input: {},
@@ -380,7 +380,7 @@ const unlinkTodoCommand: CommandHandler<
 
 /** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: string; todoId: string }> = {
-  id: 'customers.todos.create',
+  id: 'customers.todo.create',
   async execute(rawInput, ctx) {
     const parsed = todoLinkWithTodoCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -389,7 +389,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     const result = await canonicalCreate.execute(mapTodoCreateInput(parsed), ctx)
     return { linkId: result.interactionId, todoId: result.interactionId }
   },
@@ -397,7 +397,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     if (!canonicalCreate.captureAfter) return null
     return canonicalCreate.captureAfter(
       {
@@ -436,7 +436,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     if (!canonicalCreate.undo) return
     await canonicalCreate.undo({
       input: {

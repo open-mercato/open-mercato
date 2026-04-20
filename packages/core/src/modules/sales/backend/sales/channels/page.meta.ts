@@ -11,9 +11,9 @@ const globeIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.channels.manage'],
+  requireFeatures: ['sales.channel.manage'],
   pageTitle: 'Sales channels',
-  pageTitleKey: 'sales.channels.nav.title',
+  pageTitleKey: 'sales.channel.nav.title',
   pageGroup: 'Sales',
   pageGroupKey: 'customers~sales.nav.group',
   pagePriority: 40,
@@ -21,6 +21,6 @@ export const metadata = {
   icon: globeIcon,
   breadcrumb: [
     { label: 'Sales', labelKey: 'customers~sales.nav.group', href: '/backend/sales/channels' },
-    { label: 'Channels', labelKey: 'sales.channels.nav.title' },
+    { label: 'Channels', labelKey: 'sales.channel.nav.title' },
   ],
 } as const

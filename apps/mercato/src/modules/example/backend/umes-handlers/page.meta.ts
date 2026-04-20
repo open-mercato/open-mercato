@@ -9,7 +9,7 @@ const cogsIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['example.todos.manage'],
+  requireFeatures: ['example.todo.manage'],
   pageTitle: 'UMES Phase A-D Handlers',
   pageTitleKey: 'example.umes.handlers.title',
   pageGroup: 'Example',
@@ -17,7 +17,7 @@ export const metadata = {
   pageOrder: 20500,
   icon: cogsIcon,
   breadcrumb: [
-    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todo.page.title', href: '/backend/todos' },
     { label: 'Phase A-D handlers', labelKey: 'example.umes.handlers.title' },
   ],
 }

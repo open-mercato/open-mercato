@@ -40,10 +40,10 @@ const listSchema = z.object({
 }).passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.activities.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.activity.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.activity.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.activity.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.activity.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -119,7 +119,7 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
   return withAdapterHeaders(NextResponse.json(
     {
       error: translate(
-        'customers.interactions.legacyAdapters.disabled',
+        'customers.interaction.legacyAdapters.disabled',
         'This legacy adapter has been disabled. Use /api/customers/interactions instead.',
       ),
     },
@@ -277,7 +277,7 @@ async function ensureCanonicalActivityBridge(
     : null
   const customValues = await loadLegacyActivityCustomValues(em, activity)
 
-  await commandBus.execute('customers.interactions.create', {
+  await commandBus.execute('customers.interaction.create', {
     input: {
       id: activity.id,
       entityId,
@@ -511,7 +511,7 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.get failed', err)
+    console.error('customers.activity.get failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -543,7 +543,7 @@ export async function POST(request: Request): Promise<Response> {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
     const commandBus = container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute('customers.interactions.create', {
+    const { result } = await commandBus.execute('customers.interaction.create', {
       input: {
         entityId: parsed.entityId,
         interactionType: parsed.activityType,
@@ -603,7 +603,7 @@ export async function POST(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.post failed', err)
+    console.error('customers.activity.post failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -639,7 +639,7 @@ export async function PUT(request: Request): Promise<Response> {
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
 
-    await commandBus.execute('customers.interactions.update', {
+    await commandBus.execute('customers.interaction.update', {
       input: {
         id: interactionId,
         interactionType: parsed.activityType,
@@ -680,7 +680,7 @@ export async function PUT(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.put failed', err)
+    console.error('customers.activity.put failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -715,7 +715,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const interactionId = flags.unified
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
-    await commandBus.execute('customers.interactions.delete', {
+    await commandBus.execute('customers.interaction.delete', {
       input: { id: interactionId },
       ctx: commandContext,
     })
@@ -742,7 +742,7 @@ export async function DELETE(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.delete failed', err)
+    console.error('customers.activity.delete failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )

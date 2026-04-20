@@ -36,7 +36,7 @@ function normalizeTagList(values: Array<string | null | undefined>): string[] {
 }
 
 const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInput, { memberId: string }> = {
-  id: 'staff.team-members.tags.assign',
+  id: 'staff.team-member.tag.assign',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberTagAssignmentSchema.parse(rawInput)
     const tagValue = parsed.tag.trim()
@@ -129,7 +129,7 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
 }
 
 const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInput, { memberId: string }> = {
-  id: 'staff.team-members.tags.unassign',
+  id: 'staff.team-member.tag.unassign',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberTagAssignmentSchema.parse(rawInput)
     const tagValue = parsed.tag.trim()

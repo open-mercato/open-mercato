@@ -38,9 +38,9 @@ const customerPriorityCreateResponseSchema = z.object({
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
     GET: { requireAuth: true, requireFeatures: ['example.view'] },
-    POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
-    PUT: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
-    DELETE: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+    POST: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
   },
   orm: {
     entity: ExampleCustomerPriority,

@@ -67,9 +67,9 @@ const todoDeleteBodySchema = z.object({
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
 }
 
 const DEPRECATION_HEADERS = {
@@ -104,7 +104,7 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
   return withAdapterHeaders(NextResponse.json(
     {
       error: translate(
-        'customers.interactions.legacyAdapters.disabled',
+        'customers.interaction.legacyAdapters.disabled',
         'This legacy adapter has been disabled. Use /api/customers/interactions instead.',
       ),
     },
@@ -172,7 +172,7 @@ async function ensureCanonicalTodoBridge(
   const detail = detailMap.get(`${source}:${link.todoId}`) ?? null
   const entityId = typeof link.entity === 'string' ? link.entity : link.entity.id
 
-  await commandBus.execute('customers.interactions.create', {
+  await commandBus.execute('customers.interaction.create', {
     input: {
       id: link.todoId,
       entityId,
@@ -281,7 +281,7 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.get failed', err)
+    console.error('customers.todo.get failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -314,7 +314,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const customValues = collectTodoCustomValues(body as Record<string, unknown>)
 
-    const { result } = await commandBus.execute('customers.interactions.create', {
+    const { result } = await commandBus.execute('customers.interaction.create', {
       input: {
         entityId: body.entityId,
         interactionType: 'task',
@@ -379,7 +379,7 @@ export async function POST(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.post failed', err)
+    console.error('customers.todo.post failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -427,7 +427,7 @@ export async function PUT(request: Request): Promise<Response> {
     const customValues = collectTodoCustomValues(body as Record<string, unknown>)
     const nextDone = normalizeTodoStatusInput(body)
 
-    await commandBus.execute('customers.interactions.update', {
+    await commandBus.execute('customers.interaction.update', {
       input: {
         id: interactionId,
         ...(body.title !== undefined ? { title: body.title } : {}),
@@ -470,7 +470,7 @@ export async function PUT(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.put failed', err)
+    console.error('customers.todo.put failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -516,7 +516,7 @@ export async function DELETE(request: Request): Promise<Response> {
           auth.tenantId,
         )
 
-    await commandBus.execute('customers.interactions.delete', {
+    await commandBus.execute('customers.interaction.delete', {
       input: { id: interactionId },
       ctx: commandContext,
     })
@@ -544,7 +544,7 @@ export async function DELETE(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.delete failed', err)
+    console.error('customers.todo.delete failed', err)
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )

@@ -53,7 +53,7 @@ export async function GET(req: Request) {
 
   if (!user) {
     return NextResponse.json(
-      { error: translate('auth.users.form.errors.notFound', 'User not found') },
+      { error: translate('auth.user.form.errors.notFound', 'User not found') },
       { status: 404 },
     )
   }

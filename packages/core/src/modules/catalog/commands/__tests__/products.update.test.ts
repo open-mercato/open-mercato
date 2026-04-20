@@ -25,7 +25,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
-describe('catalog.products.update', () => {
+describe('catalog.product.update', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.resetModules()
@@ -35,7 +35,7 @@ describe('catalog.products.update', () => {
     let updateCommand: unknown
     jest.isolateModules(() => {
       require('../products')
-      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.update')?.[0]
+      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.product.update')?.[0]
     })
     expect(updateCommand).toBeDefined()
 
@@ -147,7 +147,7 @@ describe('catalog.products.update', () => {
     let updateCommand: unknown
     jest.isolateModules(() => {
       require('../products')
-      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.update')?.[0]
+      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.product.update')?.[0]
     })
     expect(updateCommand).toBeDefined()
 
@@ -245,7 +245,7 @@ describe('catalog.products.update', () => {
     let updateCommand: unknown
     jest.isolateModules(() => {
       require('../products')
-      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.update')?.[0]
+      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.product.update')?.[0]
     })
     expect(updateCommand).toBeDefined()
 

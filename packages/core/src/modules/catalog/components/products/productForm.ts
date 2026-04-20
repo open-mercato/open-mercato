@@ -134,14 +134,14 @@ const optionalBoundedIntegerInput = (min: number, max: number) =>
 
 export const productFormSchema = z
   .object({
-    title: z.string().trim().min(1, "catalog.products.validation.titleRequired"),
+    title: z.string().trim().min(1, "catalog.product.validation.titleRequired"),
     subtitle: z.string().optional(),
     handle: z
       .string()
       .trim()
       .regex(
         /^[a-z0-9\-_]*$/,
-        "catalog.products.validation.handleFormat",
+        "catalog.product.validation.handleFormat",
       )
       .max(150)
       .optional(),
@@ -150,7 +150,7 @@ export const productFormSchema = z
       .trim()
       .regex(
         /^[A-Za-z0-9\-_\.]*$/,
-        "catalog.products.validation.skuFormat",
+        "catalog.product.validation.skuFormat",
       )
       .max(191)
       .optional(),
@@ -214,11 +214,11 @@ export const productFormSchema = z
   .passthrough()
   .refine(
     (data) => !data.unitPriceEnabled || (data.unitPriceReferenceUnit != null && data.unitPriceReferenceUnit.length > 0),
-    { message: 'catalog.products.validation.referenceUnitRequired', path: ['unitPriceReferenceUnit'] }
+    { message: 'catalog.product.validation.referenceUnitRequired', path: ['unitPriceReferenceUnit'] }
   )
   .refine(
     (data) => !data.defaultSalesUnit || (data.defaultUnit != null && data.defaultUnit.length > 0),
-    { message: 'catalog.products.validation.baseUnitRequired', path: ['defaultUnit'] }
+    { message: 'catalog.product.validation.baseUnitRequired', path: ['defaultUnit'] }
   );
 
 export const PRODUCT_FORM_STEPS = [

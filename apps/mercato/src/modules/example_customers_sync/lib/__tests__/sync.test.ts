@@ -12,7 +12,7 @@ describe('example_customers_sync sync helpers', () => {
       }),
     ).toEqual({
       updateStatusInCommand: false,
-      lifecycleCommandId: 'customers.interactions.complete',
+      lifecycleCommandId: 'customers.interaction.complete',
     })
 
     expect(

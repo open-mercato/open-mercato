@@ -12,9 +12,9 @@ type FeatureToggleServiceLike = {
 }
 
 export const customerInteractionFeatureIds = {
-  unified: 'customers.interactions.unified',
-  legacyAdapters: 'customers.interactions.legacy-adapters',
-  externalSync: 'customers.interactions.external-sync',
+  unified: 'customers.interaction.unified',
+  legacyAdapters: 'customers.interaction.legacy-adapters',
+  externalSync: 'customers.interaction.external-sync',
 } as const
 
 const customerInteractionFeatureAliases: Record<keyof typeof customerInteractionFeatureIds, string[]> = {

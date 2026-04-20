@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const input = parseScopedCommandInput(staffTeamMemberTagAssignmentSchema, body, ctx, translate)
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<StaffTeamMemberTagAssignmentInput, { memberId: string }>(
-      'staff.team-members.tags.unassign',
+      'staff.team-member.tag.unassign',
       { input, ctx },
     )
     const response = NextResponse.json({ id: result?.memberId ?? null })

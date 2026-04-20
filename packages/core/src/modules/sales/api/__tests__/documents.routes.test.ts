@@ -126,7 +126,7 @@ describe('sales document update routes', () => {
 
     expect(res.status).toBe(200)
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
-      'sales.orders.update',
+      'sales.order.update',
       expect.objectContaining({
         input: expect.objectContaining({ id: '22222222-2222-4222-8222-222222222222', comment: 'Updated order' }),
       })
@@ -139,7 +139,7 @@ describe('sales document update routes', () => {
 
     expect(res.status).toBe(200)
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
-      'sales.quotes.update',
+      'sales.quote.update',
       expect.objectContaining({
         input: expect.objectContaining({ id: '33333333-3333-4333-8333-333333333333', comment: 'Updated quote' }),
       })

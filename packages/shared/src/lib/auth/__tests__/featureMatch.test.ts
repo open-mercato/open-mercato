@@ -22,7 +22,7 @@ describe('featureScope', () => {
   })
 
   it('returns the top-level scope for nested feature ids', () => {
-    expect(featureScope('catalog.products.edit')).toBe('catalog')
+    expect(featureScope('catalog.product.edit')).toBe('catalog')
     expect(featureScope('catalog.*')).toBe('catalog')
   })
 })
@@ -49,7 +49,7 @@ describe('matchFeature', () => {
   })
 
   it('matches module wildcards against nested features and the bare prefix', () => {
-    expect(matchFeature('catalog.products.edit', 'catalog.*')).toBe(true)
+    expect(matchFeature('catalog.product.edit', 'catalog.*')).toBe(true)
     expect(matchFeature('catalog', 'catalog.*')).toBe(true)
   })
 

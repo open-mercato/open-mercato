@@ -25,8 +25,8 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.returns.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.returns.create'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.return.view'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.return.create'] },
 }
 
 const toNumber = (value: unknown): number => {
@@ -80,7 +80,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.returns.create',
+      commandId: 'sales.return.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()

@@ -234,7 +234,7 @@ export const workflowDefinitionTriggerSchema = z.object({
     .max(255, 'Event pattern must be at most 255 characters')
     .regex(
       /^(\*|[a-z0-9_]+(\.[a-z0-9_*]+)*)$/i,
-      'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.people.created", "sales.orders.*")'
+      'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.person.created", "sales.order.*")'
     ),
   config: z.object({
     filterConditions: z.array(z.object({
@@ -579,7 +579,7 @@ export const eventPatternSchema = z.string()
   .max(255, 'Event pattern must be at most 255 characters')
   .regex(
     /^(\*|[a-z0-9_]+(\.[a-z0-9_*]+)*)$/i,
-    'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.people.created", "sales.orders.*")'
+    'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.person.created", "sales.order.*")'
   )
 
 export const createEventTriggerSchema = z.object({

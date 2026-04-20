@@ -56,7 +56,7 @@ const createCommentCommand: CommandHandler<
   StaffTeamMemberCommentCreateInput,
   { commentId: string; authorUserId: string | null }
 > = {
-  id: 'staff.team-member-comments.create',
+  id: 'staff.team-member-comment.create',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberCommentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -134,7 +134,7 @@ const createCommentCommand: CommandHandler<
 }
 
 const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { commentId: string }> = {
-  id: 'staff.team-member-comments.update',
+  id: 'staff.team-member-comment.update',
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberCommentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -263,7 +263,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
 
 const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { commentId: string }> =
   {
-    id: 'staff.team-member-comments.delete',
+    id: 'staff.team-member-comment.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager)

@@ -83,7 +83,7 @@ describe('RbacService', () => {
       ]
       const racls: Array<Partial<RoleAcl>> = [
         { role: roleA as any, tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['entities.*'], organizationsJson: ['org-1'] },
-        { role: roleB as any, tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['example.todos.view'], organizationsJson: ['org-2'] },
+        { role: roleB as any, tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['example.todo.view'], organizationsJson: ['org-2'] },
       ]
 
       em.findOne.mockImplementation(async (entity: any, where: any) => {
@@ -100,7 +100,7 @@ describe('RbacService', () => {
       const acl = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: 'org-2' })
       expect(acl.isSuperAdmin).toBe(false)
       // de-duplicated and union of features
-      expect(acl.features.sort()).toEqual(['entities.*', 'example.todos.view'])
+      expect(acl.features.sort()).toEqual(['entities.*', 'example.todo.view'])
       // organizations become union; since neither role had null, it remains an array
       expect(acl.organizations && new Set(acl.organizations)).toEqual(new Set(['org-1', 'org-2']))
     })
@@ -197,7 +197,7 @@ describe('RbacService', () => {
 
       const ok1 = await service.userHasAllFeatures(baseUser.id!, ['entities.records.view'], { tenantId: null, organizationId: null })
       const ok2 = await service.userHasAllFeatures(baseUser.id!, ['entities'], { tenantId: null, organizationId: null })
-      const ok3 = await service.userHasAllFeatures(baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: null })
+      const ok3 = await service.userHasAllFeatures(baseUser.id!, ['auth.user.list'], { tenantId: null, organizationId: null })
       expect(ok1).toBe(true)
       expect(ok2).toBe(true)
       expect(ok3).toBe(false)

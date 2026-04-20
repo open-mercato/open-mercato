@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const input = parseScopedCommandInput(staffLeaveRequestDecisionSchema, body, ctx, translate)
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<StaffLeaveRequestDecisionInput, { requestId: string }>(
-      'staff.leave-requests.accept',
+      'staff.leave-request.accept',
       { input, ctx },
     )
     const response = NextResponse.json({ ok: true, id: result?.requestId ?? null }, { status: 200 })
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.leave-requests.accept failed', err)
+    console.error('staff.leave-request.accept failed', err)
     return NextResponse.json({ error: translate('staff.leaveRequests.errors.accept', 'Failed to approve leave request.') }, { status: 400 })
   }
 }

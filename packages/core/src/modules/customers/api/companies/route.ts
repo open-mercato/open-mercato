@@ -56,10 +56,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.companies.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.companies.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.companies.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.company.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.company.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.company.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.company.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -297,7 +297,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'customers.companies.create',
+      commandId: 'customers.company.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -313,7 +313,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'customers.companies.update',
+      commandId: 'customers.company.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -326,7 +326,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'customers.companies.delete',
+      commandId: 'customers.company.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

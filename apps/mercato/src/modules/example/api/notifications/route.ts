@@ -8,7 +8,7 @@ const emitNotificationSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
 }
 
 export async function POST(request: Request) {

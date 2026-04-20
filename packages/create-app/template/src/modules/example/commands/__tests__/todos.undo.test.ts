@@ -101,7 +101,7 @@ describe('example todos undo', () => {
 
   it('uses snapshot organization scope when undoing update', async () => {
     const { ctx, dataEngine } = createCtx()
-    const handler = getCommand('example.todos.update')
+    const handler = getCommand('example.todo.update')
     const logEntry = { snapshotBefore: baseSnapshot }
 
     await handler.undo!({ logEntry, ctx, input: {} })
@@ -119,7 +119,7 @@ describe('example todos undo', () => {
 
   it('restores custom fields diff when undoing update', async () => {
     const { ctx, dataEngine } = createCtx()
-    const handler = getCommand('example.todos.update')
+    const handler = getCommand('example.todo.update')
     const logEntry = {
       snapshotBefore: { ...baseSnapshot, custom: { priority: 3 } },
       snapshotAfter: { ...baseSnapshot, custom: { priority: 5, severity: 'critical' } },
@@ -138,7 +138,7 @@ describe('example todos undo', () => {
 
   it('rejects undo when snapshot organization is not allowed', async () => {
     const { ctx, dataEngine } = createCtx({ organizationIds: ['org-current'] })
-    const handler = getCommand('example.todos.update')
+    const handler = getCommand('example.todo.update')
     const logEntry = { snapshotBefore: baseSnapshot }
 
     await expect(handler.undo!({ logEntry, ctx, input: {} })).rejects.toBeInstanceOf(CrudHttpError)

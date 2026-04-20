@@ -172,7 +172,7 @@ describe('executionEngine', () => {
       const operationLogEntry = {
         id: 'log-1',
         undoToken: 'undo-1',
-        commandId: 'sales.orders.create',
+        commandId: 'sales.order.create',
         createdAt: new Date('2026-03-19T09:00:00.000Z'),
       }
       mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-1' }, logEntry: operationLogEntry })
@@ -520,7 +520,7 @@ describe('executionEngine', () => {
   })
 
   describe('executeAction — create_quote', () => {
-    it('creates a quote via sales.quotes.create command', async () => {
+    it('creates a quote via sales.quote.create command', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
 
@@ -556,7 +556,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('quote-1')
       expect(result.createdEntityType).toBe('sales_quote')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.quotes.create',
+        'sales.quote.create',
         expect.objectContaining({
           input: expect.objectContaining({ currencyCode: 'EUR' }),
         }),
@@ -603,7 +603,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('quote-auto-1')
       expect(result.createdEntityType).toBe('sales_quote')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.quotes.create',
+        'sales.quote.create',
         expect.anything(),
       )
     })
@@ -644,7 +644,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('order-normal-1')
       expect(result.createdEntityType).toBe('sales_order')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.orders.create',
+        'sales.order.create',
         expect.anything(),
       )
     })
@@ -692,7 +692,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe(VALID_UUID)
       expect(result.createdEntityType).toBe('sales_order')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.orders.update',
+        'sales.order.update',
         expect.objectContaining({
           input: expect.objectContaining({
             id: VALID_UUID,
@@ -750,7 +750,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('ship-1')
       expect(result.createdEntityType).toBe('sales_shipment')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.shipments.update',
+        'sales.shipment.update',
         expect.objectContaining({
           input: expect.objectContaining({
             statusEntryId: 'entry-2',
@@ -902,7 +902,7 @@ describe('executionEngine', () => {
   })
 
   describe('executeAction — log_activity', () => {
-    it('creates activity on contact via customers.activities.create', async () => {
+    it('creates activity on contact via customers.activity.create', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
 
@@ -942,7 +942,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('act-1')
       expect(result.createdEntityType).toBe('customer_interaction')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.interactions.create',
+        'customers.interaction.create',
         expect.objectContaining({
           input: expect.objectContaining({
             entityId: VALID_UUID,
@@ -993,7 +993,7 @@ describe('executionEngine', () => {
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('act-resolved')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.interactions.create',
+        'customers.interaction.create',
         expect.objectContaining({
           input: expect.objectContaining({ entityId: 'resolved-contact-1' }),
         }),
@@ -1076,7 +1076,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('company-1')
       expect(result.createdEntityType).toBe('customer_company')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.companies.create',
+        'customers.company.create',
         expect.objectContaining({
           input: expect.objectContaining({
             displayName: 'Acme Corp',
@@ -1166,7 +1166,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('existing-medcore')
       expect(result.createdEntityType).toBe('customer_company')
       expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
-        'customers.companies.create',
+        'customers.company.create',
         expect.anything(),
       )
     })
@@ -1217,7 +1217,7 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('person-1')
 
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.companies.create',
+        'customers.company.create',
         expect.objectContaining({
           input: expect.objectContaining({
             displayName: 'VitaMed Sp. z o.o.',
@@ -1226,7 +1226,7 @@ describe('executionEngine', () => {
       )
 
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.people.create',
+        'customers.person.create',
         expect.objectContaining({
           input: expect.objectContaining({
             firstName: 'Katarzyna',
@@ -1280,11 +1280,11 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(true)
       expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
-        'customers.companies.create',
+        'customers.company.create',
         expect.anything(),
       )
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.people.create',
+        'customers.person.create',
         expect.objectContaining({
           input: expect.objectContaining({
             companyEntityId: 'existing-company',
@@ -1338,7 +1338,7 @@ describe('executionEngine', () => {
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('person-fallback')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.people.create',
+        'customers.person.create',
         expect.objectContaining({
           input: expect.not.objectContaining({
             companyEntityId: expect.any(String),
@@ -1382,7 +1382,7 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(true)
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.people.create',
+        'customers.person.create',
         expect.objectContaining({
           input: expect.objectContaining({
             displayName: 'Katarzyna Lewandowska',
@@ -1394,8 +1394,8 @@ describe('executionEngine', () => {
     })
   })
 
-  describe('executeAction — create_contact company requires customers.companies.manage', () => {
-    it('checks customers.companies.manage when create_contact type is company', async () => {
+  describe('executeAction — create_contact company requires customers.company.manage', () => {
+    it('checks customers.company.manage when create_contact type is company', async () => {
       mockRbacService.userHasAllFeatures.mockResolvedValue(false)
       const em = createMockEm()
 
@@ -1415,12 +1415,12 @@ describe('executionEngine', () => {
       expect(result.statusCode).toBe(403)
       expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
         'user-1',
-        ['customers.companies.manage'],
+        ['customers.company.manage'],
         expect.objectContaining({ tenantId: 'tenant-1' }),
       )
     })
 
-    it('checks customers.people.manage when create_contact type is person', async () => {
+    it('checks customers.person.manage when create_contact type is person', async () => {
       mockRbacService.userHasAllFeatures.mockResolvedValue(false)
       const em = createMockEm()
 
@@ -1440,7 +1440,7 @@ describe('executionEngine', () => {
       expect(result.statusCode).toBe(403)
       expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
         'user-1',
-        ['customers.people.manage'],
+        ['customers.person.manage'],
         expect.objectContaining({ tenantId: 'tenant-1' }),
       )
     })
@@ -1732,14 +1732,14 @@ describe('executionEngine', () => {
       expect(result.createdEntityType).toBe('catalog_product')
 
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'catalog.products.create',
+        'catalog.product.create',
         expect.objectContaining({
           input: expect.objectContaining({ title: 'Steel Bearing', sku: 'SB-001' }),
         }),
       )
 
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'catalog.variants.create',
+        'catalog.variant.create',
         expect.objectContaining({
           input: expect.objectContaining({
             productId: 'product-1',
@@ -1787,7 +1787,7 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(true)
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'catalog.prices.create',
+        'catalog.price.create',
         expect.objectContaining({
           input: expect.objectContaining({
             variantId: 'variant-2',
@@ -1803,13 +1803,13 @@ describe('executionEngine', () => {
 
   describe('getRequiredFeature', () => {
     it.each([
-      ['create_order', 'sales.orders.manage'],
-      ['create_quote', 'sales.quotes.manage'],
-      ['update_order', 'sales.orders.manage'],
-      ['update_shipment', 'sales.shipments.manage'],
-      ['create_contact', 'customers.people.manage'],
-      ['link_contact', 'customers.people.manage'],
-      ['log_activity', 'customers.activities.manage'],
+      ['create_order', 'sales.order.manage'],
+      ['create_quote', 'sales.quote.manage'],
+      ['update_order', 'sales.order.manage'],
+      ['update_shipment', 'sales.shipment.manage'],
+      ['create_contact', 'customers.person.manage'],
+      ['link_contact', 'customers.person.manage'],
+      ['log_activity', 'customers.activity.manage'],
       ['draft_reply', 'inbox_ops.replies.send'],
     ] as const)('returns correct feature for %s', (actionType, expectedFeature) => {
       expect(getRequiredFeature(actionType)).toBe(expectedFeature)

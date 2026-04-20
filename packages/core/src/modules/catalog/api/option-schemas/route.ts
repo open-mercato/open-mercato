@@ -36,7 +36,7 @@ const listSchema = z
 type SchemaQuery = z.infer<typeof listSchema>
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.product.view'] },
   POST: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
@@ -114,7 +114,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'catalog.optionSchemas.create',
+      commandId: 'catalog.option-schema.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -124,7 +124,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'catalog.optionSchemas.update',
+      commandId: 'catalog.option-schema.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -133,7 +133,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'catalog.optionSchemas.delete',
+      commandId: 'catalog.option-schema.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

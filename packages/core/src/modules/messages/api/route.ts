@@ -310,7 +310,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
+  const { result, logEntry } = await commandBus.execute('messages.message.compose', {
     input: {
       ...input,
       sendViaEmail,

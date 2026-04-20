@@ -72,7 +72,7 @@ async function loadResourceTypeCustomSnapshot(em: EntityManager, snapshot: Resou
 }
 
 const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput, { resourceTypeId: string }> = {
-  id: 'resources.resourceTypes.create',
+  id: 'resources.resource-type.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(resourcesResourceTypeCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -173,7 +173,7 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
 }
 
 const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput, { resourceTypeId: string }> = {
-  id: 'resources.resourceTypes.update',
+  id: 'resources.resource-type.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(resourcesResourceTypeUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -316,7 +316,7 @@ const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput
 }
 
 const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeId: string }> = {
-  id: 'resources.resourceTypes.delete',
+  id: 'resources.resource-type.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Resource type id is required.' })

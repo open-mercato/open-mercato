@@ -75,7 +75,7 @@ export async function loadCatalogVariantPreview(
   ctx: PreviewContext,
 ): Promise<ObjectPreviewData> {
   const { t } = await resolveTranslations()
-  const defaultTitle = t('catalog.variants.form.editTitle')
+  const defaultTitle = t('catalog.variant.form.editTitle')
 
   if (!ctx.organizationId) {
     return { title: defaultTitle, subtitle: entityId }
@@ -99,7 +99,7 @@ export async function loadCatalogVariantPreview(
     return {
       title: defaultTitle,
       subtitle: entityId,
-      status: t('catalog.variants.form.errors.notFound'),
+      status: t('catalog.variant.form.errors.notFound'),
       statusColor: 'gray',
     }
   }
@@ -123,8 +123,8 @@ export async function loadCatalogVariantPreview(
   )
 
   const metadata: Record<string, string> = {}
-  const skuLabel = t('catalog.variants.form.skuLabel')
-  const pricesLabel = t('catalog.variants.form.pricesLabel')
+  const skuLabel = t('catalog.variant.form.skuLabel')
+  const pricesLabel = t('catalog.variant.form.pricesLabel')
   if (variant.sku && variant.sku.trim().length > 0) metadata[skuLabel] = variant.sku
   if (priceLabel) metadata[pricesLabel] = priceLabel
 

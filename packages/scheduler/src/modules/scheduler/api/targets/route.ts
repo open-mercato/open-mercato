@@ -7,7 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['scheduler.jobs.view'],
+  requireFeatures: ['scheduler.job.view'],
 }
 
 /**

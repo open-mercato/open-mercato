@@ -23,10 +23,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.quotes.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.quote.view'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.quote.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.quote.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.quote.manage'] },
 }
 
 const upsertSchema = quoteAdjustmentCreateSchema.extend({ id: z.string().uuid().optional() })
@@ -102,7 +102,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.quotes.adjustments.upsert',
+      commandId: 'sales.quote.adjustment.upsert',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -113,7 +113,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'sales.quotes.adjustments.upsert',
+      commandId: 'sales.quote.adjustment.upsert',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -123,7 +123,7 @@ const crud = makeCrudRoute({
       response: ({ result }) => ({ id: result?.adjustmentId ?? null, quoteId: result?.quoteId ?? null }),
     },
     delete: {
-      commandId: 'sales.quotes.adjustments.delete',
+      commandId: 'sales.quote.adjustment.delete',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()

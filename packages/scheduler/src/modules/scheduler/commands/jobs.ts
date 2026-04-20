@@ -102,7 +102,7 @@ function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string | null |
  * CREATE SCHEDULE COMMAND
  */
 const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }> = {
-  id: 'scheduler.jobs.create',
+  id: 'scheduler.job.create',
 
   async execute(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
@@ -190,7 +190,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
  * UPDATE SCHEDULE COMMAND
  */
 const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }> = {
-  id: 'scheduler.jobs.update',
+  id: 'scheduler.job.update',
 
   async prepare(input, ctx) {
     const em = ctx.container.resolve<EntityManager>('em')
@@ -320,7 +320,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
  * DELETE SCHEDULE COMMAND
  */
 const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
-  id: 'scheduler.jobs.delete',
+  id: 'scheduler.job.delete',
 
   async prepare(input, ctx) {
     const em = ctx.container.resolve<EntityManager>('em')

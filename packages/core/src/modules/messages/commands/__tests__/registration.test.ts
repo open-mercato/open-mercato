@@ -10,31 +10,31 @@ describe('messages command registration', () => {
   const cases = [
     {
       path: '../confirmations',
-      expected: ['messages.confirmations.confirm'],
+      expected: ['messages.confirmation.confirm'],
     },
     {
       path: '../recipients',
       expected: [
-        'messages.recipients.mark_read',
-        'messages.recipients.mark_unread',
-        'messages.recipients.archive',
-        'messages.recipients.unarchive',
+        'messages.recipient.mark_read',
+        'messages.recipient.mark_unread',
+        'messages.recipient.archive',
+        'messages.recipient.unarchive',
       ],
     },
     {
       path: '../attachments',
       expected: [
-        'messages.attachments.link_to_draft',
-        'messages.attachments.unlink_from_draft',
+        'messages.attachment.link_to_draft',
+        'messages.attachment.unlink_from_draft',
       ],
     },
     {
       path: '../actions',
-      expected: ['messages.actions.record_terminal', 'messages.actions.execute'],
+      expected: ['messages.action.record_terminal', 'messages.action.execute'],
     },
     {
       path: '../tokens',
-      expected: ['messages.tokens.consume'],
+      expected: ['messages.token.consume'],
     },
     {
       path: '../conversation',
@@ -47,11 +47,11 @@ describe('messages command registration', () => {
     {
       path: '../messages',
       expected: [
-        'messages.messages.compose',
-        'messages.messages.update_draft',
-        'messages.messages.reply',
-        'messages.messages.forward',
-        'messages.messages.delete_for_actor',
+        'messages.message.compose',
+        'messages.message.update_draft',
+        'messages.message.reply',
+        'messages.message.forward',
+        'messages.message.delete_for_actor',
       ],
     },
   ]

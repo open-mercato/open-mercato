@@ -78,8 +78,8 @@ export async function loadCustomerPersonPreview(entityId: string, ctx: PreviewCo
   const subtitleParts = [entity.primaryEmail, entity.primaryPhone]
     .filter((part): part is string => Boolean(part && part.trim().length > 0))
   const metadata: Record<string, string> = {}
-  const phoneLabel = t('customers.people.detail.highlights.primaryPhone')
-  const jobTitleLabel = t('customers.people.detail.fields.jobTitle')
+  const phoneLabel = t('customers.person.detail.highlights.primaryPhone')
+  const jobTitleLabel = t('customers.person.detail.fields.jobTitle')
   if (entity.primaryPhone && entity.primaryPhone.trim().length > 0) metadata[phoneLabel] = entity.primaryPhone
   if (profile?.jobTitle && profile.jobTitle.trim().length > 0) metadata[jobTitleLabel] = profile.jobTitle
 
@@ -134,8 +134,8 @@ export async function loadCustomerCompanyPreview(entityId: string, ctx: PreviewC
   const subtitleParts = [entity.primaryEmail, entity.primaryPhone]
     .filter((part): part is string => Boolean(part && part.trim().length > 0))
   const metadata: Record<string, string> = {}
-  const phoneLabel = t('customers.companies.detail.highlights.primaryPhone')
-  const industryLabel = t('customers.companies.detail.fields.industry')
+  const phoneLabel = t('customers.company.detail.highlights.primaryPhone')
+  const industryLabel = t('customers.company.detail.fields.industry')
   if (entity.primaryPhone && entity.primaryPhone.trim().length > 0) metadata[phoneLabel] = entity.primaryPhone
   if (profile?.industry && profile.industry.trim().length > 0) metadata[industryLabel] = profile.industry
 
@@ -178,8 +178,8 @@ export async function loadCustomerDealPreview(entityId: string, ctx: PreviewCont
   const probability = typeof deal.probability === 'number' ? `${deal.probability}%` : null
   const subtitle = [amount, probability].filter((part): part is string => Boolean(part && part.length > 0)).join(' • ')
   const metadata: Record<string, string> = {}
-  const valueLabel = t('customers.deals.detail.fields.value')
-  const probabilityLabel = t('customers.deals.detail.fields.probability')
+  const valueLabel = t('customers.deal.detail.fields.value')
+  const probabilityLabel = t('customers.deal.detail.fields.probability')
   if (amount) metadata[valueLabel] = amount
   if (probability) metadata[probabilityLabel] = probability
 

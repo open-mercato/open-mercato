@@ -44,7 +44,7 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     entityId: 'catalog:catalog_product_variant',
     optionLabelField: 'name',
     optionSubtitleField: 'sku',
-    labelKey: 'catalog.variants.form.editTitle',
+    labelKey: 'catalog.variant.form.editTitle',
     icon: 'package-plus',
     PreviewComponent: MessageObjectPreview,
     DetailComponent: MessageObjectDetail,

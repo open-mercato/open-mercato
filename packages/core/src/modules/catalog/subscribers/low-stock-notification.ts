@@ -30,7 +30,7 @@ export default async function handle(payload: LowStockPayload, ctx: ResolverCont
     if (!typeDef) return
 
     const notificationInput = buildFeatureNotificationFromType(typeDef, {
-      requiredFeature: 'catalog.products.manage',
+      requiredFeature: 'catalog.product.manage',
       bodyVariables: {
         productName: payload.productName,
         sku: payload.sku ?? '',

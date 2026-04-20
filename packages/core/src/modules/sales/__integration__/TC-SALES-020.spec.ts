@@ -191,7 +191,7 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
     let orderId: string | null = null;
 
     try {
-      // 1. Create order → logs a 'status' entry (creation) via sales.orders.create command
+      // 1. Create order → logs a 'status' entry (creation) via sales.order.create command
       orderId = await createSalesOrderFixture(page.request, token);
 
       // 2. Update order without changing status → produces an 'action' entry (same status before/after)

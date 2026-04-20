@@ -10,7 +10,7 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     messageTypes: objectMessageTypes,
     entityId: 'example:todo',
     optionLabelField: 'title',
-    labelKey: 'example.todos.table.title',
+    labelKey: 'example.todo.table.title',
     icon: 'check-square',
     PreviewComponent: MessageObjectPreview,
     DetailComponent: MessageObjectDetail,

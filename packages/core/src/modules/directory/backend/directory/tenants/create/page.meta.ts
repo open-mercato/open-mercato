@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['directory.tenants.manage'],
+  requireFeatures: ['directory.tenant.manage'],
   pageTitle: 'Create Tenant',
   pageTitleKey: 'directory.nav.tenants.create',
   pageGroup: 'Directory',

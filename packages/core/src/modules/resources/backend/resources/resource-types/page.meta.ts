@@ -11,12 +11,12 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['resources.manage_resources'],
   pageTitle: 'Resource types',
-  pageTitleKey: 'resources.resourceTypes.page.title',
+  pageTitleKey: 'resources.resource-type.page.title',
   pageGroup: 'Resource planning',
   pageGroupKey: 'resources.nav.group',
   pageOrder: 30,
   icon: resourceTypesIcon,
   breadcrumb: [
-    { label: 'Resource types', labelKey: 'resources.resourceTypes.page.title' },
+    { label: 'Resource types', labelKey: 'resources.resource-type.page.title' },
   ],
 }

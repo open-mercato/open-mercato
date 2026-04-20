@@ -190,8 +190,8 @@ let updateCommand: { execute: (input: Record<string, unknown>, ctx: unknown) => 
 
 beforeAll(() => {
   require('../variants')
-  createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.variants.create')?.[0]
-  updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.variants.update')?.[0]
+  createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.variant.create')?.[0]
+  updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.variant.update')?.[0]
 })
 
 const CREATE_INPUT = {

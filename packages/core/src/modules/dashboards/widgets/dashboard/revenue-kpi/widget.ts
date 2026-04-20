@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<RevenueKpiSettings> = {
     id: 'dashboards.analytics.revenueKpi',
     title: 'Revenue',
     description: 'Total revenue with period comparison',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'sm',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

@@ -589,7 +589,7 @@ async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTa
 }
 
 const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
-  id: 'sales.channels.create',
+  id: 'sales.channel.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(channelCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -706,7 +706,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
 }
 
 const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: string }> = {
-  id: 'sales.channels.update',
+  id: 'sales.channel.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Channel id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -854,7 +854,7 @@ const deleteChannelCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { channelId: string }
 > = {
-  id: 'sales.channels.delete',
+  id: 'sales.channel.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Channel id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -951,7 +951,7 @@ const createDeliveryWindowCommand: CommandHandler<
   DeliveryWindowCreateInput,
   { deliveryWindowId: string }
 > = {
-  id: 'sales.delivery-windows.create',
+  id: 'sales.delivery-window.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(deliveryWindowCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -1034,7 +1034,7 @@ const updateDeliveryWindowCommand: CommandHandler<
   DeliveryWindowUpdateInput,
   { deliveryWindowId: string }
 > = {
-  id: 'sales.delivery-windows.update',
+  id: 'sales.delivery-window.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Delivery window id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1138,7 +1138,7 @@ const deleteDeliveryWindowCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { deliveryWindowId: string }
 > = {
-  id: 'sales.delivery-windows.delete',
+  id: 'sales.delivery-window.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Delivery window id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1209,7 +1209,7 @@ const createShippingMethodCommand: CommandHandler<
   ShippingMethodCreateInput,
   { shippingMethodId: string }
 > = {
-  id: 'sales.shipping-methods.create',
+  id: 'sales.shipping-method.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -1296,7 +1296,7 @@ const updateShippingMethodCommand: CommandHandler<
   ShippingMethodUpdateInput,
   { shippingMethodId: string }
 > = {
-  id: 'sales.shipping-methods.update',
+  id: 'sales.shipping-method.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Shipping method id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1420,7 +1420,7 @@ const deleteShippingMethodCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { shippingMethodId: string }
 > = {
-  id: 'sales.shipping-methods.delete',
+  id: 'sales.shipping-method.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Shipping method id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1491,7 +1491,7 @@ const createPaymentMethodCommand: CommandHandler<
   PaymentMethodCreateInput,
   { paymentMethodId: string }
 > = {
-  id: 'sales.payment-methods.create',
+  id: 'sales.payment-method.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(paymentMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -1573,7 +1573,7 @@ const updatePaymentMethodCommand: CommandHandler<
   PaymentMethodUpdateInput,
   { paymentMethodId: string }
 > = {
-  id: 'sales.payment-methods.update',
+  id: 'sales.payment-method.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Payment method id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1686,7 +1686,7 @@ const deletePaymentMethodCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { paymentMethodId: string }
 > = {
-  id: 'sales.payment-methods.delete',
+  id: 'sales.payment-method.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Payment method id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1754,7 +1754,7 @@ const deletePaymentMethodCommand: CommandHandler<
 }
 
 const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: string }> = {
-  id: 'sales.tax-rates.create',
+  id: 'sales.tax-rate.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(taxRateCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -1850,7 +1850,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
 }
 
 const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: string }> = {
-  id: 'sales.tax-rates.update',
+  id: 'sales.tax-rate.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Tax rate id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1981,7 +1981,7 @@ const deleteTaxRateCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { taxRateId: string }
 > = {
-  id: 'sales.tax-rates.delete',
+  id: 'sales.tax-rate.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Tax rate id is required')
     const em = (ctx.container.resolve('em') as EntityManager)

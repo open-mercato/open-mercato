@@ -73,10 +73,10 @@ type BaseFields = {
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
-    GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
-    POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
-    PUT: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
-    DELETE: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+    GET: { requireAuth: true, requireFeatures: ['example.todo.view'] },
+    POST: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
   },
   orm: {
     entity: Todo,
@@ -234,20 +234,20 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'example.todos.create',
+      commandId: 'example.todo.create',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
-      commandId: 'example.todos.update',
+      commandId: 'example.todo.update',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'example.todos.delete',
+      commandId: 'example.todo.delete',
       response: () => ({ ok: true }),
     },
   },

@@ -86,7 +86,7 @@ test.describe('TC-NOTIF-003: Notification bulk targeting APIs', () => {
         data: {
           type: featureType,
           title: 'Feature notification',
-          requiredFeature: 'auth.users.list',
+          requiredFeature: 'auth.user.list',
         },
       })
       expect(featureResponse.status()).toBe(201)

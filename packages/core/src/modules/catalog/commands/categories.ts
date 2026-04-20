@@ -121,7 +121,7 @@ function normalizeSlug(slug?: string | null): string | null {
 }
 
 const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: string }> = {
-  id: 'catalog.categories.create',
+  id: 'catalog.category.create',
   async execute(input, ctx) {
     const { parsed, custom } = parseWithCustomFields(categoryCreateSchema, input)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -232,7 +232,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
 }
 
 const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: string }> = {
-  id: 'catalog.categories.update',
+  id: 'catalog.category.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
     const em = ctx.container.resolve('em') as EntityManager
@@ -394,7 +394,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 }
 
 const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: string }> = {
-  id: 'catalog.categories.delete',
+  id: 'catalog.category.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
     const em = ctx.container.resolve('em') as EntityManager

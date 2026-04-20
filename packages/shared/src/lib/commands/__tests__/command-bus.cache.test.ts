@@ -24,8 +24,8 @@ describe('CommandBus cache invalidation for sales documents', () => {
   const invalidateMock = invalidateCrudCache as jest.MockedFunction<typeof invalidateCrudCache>
 
   afterEach(() => {
-    unregisterCommand('sales.orders.update')
-    unregisterCommand('sales.orders.noop-update')
+    unregisterCommand('sales.order.update')
+    unregisterCommand('sales.order.noop-update')
     invalidateMock.mockClear()
   })
 
@@ -34,7 +34,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
     const undoMock = jest.fn(async () => {})
 
     registerCommand({
-      id: 'sales.orders.update',
+      id: 'sales.order.update',
       execute: jest.fn(async () => ({ id: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' })),
       buildLog: jest.fn(() => ({
         actionLabel: 'Update sales order',
@@ -48,7 +48,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
 
     const logRecord: LogRecord = {
       id: 'log-entry',
-      commandId: 'sales.orders.update',
+      commandId: 'sales.order.update',
       resourceKind: 'sales.order',
       resourceId: 'order-1',
       tenantId: 'tenant-1',
@@ -75,14 +75,14 @@ describe('CommandBus cache invalidation for sales documents', () => {
       organizationIds: null,
     }
 
-    await bus.execute('sales.orders.update', { input: {}, ctx })
+    await bus.execute('sales.order.update', { input: {}, ctx })
 
     expect(invalidateMock).toHaveBeenCalledWith(
       container,
       'sales.order',
       { id: 'order-1', organizationId: 'org-1', tenantId: 'tenant-1' },
       'tenant-1',
-      'command:sales.orders.update:execute',
+      'command:sales.order.update:execute',
       expect.any(Array)
     )
 
@@ -94,7 +94,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
       'sales.order',
       { id: 'order-1', organizationId: 'org-1', tenantId: 'tenant-1' },
       'tenant-1',
-      'command:sales.orders.update:undo',
+      'command:sales.order.update:undo',
       expect.any(Array)
     )
   })
@@ -103,7 +103,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry' }))
 
     registerCommand({
-      id: 'sales.orders.update',
+      id: 'sales.order.update',
       execute: jest.fn(async () => ({ id: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' })),
       buildLog: jest.fn(() => ({
         actionLabel: 'Update sales order',
@@ -133,7 +133,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
       organizationIds: null,
     }
 
-    await bus.execute('sales.orders.update', {
+    await bus.execute('sales.order.update', {
       input: {},
       ctx,
       skipCacheInvalidation: true,
@@ -146,7 +146,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry' }))
 
     registerCommand({
-      id: 'sales.orders.noop-update',
+      id: 'sales.order.noop-update',
       execute: jest.fn(async () => ({ id: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' })),
       buildLog: jest.fn(() => ({ skipLog: true })),
     })
@@ -170,7 +170,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
       organizationIds: null,
     }
 
-    const execution = await bus.execute('sales.orders.noop-update', {
+    const execution = await bus.execute('sales.order.noop-update', {
       input: {},
       ctx,
       metadata: {
@@ -188,7 +188,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
       'sales.order',
       { id: 'order-1', organizationId: 'org-1', tenantId: 'tenant-1' },
       'tenant-1',
-      'command:sales.orders.noop-update:execute',
+      'command:sales.order.noop-update:execute',
       expect.any(Array)
     )
   })

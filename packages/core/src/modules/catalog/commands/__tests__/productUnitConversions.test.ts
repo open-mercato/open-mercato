@@ -119,9 +119,9 @@ function loadCommands() {
   jest.isolateModules(() => {
     require('../productUnitConversions')
     for (const [cmd] of registerCommand.mock.calls as Array<[Record<string, unknown>]>) {
-      if (cmd.id === 'catalog.product-unit-conversions.create') createCmd = cmd
-      if (cmd.id === 'catalog.product-unit-conversions.update') updateCmd = cmd
-      if (cmd.id === 'catalog.product-unit-conversions.delete') deleteCmd = cmd
+      if (cmd.id === 'catalog.product-unit-conversion.create') createCmd = cmd
+      if (cmd.id === 'catalog.product-unit-conversion.update') updateCmd = cmd
+      if (cmd.id === 'catalog.product-unit-conversion.delete') deleteCmd = cmd
     }
   })
 

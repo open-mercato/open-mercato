@@ -3,7 +3,7 @@ import { CommandBus, registerCommand, unregisterCommand } from '@open-mercato/sh
 
 describe('CommandBus undo audit trace', () => {
   afterEach(() => {
-    unregisterCommand('customers.people.update')
+    unregisterCommand('customers.person.update')
   })
 
   it('records a reversal log payload when undo succeeds', async () => {
@@ -11,7 +11,7 @@ describe('CommandBus undo audit trace', () => {
     const markUndoneMock = jest.fn(async () => null)
 
     registerCommand({
-      id: 'customers.people.update',
+      id: 'customers.person.update',
       execute: jest.fn(),
       undo: undoMock,
     })
@@ -24,7 +24,7 @@ describe('CommandBus undo audit trace', () => {
       actionLogService: asValue({
         findByUndoToken: jest.fn(async () => ({
           id: 'log-1',
-          commandId: 'customers.people.update',
+          commandId: 'customers.person.update',
           actionLabel: 'Update person',
           actorUserId: 'user-1',
           tenantId: 'tenant-1',
@@ -58,7 +58,7 @@ describe('CommandBus undo audit trace', () => {
 
     expect(undoMock).toHaveBeenCalledTimes(1)
     expect(markUndoneMock).toHaveBeenCalledWith('log-1', expect.objectContaining({
-      commandId: 'customers.people.update',
+      commandId: 'customers.person.update',
       actionLabel: 'Update person',
       actorUserId: 'user-2',
       resourceKind: 'customers.person',
@@ -71,7 +71,7 @@ describe('CommandBus undo audit trace', () => {
       context: expect.objectContaining({
         historyAction: 'undo',
         sourceLogId: 'log-1',
-        sourceCommandId: 'customers.people.update',
+        sourceCommandId: 'customers.person.update',
       }),
     }))
   })

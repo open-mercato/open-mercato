@@ -147,8 +147,8 @@ export function getEventModuleConfigs(): EventModuleConfig[] {
  * import { createModuleEvents } from '@open-mercato/shared/modules/events'
  *
  * const events = [
- *   { id: 'customers.people.created', label: 'Person Created', category: 'crud' },
- *   { id: 'customers.people.updated', label: 'Person Updated', category: 'crud' },
+ *   { id: 'customers.person.created', label: 'Person Created', category: 'crud' },
+ *   { id: 'customers.person.updated', label: 'Person Updated', category: 'crud' },
  * ] as const
  *
  * export const eventsConfig = createModuleEvents({
@@ -168,10 +168,10 @@ export function getEventModuleConfigs(): EventModuleConfig[] {
  * TypeScript will enforce that only declared event IDs can be emitted:
  * ```typescript
  * // ✅ This compiles - event is declared
- * emitCustomersEvent('customers.people.created', { id: '123', tenantId: 'abc' })
+ * emitCustomersEvent('customers.person.created', { id: '123', tenantId: 'abc' })
  *
  * // ❌ TypeScript error - event not declared
- * emitCustomersEvent('customers.people.exploded', { id: '123' })
+ * emitCustomersEvent('customers.person.exploded', { id: '123' })
  * ```
  */
 export function createModuleEvents<

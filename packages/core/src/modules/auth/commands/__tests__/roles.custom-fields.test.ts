@@ -23,9 +23,9 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-describe('auth.roles.update undo custom fields', () => {
+describe('auth.role.update undo custom fields', () => {
   it('restores custom field diff', async () => {
-    const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler
+    const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.role.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const setCustomFields = jest.fn(async (_opts: Parameters<DataEngine['setCustomFields']>[0]) => undefined) as jest.MockedFunction<DataEngine['setCustomFields']>

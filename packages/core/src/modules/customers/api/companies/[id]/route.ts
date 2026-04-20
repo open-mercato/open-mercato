@@ -41,7 +41,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.company.view'] },
 }
 
 const paramsSchema = z.object({
@@ -288,7 +288,7 @@ async function resolveTodoDetails(
         })
       }
     } catch (err) {
-      console.warn(`customers.companies.detail: failed to resolve todos for source ${source}`, err)
+      console.warn(`customers.company.detail: failed to resolve todos for source ${source}`, err)
     }
   }
 
@@ -390,7 +390,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         [company.organizationId ?? null, ...(scope?.filterIds ?? [])],
       )
     } catch (err) {
-      console.warn('customers.companies.detail: failed to enrich todo links', err)
+      console.warn('customers.company.detail: failed to enrich todo links', err)
     }
   }
 

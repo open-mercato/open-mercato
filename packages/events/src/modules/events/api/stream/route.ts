@@ -201,7 +201,7 @@ export async function GET(req: Request): Promise<Response> {
   const organizationId = (ctx.selectedOrganizationId as string) ?? ctx.auth.orgId ?? null
   const userId = ctx.auth.sub
   const roleIds = Array.isArray(ctx.auth.roles)
-    ? ctx.auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+    ? ctx.auth.role.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
     : []
 
   ensureGlobalTapSubscription()

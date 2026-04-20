@@ -95,7 +95,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.attachments.link_to_draft', {
+  const { logEntry } = await commandBus.execute('messages.attachment.link_to_draft', {
     input: {
       messageId: message.id,
       tenantId: scope.tenantId,
@@ -150,7 +150,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   }
 
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.attachments.unlink_from_draft', {
+  const { logEntry } = await commandBus.execute('messages.attachment.unlink_from_draft', {
     input: {
       messageId: message.id,
       tenantId: scope.tenantId,

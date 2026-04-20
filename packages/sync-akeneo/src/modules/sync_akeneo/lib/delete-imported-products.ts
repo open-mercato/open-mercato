@@ -160,7 +160,7 @@ export async function deleteImportedProductsWithProgress(params: {
 
   for (const [index, productId] of productIds.entries()) {
     try {
-      await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
+      await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.product.delete', {
         input: { body: { id: productId } },
         ctx: commandContext,
       })

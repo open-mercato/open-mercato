@@ -117,7 +117,7 @@ export async function createMessageRecordForEmail(
       em, email.forwardedByAddress, recipientUserIds, ctx.scope,
     )
 
-    const { result } = await commandBus.execute('messages.messages.compose', {
+    const { result } = await commandBus.execute('messages.message.compose', {
       input: {
         type: 'inbox_ops.email',
         visibility: recipients.length > 0 ? 'internal' as const : 'public' as const,
@@ -182,7 +182,7 @@ export async function createMessageRecordForReply(
 
     const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
 
-    const { result } = await commandBus.execute('messages.messages.compose', {
+    const { result } = await commandBus.execute('messages.message.compose', {
       input: {
         type: 'inbox_ops.reply',
         visibility: 'internal' as const,

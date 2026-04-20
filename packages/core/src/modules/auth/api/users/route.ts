@@ -74,10 +74,10 @@ const errorResponseSchema = z.object({ error: z.string() })
 type CrudInput = Record<string, unknown>
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
-  POST: { requireAuth: true, requireFeatures: ['auth.users.create'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.users.edit'] },
-  DELETE: { requireAuth: true, requireFeatures: ['auth.users.delete'] },
+  GET: { requireAuth: true, requireFeatures: ['auth.user.list'] },
+  POST: { requireAuth: true, requireFeatures: ['auth.user.create'] },
+  PUT: { requireAuth: true, requireFeatures: ['auth.user.edit'] },
+  DELETE: { requireAuth: true, requireFeatures: ['auth.user.delete'] },
 }
 
 export const metadata = routeMetadata
@@ -95,7 +95,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   indexer: userCrudIndexer,
   actions: {
     create: {
-      commandId: 'auth.users.create',
+      commandId: 'auth.user.create',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
@@ -110,7 +110,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       status: 201,
     },
     update: {
-      commandId: 'auth.users.update',
+      commandId: 'auth.user.update',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
@@ -121,7 +121,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'auth.users.delete',
+      commandId: 'auth.user.delete',
       response: () => ({ ok: true }),
     },
   },

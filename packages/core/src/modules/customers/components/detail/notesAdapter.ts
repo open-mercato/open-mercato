@@ -14,7 +14,7 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
       const payload = await readApiResultOrThrow<Record<string, unknown>>(
         `/api/customers/comments?${params.toString()}`,
         undefined,
-        { errorMessage: translator('customers.people.detail.notes.loadError', 'Failed to load notes.') },
+        { errorMessage: translator('customers.person.detail.notes.loadError', 'Failed to load notes.') },
       )
       const items = Array.isArray(payload?.items) ? payload.items : []
       return items.map(mapCommentSummary)
@@ -33,7 +33,7 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
             dealId: dealId ?? undefined,
           }),
         },
-        { errorMessage: translator('customers.people.detail.notes.error') },
+        { errorMessage: translator('customers.person.detail.notes.error') },
       )
       return response.result ?? {}
     },
@@ -49,7 +49,7 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         },
-        { errorMessage: translator('customers.people.detail.notes.updateError') },
+        { errorMessage: translator('customers.person.detail.notes.updateError') },
       )
     },
     delete: async ({ id }) => {
@@ -59,7 +59,7 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
         },
-        { errorMessage: translator('customers.people.detail.notes.deleteError', 'Failed to delete note') },
+        { errorMessage: translator('customers.person.detail.notes.deleteError', 'Failed to delete note') },
       )
     },
   }

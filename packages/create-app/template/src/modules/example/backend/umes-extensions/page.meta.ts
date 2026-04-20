@@ -8,7 +8,7 @@ const puzzleIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['example.todos.view'],
+  requireFeatures: ['example.todo.view'],
   pageTitle: 'Phase E-H handlers',
   pageTitleKey: 'example.menu.umesExtensions',
   pageGroup: 'Example',
@@ -16,7 +16,7 @@ export const metadata = {
   pageOrder: 20600,
   icon: puzzleIcon,
   breadcrumb: [
-    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todo.page.title', href: '/backend/todos' },
     { label: 'Phase E-H extensions', labelKey: 'example.umes.extensions.title' },
   ],
 }

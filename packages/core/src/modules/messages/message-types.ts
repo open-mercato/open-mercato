@@ -40,10 +40,10 @@ export const messageTypes: MessageTypeDefinition[] = [
       {
         id: 'confirmation',
         label: 'Confirm',
-        labelKey: 'messages.actions.confirmation',
+        labelKey: 'messages.action.confirmation',
         variant: 'default',
         icon: 'check',
-        commandId: 'messages.confirmations.confirm',
+        commandId: 'messages.confirmation.confirm',
         isTerminal: true,
         confirmRequired: true,
       },

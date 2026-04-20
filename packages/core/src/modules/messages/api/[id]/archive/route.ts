@@ -56,7 +56,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.recipients.archive', {
+  const { logEntry } = await commandBus.execute('messages.recipient.archive', {
     input: {
       messageId: params.id,
       tenantId: scope.tenantId,
@@ -86,7 +86,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.recipients.unarchive', {
+  const { logEntry } = await commandBus.execute('messages.recipient.unarchive', {
     input: {
       messageId: params.id,
       tenantId: scope.tenantId,

@@ -4,7 +4,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
   entities: [
     {
       entityId: 'sales:orders',
-      requiredFeatures: ['sales.orders.view'],
+      requiredFeatures: ['sales.order.view'],
       entityConfig: {
         tableName: 'sales_orders',
         dateField: 'placed_at',
@@ -35,7 +35,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
     },
     {
       entityId: 'sales:order_lines',
-      requiredFeatures: ['sales.orders.view'],
+      requiredFeatures: ['sales.order.view'],
       entityConfig: {
         tableName: 'sales_order_lines',
         dateField: 'created_at',
@@ -59,7 +59,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
     },
     {
       entityId: 'sales:quotes',
-      requiredFeatures: ['sales.quotes.view'],
+      requiredFeatures: ['sales.quote.view'],
       entityConfig: {
         tableName: 'sales_quotes',
         dateField: 'created_at',

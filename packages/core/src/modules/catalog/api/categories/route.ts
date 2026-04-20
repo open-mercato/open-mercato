@@ -20,10 +20,10 @@ import {
 } from '../openapi'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.categories.view'] },
-  POST: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.category.view'] },
+  POST: { requireAuth: true, requireFeatures: ['catalog.category.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['catalog.category.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['catalog.category.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -54,7 +54,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'catalog.categories.create',
+      commandId: 'catalog.category.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -64,7 +64,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'catalog.categories.update',
+      commandId: 'catalog.category.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -73,7 +73,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'catalog.categories.delete',
+      commandId: 'catalog.category.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

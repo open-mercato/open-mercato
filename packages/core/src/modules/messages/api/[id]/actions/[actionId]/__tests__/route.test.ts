@@ -57,7 +57,7 @@ describe('messages action execution route', () => {
     })
 
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.actions.execute',
+      'messages.action.execute',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',

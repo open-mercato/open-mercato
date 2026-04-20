@@ -12,7 +12,7 @@ const widget: InjectionMenuItemWidget = {
       label: 'Example Todos',
       icon: 'CheckSquare',
       href: '/backend/todos',
-      features: ['example.todos.view'],
+      features: ['example.todo.view'],
       groupId: 'example.nav.group',
       groupLabelKey: 'example.nav.group',
       placement: { position: InjectionPosition.Last },

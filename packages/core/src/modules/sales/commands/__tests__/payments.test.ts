@@ -130,7 +130,7 @@ describe('createPaymentCommand buildLog — orderPaymentMethodIdBefore in undo p
   })
 
   const getCreateBuildLog = () =>
-    commandRegistry.get('sales.payments.create')?.buildLog as NonNullable<
+    commandRegistry.get('sales.payment.create')?.buildLog as NonNullable<
       ReturnType<typeof commandRegistry.get>
     >['buildLog']
 
@@ -232,7 +232,7 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
   })
 
   it('includes tenantId and organizationId when querying SalesOrder', async () => {
-    const execute = commandRegistry.get('sales.payments.create')?.execute
+    const execute = commandRegistry.get('sales.payment.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const { ctx } = buildCommandCtx()
@@ -254,7 +254,7 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
   })
 
   it('includes tenantId and organizationId when querying SalesPaymentMethod', async () => {
-    const execute = commandRegistry.get('sales.payments.create')?.execute
+    const execute = commandRegistry.get('sales.payment.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const mockOrder = {
@@ -303,7 +303,7 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
 
 describe('updatePaymentCommand.execute — flush ordering (scalar mutations before allocation query)', () => {
   it('flushes scalar mutations before querying existing allocations', async () => {
-    const execute = commandRegistry.get('sales.payments.update')?.execute
+    const execute = commandRegistry.get('sales.payment.update')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const callOrder: string[] = []
@@ -386,7 +386,7 @@ describe('createPaymentCommand.undo — tenant-scoped SalesOrder lookup', () => 
   })
 
   it('uses tenantId and organizationId from the snapshot when fetching the order', async () => {
-    const undo = commandRegistry.get('sales.payments.create')?.undo
+    const undo = commandRegistry.get('sales.payment.create')?.undo
     expect(undo).toBeInstanceOf(Function)
 
     const after = buildPaymentSnapshot()
@@ -433,7 +433,7 @@ describe('createPaymentCommand.execute — transaction wrapping for race conditi
   })
 
   it('wraps order lookup and payment creation in em.transactional()', async () => {
-    const execute = commandRegistry.get('sales.payments.create')?.execute
+    const execute = commandRegistry.get('sales.payment.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     let transactionalCalled = false

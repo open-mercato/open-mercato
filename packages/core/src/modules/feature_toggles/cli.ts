@@ -283,7 +283,7 @@ const setOverrideValue: ModuleCli = {
     try {
       const commandBus = container.resolve('commandBus') as CommandBus
       const ctx = buildCommandContext(container)
-      await commandBus.execute('feature_toggles.overrides.changeState', {
+      await commandBus.execute('feature_toggles.override.changeState', {
         input: {
           toggleId,
           tenantId,

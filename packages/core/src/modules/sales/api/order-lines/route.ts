@@ -11,8 +11,8 @@ const route = makeSalesLineRoute({
   parentFkColumn: "order_id",
   parentFkParam: "orderId",
   createSchema: orderLineCreateSchema,
-  features: { view: "sales.orders.view", manage: "sales.orders.manage" },
-  commandPrefix: "sales.orders.lines",
+  features: { view: "sales.order.view", manage: "sales.order.manage" },
+  commandPrefix: "sales.order.lines",
   openApi: {
     resourceName: "Order line",
     description: "an order line and recalculates totals",

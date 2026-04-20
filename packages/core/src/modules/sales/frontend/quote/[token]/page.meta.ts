@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: false,
   pageTitle: 'Quote',
-  pageTitleKey: 'sales.quotes.public.pageTitle',
+  pageTitleKey: 'sales.quote.public.pageTitle',
 } as const
 

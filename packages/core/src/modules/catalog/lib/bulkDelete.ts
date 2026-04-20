@@ -82,7 +82,7 @@ export async function deleteCatalogProductsWithProgress(params: {
   const deletedIds = new Set<string>()
 
   for (const [index, id] of ids.entries()) {
-    await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
+    await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.product.delete', {
       input: { body: { id } },
       ctx: commandContext,
       skipCacheInvalidation: true,

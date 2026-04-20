@@ -31,7 +31,7 @@ async function executeCreateProductAction(
 
   const result = await executeCommand<Record<string, unknown>, { productId?: string }>(
     hCtx,
-    'catalog.products.create',
+    'catalog.product.create',
     createInput,
   )
 
@@ -40,14 +40,14 @@ async function executeCreateProductAction(
   }
 
   // Create default variant so the product works with quotes/orders (issue #891)
-  // No separate permission check — the user already passed catalog.products.manage
+  // No separate permission check — the user already passed catalog.product.manage
   // in the execution engine, and variant/price creation is an integral part of
   // product setup, not a separate user action.
   let variantId: string | null = null
   try {
     const variantResult = await executeCommand<Record<string, unknown>, { variantId?: string }>(
       hCtx,
-      'catalog.variants.create',
+      'catalog.variant.create',
       {
         productId: result.productId,
         organizationId: hCtx.organizationId,
@@ -77,7 +77,7 @@ async function executeCreateProductAction(
         { tenantId: hCtx.tenantId, organizationId: hCtx.organizationId },
       )
       if (priceKind) {
-        await executeCommand(hCtx, 'catalog.prices.create', {
+        await executeCommand(hCtx, 'catalog.price.create', {
           variantId,
           productId: result.productId,
           organizationId: hCtx.organizationId,
@@ -103,7 +103,7 @@ async function executeCreateProductAction(
 export const inboxActions: InboxActionDefinition[] = [
   {
     type: 'create_product',
-    requiredFeature: 'catalog.products.manage',
+    requiredFeature: 'catalog.product.manage',
     payloadSchema: createProductPayloadSchema,
     label: 'Create Product',
     promptSchema: `create_product payload:

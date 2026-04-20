@@ -118,7 +118,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('people.update undo restores custom fields', async () => {
-    const handler = commandRegistry.get('customers.people.update') as CommandHandler
+    const handler = commandRegistry.get('customers.person.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const existingEntity: CustomerEntity = {
@@ -295,7 +295,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('companies.update undo restores custom fields', async () => {
-    const handler = commandRegistry.get('customers.companies.update') as CommandHandler
+    const handler = commandRegistry.get('customers.company.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const existingEntity: CustomerEntity = {
@@ -456,7 +456,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('deals.update undo restores custom fields', async () => {
-    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    const handler = commandRegistry.get('customers.deal.update') as CommandHandler
     expect(handler).toBeDefined()
     const tenantId = TEST_TENANT_ID
     const organizationId = TEST_ORG_ID
@@ -617,7 +617,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('activities.update undo restores custom fields', async () => {
-    const handler = commandRegistry.get('customers.activities.update') as CommandHandler
+    const handler = commandRegistry.get('customers.activity.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {
@@ -783,7 +783,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('comments.delete undo recreates comment', async () => {
-    const handler = commandRegistry.get('customers.comments.delete') as CommandHandler
+    const handler = commandRegistry.get('customers.comment.delete') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {
@@ -862,7 +862,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('addresses.delete undo recreates address and clears other primaries', async () => {
-    const handler = commandRegistry.get('customers.addresses.delete') as CommandHandler
+    const handler = commandRegistry.get('customers.address.delete') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {
@@ -952,7 +952,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('tags.unassign undo re-creates tag assignment', async () => {
-    const handler = commandRegistry.get('customers.tags.unassign') as CommandHandler
+    const handler = commandRegistry.get('customers.tag.unassign') as CommandHandler
     expect(handler).toBeDefined()
 
     const tag: CustomerTag = {
@@ -1047,7 +1047,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('todos.unlink undo re-creates todo link', async () => {
-    const handler = commandRegistry.get('customers.todos.unlink') as CommandHandler
+    const handler = commandRegistry.get('customers.todo.unlink') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {
@@ -1196,7 +1196,7 @@ describe('customers commands undo custom fields', () => {
     ctx.auth = { ...ctx.auth, tenantId, orgId: organizationId } as any
     ctx.selectedOrganizationId = organizationId
 
-    const handler = commandRegistry.get('customers.todos.create') as CommandHandler
+    const handler = commandRegistry.get('customers.todo.create') as CommandHandler
     expect(handler).toBeDefined()
 
     const input = {
@@ -1236,7 +1236,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('companies.create normalizes a blank primaryPhone to null', async () => {
-    const handler = commandRegistry.get('customers.companies.create') as CommandHandler
+    const handler = commandRegistry.get('customers.company.create') as CommandHandler
     const createdEntityId = '123e4567-e89b-41d3-a456-426614174230'
     const createdProfileId = '123e4567-e89b-41d3-a456-426614174231'
     let createdEntity: Partial<CustomerEntity> | null = null
@@ -1296,7 +1296,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('companies.update normalizes a blank primaryPhone to null', async () => {
-    const handler = commandRegistry.get('customers.companies.update') as CommandHandler
+    const handler = commandRegistry.get('customers.company.update') as CommandHandler
     const existingEntity: CustomerEntity = {
       id: '123e4567-e89b-41d3-a456-426614174232',
       organizationId: TEST_ORG_ID,
@@ -1422,7 +1422,7 @@ describe('customers commands undo custom fields', () => {
     }
 
     const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
-    const handler = commandRegistry.get('customers.companies.create') as CommandHandler
+    const handler = commandRegistry.get('customers.company.create') as CommandHandler
 
     await handler.undo?.({
       input: undefined,
@@ -1496,7 +1496,7 @@ describe('customers commands undo custom fields', () => {
     }
 
     const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
-    const handler = commandRegistry.get('customers.people.create') as CommandHandler
+    const handler = commandRegistry.get('customers.person.create') as CommandHandler
 
     await handler.undo?.({
       input: undefined,
@@ -1528,7 +1528,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('companies.delete removes canonical interactions before deleting the company entity', async () => {
-    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+    const handler = commandRegistry.get('customers.company.delete') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {
@@ -1636,7 +1636,7 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('people.delete removes canonical interactions before deleting the person entity', async () => {
-    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+    const handler = commandRegistry.get('customers.person.delete') as CommandHandler
     expect(handler).toBeDefined()
 
     const entity: CustomerEntity = {

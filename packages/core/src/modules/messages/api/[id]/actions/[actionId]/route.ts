@@ -21,7 +21,7 @@ export async function POST(
     ? rawBody
     : {}) as Record<string, unknown>
   try {
-    const commandResult = await commandBus.execute('messages.actions.execute', {
+    const commandResult = await commandBus.execute('messages.action.execute', {
       input: {
         messageId: params.id,
         actionId: params.actionId,

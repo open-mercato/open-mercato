@@ -1,12 +1,12 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.products.view'],
+  requireFeatures: ['catalog.product.view'],
   pageTitle: 'Product details',
-  pageTitleKey: 'catalog.products.detail.title',
+  pageTitleKey: 'catalog.product.detail.title',
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   navHidden: true,
   breadcrumb: [
-    { label: 'Products & services', labelKey: 'catalog.products.page.title', href: '/backend/catalog/products' },
+    { label: 'Products & services', labelKey: 'catalog.product.page.title', href: '/backend/catalog/products' },
   ],
 }

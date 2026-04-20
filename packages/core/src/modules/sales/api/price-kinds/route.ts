@@ -8,7 +8,7 @@ import { createPagedListResponseSchema, createSalesCrudOpenApi } from '../openap
 import { buildAggregateSearchFilter } from '../utils'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.channel.manage'] },
 }
 
 export const metadata = routeMetadata

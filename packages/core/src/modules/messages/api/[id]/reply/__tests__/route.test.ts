@@ -53,7 +53,7 @@ describe('messages /api/messages/[id]/reply', () => {
     expect(response.status).toBe(201)
     await expect(response.json()).resolves.toEqual({ id: 'new-message-id' })
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.reply',
+      'messages.message.reply',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',
@@ -80,7 +80,7 @@ describe('messages /api/messages/[id]/reply', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.reply',
+      'messages.message.reply',
       expect.objectContaining({
         input: expect.objectContaining({
           recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],

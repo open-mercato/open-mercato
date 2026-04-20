@@ -11,7 +11,7 @@ import { E } from '#generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.product.view'] },
 }
 
 const querySchema = z.object({

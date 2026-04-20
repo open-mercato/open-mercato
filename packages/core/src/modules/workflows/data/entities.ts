@@ -97,7 +97,7 @@ export interface WorkflowDefinitionTrigger {
   triggerId: string
   name: string
   description?: string | null
-  eventPattern: string // e.g., "sales.orders.created", "customers.*"
+  eventPattern: string // e.g., "sales.order.created", "customers.*"
   config?: WorkflowEventTriggerConfig | null
   enabled: boolean
   priority: number

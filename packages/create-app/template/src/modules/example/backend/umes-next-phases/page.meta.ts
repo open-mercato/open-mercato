@@ -10,7 +10,7 @@ const sparklesIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['example.todos.manage'],
+  requireFeatures: ['example.todo.manage'],
   pageTitle: 'UMES Next Phases',
   pageTitleKey: 'example.umes.next.page.title',
   pageGroup: 'Example',
@@ -18,7 +18,7 @@ export const metadata = {
   pageOrder: 20510,
   icon: sparklesIcon,
   breadcrumb: [
-    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todo.page.title', href: '/backend/todos' },
     { label: 'UMES next phases', labelKey: 'example.umes.next.page.title' },
   ],
 }

@@ -11,7 +11,7 @@ import { createPagedListResponseSchema } from '../openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.product.view'] },
 }
 
 export const metadata = routeMetadata

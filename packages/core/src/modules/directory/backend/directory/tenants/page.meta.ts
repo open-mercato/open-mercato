@@ -9,7 +9,7 @@ const tenantsIcon = React.createElement('svg', { width: 16, height: 16, viewBox:
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['directory.tenants.view'],
+  requireFeatures: ['directory.tenant.view'],
   pageTitle: 'Tenants',
   pageTitleKey: 'directory.nav.tenants',
   pageGroup: 'Directory',

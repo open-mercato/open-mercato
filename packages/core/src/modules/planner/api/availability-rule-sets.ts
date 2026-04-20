@@ -85,7 +85,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'planner.availability-rule-sets.create',
+      commandId: 'planner.availability-rule-set.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -95,7 +95,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'planner.availability-rule-sets.update',
+      commandId: 'planner.availability-rule-set.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -104,7 +104,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'planner.availability-rule-sets.delete',
+      commandId: 'planner.availability-rule-set.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

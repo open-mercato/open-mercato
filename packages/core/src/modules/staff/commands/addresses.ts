@@ -86,7 +86,7 @@ async function enforcePrimaryAddress(em: EntityManager, memberId: string, addres
 }
 
 const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { addressId: string }> = {
-  id: 'staff.team-member-addresses.create',
+  id: 'staff.team-member-address.create',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberAddressCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -178,7 +178,7 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
 }
 
 const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { addressId: string }> = {
-  id: 'staff.team-member-addresses.update',
+  id: 'staff.team-member-address.update',
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberAddressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -362,7 +362,7 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
 
 const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { addressId: string }> =
   {
-    id: 'staff.team-member-addresses.delete',
+    id: 'staff.team-member-address.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager)

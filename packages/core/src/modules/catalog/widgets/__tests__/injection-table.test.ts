@@ -11,7 +11,7 @@ describe('catalog injection table', () => {
       widgetId: 'catalog.injection.product-bulk-delete',
       priority: 40,
     })
-    expect(table['data-table:catalog.products.list:bulk-actions']).toEqual({
+    expect(table['data-table:catalog.product.list:bulk-actions']).toEqual({
       widgetId: 'catalog.injection.product-bulk-delete',
       priority: 40,
     })

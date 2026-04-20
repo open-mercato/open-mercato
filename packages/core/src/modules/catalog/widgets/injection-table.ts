@@ -22,7 +22,7 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'catalog.injection.product-bulk-delete',
     priority: 40,
   },
-  'data-table:catalog.products.list:bulk-actions': {
+  'data-table:catalog.product.list:bulk-actions': {
     widgetId: 'catalog.injection.product-bulk-delete',
     priority: 40,
   },

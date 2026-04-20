@@ -16,7 +16,7 @@ import {
 import { resolveAuthActorId } from '../../../lib/interactionRequestContext'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
 }
 
 export async function POST(req: Request) {
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     await commandBus.execute<InteractionCancelInput, { interactionId: string }>(
-      'customers.interactions.cancel',
+      'customers.interaction.cancel',
       { input: parsed, ctx },
     )
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
     }
-    console.error('customers.interactions.cancel failed', err)
+    console.error('customers.interaction.cancel failed', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -183,8 +183,8 @@ export async function loadSalesChannelPreview(entityId: string, ctx: PreviewCont
   }
 
   const metadata: Record<string, string> = {}
-  const contactEmailLabel = t('sales.channels.form.contactEmail')
-  const websiteUrlLabel = t('sales.channels.form.websiteUrl')
+  const contactEmailLabel = t('sales.channel.form.contactEmail')
+  const websiteUrlLabel = t('sales.channel.form.websiteUrl')
   if (entity.contactEmail && entity.contactEmail.trim().length > 0) metadata[contactEmailLabel] = entity.contactEmail
   if (entity.websiteUrl && entity.websiteUrl.trim().length > 0) metadata[websiteUrlLabel] = entity.websiteUrl
 

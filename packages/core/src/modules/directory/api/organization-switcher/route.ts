@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
     const effectiveIsSuperAdmin = actorIsSuperAdmin || aclIsSuperAdmin
     const hasManageFeature =
       aclIsSuperAdmin ||
-      await rbac.userHasAllFeatures(auth.sub, ['directory.organizations.manage'], {
+      await rbac.userHasAllFeatures(auth.sub, ['directory.organization.manage'], {
         tenantId,
         organizationId: scopedOrgId,
       }) ||

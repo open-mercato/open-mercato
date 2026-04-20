@@ -3,7 +3,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { exampleTag, exampleErrorSchema } from '../../openapi'
 
 export const requireAuth = true
-export const requireFeatures = ['example.todos.view']
+export const requireFeatures = ['example.todo.view']
 
 export async function GET(_req: Request, ctx: { params: { id: string } }) {
   return new Response(JSON.stringify({ id: ctx.params.id, method: 'GET' }), {

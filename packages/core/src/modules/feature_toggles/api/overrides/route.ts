@@ -88,7 +88,7 @@ export async function PUT(req: Request) {
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const { result, logEntry } = await commandBus.execute<ProcessedChangeOverrideStateInput, { overrideToggleId: string | null }>('feature_toggles.overrides.changeState', {
+    const { result, logEntry } = await commandBus.execute<ProcessedChangeOverrideStateInput, { overrideToggleId: string | null }>('feature_toggles.override.changeState', {
       input: {
         toggleId: parsed.data.toggleId,
         tenantId: scope.tenantId,
@@ -128,7 +128,7 @@ export async function PUT(req: Request) {
     if (message === 'INVALID_STATE' || message === 'INVALID_TOGGLE_ID' || message === 'INVALID_TENANT_ID') {
       return NextResponse.json({ error: message }, { status: 400 })
     }
-    console.error('feature_toggles.overrides.changeState failed', error)
+    console.error('feature_toggles.override.changeState failed', error)
     return NextResponse.json({ error: 'Failed to update override' }, { status: 500 })
   }
 }

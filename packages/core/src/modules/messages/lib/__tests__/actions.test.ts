@@ -44,7 +44,7 @@ function createAction(overrides: Partial<ResolvedMessageAction> = {}): ResolvedM
     id: 'object:obj-1:update_payment',
     label: 'Update payment',
     source: 'object',
-    commandId: 'sales.payments.update',
+    commandId: 'sales.payment.update',
     objectRef: {
       objectId: 'obj-1',
       entityModule: 'sales',
@@ -112,7 +112,7 @@ describe('isTerminalMessageAction', () => {
   })
 
   it('defaults command actions to terminal', () => {
-    expect(isTerminalMessageAction({ commandId: 'sales.orders.approve' })).toBe(true)
+    expect(isTerminalMessageAction({ commandId: 'sales.order.approve' })).toBe(true)
   })
 
   it('defaults href actions to non-terminal', () => {

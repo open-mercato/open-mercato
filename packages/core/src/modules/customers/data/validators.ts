@@ -3,7 +3,7 @@ import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
 const uuid = () => z.string().uuid()
 
-export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.person.form.primaryPhone.invalid'
 
 const phoneSchema = z.string().trim().max(50).refine((val) => {
   return isValidPhoneNumber(val)

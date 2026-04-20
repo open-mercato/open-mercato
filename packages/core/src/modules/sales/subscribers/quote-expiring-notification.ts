@@ -31,7 +31,7 @@ export default async function handle(payload: QuoteExpiringPayload, ctx: Resolve
     if (!typeDef) return
 
     const notificationInput = buildFeatureNotificationFromType(typeDef, {
-      requiredFeature: 'sales.quotes.manage',
+      requiredFeature: 'sales.quote.manage',
       bodyVariables: {
         quoteNumber: payload.quoteNumber,
         expiresAt: payload.expiresAt,

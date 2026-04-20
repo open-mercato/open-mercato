@@ -56,7 +56,7 @@ describe('messages /api/messages/[id]/archive', () => {
 
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.recipients.archive',
+      'messages.recipient.archive',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',
@@ -85,7 +85,7 @@ describe('messages /api/messages/[id]/archive', () => {
 
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.recipients.unarchive',
+      'messages.recipient.unarchive',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',
@@ -114,7 +114,7 @@ describe('messages /api/messages/[id]/archive', () => {
 
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.recipients.unarchive',
+      'messages.recipient.unarchive',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: 'message-1',

@@ -137,7 +137,7 @@ async function requireMessageById(
 }
 
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[] }> = {
-  id: 'messages.messages.compose',
+  id: 'messages.message.compose',
   async execute(rawInput, ctx) {
     const input = composeCommandSchema.parse(rawInput)
     if (input.objects?.length) {
@@ -296,7 +296,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
 }
 
 const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
-  id: 'messages.messages.update_draft',
+  id: 'messages.message.update_draft',
   async prepare(rawInput, ctx) {
     const input = updateDraftCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -439,7 +439,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 }
 
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
-  id: 'messages.messages.reply',
+  id: 'messages.message.reply',
   async execute(rawInput, ctx) {
     const input = replyCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -592,7 +592,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
 }
 
 const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
-  id: 'messages.messages.forward',
+  id: 'messages.message.forward',
   async execute(rawInput, ctx) {
     const input = forwardCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -732,7 +732,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
 }
 
 const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
-  id: 'messages.messages.delete_for_actor',
+  id: 'messages.message.delete_for_actor',
   async prepare(rawInput, ctx) {
     const input = deleteForActorCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()

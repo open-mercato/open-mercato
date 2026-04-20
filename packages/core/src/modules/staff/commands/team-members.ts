@@ -130,7 +130,7 @@ async function ensureTeamExists(em: EntityManager, teamId: string, tenantId: str
 }
 
 const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memberId: string }> = {
-  id: 'staff.team-members.create',
+  id: 'staff.team-member.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamMemberCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -247,7 +247,7 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
 }
 
 const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string }> = {
-  id: 'staff.team-members.update',
+  id: 'staff.team-member.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamMemberUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -409,7 +409,7 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
 }
 
 const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: string }> = {
-  id: 'staff.team-members.delete',
+  id: 'staff.team-member.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Member id is required.' })

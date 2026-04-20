@@ -92,7 +92,7 @@ function extractModuleFromName(name: string): string {
 }
 
 export function humanizeToolName(name: string): string {
-  // customers.people.create -> Create Person
+  // customers.person.create -> Create Person
   const parts = name.split('.')
   if (parts.length < 2) return name
 

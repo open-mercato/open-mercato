@@ -56,7 +56,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.recipients.mark_read', {
+  const { logEntry } = await commandBus.execute('messages.recipient.mark_read', {
     input: {
       messageId: params.id,
       tenantId: scope.tenantId,
@@ -86,7 +86,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const { logEntry } = await commandBus.execute('messages.recipients.mark_unread', {
+  const { logEntry } = await commandBus.execute('messages.recipient.mark_unread', {
     input: {
       messageId: params.id,
       tenantId: scope.tenantId,

@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const sameOriginViolation = validateSameOriginMutationRequest(req)
     if (sameOriginViolation) {
       return NextResponse.json(
-        { error: translate('sales.quotes.accept.forbidden', 'Cross-site quote acceptance is not allowed.') },
+        { error: translate('sales.quote.accept.forbidden', 'Cross-site quote acceptance is not allowed.') },
         { status: 403 },
       )
     }
@@ -82,17 +82,17 @@ export async function POST(req: Request) {
         )
       const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
       if (!quote) {
-        throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+        throw new CrudHttpError(404, { error: translate('sales.quote.accept.notFound', 'Quote not found.') })
       }
 
       const now = new Date()
       if (quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
-        throw new CrudHttpError(400, { error: translate('sales.quotes.accept.expired', 'This quote has expired.') })
+        throw new CrudHttpError(400, { error: translate('sales.quote.accept.expired', 'This quote has expired.') })
       }
 
       if ((quote.status ?? null) !== 'sent') {
         throw new CrudHttpError(400, {
-          error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+          error: translate('sales.quote.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
         })
       }
 
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
 
     let result: ConvertToOrderResult | null
     try {
-      result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
+      result = (await commandBus.execute('sales.quote.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
     } catch (conversionError) {
       const freshEm = (container.resolve('em') as EntityManager).fork()
       const staleQuote = await findOneWithDecryption(
@@ -157,26 +157,26 @@ export async function POST(req: Request) {
         const orderUrl = appUrl ? `${appUrl.replace(/\/$/, '')}/backend/sales/orders/${orderId}` : `/backend/sales/orders/${orderId}`
 
         const copy = {
-          preview: translate('sales.quotes.accept.adminEmail.preview', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
-          heading: translate('sales.quotes.accept.adminEmail.heading', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
-          body: translate('sales.quotes.accept.adminEmail.body', 'The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.', {
+          preview: translate('sales.quote.accept.adminEmail.preview', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
+          heading: translate('sales.quote.accept.adminEmail.heading', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
+          body: translate('sales.quote.accept.adminEmail.body', 'The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.', {
             quoteNumber: quote.quoteNumber,
             orderNumber,
           }),
-          cta: translate('sales.quotes.accept.adminEmail.cta', 'View order'),
-          footer: translate('sales.quotes.accept.adminEmail.footer', 'Open Mercato'),
+          cta: translate('sales.quote.accept.adminEmail.cta', 'View order'),
+          footer: translate('sales.quote.accept.adminEmail.footer', 'Open Mercato'),
         }
 
         await sendEmail({
           to: adminEmail,
-          subject: translate('sales.quotes.accept.adminSubject', 'Quote {quoteNumber} accepted → Order {orderNumber}', {
+          subject: translate('sales.quote.accept.adminSubject', 'Quote {quoteNumber} accepted → Order {orderNumber}', {
             quoteNumber: quote.quoteNumber,
             orderNumber,
           }),
           react: QuoteAcceptedAdminEmail({ orderUrl, copy }),
         })
       } catch (err) {
-        console.error('sales.quotes.accept.adminEmail failed', err)
+        console.error('sales.quote.accept.adminEmail failed', err)
       }
     }
 
@@ -186,8 +186,8 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.accept failed', err)
-    return NextResponse.json({ error: translate('sales.quotes.accept.failed', 'Failed to accept quote.') }, { status: 400 })
+    console.error('sales.quote.accept failed', err)
+    return NextResponse.json({ error: translate('sales.quote.accept.failed', 'Failed to accept quote.') }, { status: 400 })
   }
 }
 

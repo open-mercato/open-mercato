@@ -21,7 +21,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
     },
     {
       entityId: 'customers:deals',
-      requiredFeatures: ['customers.deals.view'],
+      requiredFeatures: ['customers.deal.view'],
       entityConfig: {
         tableName: 'customer_deals',
         dateField: 'created_at',

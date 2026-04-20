@@ -12,12 +12,12 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['resources.manage_resources'],
   pageTitle: 'Add resource type',
-  pageTitleKey: 'resources.resourceTypes.form.createTitle',
+  pageTitleKey: 'resources.resource-type.form.createTitle',
   pageGroup: 'Resource planning',
   pageGroupKey: 'resources.nav.group',
   icon: createIcon,
   breadcrumb: [
-    { label: 'Resource types', labelKey: 'resources.resourceTypes.page.title', href: '/backend/resources/resource-types' },
+    { label: 'Resource types', labelKey: 'resources.resource-type.page.title', href: '/backend/resources/resource-types' },
     { label: 'Create', labelKey: 'common.create' },
   ],
 }

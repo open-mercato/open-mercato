@@ -766,7 +766,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
           timeout: 15_000,
           intervals: [250, 500, 1_000],
         })
-        .toContain('customers.interactions.complete');
+        .toContain('customers.interaction.complete');
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);
       await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId);

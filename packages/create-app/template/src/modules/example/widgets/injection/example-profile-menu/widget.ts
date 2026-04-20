@@ -12,7 +12,7 @@ const widget: InjectionMenuItemWidget = {
       label: 'Quick Add Todo',
       icon: 'PlusSquare',
       href: '/backend/todos/create',
-      features: ['example.todos.manage'],
+      features: ['example.todo.manage'],
       placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
   ],

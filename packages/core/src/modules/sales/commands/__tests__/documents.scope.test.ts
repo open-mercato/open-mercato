@@ -253,7 +253,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
-      const handler = commandRegistry.get('sales.quotes.delete')
+      const handler = commandRegistry.get('sales.quote.delete')
       expect(handler).toBeTruthy()
 
       await handler!.execute({ id: QUOTE_ID }, ctx as any)
@@ -277,7 +277,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, differentOrg, differentTenant)
 
-      const handler = commandRegistry.get('sales.quotes.delete')
+      const handler = commandRegistry.get('sales.quote.delete')
       await handler!.execute({ id: QUOTE_ID }, ctx as any)
 
       const calls = addressDecryptionCalls()
@@ -298,7 +298,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
-      const handler = commandRegistry.get('sales.orders.delete')
+      const handler = commandRegistry.get('sales.order.delete')
       expect(handler).toBeTruthy()
 
       await handler!.execute({ id: ORDER_ID }, ctx as any)
@@ -322,7 +322,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, differentOrg, differentTenant)
 
-      const handler = commandRegistry.get('sales.orders.delete')
+      const handler = commandRegistry.get('sales.order.delete')
       await handler!.execute({ id: ORDER_ID }, ctx as any)
 
       const calls = addressDecryptionCalls()
@@ -343,7 +343,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
-      const handler = commandRegistry.get('sales.quotes.delete')
+      const handler = commandRegistry.get('sales.quote.delete')
       expect(handler).toBeTruthy()
 
       await handler!.prepare({ id: QUOTE_ID }, ctx as any)
@@ -367,7 +367,7 @@ describe('SalesDocumentAddress query scoping', () => {
       const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
-      const handler = commandRegistry.get('sales.orders.delete')
+      const handler = commandRegistry.get('sales.order.delete')
       expect(handler).toBeTruthy()
 
       await handler!.prepare({ id: ORDER_ID }, ctx as any)

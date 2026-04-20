@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<OrdersByStatusSettings> = {
     id: 'dashboards.analytics.ordersByStatus',
     title: 'Orders by Status',
     description: 'Distribution of orders by status',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'sm',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

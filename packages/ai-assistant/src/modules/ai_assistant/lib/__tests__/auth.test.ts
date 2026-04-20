@@ -82,7 +82,7 @@ describe('hasRequiredFeatures', () => {
 
   it('returns true for prefix wildcard match', () => {
     expect(
-      hasRequiredFeatures(['customers.people.view'], ['customers.*'], false)
+      hasRequiredFeatures(['customers.person.view'], ['customers.*'], false)
     ).toBe(true)
   })
 

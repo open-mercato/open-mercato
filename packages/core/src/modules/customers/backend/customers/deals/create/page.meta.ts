@@ -20,9 +20,9 @@ const createIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.deals.manage'],
+  requireFeatures: ['customers.deal.manage'],
   pageTitle: 'Create deal',
-  pageTitleKey: 'customers.deals.create.title',
+  pageTitleKey: 'customers.deal.create.title',
   pageGroup: 'Customers',
   pageGroupKey: 'customers.nav.group',
   pagePriority: 10,
@@ -30,6 +30,6 @@ export const metadata = {
   icon: createIcon,
   breadcrumb: [
     { label: 'Deals', labelKey: 'customers.nav.deals', href: '/backend/customers/deals' },
-    { label: 'Create', labelKey: 'customers.deals.create.title' },
+    { label: 'Create', labelKey: 'customers.deal.create.title' },
   ],
 }

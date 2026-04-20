@@ -10,7 +10,7 @@ const createIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.orders.manage', 'sales.quotes.manage'],
+  requireFeatures: ['sales.order.manage', 'sales.quote.manage'],
   pageTitle: 'Create sales document',
   pageTitleKey: 'sales.documents.create.title',
   pageGroup: 'Sales',

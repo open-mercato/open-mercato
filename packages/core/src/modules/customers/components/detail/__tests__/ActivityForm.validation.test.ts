@@ -32,6 +32,6 @@ describe('buildActivityValidationError', () => {
       message: undefined as unknown as string,
       path: [],
     }
-    expect(() => buildActivityValidationError([issue], t)).toThrow('customers.people.detail.activities.error')
+    expect(() => buildActivityValidationError([issue], t)).toThrow('customers.person.detail.activities.error')
   })
 })

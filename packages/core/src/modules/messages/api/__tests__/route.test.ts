@@ -66,7 +66,7 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.compose',
+      'messages.message.compose',
       expect.objectContaining({
         input: expect.objectContaining({
           subject: 'Subject',

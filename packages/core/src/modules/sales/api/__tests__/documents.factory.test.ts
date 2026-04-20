@@ -26,11 +26,11 @@ describe('buildDocumentCrudOptions', () => {
       entity: SalesOrder,
       entityId: E.sales.sales_order,
       numberField: 'orderNumber' as const,
-      createCommandId: 'sales.orders.create',
-      updateCommandId: 'sales.orders.update',
-      deleteCommandId: 'sales.orders.delete',
-      manageFeature: 'sales.orders.manage',
-      viewFeature: 'sales.orders.view',
+      createCommandId: 'sales.order.create',
+      updateCommandId: 'sales.order.update',
+      deleteCommandId: 'sales.order.delete',
+      manageFeature: 'sales.order.manage',
+      viewFeature: 'sales.order.view',
     }
 
     const quoteBinding = {
@@ -38,11 +38,11 @@ describe('buildDocumentCrudOptions', () => {
       entity: SalesQuote,
       entityId: E.sales.sales_quote,
       numberField: 'quoteNumber' as const,
-      createCommandId: 'sales.quotes.create',
-      updateCommandId: 'sales.quotes.update',
-      deleteCommandId: 'sales.quotes.delete',
-      manageFeature: 'sales.quotes.manage',
-      viewFeature: 'sales.quotes.view',
+      createCommandId: 'sales.quote.create',
+      updateCommandId: 'sales.quote.update',
+      deleteCommandId: 'sales.quote.delete',
+      manageFeature: 'sales.quote.manage',
+      viewFeature: 'sales.quote.view',
     }
 
     it('should filter orders by order_number when search is provided', async () => {

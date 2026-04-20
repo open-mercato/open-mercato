@@ -98,7 +98,7 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 }
 
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
-  id: 'auth.roles.create',
+  id: 'auth.role.create',
   async execute(rawInput, ctx) {
     const rawBody = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : {}
     if ('tenantId' in rawBody && rawBody.tenantId === null) {
@@ -203,7 +203,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 }
 
 const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
-  id: 'auth.roles.update',
+  id: 'auth.role.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -362,7 +362,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 }
 
 const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Role> = {
-  id: 'auth.roles.delete',
+  id: 'auth.role.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)

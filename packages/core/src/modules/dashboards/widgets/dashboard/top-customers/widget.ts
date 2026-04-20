@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<TopCustomersSettings> = {
     id: 'dashboards.analytics.topCustomers',
     title: 'Top Customers',
     description: 'Top customers by revenue',
-    features: ['analytics.view', 'sales.orders.view', 'customers.people.view'],
+    features: ['analytics.view', 'sales.order.view', 'customers.person.view'],
     defaultSize: 'md',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

@@ -12,7 +12,7 @@ import { withScopedPayload } from '../../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.activity.manage'] },
 }
 
 async function buildContext(
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<TagAssignmentInput, { assignmentId: string }>(
-    'customers.tags.assign',
+    'customers.tag.assign',
     { input, ctx },
   )
     const response = NextResponse.json({ id: result?.assignmentId ?? null }, { status: 201 })
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.tags.assign failed', err)
+    console.error('customers.tag.assign failed', err)
     return NextResponse.json({ error: translate('customers.errors.assign_failed', 'Failed to assign tag') }, { status: 400 })
   }
 }

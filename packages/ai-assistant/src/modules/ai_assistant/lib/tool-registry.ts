@@ -84,7 +84,7 @@ export const toolRegistry = new ToolRegistryImpl()
  *     query: z.string(),
  *     limit: z.number().optional().default(10),
  *   }),
- *   requiredFeatures: ['customers.people.view'],
+ *   requiredFeatures: ['customers.person.view'],
  *   handler: async (input, ctx) => {
  *     const queryEngine = ctx.container.resolve('queryEngine')
  *     // ... implementation

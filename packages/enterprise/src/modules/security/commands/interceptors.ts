@@ -9,7 +9,7 @@ import {
 export const interceptors: CommandInterceptor[] = [
   {
     id: 'security.block-legacy-self-password-change',
-    targetCommand: 'auth.users.update',
+    targetCommand: 'auth.user.update',
     priority: 10,
     async beforeExecute(input, context) {
       if (!isLegacySelfPasswordChangeAttempt(input, context.auth?.sub ?? null)) return

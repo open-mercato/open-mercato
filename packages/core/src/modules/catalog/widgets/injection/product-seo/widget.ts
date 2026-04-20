@@ -7,7 +7,7 @@ const widget: InjectionWidgetModule<any, any> = {
     id: 'catalog.injection.product-seo',
     title: 'Product SEO Helper',
     description: 'Helps optimize product metadata for search engines',
-    features: ['catalog.products.edit'],
+    features: ['catalog.product.edit'],
     priority: 90,
     enabled: true,
   },

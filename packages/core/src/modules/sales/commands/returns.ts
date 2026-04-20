@@ -258,7 +258,7 @@ function normalizeLinesInput(lines: ReturnCreateInput['lines']): ReturnLineInput
 }
 
 const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string }> = {
-  id: 'sales.returns.create',
+  id: 'sales.return.create',
   async execute(rawInput, ctx) {
     const input = returnCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -269,7 +269,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
     const requested = normalizeLinesInput(input.lines)
     if (!requested.length) {
-      throw new CrudHttpError(400, { error: translate('sales.returns.linesRequired', 'Select at least one line to return.') })
+      throw new CrudHttpError(400, { error: translate('sales.return.linesRequired', 'Select at least one line to return.') })
     }
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
@@ -282,7 +282,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
       if (!order) {
-        throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
+        throw new CrudHttpError(404, { error: translate('sales.return.orderMissing', 'Order not found.') })
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
 
@@ -298,11 +298,11 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       requested.forEach(({ orderLineId, quantity }) => {
         const line = lineMap.get(orderLineId)
         if (!line) {
-          throw new CrudHttpError(404, { error: translate('sales.returns.lineMissing', 'Order line not found.') })
+          throw new CrudHttpError(404, { error: translate('sales.return.lineMissing', 'Order line not found.') })
         }
         const available = toNumeric(line.quantity) - toNumeric(line.returnedQuantity)
         if (quantity - 1e-6 > available) {
-          throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceeded', 'Cannot return more than the remaining quantity.') })
+          throw new CrudHttpError(400, { error: translate('sales.return.quantityExceeded', 'Cannot return more than the remaining quantity.') })
         }
       })
 

@@ -21,10 +21,10 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.pipelines.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.pipeline.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
 }
 
 async function buildContext(
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<PipelineCreateInput, { pipelineId: string }>(
-      'customers.pipelines.create',
+      'customers.pipeline.create',
       { input: pipelineCreateSchema.parse(scoped), ctx },
     )
     const response = NextResponse.json({ id: result?.pipelineId ?? null }, { status: 201 })
@@ -128,7 +128,7 @@ export async function PUT(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute<PipelineUpdateInput, void>(
-      'customers.pipelines.update',
+      'customers.pipeline.update',
       { input: pipelineUpdateSchema.parse(scoped), ctx },
     )
     const response = NextResponse.json({ ok: true })
@@ -165,7 +165,7 @@ export async function DELETE(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     await commandBus.execute<PipelineDeleteInput, void>(
-      'customers.pipelines.delete',
+      'customers.pipeline.delete',
       { input: pipelineDeleteSchema.parse(scoped), ctx },
     )
     return NextResponse.json({ ok: true })

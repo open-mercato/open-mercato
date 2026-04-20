@@ -253,7 +253,7 @@ describe('customers todos adapter route', () => {
     expect(res.status).toBe(201)
     expect(res.headers.get('Deprecation')).toBe('true')
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
-      'customers.interactions.create',
+      'customers.interaction.create',
       expect.objectContaining({
         input: expect.objectContaining({
           entityId: ENTITY_ID,
@@ -289,7 +289,7 @@ describe('customers todos adapter route', () => {
     )
 
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
-      'customers.interactions.create',
+      'customers.interaction.create',
       expect.objectContaining({
         input: expect.objectContaining({
           customValues: expect.objectContaining({
@@ -341,7 +341,7 @@ describe('customers todos adapter route', () => {
     expect(res.headers.get('Deprecation')).toBe('true')
     expect(mockCommandBus.execute).toHaveBeenNthCalledWith(
       1,
-      'customers.interactions.create',
+      'customers.interaction.create',
       expect.objectContaining({
         input: expect.objectContaining({
           id: TODO_ID,
@@ -353,7 +353,7 @@ describe('customers todos adapter route', () => {
     )
     expect(mockCommandBus.execute).toHaveBeenNthCalledWith(
       2,
-      'customers.interactions.delete',
+      'customers.interaction.delete',
       expect.objectContaining({
         input: { id: TODO_ID },
       }),

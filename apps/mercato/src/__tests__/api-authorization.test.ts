@@ -54,12 +54,12 @@ const mockedRouteModule = {
     GET: {
       requireAuth: true,
       requireRoles: ['admin'],
-      requireFeatures: ['example.todos.view'],
+      requireFeatures: ['example.todo.view'],
     },
     POST: {
       requireAuth: true,
       requireRoles: ['admin', 'superuser'],
-      requireFeatures: ['example.todos.manage'],
+      requireFeatures: ['example.todo.manage'],
     },
     PUT: {
       requireAuth: false,
@@ -270,7 +270,7 @@ describe('API Route Authorization', () => {
       const originalMetadata = mockedRouteModule.metadata
       mockedRouteModule.metadata = {
         requireAuth: true,
-        requireFeatures: ['example.todos.view'],
+        requireFeatures: ['example.todo.view'],
       } as RouteMetadata & typeof mockedRouteModule.metadata
 
       try {
@@ -284,7 +284,7 @@ describe('API Route Authorization', () => {
         await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
         expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
           'user1',
-          ['example.todos.view'],
+          ['example.todo.view'],
           expect.objectContaining({ tenantId: 'tenant1' }),
         )
       } finally {

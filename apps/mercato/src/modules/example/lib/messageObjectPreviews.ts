@@ -18,7 +18,7 @@ async function resolveEm() {
 export async function loadTodoPreview(entityId: string, ctx: PreviewContext): Promise<ObjectPreviewData> {
   const { t } = await resolveTranslations()
   const defaultTitle = t('example.messageObjects.todo.title')
-  const doneLabel = t('example.todos.form.fields.isDone.label')
+  const doneLabel = t('example.todo.form.fields.isDone.label')
 
   const em = await resolveEm()
   const where: Record<string, unknown> = {

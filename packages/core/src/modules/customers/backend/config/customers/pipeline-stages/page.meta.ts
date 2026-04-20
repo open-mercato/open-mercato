@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.pipelines.manage'],
+  requireFeatures: ['customers.pipeline.manage'],
   pageTitle: 'Pipeline stages',
   pageTitleKey: 'customers.config.nav.pipelineStages',
   pageGroup: 'Module Configs',

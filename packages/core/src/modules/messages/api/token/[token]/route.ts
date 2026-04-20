@@ -123,7 +123,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
   let commandResult: { messageId: string; recipientUserId: string }
   try {
-    const executed = await commandBus.execute<unknown, { messageId: string; recipientUserId: string }>('messages.tokens.consume', {
+    const executed = await commandBus.execute<unknown, { messageId: string; recipientUserId: string }>('messages.token.consume', {
       input: { token: params.token },
       ctx: {
         container,

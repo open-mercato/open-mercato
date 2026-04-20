@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<SalesByRegionSettings> = {
     id: 'dashboards.analytics.salesByRegion',
     title: 'Sales by Region',
     description: 'Revenue distribution by shipping region',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'md',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

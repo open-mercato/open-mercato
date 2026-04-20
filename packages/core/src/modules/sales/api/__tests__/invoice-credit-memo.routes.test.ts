@@ -56,14 +56,14 @@ describe('invoice and credit memo route modules', () => {
   it('invoice route metadata requires auth and invoices.manage feature', () => {
     const { metadata } = require('../../api/invoices/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.invoices.manage')
-    expect(metadata.POST.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.invoice.manage')
+    expect(metadata.POST.requireFeatures).toContain('sales.invoice.manage')
   })
 
   it('credit memo route metadata requires auth and credit_memos.manage feature', () => {
     const { metadata } = require('../../api/credit-memos/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.manage')
-    expect(metadata.POST.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.credit-memo.manage')
+    expect(metadata.POST.requireFeatures).toContain('sales.credit-memo.manage')
   })
 })

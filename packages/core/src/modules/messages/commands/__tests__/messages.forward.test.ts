@@ -34,13 +34,13 @@ jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   copyAttachmentsForForwardMessages: (...args: unknown[]) => copyAttachmentsForForwardMessagesMock(...args),
 }))
 
-describe('messages.messages.forward command', () => {
+describe('messages.message.forward command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
   it('persists forwarded message in source thread and links parent message', async () => {
-    const command = commandRegistry.get('messages.messages.forward')
+    const command = commandRegistry.get('messages.message.forward')
     expect(command).toBeTruthy()
 
     const sourceMessageId = '11111111-1111-4111-8111-111111111111'
@@ -124,7 +124,7 @@ describe('messages.messages.forward command', () => {
   })
 
   it('falls back to original message id when source threadId is missing', async () => {
-    const command = commandRegistry.get('messages.messages.forward')
+    const command = commandRegistry.get('messages.message.forward')
     expect(command).toBeTruthy()
 
     const sourceMessageId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -206,7 +206,7 @@ describe('messages.messages.forward command', () => {
   })
 
   it('copies attachments from the forward thread slice when includeAttachments is enabled', async () => {
-    const command = commandRegistry.get('messages.messages.forward')
+    const command = commandRegistry.get('messages.message.forward')
     expect(command).toBeTruthy()
 
     const sourceMessageId = '11111111-1111-4111-8111-111111111111'

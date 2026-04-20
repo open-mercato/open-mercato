@@ -42,7 +42,7 @@ type TenantPayload = Record<string, unknown>
 type SerializedTenant = ReturnType<typeof serializeTenant>
 
 const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
-  id: 'directory.tenants.create',
+  id: 'directory.tenant.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(tenantCreateSchema, rawInput)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -108,7 +108,7 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
 }
 
 const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
-  id: 'directory.tenants.update',
+  id: 'directory.tenant.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -173,7 +173,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
 }
 
 const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, string> }, Tenant> = {
-  id: 'directory.tenants.delete',
+  id: 'directory.tenant.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Tenant id required')
     const em = (ctx.container.resolve('em') as EntityManager)

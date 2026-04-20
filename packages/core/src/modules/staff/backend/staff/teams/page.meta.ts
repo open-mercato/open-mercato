@@ -13,10 +13,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['staff.manage_team'],
   pageTitle: 'Teams',
-  pageTitleKey: 'staff.teams.page.title',
+  pageTitleKey: 'staff.team.page.title',
   pageGroup: 'Employees',
   pageGroupKey: 'staff.nav.group',
   pageOrder: 79,
   icon: teamsIcon,
-  breadcrumb: [{ label: 'Teams', labelKey: 'staff.teams.page.title' }],
+  breadcrumb: [{ label: 'Teams', labelKey: 'staff.team.page.title' }],
 }

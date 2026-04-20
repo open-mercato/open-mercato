@@ -107,13 +107,13 @@ function normalizeUndoCreateLogEntry(
 
 /** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: string }> = {
-  id: 'customers.activities.create',
+  id: 'customers.activity.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityCreateSchema, rawInput)
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     const result = await canonicalCreate.execute(mapActivityCreateInput(parsed, custom), ctx)
     return { activityId: result.interactionId }
   },
@@ -121,7 +121,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     if (!canonicalCreate.captureAfter) return null
     return canonicalCreate.captureAfter(
       {
@@ -157,7 +157,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     const canonicalCreate = getRequiredHandler<
       InteractionCreateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.create')
+    >('customers.interaction.create')
     if (!canonicalCreate.undo) return
     await canonicalCreate.undo({
       input: {
@@ -173,13 +173,13 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
 
 /** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: string }> = {
-  id: 'customers.activities.update',
+  id: 'customers.activity.update',
   async prepare(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, rawInput)
     const canonicalUpdate = getRequiredHandler<
       InteractionUpdateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.update')
+    >('customers.interaction.update')
     return canonicalUpdate.prepare?.(mapActivityUpdateInput(parsed, custom), ctx) ?? {}
   },
   async execute(rawInput, ctx) {
@@ -187,7 +187,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const canonicalUpdate = getRequiredHandler<
       InteractionUpdateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.update')
+    >('customers.interaction.update')
     const result = await canonicalUpdate.execute(mapActivityUpdateInput(parsed, custom), ctx)
     return { activityId: result.interactionId }
   },
@@ -195,7 +195,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const canonicalUpdate = getRequiredHandler<
       InteractionUpdateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.update')
+    >('customers.interaction.update')
     if (!canonicalUpdate.captureAfter) return null
     return canonicalUpdate.captureAfter(
       { id: result.activityId },
@@ -230,7 +230,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const canonicalUpdate = getRequiredHandler<
       InteractionUpdateInput & { customValues?: Record<string, unknown> },
       { interactionId: string }
-    >('customers.interactions.update')
+    >('customers.interaction.update')
     if (!canonicalUpdate.undo) return
     await canonicalUpdate.undo({
       input: { id: '' },
@@ -243,19 +243,19 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
 /** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { activityId: string }> =
   {
-    id: 'customers.activities.delete',
+    id: 'customers.activity.delete',
     async prepare(input, ctx) {
       const canonicalDelete = getRequiredHandler<
         { body?: Record<string, unknown>; query?: Record<string, unknown> },
         { interactionId: string }
-      >('customers.interactions.delete')
+      >('customers.interaction.delete')
       return canonicalDelete.prepare?.(input, ctx) ?? {}
     },
     async execute(input, ctx) {
       const canonicalDelete = getRequiredHandler<
         { body?: Record<string, unknown>; query?: Record<string, unknown> },
         { interactionId: string }
-      >('customers.interactions.delete')
+      >('customers.interaction.delete')
       const result = await canonicalDelete.execute(input, ctx)
       return { activityId: result.interactionId }
     },
@@ -283,7 +283,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       const canonicalDelete = getRequiredHandler<
         { body?: Record<string, unknown>; query?: Record<string, unknown> },
         { interactionId: string }
-      >('customers.interactions.delete')
+      >('customers.interaction.delete')
       if (!canonicalDelete.undo) return
       await canonicalDelete.undo({
         input: {},

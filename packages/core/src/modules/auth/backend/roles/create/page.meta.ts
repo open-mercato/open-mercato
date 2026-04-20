@@ -10,7 +10,7 @@ const filePlusIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['auth.roles.manage'],
+  requireFeatures: ['auth.role.manage'],
   pageTitle: 'Create Role',
   pageTitleKey: 'auth.nav.roles.create',
   pageGroup: 'Auth',

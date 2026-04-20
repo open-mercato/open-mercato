@@ -105,27 +105,27 @@ function buildReducedModules(): Module[] {
     },
     directory: {
       defaultRoleFeatures: {
-        superadmin: ['directory.tenants.*'],
-        admin: ['directory.organizations.view', 'directory.organizations.manage'],
+        superadmin: ['directory.tenant.*'],
+        admin: ['directory.organization.view', 'directory.organization.manage'],
       },
     },
     customers: {
       defaultRoleFeatures: {
         admin: [
           'customers.*',
-          'customers.people.view',
-          'customers.people.manage',
-          'customers.companies.view',
-          'customers.companies.manage',
-          'customers.deals.view',
-          'customers.deals.manage',
+          'customers.person.view',
+          'customers.person.manage',
+          'customers.company.view',
+          'customers.company.manage',
+          'customers.deal.view',
+          'customers.deal.manage',
         ],
         employee: [
           'customers.*',
-          'customers.people.view',
-          'customers.people.manage',
-          'customers.companies.view',
-          'customers.companies.manage',
+          'customers.person.view',
+          'customers.person.manage',
+          'customers.company.view',
+          'customers.company.manage',
         ],
       },
     },
@@ -280,7 +280,7 @@ describe('Module Decoupling', () => {
       expect(adminFeatures).toContain('entities.*')
       expect(adminFeatures).toContain('query_index.*')
       expect(adminFeatures).toContain('configs.manage')
-      expect(adminFeatures).toContain('directory.organizations.manage')
+      expect(adminFeatures).toContain('directory.organization.manage')
     })
 
     it('admin features do NOT contain disabled module features', () => {
@@ -320,7 +320,7 @@ describe('Module Decoupling', () => {
         if (roleFeatures?.superadmin) superadminFeatures.push(...roleFeatures.superadmin)
       }
 
-      expect(superadminFeatures).toContain('directory.tenants.*')
+      expect(superadminFeatures).toContain('directory.tenant.*')
       expect(superadminFeatures).not.toContain('catalog.*')
       expect(superadminFeatures).not.toContain('sales.*')
     })

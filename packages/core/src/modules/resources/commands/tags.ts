@@ -14,7 +14,7 @@ import {
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 
 const createTagCommand: CommandHandler<ResourcesResourceTagCreateInput, { tagId: string }> = {
-  id: 'resources.resourceTags.create',
+  id: 'resources.resource-tag.create',
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceTagCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -56,7 +56,7 @@ const createTagCommand: CommandHandler<ResourcesResourceTagCreateInput, { tagId:
 }
 
 const updateTagCommand: CommandHandler<ResourcesResourceTagUpdateInput, { tagId: string }> = {
-  id: 'resources.resourceTags.update',
+  id: 'resources.resource-tag.update',
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceTagUpdateSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -96,7 +96,7 @@ const updateTagCommand: CommandHandler<ResourcesResourceTagUpdateInput, { tagId:
 }
 
 const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
-  id: 'resources.resourceTags.delete',
+  id: 'resources.resource-tag.delete',
   async execute(input, ctx) {
     const id = typeof input?.id === 'string' ? input.id : null
     if (!id) throw new CrudHttpError(400, { error: 'Tag id is required' })

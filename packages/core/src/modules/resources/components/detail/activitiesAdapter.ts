@@ -18,7 +18,7 @@ export function createResourceActivitiesAdapter(translator: Translator): Activit
       const payload = await readApiResultOrThrow<Record<string, unknown>>(
         `/api/resources/activities?${params.toString()}`,
         undefined,
-        { errorMessage: translator('resources.resources.detail.activities.loadError', 'Failed to load activities.') },
+        { errorMessage: translator('resources.resource.detail.activities.loadError', 'Failed to load activities.') },
       )
       return Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
     },
@@ -31,7 +31,7 @@ export function createResourceActivitiesAdapter(translator: Translator): Activit
         occurredAt: occurredAt ?? undefined,
         ...(customFields ? { customFields } : {}),
       }, {
-        errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
+        errorMessage: translator('resources.resource.detail.activities.error', 'Failed to save activity'),
       })
     },
     update: async ({ id, patch }) => {
@@ -44,13 +44,13 @@ export function createResourceActivitiesAdapter(translator: Translator): Activit
         occurredAt: patch.occurredAt ?? undefined,
         ...(patch.customFields ? { customFields: patch.customFields } : {}),
       }, {
-        errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
+        errorMessage: translator('resources.resource.detail.activities.error', 'Failed to save activity'),
       })
     },
     delete: async ({ id }) => {
       await deleteCrud('resources/activities', {
         id,
-        errorMessage: translator('resources.resources.detail.activities.deleteError', 'Failed to delete activity.'),
+        errorMessage: translator('resources.resource.detail.activities.deleteError', 'Failed to delete activity.'),
       })
     },
   }

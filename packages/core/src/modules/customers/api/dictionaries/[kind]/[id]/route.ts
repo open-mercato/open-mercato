@@ -42,7 +42,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let commandResult: CommandExecuteResult<{ entryId: string; changed: boolean }>
     try {
-      commandResult = (await commandBus.execute('customers.dictionaryEntries.update', {
+      commandResult = (await commandBus.execute('customers.dictionary-entry.update', {
         input: {
           id,
           tenantId: routeContext.tenantId,
@@ -129,7 +129,7 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let deleteResult: CommandExecuteResult<{ entryId: string }>
     try {
-      deleteResult = (await commandBus.execute('customers.dictionaryEntries.delete', {
+      deleteResult = (await commandBus.execute('customers.dictionary-entry.delete', {
         input: {
           id,
           tenantId: routeContext.tenantId,

@@ -188,7 +188,7 @@ describe('messages /api/messages/[id]/attachments', () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(commandBus.execute).toHaveBeenCalledWith(
-        'messages.attachments.link_to_draft',
+        'messages.attachment.link_to_draft',
         expect.objectContaining({
           input: expect.objectContaining({
             messageId: 'msg-1',
@@ -257,7 +257,7 @@ describe('messages /api/messages/[id]/attachments', () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(commandBus.execute).toHaveBeenCalledWith(
-        'messages.attachments.unlink_from_draft',
+        'messages.attachment.unlink_from_draft',
         expect.objectContaining({
           input: expect.objectContaining({
             messageId: 'msg-1',

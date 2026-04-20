@@ -22,7 +22,7 @@ const responseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['catalog.products.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['catalog.product.manage'] },
 }
 
 export const openApi = {
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
   const progressJob = await progressService.createJob(
     {
-      jobType: 'catalog.products.bulk_delete',
+      jobType: 'catalog.product.bulk_delete',
       name: parsed.data.scope === 'filtered'
         ? 'Delete filtered products'
         : 'Delete selected products',

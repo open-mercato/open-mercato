@@ -11,7 +11,7 @@ import {
 
 const interactionFeatureToggles = [
   {
-    identifier: 'customers.interactions.unified',
+    identifier: 'customers.interaction.unified',
     name: 'Unified Interactions',
     description: 'When enabled, interactions use the unified canonical model instead of per-entity activity tracking.',
     category: 'customers',
@@ -19,7 +19,7 @@ const interactionFeatureToggles = [
     defaultValue: false,
   },
   {
-    identifier: 'customers.interactions.legacy-adapters',
+    identifier: 'customers.interaction.legacy-adapters',
     name: 'Interaction Legacy Adapters',
     description: 'When enabled, legacy activity/todo APIs are bridged to the canonical interaction model.',
     category: 'customers',
@@ -27,7 +27,7 @@ const interactionFeatureToggles = [
     defaultValue: true,
   },
   {
-    identifier: 'customers.interactions.external-sync',
+    identifier: 'customers.interaction.external-sync',
     name: 'Interaction External Sync',
     description: 'When enabled, interactions can be synced from external systems (calendars, email providers).',
     category: 'customers',
@@ -73,16 +73,16 @@ export const setup: ModuleSetupConfig = {
       'customers.*',
     ],
     employee: [
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
-      'customers.deals.view',
-      'customers.deals.manage',
-      'customers.activities.view',
-      'customers.activities.manage',
-      'customers.pipelines.view',
-      'customers.interactions.view',
+      'customers.person.view',
+      'customers.person.manage',
+      'customers.company.view',
+      'customers.company.manage',
+      'customers.deal.view',
+      'customers.deal.manage',
+      'customers.activity.view',
+      'customers.activity.manage',
+      'customers.pipeline.view',
+      'customers.interaction.view',
       'customers.widgets.todos',
       'customers.widgets.next-interactions',
       'customers.widgets.new-customers',

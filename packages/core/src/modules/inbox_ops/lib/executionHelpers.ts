@@ -448,7 +448,7 @@ export async function loadOrderLineItems(
   try {
     const result = await executeCommand<Record<string, unknown>, { lines?: OrderLineItem[] }>(
       ctx,
-      'sales.orders.lines.list',
+      'sales.order.line.list',
       { orderId, organizationId: ctx.organizationId, tenantId: ctx.tenantId },
     )
     return result.lines ?? []

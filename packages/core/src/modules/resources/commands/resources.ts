@@ -205,7 +205,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
 }
 
 const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { resourceId: string }> = {
-  id: 'resources.resources.create',
+  id: 'resources.resource.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(resourcesResourceCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -328,7 +328,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
 }
 
 const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { resourceId: string }> = {
-  id: 'resources.resources.update',
+  id: 'resources.resource.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(resourcesResourceUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -530,7 +530,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
 }
 
 const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: string }> = {
-  id: 'resources.resources.delete',
+  id: 'resources.resource.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Resource id is required.' })

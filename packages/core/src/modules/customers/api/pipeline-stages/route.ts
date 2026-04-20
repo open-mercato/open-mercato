@@ -22,10 +22,10 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.pipelines.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.pipeline.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
 }
 
 async function buildContext(
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<PipelineStageCreateInput, { stageId: string }>(
-      'customers.pipeline-stages.create',
+      'customers.pipeline-stage.create',
       { input: pipelineStageCreateSchema.parse(scoped), ctx },
     )
     const response = NextResponse.json({ id: result?.stageId ?? null }, { status: 201 })
@@ -160,7 +160,7 @@ export async function PUT(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute<PipelineStageUpdateInput, void>(
-      'customers.pipeline-stages.update',
+      'customers.pipeline-stage.update',
       { input: pipelineStageUpdateSchema.parse(scoped), ctx },
     )
     const response = NextResponse.json({ ok: true })
@@ -197,7 +197,7 @@ export async function DELETE(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     await commandBus.execute<PipelineStageDeleteInput, void>(
-      'customers.pipeline-stages.delete',
+      'customers.pipeline-stage.delete',
       { input: pipelineStageDeleteSchema.parse(scoped), ctx },
     )
     return NextResponse.json({ ok: true })

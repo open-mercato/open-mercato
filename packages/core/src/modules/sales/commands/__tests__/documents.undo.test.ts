@@ -123,11 +123,11 @@ describe('sales order line undo payloads', () => {
   })
 
   const orderLineUpsertLog = () =>
-    commandRegistry.get('sales.orders.lines.upsert')?.buildLog as NonNullable<
+    commandRegistry.get('sales.order.line.upsert')?.buildLog as NonNullable<
       ReturnType<typeof commandRegistry.get>
     >['buildLog']
   const orderLineDeleteLog = () =>
-    commandRegistry.get('sales.orders.lines.delete')?.buildLog as NonNullable<
+    commandRegistry.get('sales.order.line.delete')?.buildLog as NonNullable<
       ReturnType<typeof commandRegistry.get>
     >['buildLog']
 

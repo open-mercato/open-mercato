@@ -60,88 +60,88 @@ export function createDictionarySelectLabels(
   translate: (key: string, fallback: string) => string,
 ): DictionarySelectLabels {
   const base = {
-    valueLabel: translate('customers.people.form.dictionary.valueLabel', 'Name'),
-    valuePlaceholder: translate('customers.people.form.dictionary.valuePlaceholder', 'Name'),
-    labelLabel: translate('customers.people.form.dictionary.labelLabel', 'Label'),
-    labelPlaceholder: translate('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
-    emptyError: translate('customers.people.form.dictionary.errorRequired', 'Please enter a name'),
-    cancelLabel: translate('customers.people.form.dictionary.cancel', 'Cancel'),
-    saveLabel: translate('customers.people.form.dictionary.save', 'Save'),
-    saveShortcutHint: translate('customers.people.form.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
-    errorLoad: translate('customers.people.form.dictionary.errorLoad', 'Failed to load options'),
-    errorSave: translate('customers.people.form.dictionary.error', 'Failed to save option'),
-    loadingLabel: translate('customers.people.form.dictionary.loading', 'Loading…'),
-    manageTitle: translate('customers.people.form.dictionary.manage', 'Manage dictionary'),
-    placeholder: translate('customers.people.form.dictionary.placeholder', 'Select an option'),
-    addLabel: translate('customers.people.form.dictionary.add', 'Add option'),
-    addPrompt: translate('customers.people.form.dictionary.prompt', 'Name your option'),
-    dialogTitle: translate('customers.people.form.dictionary.dialogTitle', 'Add option'),
+    valueLabel: translate('customers.person.form.dictionary.valueLabel', 'Name'),
+    valuePlaceholder: translate('customers.person.form.dictionary.valuePlaceholder', 'Name'),
+    labelLabel: translate('customers.person.form.dictionary.labelLabel', 'Label'),
+    labelPlaceholder: translate('customers.person.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
+    emptyError: translate('customers.person.form.dictionary.errorRequired', 'Please enter a name'),
+    cancelLabel: translate('customers.person.form.dictionary.cancel', 'Cancel'),
+    saveLabel: translate('customers.person.form.dictionary.save', 'Save'),
+    saveShortcutHint: translate('customers.person.form.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
+    errorLoad: translate('customers.person.form.dictionary.errorLoad', 'Failed to load options'),
+    errorSave: translate('customers.person.form.dictionary.error', 'Failed to save option'),
+    loadingLabel: translate('customers.person.form.dictionary.loading', 'Loading…'),
+    manageTitle: translate('customers.person.form.dictionary.manage', 'Manage dictionary'),
+    placeholder: translate('customers.person.form.dictionary.placeholder', 'Select an option'),
+    addLabel: translate('customers.person.form.dictionary.add', 'Add option'),
+    addPrompt: translate('customers.person.form.dictionary.prompt', 'Name your option'),
+    dialogTitle: translate('customers.person.form.dictionary.dialogTitle', 'Add option'),
   } satisfies DictionarySelectLabels
 
   switch (kind) {
     case 'statuses':
       return {
         ...base,
-        placeholder: translate('customers.people.form.status.placeholder', 'Select a status'),
-        addLabel: translate('customers.people.form.dictionary.addStatus', 'Add status'),
-        addPrompt: translate('customers.people.form.dictionary.promptStatus', 'Name the status'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleStatus', 'Add status'),
+        placeholder: translate('customers.person.form.status.placeholder', 'Select a status'),
+        addLabel: translate('customers.person.form.dictionary.addStatus', 'Add status'),
+        addPrompt: translate('customers.person.form.dictionary.promptStatus', 'Name the status'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleStatus', 'Add status'),
       }
     case 'lifecycle-stages':
       return {
         ...base,
-        placeholder: translate('customers.people.form.lifecycleStage.placeholder', 'Select a lifecycle stage'),
-        addLabel: translate('customers.people.form.dictionary.addLifecycleStage', 'Add lifecycle stage'),
-        addPrompt: translate('customers.people.form.dictionary.promptLifecycleStage', 'Name the lifecycle stage'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleLifecycleStage', 'Add lifecycle stage'),
+        placeholder: translate('customers.person.form.lifecycleStage.placeholder', 'Select a lifecycle stage'),
+        addLabel: translate('customers.person.form.dictionary.addLifecycleStage', 'Add lifecycle stage'),
+        addPrompt: translate('customers.person.form.dictionary.promptLifecycleStage', 'Name the lifecycle stage'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleLifecycleStage', 'Add lifecycle stage'),
       }
     case 'sources':
       return {
         ...base,
-        placeholder: translate('customers.people.form.source.placeholder', 'Select a source'),
-        addLabel: translate('customers.people.form.dictionary.addSource', 'Add source'),
-        addPrompt: translate('customers.people.form.dictionary.promptSource', 'Name the source'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleSource', 'Add source'),
+        placeholder: translate('customers.person.form.source.placeholder', 'Select a source'),
+        addLabel: translate('customers.person.form.dictionary.addSource', 'Add source'),
+        addPrompt: translate('customers.person.form.dictionary.promptSource', 'Name the source'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleSource', 'Add source'),
       }
     case 'activity-types':
       return {
         ...base,
-        placeholder: translate('customers.people.form.activityType.placeholder', 'Select an activity type'),
-        addLabel: translate('customers.people.form.dictionary.addActivityType', 'Add activity type'),
-        addPrompt: translate('customers.people.form.dictionary.promptActivityType', 'Name the activity type'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleActivityType', 'Add activity type'),
+        placeholder: translate('customers.person.form.activityType.placeholder', 'Select an activity type'),
+        addLabel: translate('customers.person.form.dictionary.addActivityType', 'Add activity type'),
+        addPrompt: translate('customers.person.form.dictionary.promptActivityType', 'Name the activity type'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleActivityType', 'Add activity type'),
       }
     case 'deal-statuses':
       return {
         ...base,
-        placeholder: translate('customers.deals.form.status.placeholder', 'Select a deal status'),
-        addLabel: translate('customers.deals.form.dictionary.addStatus', 'Add deal status'),
-        addPrompt: translate('customers.deals.form.dictionary.promptStatus', 'Name the deal status'),
-        dialogTitle: translate('customers.deals.form.dictionary.dialogTitleStatus', 'Add deal status'),
+        placeholder: translate('customers.deal.form.status.placeholder', 'Select a deal status'),
+        addLabel: translate('customers.deal.form.dictionary.addStatus', 'Add deal status'),
+        addPrompt: translate('customers.deal.form.dictionary.promptStatus', 'Name the deal status'),
+        dialogTitle: translate('customers.deal.form.dictionary.dialogTitleStatus', 'Add deal status'),
       }
     case 'pipeline-stages':
       return {
         ...base,
-        placeholder: translate('customers.deals.form.pipeline.placeholder', 'Select a pipeline stage'),
-        addLabel: translate('customers.deals.form.dictionary.addPipelineStage', 'Add pipeline stage'),
-        addPrompt: translate('customers.deals.form.dictionary.promptPipelineStage', 'Name the pipeline stage'),
-        dialogTitle: translate('customers.deals.form.dictionary.dialogTitlePipelineStage', 'Add pipeline stage'),
+        placeholder: translate('customers.deal.form.pipeline.placeholder', 'Select a pipeline stage'),
+        addLabel: translate('customers.deal.form.dictionary.addPipelineStage', 'Add pipeline stage'),
+        addPrompt: translate('customers.deal.form.dictionary.promptPipelineStage', 'Name the pipeline stage'),
+        dialogTitle: translate('customers.deal.form.dictionary.dialogTitlePipelineStage', 'Add pipeline stage'),
       }
     case 'job-titles':
       return {
         ...base,
-        placeholder: translate('customers.people.form.jobTitle.placeholder', 'Select a job title'),
-        addLabel: translate('customers.people.form.dictionary.addJobTitle', 'Add job title'),
-        addPrompt: translate('customers.people.form.dictionary.promptJobTitle', 'Name the job title'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleJobTitle', 'Add job title'),
+        placeholder: translate('customers.person.form.jobTitle.placeholder', 'Select a job title'),
+        addLabel: translate('customers.person.form.dictionary.addJobTitle', 'Add job title'),
+        addPrompt: translate('customers.person.form.dictionary.promptJobTitle', 'Name the job title'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleJobTitle', 'Add job title'),
       }
     case 'address-types':
       return {
         ...base,
-        placeholder: translate('customers.people.form.addressType.placeholder', 'Select an address type'),
-        addLabel: translate('customers.people.form.dictionary.addAddressType', 'Add address type'),
-        addPrompt: translate('customers.people.form.dictionary.promptAddressType', 'Name the address type'),
-        dialogTitle: translate('customers.people.form.dictionary.dialogTitleAddressType', 'Add address type'),
+        placeholder: translate('customers.person.form.addressType.placeholder', 'Select an address type'),
+        addLabel: translate('customers.person.form.dictionary.addAddressType', 'Add address type'),
+        addPrompt: translate('customers.person.form.dictionary.promptAddressType', 'Name the address type'),
+        dialogTitle: translate('customers.person.form.dictionary.dialogTitleAddressType', 'Add address type'),
       }
     default:
       return base

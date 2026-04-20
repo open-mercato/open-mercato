@@ -303,7 +303,7 @@ export class ToolSearchService {
       // Wildcard match
       if (userFeatures.includes('*')) return true
 
-      // Prefix wildcard match (e.g., 'customers.*' matches 'customers.people.view')
+      // Prefix wildcard match (e.g., 'customers.*' matches 'customers.person.view')
       return userFeatures.some((feature) => {
         if (feature.endsWith('.*')) {
           const prefix = feature.slice(0, -2)

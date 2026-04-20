@@ -6,7 +6,7 @@ const widget: InjectionWidgetModule<{ kind?: 'order' | 'quote'; record?: any }> 
     id: 'example.injection.sales-todos',
     title: 'Sales todos (example)',
     description: 'Adds a demo todos tab to sales quotes and orders.',
-    features: ['example.todos.view'],
+    features: ['example.todo.view'],
   },
   Widget: SalesTodosWidget,
 }

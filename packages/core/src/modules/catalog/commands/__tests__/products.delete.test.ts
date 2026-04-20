@@ -42,7 +42,7 @@ jest.mock('../shared', () => {
   }
 })
 
-describe('catalog.products.delete', () => {
+describe('catalog.product.delete', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.resetModules()
@@ -52,7 +52,7 @@ describe('catalog.products.delete', () => {
     let deleteCommand: any
     jest.isolateModules(() => {
       require('../products')
-      deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.delete')?.[0]
+      deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.product.delete')?.[0]
     })
     expect(deleteCommand).toBeDefined()
 

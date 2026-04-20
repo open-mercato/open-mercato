@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<TopProductsSettings> = {
     id: 'dashboards.analytics.topProducts',
     title: 'Top Products',
     description: 'Top-selling products by revenue',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'md',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

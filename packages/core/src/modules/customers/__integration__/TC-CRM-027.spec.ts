@@ -113,7 +113,7 @@ test.describe('TC-CRM-027: Person Detail & Interaction ACL', () => {
 
       // Strip manage features from employee
       const viewOnlyFeatures = originalFeatures.filter(
-        (f) => f !== 'customers.*' && f !== 'customers.interactions.manage',
+        (f) => f !== 'customers.*' && f !== 'customers.interaction.manage',
       );
       const updateAclRes = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
         token: adminToken,

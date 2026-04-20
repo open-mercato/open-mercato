@@ -33,7 +33,7 @@ describe('feature_toggles.overrides commands', () => {
             let changeStateCommand: any
             jest.isolateModules(() => {
                 require('../overrides')
-                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.overrides.changeState')?.[0]
+                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.override.changeState')?.[0]
             })
             expect(changeStateCommand).toBeDefined()
 
@@ -87,7 +87,7 @@ describe('feature_toggles.overrides commands', () => {
             let changeStateCommand: any
             jest.isolateModules(() => {
                 require('../overrides')
-                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.overrides.changeState')?.[0]
+                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.override.changeState')?.[0]
             })
             expect(changeStateCommand).toBeDefined()
 
@@ -135,7 +135,7 @@ describe('feature_toggles.overrides commands', () => {
             let changeStateCommand: any
             jest.isolateModules(() => {
                 require('../overrides')
-                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.overrides.changeState')?.[0]
+                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.override.changeState')?.[0]
             })
             expect(changeStateCommand).toBeDefined()
 

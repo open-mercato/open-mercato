@@ -11,7 +11,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['customers.pipelines.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.pipeline.manage'] },
 }
 
 export async function POST(req: Request) {
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     await commandBus.execute<PipelineStageReorderInput, void>(
-      'customers.pipeline-stages.reorder',
+      'customers.pipeline-stage.reorder',
       { input: pipelineStageReorderSchema.parse(scoped), ctx },
     )
     return NextResponse.json({ ok: true })
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages.reorder failed', err)
+    console.error('customers.pipeline-stage.reorder failed', err)
     return NextResponse.json({ error: 'Failed to reorder pipeline stages' }, { status: 400 })
   }
 }

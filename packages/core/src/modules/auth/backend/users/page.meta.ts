@@ -7,7 +7,7 @@ const userIcon = React.createElement('svg', { width: 16, height: 16, viewBox: '0
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['auth.users.list'],
+  requireFeatures: ['auth.user.list'],
   pageTitle: 'Users',
   pageTitleKey: 'auth.nav.users',
   pageGroup: 'Auth',

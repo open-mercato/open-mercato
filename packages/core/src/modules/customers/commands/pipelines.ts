@@ -14,7 +14,7 @@ import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: string }> = {
-  id: 'customers.pipelines.create',
+  id: 'customers.pipeline.create',
   async execute(rawInput, ctx) {
     const parsed = pipelineCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -46,7 +46,7 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
 }
 
 const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
-  id: 'customers.pipelines.update',
+  id: 'customers.pipeline.update',
   async execute(rawInput, ctx) {
     const parsed = pipelineUpdateSchema.parse(rawInput)
 
@@ -74,7 +74,7 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
 }
 
 const deletePipelineCommand: CommandHandler<PipelineDeleteInput, void> = {
-  id: 'customers.pipelines.delete',
+  id: 'customers.pipeline.delete',
   async execute(rawInput, ctx) {
     const parsed = pipelineDeleteSchema.parse(rawInput)
 

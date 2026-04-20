@@ -13,7 +13,7 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
       const payload = await readApiResultOrThrow<Record<string, unknown>>(
         `/api/resources/comments?${params.toString()}`,
         undefined,
-        { errorMessage: translator('resources.resources.detail.notes.loadError', 'Failed to load notes.') },
+        { errorMessage: translator('resources.resource.detail.notes.loadError', 'Failed to load notes.') },
       )
       const items = Array.isArray(payload?.items) ? payload.items : []
       return items.map(mapCommentSummary)
@@ -31,7 +31,7 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
             appearanceColor: appearanceColor ?? undefined,
           }),
         },
-        { errorMessage: translator('resources.resources.detail.notes.error', 'Failed to save note.') },
+        { errorMessage: translator('resources.resource.detail.notes.error', 'Failed to save note.') },
       )
       return response.result ?? {}
     },
@@ -47,7 +47,7 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         },
-        { errorMessage: translator('resources.resources.detail.notes.updateError', 'Failed to update note.') },
+        { errorMessage: translator('resources.resource.detail.notes.updateError', 'Failed to update note.') },
       )
     },
     delete: async ({ id }) => {
@@ -57,7 +57,7 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
         },
-        { errorMessage: translator('resources.resources.detail.notes.deleteError', 'Failed to delete note') },
+        { errorMessage: translator('resources.resource.detail.notes.deleteError', 'Failed to delete note') },
       )
     },
   }

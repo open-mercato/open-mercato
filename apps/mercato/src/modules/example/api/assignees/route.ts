@@ -10,8 +10,8 @@ import {
 } from '../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
-  POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['example.todo.view'] },
+  POST: { requireAuth: true, requireFeatures: ['example.todo.manage'] },
 }
 
 type Option = { value: string; label: string }

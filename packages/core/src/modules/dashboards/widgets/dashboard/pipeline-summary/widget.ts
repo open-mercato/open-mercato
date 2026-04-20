@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<PipelineSummarySettings> = {
     id: 'dashboards.analytics.pipelineSummary',
     title: 'Pipeline Summary',
     description: 'Deal value by pipeline stage',
-    features: ['analytics.view', 'customers.deals.view'],
+    features: ['analytics.view', 'customers.deal.view'],
     defaultSize: 'md',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

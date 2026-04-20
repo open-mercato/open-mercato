@@ -99,7 +99,7 @@ function buildQuote(overrides?: Partial<Record<string, unknown>>): QuoteStub {
   }
 }
 
-describe('sales.quotes.convert_to_order — document number generation (#919)', () => {
+describe('sales.quote.convert_to_order — document number generation (#919)', () => {
   let createdEntities: Array<Record<string, unknown>>
   let removedEntities: unknown[]
   let mockGenerator: { generate: jest.Mock }
@@ -175,7 +175,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   }
 
   it('generates a new ORDER-prefixed number instead of copying the quote number', async () => {
-    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quote.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()
@@ -203,7 +203,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   })
 
   it('does not use the quote number as the order number', async () => {
-    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quote.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote({ quoteNumber: 'QUOTE-20260101-99999' })
@@ -226,7 +226,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   })
 
   it('allows explicit orderNumber override from the caller', async () => {
-    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quote.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()

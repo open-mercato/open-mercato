@@ -11,7 +11,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesReturn, SalesReturnLine } from '../../../data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.returns.view'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.return.view'] },
 }
 
 const paramsSchema = z.object({ id: z.string().uuid() })
@@ -53,7 +53,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       { tenantId: auth.tenantId, organizationId },
     )
     if (!header || !header.order) {
-      throw new CrudHttpError(404, { error: translate('sales.returns.notFound', 'Return not found.') })
+      throw new CrudHttpError(404, { error: translate('sales.return.notFound', 'Return not found.') })
     }
 
     const lines = await findWithDecryption(
@@ -102,9 +102,9 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('sales.returns.get failed', err)
+    console.error('sales.return.get failed', err)
     const { translate } = await resolveTranslations()
-    return NextResponse.json({ error: translate('sales.returns.error', 'Failed to load return.') }, { status: 400 })
+    return NextResponse.json({ error: translate('sales.return.error', 'Failed to load return.') }, { status: 400 })
   }
 }
 

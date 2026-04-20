@@ -2,9 +2,9 @@ import '@open-mercato/core/modules/messages/commands/actions'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 
-describe('messages.actions.execute command', () => {
+describe('messages.action.execute command', () => {
   it('surfaces terminal action log entries for href actions', async () => {
-    const command = commandRegistry.get('messages.actions.execute')
+    const command = commandRegistry.get('messages.action.execute')
     expect(command).toBeTruthy()
 
     const message = {
@@ -52,13 +52,13 @@ describe('messages.actions.execute command', () => {
     const terminalLogEntry = {
       id: 'log-1',
       undoToken: 'undo-1',
-      commandId: 'messages.actions.record_terminal',
+      commandId: 'messages.action.record_terminal',
       createdAt: new Date('2026-03-19T10:00:00.000Z'),
     }
 
     const nestedCommandBus = {
       execute: jest.fn(async (commandId: string) => {
-        if (commandId === 'messages.actions.record_terminal') {
+        if (commandId === 'messages.action.record_terminal') {
           return {
             result: { ok: true },
             logEntry: terminalLogEntry,
@@ -98,7 +98,7 @@ describe('messages.actions.execute command', () => {
     expect(result.result).toEqual({ redirect: `/backend/messages/${message.id}` })
     expect(result.operationLogEntry).toEqual(terminalLogEntry)
     expect(nestedCommandBus.execute).toHaveBeenCalledWith(
-      'messages.actions.record_terminal',
+      'messages.action.record_terminal',
       expect.objectContaining({
         input: expect.objectContaining({
           messageId: message.id,

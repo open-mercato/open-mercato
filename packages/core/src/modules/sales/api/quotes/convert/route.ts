@@ -23,7 +23,7 @@ const convertSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage', 'sales.orders.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.quote.manage', 'sales.order.manage'] },
 }
 
 type RequestContext = {
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
     const { result, logEntry } = await commandBus.execute<
       { quoteId: string; orderId?: string; orderNumber?: string },
       { orderId: string }
-    >('sales.quotes.convert_to_order', { input, ctx })
+    >('sales.quote.convert_to_order', { input, ctx })
 
     const orderId = result?.orderId ?? input.orderId ?? input.quoteId
     const jsonResponse = NextResponse.json({ orderId })
@@ -173,7 +173,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.convert failed', err)
+    console.error('sales.quote.convert failed', err)
     return NextResponse.json(
       { error: translate('sales.documents.detail.convertError', 'Failed to convert quote.') },
       { status: 400 }

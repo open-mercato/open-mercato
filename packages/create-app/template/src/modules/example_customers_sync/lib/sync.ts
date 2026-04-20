@@ -236,12 +236,12 @@ export function resolveInboundInteractionSyncStrategy(input: {
   isDone: boolean
 }): {
   updateStatusInCommand: boolean
-  lifecycleCommandId: 'customers.interactions.complete' | null
+  lifecycleCommandId: 'customers.interaction.complete' | null
 } {
   if (input.isDone) {
     return {
       updateStatusInCommand: false,
-      lifecycleCommandId: input.currentStatus === 'done' ? null : 'customers.interactions.complete',
+      lifecycleCommandId: input.currentStatus === 'done' ? null : 'customers.interaction.complete',
     }
   }
   return {
@@ -338,7 +338,7 @@ async function deleteMappedExampleTodo(params: {
     EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_ORIGIN,
   )
   try {
-    await commandBus.execute<{ id: string }, Todo>('example.todos.delete', {
+    await commandBus.execute<{ id: string }, Todo>('example.todo.delete', {
       input: { id: params.mapping.todoId },
       ctx: commandContext,
     })
@@ -469,7 +469,7 @@ export async function syncCustomerInteractionToExampleTodo(
 
     if (mapping) {
       try {
-        await commandBus.execute<Record<string, unknown>, Todo>('example.todos.update', {
+        await commandBus.execute<Record<string, unknown>, Todo>('example.todo.update', {
           input: {
             id: mapping.todoId,
             title,
@@ -491,7 +491,7 @@ export async function syncCustomerInteractionToExampleTodo(
     }
 
     try {
-      const createResult = await commandBus.execute<Record<string, unknown>, Todo>('example.todos.create', {
+      const createResult = await commandBus.execute<Record<string, unknown>, Todo>('example.todo.create', {
         input: {
           id: interaction.id,
           title,
@@ -511,7 +511,7 @@ export async function syncCustomerInteractionToExampleTodo(
       if (!isDuplicateKeyError(error)) throw error
       const existingTodo = await loadExampleTodoSnapshot(em, scope, interaction.id)
       if (!existingTodo) throw error
-      await commandBus.execute<Record<string, unknown>, Todo>('example.todos.update', {
+      await commandBus.execute<Record<string, unknown>, Todo>('example.todo.update', {
         input: {
           id: existingTodo.id,
           title,
@@ -577,7 +577,7 @@ export async function syncExampleTodoToCanonicalInteraction(
 
     if (payload.eventId === 'example.todo.deleted') {
       try {
-        await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interactions.delete', {
+        await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interaction.delete', {
           input: { body: { id: mapping.interactionId } },
           ctx: commandContext,
         })
@@ -594,7 +594,7 @@ export async function syncExampleTodoToCanonicalInteraction(
     todo = await loadExampleTodoSnapshot(em, scope, mapping.todoId)
     if (!todo) {
       try {
-        await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interactions.delete', {
+        await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interaction.delete', {
           input: { body: { id: mapping.interactionId } },
           ctx: commandContext,
         })
@@ -644,7 +644,7 @@ export async function syncExampleTodoToCanonicalInteraction(
       ? { customValues: patch.customValues }
       : {}
 
-    await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interactions.update', {
+    await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interaction.update', {
       input: {
         id: mapping.interactionId,
         title: patch.title,
@@ -659,8 +659,8 @@ export async function syncExampleTodoToCanonicalInteraction(
       ctx: commandContext,
     })
 
-    if (strategy.lifecycleCommandId === 'customers.interactions.complete') {
-      await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interactions.complete', {
+    if (strategy.lifecycleCommandId === 'customers.interaction.complete') {
+      await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interaction.complete', {
         input: {
           id: mapping.interactionId,
           ...(patch.occurredAt ? { occurredAt: patch.occurredAt } : {}),
@@ -795,7 +795,7 @@ async function ensureCanonicalInteractionForLegacyLink(
     EXAMPLE_CUSTOMERS_SYNC_INBOUND_ORIGIN,
   )
   try {
-    const result = await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interactions.create', {
+    const result = await commandBus.execute<Record<string, unknown>, { interactionId: string }>('customers.interaction.create', {
       input: {
         id: link.todoId,
         entityId: link.entityId,

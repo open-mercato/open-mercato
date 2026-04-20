@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<RevenueTrendSettings> = {
     id: 'dashboards.analytics.revenueTrend',
     title: 'Revenue Trend',
     description: 'Revenue over time with customizable granularity',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'lg',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

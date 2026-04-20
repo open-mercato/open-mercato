@@ -12,13 +12,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['resources.manage_resources'],
   pageTitle: 'Create resource',
-  pageTitleKey: 'resources.resources.form.createTitle',
+  pageTitleKey: 'resources.resource.form.createTitle',
   pageGroup: 'Resource planning',
   pageGroupKey: 'resources.nav.group',
   pageOrder: 31.1,
   icon: createPageIcon,
   breadcrumb: [
-    { label: 'Resources', labelKey: 'resources.resources.page.title', href: '/backend/resources/resources' },
+    { label: 'Resources', labelKey: 'resources.resource.page.title', href: '/backend/resources/resources' },
     { label: 'Create', labelKey: 'common.create' },
   ],
 }

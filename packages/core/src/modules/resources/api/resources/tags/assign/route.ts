@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const input = parseScopedCommandInput(resourcesResourceTagAssignmentSchema, body, ctx, translate)
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<ResourcesResourceTagAssignmentInput, { assignmentId: string }>(
-      'resources.resourceTags.assign',
+      'resources.resource-tag.assign',
       { input, ctx },
     )
     const response = NextResponse.json({ id: result?.assignmentId ?? null }, { status: 201 })
@@ -68,8 +68,8 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('resources.resourceTags.assign failed', err)
-    return NextResponse.json({ error: translate('resources.resources.tags.updateError', 'Failed to update tags.') }, { status: 400 })
+    console.error('resources.resource-tag.assign failed', err)
+    return NextResponse.json({ error: translate('resources.resource.tags.updateError', 'Failed to update tags.') }, { status: 400 })
   }
 }
 

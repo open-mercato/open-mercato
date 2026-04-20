@@ -111,7 +111,7 @@ async function setActivityCustomFields(
 }
 
 const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput, { activityId: string; authorUserId: string | null }> = {
-  id: 'resources.resource-activities.create',
+  id: 'resources.resource-activity.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(resourcesResourceActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -195,7 +195,7 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
 }
 
 const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput, { activityId: string }> = {
-  id: 'resources.resource-activities.update',
+  id: 'resources.resource-activity.update',
   async prepare(rawInput, ctx) {
     const parsed = resourcesResourceActivityUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -347,7 +347,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
 }
 
 const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { activityId: string }> = {
-  id: 'resources.resource-activities.delete',
+  id: 'resources.resource-activity.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Activity id required')
     const em = (ctx.container.resolve('em') as EntityManager)

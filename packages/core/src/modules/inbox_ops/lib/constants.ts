@@ -10,13 +10,13 @@ import type { InboxActionType } from '../data/entities'
  * TODO: Consolidate with the generated registry once it supports sync access.
  */
 export const REQUIRED_FEATURES_MAP: Record<InboxActionType, string> = {
-  create_order: 'sales.orders.manage',
-  create_quote: 'sales.quotes.manage',
-  update_order: 'sales.orders.manage',
-  update_shipment: 'sales.shipments.manage',
-  create_contact: 'customers.people.manage',
-  create_product: 'catalog.products.manage',
-  link_contact: 'customers.people.manage',
-  log_activity: 'customers.activities.manage',
+  create_order: 'sales.order.manage',
+  create_quote: 'sales.quote.manage',
+  update_order: 'sales.order.manage',
+  update_shipment: 'sales.shipment.manage',
+  create_contact: 'customers.person.manage',
+  create_product: 'catalog.product.manage',
+  link_contact: 'customers.person.manage',
+  log_activity: 'customers.activity.manage',
   draft_reply: 'inbox_ops.replies.send',
 } as const

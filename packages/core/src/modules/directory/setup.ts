@@ -39,8 +39,8 @@ async function backfillOrganizationSlugs(em: EntityManager, tenantId: string) {
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    superadmin: ['directory.tenants.*'],
-    admin: ['directory.organizations.view', 'directory.organizations.manage'],
+    superadmin: ['directory.tenant.*'],
+    admin: ['directory.organization.view', 'directory.organization.manage'],
   },
 
   async seedDefaults({ em, tenantId }) {

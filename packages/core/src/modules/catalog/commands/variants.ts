@@ -537,7 +537,7 @@ async function aggregateVariantMediaToProduct(
 }
 
 const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
-  id: 'catalog.variants.create',
+  id: 'catalog.variant.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -681,7 +681,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
 }
 
 const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
-  id: 'catalog.variants.update',
+  id: 'catalog.variant.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -879,7 +879,7 @@ const deleteVariantCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { variantId: string }
 > = {
-  id: 'catalog.variants.delete',
+  id: 'catalog.variant.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1030,7 +1030,7 @@ const deleteVariantCommand: CommandHandler<
 
 async function throwDuplicateVariantSkuError(): Promise<never> {
   const { translate } = await resolveTranslations()
-  const message = translate('catalog.variants.errors.skuExists', 'SKU already in use.')
+  const message = translate('catalog.variant.errors.skuExists', 'SKU already in use.')
   throw new CrudHttpError(400, {
     error: message,
     fieldErrors: { sku: message },

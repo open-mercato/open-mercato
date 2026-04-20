@@ -9,13 +9,13 @@ const categoriesIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.categories.view'],
+  requireFeatures: ['catalog.category.view'],
   pageTitle: 'Categories',
-  pageTitleKey: 'catalog.categories.page.title',
+  pageTitleKey: 'catalog.category.page.title',
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   pagePriority: 30,
   pageOrder: 90,
   icon: categoriesIcon,
-  breadcrumb: [{ label: 'Categories', labelKey: 'catalog.categories.page.title' }],
+  breadcrumb: [{ label: 'Categories', labelKey: 'catalog.category.page.title' }],
 }

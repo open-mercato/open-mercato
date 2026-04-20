@@ -187,7 +187,7 @@ describe('normalizeActionLogToHistoryEntry', () => {
       snapshotBefore: null,
       snapshotAfter: { id: 'ret-1', orderId: 'ord-1', lines: [], adjustmentIds: [] },
       actionLabel: 'Create return',
-      commandId: 'sales.returns.create',
+      commandId: 'sales.return.create',
     })
     const entry = normalizeActionLogToHistoryEntry(log, 'order')
     expect(entry.kind).toBe('action')

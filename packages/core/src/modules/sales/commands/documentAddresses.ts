@@ -42,15 +42,15 @@ async function assertAddressEditable(
   if (!Array.isArray(allowed)) return
   const { translate } = await resolveTranslations()
   if (allowed.length === 0) {
-    throw new CrudHttpError(400, { error: translate('sales.orders.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
+    throw new CrudHttpError(400, { error: translate('sales.order.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
   }
   if (!params.status || !allowed.includes(params.status)) {
-    throw new CrudHttpError(400, { error: translate('sales.orders.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
+    throw new CrudHttpError(400, { error: translate('sales.order.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
   }
 }
 
 const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: string }> = {
-  id: 'sales.document-addresses.create',
+  id: 'sales.document-address.create',
   async execute(rawInput, ctx) {
     const input = documentAddressCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
@@ -93,7 +93,7 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
 }
 
 const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: string }> = {
-  id: 'sales.document-addresses.update',
+  id: 'sales.document-address.update',
   async execute(rawInput, ctx) {
     const input = documentAddressUpdateSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
@@ -139,7 +139,7 @@ const deleteDocumentAddress: CommandHandler<
   { id: string; documentId: string; documentKind: 'order' | 'quote'; organizationId: string; tenantId: string },
   { ok: true }
 > = {
-  id: 'sales.document-addresses.delete',
+  id: 'sales.document-address.delete',
   async execute(rawInput, ctx) {
     const input = documentAddressDeleteSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)

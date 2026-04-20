@@ -247,7 +247,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'staff.leave-requests.create',
+      commandId: 'staff.leave-request.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -270,7 +270,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'staff.leave-requests.update',
+      commandId: 'staff.leave-request.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -304,7 +304,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'staff.leave-requests.delete',
+      commandId: 'staff.leave-request.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

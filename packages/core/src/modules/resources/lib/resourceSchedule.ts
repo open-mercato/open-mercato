@@ -38,18 +38,18 @@ export function buildAvailabilityTitle(
 ): string {
   if (repeat === 'weekly') {
     return translate(
-      `resources.resources.${mode}.title.weekly`,
+      `resources.resource.${mode}.title.weekly`,
       DEFAULT_TITLE_MAP[mode].weekly,
     )
   }
   if (repeat === 'daily') {
     return translate(
-      `resources.resources.${mode}.title.daily`,
+      `resources.resource.${mode}.title.daily`,
       DEFAULT_TITLE_MAP[mode].daily,
     )
   }
   return translate(
-    `resources.resources.${mode}.title.once`,
+    `resources.resource.${mode}.title.once`,
     DEFAULT_TITLE_MAP[mode].once,
   )
 }
@@ -65,7 +65,7 @@ export function buildResourceScheduleItems(params: {
       .filter((window) => window.repeat === 'once')
       .map((window) => toFullDayWindow(window.startAt).start.toISOString()),
   ))
-  const availabilityLinkLabel = params.translate('resources.resources.schedule.actions.details', 'Details')
+  const availabilityLinkLabel = params.translate('resources.resource.schedule.actions.details', 'Details')
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
     const isUnavailable = rule.kind === 'unavailability'

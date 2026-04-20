@@ -113,7 +113,7 @@ export async function POST(req: Request) {
       isActive: true,
     }
     const { result, logEntry } = await commandBus.execute<StaffTeamMemberCreateInput, { memberId: string }>(
-      'staff.team-members.create',
+      'staff.team-member.create',
       {
         input: selfInput,
         ctx,

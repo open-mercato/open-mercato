@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['directory.organizations.manage'],
+  requireFeatures: ['directory.organization.manage'],
   pageTitle: 'Create Organization',
   pageTitleKey: 'directory.nav.organizations.create',
   pageGroup: 'Directory',

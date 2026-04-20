@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<NewCustomersKpiSettings> = {
     id: 'dashboards.analytics.newCustomersKpi',
     title: 'Customer Growth',
     description: 'New customer count with period comparison',
-    features: ['analytics.view', 'customers.people.view'],
+    features: ['analytics.view', 'customers.person.view'],
     defaultSize: 'sm',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

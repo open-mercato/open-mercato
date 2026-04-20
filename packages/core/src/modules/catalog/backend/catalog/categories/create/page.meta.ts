@@ -10,14 +10,14 @@ const createIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.categories.manage'],
+  requireFeatures: ['catalog.category.manage'],
   pageTitle: 'Create Category',
-  pageTitleKey: 'catalog.categories.form.createTitle',
+  pageTitleKey: 'catalog.category.form.createTitle',
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   icon: createIcon,
   breadcrumb: [
-    { label: 'Categories', labelKey: 'catalog.categories.page.title', href: '/backend/catalog/categories' },
+    { label: 'Categories', labelKey: 'catalog.category.page.title', href: '/backend/catalog/categories' },
     { label: 'Create', labelKey: 'common.create' },
   ],
 }

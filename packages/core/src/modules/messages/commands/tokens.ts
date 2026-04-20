@@ -13,7 +13,7 @@ const consumeTokenSchema = z.object({
 })
 
 const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipientUserId: string }> = {
-  id: 'messages.tokens.consume',
+  id: 'messages.token.consume',
   async execute(rawInput, ctx) {
     const input = consumeTokenSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()

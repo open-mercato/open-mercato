@@ -175,7 +175,7 @@ describe('messages /api/messages/token/[token]', () => {
         recipientUserId: 'user-1',
       }),
     )
-    expect(commandBus.execute).toHaveBeenCalledWith('messages.tokens.consume', expect.any(Object))
+    expect(commandBus.execute).toHaveBeenCalledWith('messages.token.consume', expect.any(Object))
   })
 
   it('returns only auth preflight for protected token when unauthenticated', async () => {
@@ -267,7 +267,7 @@ describe('messages /api/messages/token/[token]', () => {
     )
     expect(body.objects[0].snapshot).toEqual({ secret: 'protected snapshot' })
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.tokens.consume',
+      'messages.token.consume',
       expect.objectContaining({
         ctx: expect.objectContaining({
           auth: expect.objectContaining({ sub: 'user-1' }),

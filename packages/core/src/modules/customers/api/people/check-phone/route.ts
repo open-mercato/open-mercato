@@ -15,7 +15,7 @@ const querySchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.person.view'] },
 }
 
 export async function GET(req: Request) {

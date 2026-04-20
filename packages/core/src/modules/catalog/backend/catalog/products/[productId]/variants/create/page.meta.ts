@@ -1,13 +1,13 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.variants.manage'],
+  requireFeatures: ['catalog.variant.manage'],
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   navHidden: true,
   breadcrumb: [
     {
       label: 'Products & services',
-      labelKey: 'catalog.products.page.title',
+      labelKey: 'catalog.product.page.title',
       href: '/backend/catalog/products',
     },
   ],

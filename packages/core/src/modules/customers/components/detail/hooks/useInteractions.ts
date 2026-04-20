@@ -125,7 +125,7 @@ export function useInteractions({
       return readApiResultOrThrow<InteractionsListResponse>(
         `/api/customers/interactions?${params.toString()}`,
         undefined,
-        { errorMessage: t('customers.interactions.load.error', 'Failed to load interactions.') },
+        { errorMessage: t('customers.interaction.load.error', 'Failed to load interactions.') },
       )
     },
     [entityId, excludeTypeFilter, pageSize, statusFilter, typeFilter, t],
@@ -143,7 +143,7 @@ export function useInteractions({
       const mapped = mapResponse(payload)
       setInteractions(mapped)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.interactions.load.error', 'Failed to load interactions.')
+      const message = err instanceof Error ? err.message : t('customers.interaction.load.error', 'Failed to load interactions.')
       setError(message)
       throw err
     } finally {
@@ -161,7 +161,7 @@ export function useInteractions({
       const mapped = mapResponse(payload)
       setInteractions((prev) => mergeUnique(prev, mapped))
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.interactions.load.error', 'Failed to load interactions.')
+      const message = err instanceof Error ? err.message : t('customers.interaction.load.error', 'Failed to load interactions.')
       setError(message)
       throw err
     } finally {
@@ -190,7 +190,7 @@ export function useInteractions({
       })
       .catch((err) => {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customers.interactions.load.error', 'Failed to load interactions.')
+        const message = err instanceof Error ? err.message : t('customers.interaction.load.error', 'Failed to load interactions.')
         setError(message)
       })
       .finally(() => {
@@ -213,7 +213,7 @@ export function useInteractions({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload),
           },
-          { errorMessage: t('customers.interactions.create.error', 'Failed to create interaction.') },
+          { errorMessage: t('customers.interaction.create.error', 'Failed to create interaction.') },
         )
         await refresh()
       } finally {
@@ -234,7 +234,7 @@ export function useInteractions({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id, ...payload }),
           },
-          { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
+          { errorMessage: t('customers.interaction.update.error', 'Failed to update interaction.') },
         )
         await refresh()
       } finally {
@@ -256,7 +256,7 @@ export function useInteractions({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id }),
           },
-          { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
+          { errorMessage: t('customers.interaction.complete.error', 'Failed to complete interaction.') },
         )
         await refresh()
       } finally {
@@ -279,7 +279,7 @@ export function useInteractions({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id }),
           },
-          { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
+          { errorMessage: t('customers.interaction.cancel.error', 'Failed to cancel interaction.') },
         )
         await refresh()
       } finally {
@@ -299,7 +299,7 @@ export function useInteractions({
           {
             method: 'DELETE',
           },
-          { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
+          { errorMessage: t('customers.interaction.delete.error', 'Failed to delete interaction.') },
         )
         await refresh()
       } finally {

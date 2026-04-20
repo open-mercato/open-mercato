@@ -25,7 +25,7 @@ import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.quote.manage'] },
 }
 
 type RequestContext = {
@@ -155,12 +155,12 @@ export async function POST(req: Request) {
     }
 
     if ((quote.status ?? null) === 'canceled') {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.send.canceled', 'Canceled quotes cannot be sent.') })
+      throw new CrudHttpError(400, { error: translate('sales.quote.send.canceled', 'Canceled quotes cannot be sent.') })
     }
 
     const email = resolveQuoteEmail(quote)
     if (!email) {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
+      throw new CrudHttpError(400, { error: translate('sales.quote.send.missingEmail', 'Customer email is required to send a quote.') })
     }
 
     const now = new Date()
@@ -191,20 +191,20 @@ export async function POST(req: Request) {
     })
 
     const copy = {
-      preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
-      heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
+      preview: translate('sales.quote.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
+      heading: translate('sales.quote.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+      total: translate('sales.quote.email.total', 'Total: {amount} {currency}', {
         amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
         currency: quote.currencyCode,
       }),
-      validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
-      cta: translate('sales.quotes.email.cta', 'View quote'),
-      footer: translate('sales.quotes.email.footer', 'Open Mercato'),
+      validUntil: translate('sales.quote.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      cta: translate('sales.quote.email.cta', 'View quote'),
+      footer: translate('sales.quote.email.footer', 'Open Mercato'),
     }
 
     await sendEmail({
       to: email,
-      subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+      subject: translate('sales.quote.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
     })
 
@@ -229,9 +229,9 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.send failed', err)
+    console.error('sales.quote.send failed', err)
     return NextResponse.json(
-      { error: translate('sales.quotes.send.failed', 'Failed to send quote.') },
+      { error: translate('sales.quote.send.failed', 'Failed to send quote.') },
       { status: 400 }
     )
   }

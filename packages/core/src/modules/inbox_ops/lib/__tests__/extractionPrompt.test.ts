@@ -11,7 +11,7 @@ import type { InboxActionDefinition } from '@open-mercato/shared/modules/inbox-a
 const mockActions: InboxActionDefinition[] = [
   {
     type: 'create_order',
-    requiredFeature: 'sales.orders.manage',
+    requiredFeature: 'sales.order.manage',
     payloadSchema: {} as InboxActionDefinition['payloadSchema'],
     promptSchema: 'create_order / create_quote payload:\n{ customerName: string, currencyCode: string }',
     promptRules: [
@@ -22,14 +22,14 @@ const mockActions: InboxActionDefinition[] = [
   },
   {
     type: 'create_quote',
-    requiredFeature: 'sales.quotes.manage',
+    requiredFeature: 'sales.quote.manage',
     payloadSchema: {} as InboxActionDefinition['payloadSchema'],
     promptSchema: '(shared with create_order above)',
     execute: jest.fn(),
   },
   {
     type: 'create_contact',
-    requiredFeature: 'customers.people.manage',
+    requiredFeature: 'customers.person.manage',
     payloadSchema: {} as InboxActionDefinition['payloadSchema'],
     promptSchema: 'create_contact payload:\n{ type: "person"|"company", name: string, email?: string }',
     promptRules: [
@@ -191,14 +191,14 @@ describe('buildExtractionUserPrompt', () => {
 describe('REQUIRED_FEATURES_MAP', () => {
   it('maps all 9 action types to required features', () => {
     const expectedMappings: Record<string, string> = {
-      create_order: 'sales.orders.manage',
-      create_quote: 'sales.quotes.manage',
-      update_order: 'sales.orders.manage',
-      update_shipment: 'sales.shipments.manage',
-      create_contact: 'customers.people.manage',
-      create_product: 'catalog.products.manage',
-      link_contact: 'customers.people.manage',
-      log_activity: 'customers.activities.manage',
+      create_order: 'sales.order.manage',
+      create_quote: 'sales.quote.manage',
+      update_order: 'sales.order.manage',
+      update_shipment: 'sales.shipment.manage',
+      create_contact: 'customers.person.manage',
+      create_product: 'catalog.product.manage',
+      link_contact: 'customers.person.manage',
+      log_activity: 'customers.activity.manage',
       draft_reply: 'inbox_ops.replies.send',
     }
 

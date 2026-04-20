@@ -41,20 +41,20 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   },
   actions: {
     create: {
-      commandId: 'currencies.currencies.create',
+      commandId: 'currencies.currency.create',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: ({ result }) => ({ id: String(result.currencyId) }),
       status: 201,
     },
     update: {
-      commandId: 'currencies.currencies.update',
+      commandId: 'currencies.currency.update',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'currencies.currencies.delete',
+      commandId: 'currencies.currency.delete',
       schema: rawBodySchema,
       mapInput: ({ raw, ctx }) => ({
         id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,

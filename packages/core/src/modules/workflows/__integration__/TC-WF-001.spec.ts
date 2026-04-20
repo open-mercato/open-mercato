@@ -96,7 +96,7 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await expect(dialog).toBeVisible()
 
       // --- Event Pattern autocomplete: suggestions appear on focus ---
-      const patternInput = dialog.getByPlaceholder('sales.orders.updated')
+      const patternInput = dialog.getByPlaceholder('sales.order.updated')
       await patternInput.click()
 
       // At least one event suggestion should appear in the dropdown
@@ -129,10 +129,10 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       expect(selectedLabel).not.toBe(eventId)
 
       // --- Custom wildcard: free-text pattern is committed without being reset ---
-      await patternInput.fill('sales.orders.*')
+      await patternInput.fill('sales.order.*')
       // Escape closes the dropdown and commits the typed value
       await patternInput.press('Escape')
-      await expect(patternInput).toHaveValue('sales.orders.*')
+      await expect(patternInput).toHaveValue('sales.order.*')
 
       // Cancel without saving — trigger creation API is out of scope for this test
       if (await dialog.isVisible().catch(() => false)) {

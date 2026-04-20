@@ -10,15 +10,15 @@ const filePlusIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['example.todos.manage'],
+  requireFeatures: ['example.todo.manage'],
   pageTitle: 'Create Todo',
-  pageTitleKey: 'example.todos.create.title',
+  pageTitleKey: 'example.todo.create.title',
   pageGroup: 'Work plan',
   pageGroupKey: 'example.workPlan.nav.group',
   pageOrder: 121,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
-    { label: 'Create', labelKey: 'example.todos.create.title' },
+    { label: 'General tasks', labelKey: 'example.todo.page.title', href: '/backend/todos' },
+    { label: 'Create', labelKey: 'example.todo.create.title' },
   ],
 }

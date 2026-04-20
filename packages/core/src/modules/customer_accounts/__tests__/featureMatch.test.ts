@@ -18,7 +18,7 @@ describe('matchFeature', () => {
   })
 
   it('returns true when prefix.* matches prefix.child.grandchild', () => {
-    expect(matchFeature('catalog.products.edit', 'catalog.*')).toBe(true)
+    expect(matchFeature('catalog.product.edit', 'catalog.*')).toBe(true)
   })
 
   it('returns true when prefix.* matches the exact prefix itself', () => {

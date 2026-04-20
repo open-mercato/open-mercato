@@ -11,9 +11,9 @@ const testModules: Module[] = [
   { id: 'attachments', setup: { defaultRoleFeatures: { admin: ['attachments.*', 'attachments.view', 'attachments.manage'] } } },
   { id: 'query_index', setup: { defaultRoleFeatures: { admin: ['query_index.*'] } } },
   { id: 'configs', setup: { defaultRoleFeatures: { admin: ['configs.system_status.view', 'configs.cache.view', 'configs.cache.manage', 'configs.manage'] } } },
-  { id: 'directory', setup: { defaultRoleFeatures: { superadmin: ['directory.tenants.*'], admin: ['directory.organizations.view', 'directory.organizations.manage'] } } },
-  { id: 'customers', setup: { defaultRoleFeatures: { admin: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage', 'customers.deals.view', 'customers.deals.manage'], employee: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage'] } } },
-  { id: 'catalog', setup: { defaultRoleFeatures: { admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'], employee: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'] } } },
+  { id: 'directory', setup: { defaultRoleFeatures: { superadmin: ['directory.tenant.*'], admin: ['directory.organization.view', 'directory.organization.manage'] } } },
+  { id: 'customers', setup: { defaultRoleFeatures: { admin: ['customers.*', 'customers.person.view', 'customers.person.manage', 'customers.company.view', 'customers.company.manage', 'customers.deal.view', 'customers.deal.manage'], employee: ['customers.*', 'customers.person.view', 'customers.person.manage', 'customers.company.view', 'customers.company.manage'] } } },
+  { id: 'catalog', setup: { defaultRoleFeatures: { admin: ['catalog.*', 'catalog.variant.manage', 'catalog.pricing.manage'], employee: ['catalog.*', 'catalog.variant.manage', 'catalog.pricing.manage'] } } },
   { id: 'sales', setup: { defaultRoleFeatures: { admin: ['sales.*'], employee: ['sales.*'] } } },
   { id: 'dictionaries', setup: { defaultRoleFeatures: { admin: ['dictionaries.view', 'dictionaries.manage'], employee: ['dictionaries.view'] } } },
   { id: 'audit_logs', setup: { defaultRoleFeatures: { admin: ['audit_logs.*'], employee: ['audit_logs.undo_self'] } } },
@@ -87,9 +87,9 @@ describe('auth CLI setup seeds ACLs', () => {
     const superadminAcl = roleAclCreates.find((row) => row.isSuperAdmin === true)
     expect(superadminAcl).toBeDefined()
     expect(Array.isArray(superadminAcl?.featuresJson)).toBe(true)
-    expect(superadminAcl?.featuresJson).toEqual(expect.arrayContaining(['directory.tenants.*']))
+    expect(superadminAcl?.featuresJson).toEqual(expect.arrayContaining(['directory.tenant.*']))
 
-    const adminAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('directory.organizations.manage'))
+    const adminAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('directory.organization.manage'))
     expect(adminAcl).toBeDefined()
     expect(adminAcl?.featuresJson).toEqual(expect.arrayContaining([
       'auth.*',
@@ -103,13 +103,13 @@ describe('auth CLI setup seeds ACLs', () => {
       'configs.cache.view',
       'configs.cache.manage',
       'configs.manage',
-      'directory.organizations.manage',
-      'directory.organizations.view',
+      'directory.organization.manage',
+      'directory.organization.view',
       'customers.*',
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
+      'customers.person.view',
+      'customers.person.manage',
+      'customers.company.view',
+      'customers.company.manage',
       'dictionaries.view',
       'dictionaries.manage',
       'example.*',
@@ -121,16 +121,16 @@ describe('auth CLI setup seeds ACLs', () => {
       'perspectives.role_defaults',
       'translations.*',
     ]))
-    expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
+    expect(adminAcl?.featuresJson).not.toContain('directory.organization.*')
 
     const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.widgets.*'))
     expect(employeeAcl).toBeDefined()
     expect(employeeAcl?.featuresJson).toEqual(expect.arrayContaining([
       'customers.*',
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
+      'customers.person.view',
+      'customers.person.manage',
+      'customers.company.view',
+      'customers.company.manage',
       'vector.*',
       'catalog.*',
       'sales.*',

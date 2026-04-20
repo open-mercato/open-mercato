@@ -2,9 +2,9 @@ import '@open-mercato/core/modules/messages/commands/confirmations'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageConfirmation, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 
-describe('messages.confirmations.confirm command', () => {
+describe('messages.confirmation.confirm command', () => {
   it('creates confirmation when missing', async () => {
-    const command = commandRegistry.get('messages.confirmations.confirm')
+    const command = commandRegistry.get('messages.confirmation.confirm')
     expect(command).toBeTruthy()
 
     const createdAt = new Date('2026-02-15T12:00:00.000Z')

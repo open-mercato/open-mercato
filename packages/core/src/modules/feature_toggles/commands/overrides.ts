@@ -41,7 +41,7 @@ async function loadOverrideSnapshot(em: EntityManager, toggleId: string, tenantI
 }
 
 const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInput, { overrideToggleId: string | null }> = {
-  id: 'feature_toggles.overrides.changeState',
+  id: 'feature_toggles.override.changeState',
   async prepare(rawInput, ctx) {
     const input = processedChangeOverrideStateSchema.parse(rawInput)
     const em = ctx.container.resolve('em') as EntityManager

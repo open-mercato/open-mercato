@@ -54,10 +54,10 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 const errorResponseSchema = z.object({ error: z.string() })
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
-  POST: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['auth.role.list'] },
+  POST: { requireAuth: true, requireFeatures: ['auth.role.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['auth.role.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['auth.role.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -78,20 +78,20 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   indexer: roleCrudIndexer,
   actions: {
     create: {
-      commandId: 'auth.roles.create',
+      commandId: 'auth.role.create',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
-      commandId: 'auth.roles.update',
+      commandId: 'auth.role.update',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'auth.roles.delete',
+      commandId: 'auth.role.delete',
       response: () => ({ ok: true }),
     },
   },

@@ -16,23 +16,23 @@ describe('catalog command registration', () => {
   const cases = [
     {
       path: '../products',
-      expected: ['catalog.products.create', 'catalog.products.update', 'catalog.products.delete'],
+      expected: ['catalog.product.create', 'catalog.product.update', 'catalog.product.delete'],
     },
     {
       path: '../variants',
-      expected: ['catalog.variants.create', 'catalog.variants.update', 'catalog.variants.delete'],
+      expected: ['catalog.variant.create', 'catalog.variant.update', 'catalog.variant.delete'],
     },
     {
       path: '../prices',
-      expected: ['catalog.prices.create', 'catalog.prices.update', 'catalog.prices.delete'],
+      expected: ['catalog.price.create', 'catalog.price.update', 'catalog.price.delete'],
     },
     {
       path: '../priceKinds',
-      expected: ['catalog.priceKinds.create', 'catalog.priceKinds.update', 'catalog.priceKinds.delete'],
+      expected: ['catalog.price-kind.create', 'catalog.price-kind.update', 'catalog.price-kind.delete'],
     },
     {
       path: '../categories',
-      expected: ['catalog.categories.create', 'catalog.categories.update', 'catalog.categories.delete'],
+      expected: ['catalog.category.create', 'catalog.category.update', 'catalog.category.delete'],
     },
   ]
 

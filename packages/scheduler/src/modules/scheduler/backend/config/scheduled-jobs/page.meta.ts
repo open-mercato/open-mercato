@@ -10,7 +10,7 @@ const clockIcon = React.createElement(
 export const metadata = {
   icon: clockIcon,
   requireAuth: true,
-  requireFeatures: ['scheduler.jobs.view'],
+  requireFeatures: ['scheduler.job.view'],
   pageGroup: 'Module Configs',
   pageGroupKey: 'settings.sections.moduleConfigs',
   pageTitle: 'Scheduled Jobs',

@@ -19,7 +19,7 @@ const pipelineIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.deals.view'],
+  requireFeatures: ['customers.deal.view'],
   pageTitle: 'Sales Pipeline',
   pageTitleKey: 'customers.nav.deals.pipeline',
   pageGroup: 'Customers',

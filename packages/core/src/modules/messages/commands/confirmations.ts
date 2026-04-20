@@ -32,7 +32,7 @@ function toDate(value: string | null | undefined): Date | null {
 }
 
 const confirmMessageCommand: CommandHandler<unknown, ConfirmMessageResult> = {
-  id: 'messages.confirmations.confirm',
+  id: 'messages.confirmation.confirm',
   async prepare(rawInput, ctx) {
     const input = confirmMessageSchema.parse(rawInput)
     const tenantId = input.tenantId ?? ctx.auth?.tenantId ?? null

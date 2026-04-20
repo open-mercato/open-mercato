@@ -102,8 +102,8 @@ function buildTestContext() {
   return { em, dataEngine, ctx }
 }
 
-describe('auth.users.create — invite flow', () => {
-  const handler = commandRegistry.get<Record<string, unknown>, CreateUserResult>('auth.users.create') as CommandHandler<Record<string, unknown>, CreateUserResult>
+describe('auth.user.create — invite flow', () => {
+  const handler = commandRegistry.get<Record<string, unknown>, CreateUserResult>('auth.user.create') as CommandHandler<Record<string, unknown>, CreateUserResult>
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -111,7 +111,7 @@ describe('auth.users.create — invite flow', () => {
 
   it('is registered in the command registry', () => {
     expect(handler).toBeDefined()
-    expect(handler.id).toBe('auth.users.create')
+    expect(handler.id).toBe('auth.user.create')
   })
 
   it('creates user with null passwordHash when sendInviteEmail is true', async () => {

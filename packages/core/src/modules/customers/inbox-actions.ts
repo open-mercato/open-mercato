@@ -54,7 +54,7 @@ async function resolveOrCreateCompany(
   try {
     const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
       hCtx,
-      'customers.companies.create',
+      'customers.company.create',
       {
         organizationId: hCtx.organizationId,
         tenantId: hCtx.tenantId,
@@ -141,7 +141,7 @@ async function executeCreateContactAction(
   const { firstName, lastName } = splitPersonName(payload.name, payload.email)
 
   // If company name is provided, find or create the company and link it to the person.
-  // No separate permission check — the user already passed customers.people.manage
+  // No separate permission check — the user already passed customers.person.manage
   // in the execution engine, and company creation is an integral part of contact setup.
   let companyEntityId: string | null = null
   if (payload.companyName) {
@@ -167,7 +167,7 @@ async function executeCreateContactAction(
 
   const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
     hCtx,
-    'customers.people.create',
+    'customers.person.create',
     personInput,
   )
 
@@ -219,7 +219,7 @@ async function executeLogActivityAction(
 
   const result = await executeCommand<Record<string, unknown>, { interactionId?: string }>(
     hCtx,
-    'customers.interactions.create',
+    'customers.interaction.create',
     {
       entityId: payload.contactId,
       interactionType: payload.activityType,
@@ -274,7 +274,7 @@ async function executeDraftReplyAction(
 
   const result = await executeCommand<Record<string, unknown>, { interactionId?: string }>(
     hCtx,
-    'customers.interactions.create',
+    'customers.interaction.create',
     {
       entityId: contactId,
       interactionType: 'email',
@@ -300,7 +300,7 @@ async function executeDraftReplyAction(
 export const inboxActions: InboxActionDefinition[] = [
   {
     type: 'create_contact',
-    requiredFeature: 'customers.people.manage',
+    requiredFeature: 'customers.person.manage',
     payloadSchema: createContactPayloadSchema,
     label: 'Create Contact',
     promptSchema: `create_contact payload:
@@ -313,7 +313,7 @@ export const inboxActions: InboxActionDefinition[] = [
   },
   {
     type: 'link_contact',
-    requiredFeature: 'customers.people.manage',
+    requiredFeature: 'customers.person.manage',
     payloadSchema: linkContactPayloadSchema,
     label: 'Link Contact',
     promptSchema: `link_contact payload:
@@ -322,7 +322,7 @@ export const inboxActions: InboxActionDefinition[] = [
   },
   {
     type: 'log_activity',
-    requiredFeature: 'customers.activities.manage',
+    requiredFeature: 'customers.activity.manage',
     payloadSchema: logActivityPayloadSchema,
     label: 'Log Activity',
     promptSchema: `log_activity payload:

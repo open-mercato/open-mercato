@@ -20,7 +20,7 @@ const dealsIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.deals.view'],
+  requireFeatures: ['customers.deal.view'],
   pageTitle: 'Deals',
   pageTitleKey: 'customers.nav.deals',
   pageGroup: 'Customers',

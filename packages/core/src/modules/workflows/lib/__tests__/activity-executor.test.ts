@@ -336,7 +336,7 @@ describe('Activity Executor (Unit Tests)', () => {
         activityName: 'Update Order Status',
         activityType: 'UPDATE_ENTITY',
         config: {
-          commandId: 'sales.orders.update',
+          commandId: 'sales.order.update',
           input: {
             id: 'order-123',
             statusEntryId: 'status-confirmed-id',
@@ -353,9 +353,9 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
-      expect(result.output.commandId).toBe('sales.orders.update')
+      expect(result.output.commandId).toBe('sales.order.update')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'sales.orders.update',
+        'sales.order.update',
         expect.objectContaining({
           input: expect.objectContaining({
             id: 'order-123',
@@ -375,7 +375,7 @@ describe('Activity Executor (Unit Tests)', () => {
         activityName: 'Test Update',
         activityType: 'UPDATE_ENTITY',
         config: {
-          commandId: 'sales.orders.update',
+          commandId: 'sales.order.update',
           input: { id: 'order-123', status: 'confirmed' },
         },
       }
@@ -1274,7 +1274,7 @@ describe('Activity Executor (Unit Tests)', () => {
           activityName: 'Update Entity',
           activityType: 'UPDATE_ENTITY',
           config: {
-            commandId: 'sales.orders.update',
+            commandId: 'sales.order.update',
             input: {
               id: 'order-123',
               statusEntryId: 'status-confirmed-id',

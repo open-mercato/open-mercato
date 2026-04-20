@@ -63,7 +63,7 @@ export function useAddressTypes(t: Translator): UseAddressTypesResult {
           const message =
             typeof payload?.error === 'string'
               ? payload.error
-              : t('customers.people.detail.addresses.types.errorSave', 'Failed to save address type')
+              : t('customers.person.detail.addresses.types.errorSave', 'Failed to save address type')
           setError(message)
           flash(message, 'error')
           return
@@ -75,7 +75,7 @@ export function useAddressTypes(t: Translator): UseAddressTypesResult {
         const message =
           err instanceof Error && err.message
             ? err.message
-            : t('customers.people.detail.addresses.types.errorSave', 'Failed to save address type')
+            : t('customers.person.detail.addresses.types.errorSave', 'Failed to save address type')
         setError(message)
         flash(message, 'error')
       } finally {

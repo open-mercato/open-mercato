@@ -96,7 +96,7 @@ function snapshotActionState(message: Message): ActionStateSnapshot {
 }
 
 const recordTerminalActionCommand: CommandHandler<unknown, { ok: true }> = {
-  id: 'messages.actions.record_terminal',
+  id: 'messages.action.record_terminal',
   async prepare(rawInput, ctx) {
     const input = recordTerminalActionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -162,7 +162,7 @@ const executeActionCommand: CommandHandler<
   unknown,
   { ok: true; actionId: string; result: Record<string, unknown>; operationLogEntry: unknown | null }
 > = {
-  id: 'messages.actions.execute',
+  id: 'messages.action.execute',
   async execute(rawInput, ctx) {
     const input = executeActionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -263,7 +263,7 @@ const executeActionCommand: CommandHandler<
     }
 
     if (shouldRecordActionTaken) {
-      const terminalResult = await commandBus.execute('messages.actions.record_terminal', {
+      const terminalResult = await commandBus.execute('messages.action.record_terminal', {
         input: {
           messageId: message.id,
           actionId: action.id,

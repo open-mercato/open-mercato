@@ -19,7 +19,7 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.deal.view'] },
 }
 
 const paramsSchema = z.object({
@@ -103,7 +103,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
   if (!rbac || !auth?.sub) {
     return forbidden('Access denied')
   }
-  const hasFeature = await rbac.userHasAllFeatures(auth.sub, ['customers.deals.view'], {
+  const hasFeature = await rbac.userHasAllFeatures(auth.sub, ['customers.deal.view'], {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   })

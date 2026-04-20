@@ -90,7 +90,7 @@ describe('example todos update', () => {
 
   it('updates todos via an isolated entity manager and keeps custom-field side effects', async () => {
     const { ctx, em, nativeUpdate, findOne, setCustomFields, markOrmEntityChange } = createCtx()
-    const handler = getCommand('example.todos.update')
+    const handler = getCommand('example.todo.update')
 
     const result = await handler.execute(
       {
@@ -155,7 +155,7 @@ describe('example todos update', () => {
 
   it('skips the native update when only custom fields change', async () => {
     const { ctx, nativeUpdate, findOne } = createCtx()
-    const handler = getCommand('example.todos.update')
+    const handler = getCommand('example.todo.update')
 
     const result = await handler.execute({ id: '11111111-1111-4111-8111-111111111111', cf_priority: 8 }, ctx)
 

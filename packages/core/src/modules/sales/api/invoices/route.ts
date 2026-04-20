@@ -28,10 +28,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.invoice.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.invoice.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.invoice.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.invoice.manage'] },
 }
 
 const crud = makeCrudRoute({
@@ -94,7 +94,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.invoices.create',
+      commandId: 'sales.invoice.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -104,7 +104,7 @@ const crud = makeCrudRoute({
       },
     },
     update: {
-      commandId: 'sales.invoices.update',
+      commandId: 'sales.invoice.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -114,7 +114,7 @@ const crud = makeCrudRoute({
       },
     },
     delete: {
-      commandId: 'sales.invoices.delete',
+      commandId: 'sales.invoice.delete',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()

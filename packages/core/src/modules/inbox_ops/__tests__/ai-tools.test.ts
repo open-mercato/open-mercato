@@ -112,7 +112,7 @@ describe('inbox_ops aiTools', () => {
       id: 'action-1',
       proposalId: 'proposal-1',
       status: 'pending',
-      requiredFeature: 'catalog.products.manage',
+      requiredFeature: 'catalog.product.manage',
       payload: {},
     })
 

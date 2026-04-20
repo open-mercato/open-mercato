@@ -10,7 +10,7 @@ import {
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
+  GET: { requireAuth: true, requireFeatures: ['example.todo.view'] },
 }
 
 export async function GET(request: Request) {

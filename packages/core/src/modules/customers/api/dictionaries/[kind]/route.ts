@@ -22,7 +22,7 @@ const postSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.person.view'] },
   POST: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
 }
 
@@ -139,7 +139,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     const body = postSchema.parse(await req.json().catch(() => ({})))
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } =
-      (await commandBus.execute('customers.dictionaryEntries.create', {
+      (await commandBus.execute('customers.dictionary-entry.create', {
         input: {
           tenantId: context.tenantId,
           organizationId: context.organizationId,

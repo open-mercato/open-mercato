@@ -567,7 +567,7 @@ function getRequiredFeatureForAction(action: InboxProposalAction): string {
   if (action.actionType === 'create_contact') {
     const payload = action.payload as Record<string, unknown> | null
     if (payload?.type === 'company') {
-      return 'customers.companies.manage'
+      return 'customers.company.manage'
     }
   }
   return REQUIRED_FEATURES_MAP[action.actionType]

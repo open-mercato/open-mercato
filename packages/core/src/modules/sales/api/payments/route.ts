@@ -29,10 +29,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.orders.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.payments.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.payments.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.payments.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.order.view'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.payment.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.payment.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.payment.manage'] },
 }
 
 const deleteSchema = paymentUpdateSchema.pick({
@@ -91,7 +91,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.payments.create',
+      commandId: 'sales.payment.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -109,7 +109,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'sales.payments.update',
+      commandId: 'sales.payment.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -126,7 +126,7 @@ const crud = makeCrudRoute({
       }),
     },
     delete: {
-      commandId: 'sales.payments.delete',
+      commandId: 'sales.payment.delete',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -140,7 +140,7 @@ const crud = makeCrudRoute({
         const payload = deleteSchema.parse(withScopedPayload(merged, ctx, translate))
         if (!payload.id) {
           throw new CrudHttpError(400, {
-            error: translate('sales.payments.not_found', 'Payment not found.'),
+            error: translate('sales.payment.not_found', 'Payment not found.'),
           })
         }
         return payload

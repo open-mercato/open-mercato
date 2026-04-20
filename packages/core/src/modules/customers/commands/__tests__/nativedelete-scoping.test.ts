@@ -128,12 +128,12 @@ function makeCtx(em: any): CommandRuntimeContext {
 describe('people commands — nativeDelete tenant/org scoping', () => {
   afterEach(() => jest.clearAllMocks())
 
-  describe('customers.people.delete execute', () => {
+  describe('customers.person.delete execute', () => {
     it('scopes nativeDelete with organizationId + tenantId for all tenant-aware child entities', async () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
-      const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+      const handler = commandRegistry.get('customers.person.delete') as CommandHandler
       expect(handler).toBeDefined()
 
       await handler.execute({ body: { id: ENTITY_ID } }, ctx)
@@ -152,7 +152,7 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
-      const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+      const handler = commandRegistry.get('customers.person.delete') as CommandHandler
 
       await handler.execute({ body: { id: ENTITY_ID } }, ctx)
 
@@ -165,12 +165,12 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
     })
   })
 
-  describe('customers.people.create undo', () => {
+  describe('customers.person.create undo', () => {
     it('scopes nativeDelete(CustomerTagAssignment) with organizationId + tenantId', async () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
-      const handler = commandRegistry.get('customers.people.create') as CommandHandler
+      const handler = commandRegistry.get('customers.person.create') as CommandHandler
       expect(handler).toBeDefined()
       expect(handler.undo).toBeDefined()
 
@@ -200,12 +200,12 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
     })
   })
 
-  describe('customers.people.delete undo', () => {
+  describe('customers.person.delete undo', () => {
     it('scopes nativeDelete with organizationId + tenantId for all tenant-aware child entities', async () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
-      const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+      const handler = commandRegistry.get('customers.person.delete') as CommandHandler
       expect(handler).toBeDefined()
       expect(handler.undo).toBeDefined()
 
@@ -267,7 +267,7 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
-      const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+      const handler = commandRegistry.get('customers.person.delete') as CommandHandler
 
       const before = {
         entity: {

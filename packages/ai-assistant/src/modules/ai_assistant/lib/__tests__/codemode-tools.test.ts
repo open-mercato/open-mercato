@@ -103,7 +103,7 @@ describe('authorizeCodeModeApiRequest', () => {
         summary: '',
         description: '',
         tags: [],
-        requiredFeatures: ['customers.companies.delete'],
+        requiredFeatures: ['customers.company.delete'],
         parameters: [],
         requestBodySchema: null,
         deprecated: false,
@@ -121,7 +121,7 @@ describe('authorizeCodeModeApiRequest', () => {
       statusCode: 403,
       error: 'Insufficient permissions for DELETE /api/customers/companies',
       details: {
-        requiredFeatures: ['customers.companies.delete'],
+        requiredFeatures: ['customers.company.delete'],
         operationId: 'delete_companies',
       },
     })
@@ -211,7 +211,7 @@ describe('authorizeCodeModeApiRequest', () => {
         summary: '',
         description: '',
         tags: [],
-        requiredFeatures: ['customers.companies.delete'],
+        requiredFeatures: ['customers.company.delete'],
         parameters: [],
         requestBodySchema: null,
         deprecated: false,
@@ -219,7 +219,7 @@ describe('authorizeCodeModeApiRequest', () => {
     ])
 
     const result = await authorizeCodeModeApiRequest(
-      createContext({ userFeatures: ['ai_assistant.view', 'customers.companies.delete'] }),
+      createContext({ userFeatures: ['ai_assistant.view', 'customers.company.delete'] }),
       'DELETE',
       '/api/customers/companies/company-1'
     )
@@ -234,7 +234,7 @@ describe('authorizeCodeModeApiRequest', () => {
         summary: '',
         description: '',
         tags: [],
-        requiredFeatures: ['customers.companies.delete'],
+        requiredFeatures: ['customers.company.delete'],
         parameters: [],
         requestBodySchema: null,
         deprecated: false,

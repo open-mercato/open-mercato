@@ -337,7 +337,7 @@ async function resolveScopedTaxRate(
     const { translate } = await resolveTranslations();
     throw new CrudHttpError(400, {
       error: translate(
-        "catalog.products.errors.taxClassNotFound",
+        "catalog.product.errors.taxClassNotFound",
         "Tax class not found",
       ),
     });
@@ -1198,7 +1198,7 @@ const createProductCommand: CommandHandler<
   ProductCreateInput,
   { productId: string }
 > = {
-  id: "catalog.products.create",
+  id: "catalog.product.create",
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(
       productCreateSchema,
@@ -1397,7 +1397,7 @@ const updateProductCommand: CommandHandler<
   ProductUpdateInput,
   { productId: string }
 > = {
-  id: "catalog.products.update",
+  id: "catalog.product.update",
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -1767,7 +1767,7 @@ const deleteProductCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { productId: string }
 > = {
-  id: "catalog.products.delete",
+  id: "catalog.product.delete",
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -1791,7 +1791,7 @@ const deleteProductCommand: CommandHandler<
       const { translate } = await resolveTranslations();
       throw new CrudHttpError(404, {
         error: translate(
-          "catalog.products.errors.notFound",
+          "catalog.product.errors.notFound",
           "Catalog product not found",
         ),
       });
@@ -1972,7 +1972,7 @@ async function rethrowProductUniqueConstraint(error: unknown): Promise<never> {
 async function throwDuplicateHandleError(): Promise<never> {
   const { translate } = await resolveTranslations();
   const message = translate(
-    "catalog.products.errors.handleExists",
+    "catalog.product.errors.handleExists",
     "Handle already in use.",
   );
   throw new CrudHttpError(400, {
@@ -1987,7 +1987,7 @@ async function throwDuplicateHandleError(): Promise<never> {
 async function throwDuplicateSkuError(): Promise<never> {
   const { translate } = await resolveTranslations();
   const message = translate(
-    "catalog.products.errors.skuExists",
+    "catalog.product.errors.skuExists",
     "SKU already in use.",
   );
   throw new CrudHttpError(400, {

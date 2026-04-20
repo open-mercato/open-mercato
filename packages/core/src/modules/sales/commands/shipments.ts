@@ -148,13 +148,13 @@ const logShipmentDeleteScopeRejection = (
   meta: Record<string, unknown>
 ): void => {
   const logger = resolveLogger(ctx)
-  const payload = { ...meta, command: 'sales.shipments.delete' }
+  const payload = { ...meta, command: 'sales.shipment.delete' }
   if (logger?.warn) {
     logger.warn(payload, reason)
     return
   }
   // eslint-disable-next-line no-console
-  console.warn(`[sales.shipments.delete] ${reason}`, payload)
+  console.warn(`[sales.shipment.delete] ${reason}`, payload)
 }
 
 export async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
@@ -331,7 +331,7 @@ async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder
 
 async function loadOrder(em: EntityManager, id: string): Promise<SalesOrder> {
   const order = await em.findOne(SalesOrder, { id, deletedAt: null })
-  if (!order) throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
+  if (!order) throw new CrudHttpError(404, { error: 'sales.shipment.not_found' })
   return order
 }
 
@@ -372,7 +372,7 @@ async function validateShipmentItems(params: {
   const { em, order, items, excludeShipmentId, lockOrderLines } = params
   const { translate } = await resolveTranslations()
   if (!items || !items.length) {
-    throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
+    throw new CrudHttpError(400, { error: translate('sales.shipment.items_required', 'Add at least one line to ship.') })
   }
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
   const orderLines = await findWithDecryption(
@@ -390,17 +390,17 @@ async function validateShipmentItems(params: {
     const lineId = item.orderLineId
     const quantity = toNumber(item.quantity)
     if (!lineId || quantity <= 0) {
-      throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
+      throw new CrudHttpError(400, { error: translate('sales.shipment.items_required', 'Add at least one line to ship.') })
     }
     const line = lineMap.get(lineId)
     if (!line) {
-      throw new CrudHttpError(404, { error: translate('sales.shipments.line_missing', 'Order line not found.') })
+      throw new CrudHttpError(404, { error: translate('sales.shipment.line_missing', 'Order line not found.') })
     }
     const lineTotal = toNumber(line.quantity)
     const alreadyShipped = shippedTotals.get(lineId) ?? 0
     const nextTotal = (requestedTotals.get(lineId) ?? 0) + quantity
     if (nextTotal + alreadyShipped - 1e-6 > lineTotal) {
-      throw new CrudHttpError(400, { error: translate('sales.shipments.quantity_exceeded', 'Cannot ship more than the remaining quantity.') })
+      throw new CrudHttpError(400, { error: translate('sales.shipment.quantity_exceeded', 'Cannot ship more than the remaining quantity.') })
     }
     requestedTotals.set(lineId, nextTotal)
   }
@@ -427,7 +427,7 @@ function mergeAddressSnapshot(
 }
 
 const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: string }> = {
-  id: 'sales.shipments.create',
+  id: 'sales.shipment.create',
   async execute(rawInput, ctx) {
     const input = shipmentCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -594,7 +594,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
 }
 
 const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: string }> = {
-  id: 'sales.shipments.update',
+  id: 'sales.shipment.update',
   async prepare(rawInput, ctx) {
     const parsed = shipmentUpdateSchema.parse(rawInput ?? {})
     if (!parsed.id) return {}
@@ -622,12 +622,12 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
       if (!shipmentEntity || !shipmentEntity.order) {
-        throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
+        throw new CrudHttpError(404, { error: 'sales.shipment.not_found' })
       }
       ensureSameScope(shipmentEntity, input.organizationId, input.tenantId)
       const order = shipmentEntity.order as SalesOrder
       if (input.orderId && input.orderId !== order.id) {
-        throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
+        throw new CrudHttpError(400, { error: 'sales.shipment.invalid_order' })
       }
       const validatedItems = input.items
         ? await validateShipmentItems({
@@ -811,7 +811,7 @@ const deleteShipmentCommand: CommandHandler<
   { id: string; orderId: string; organizationId: string; tenantId: string },
   { shipmentId: string }
 > = {
-  id: 'sales.shipments.delete',
+  id: 'sales.shipment.delete',
   async prepare(rawInput, ctx) {
     const parsed = shipmentUpdateSchema.parse(rawInput ?? {})
     if (!parsed.id) return {}
@@ -879,7 +879,7 @@ const deleteShipmentCommand: CommandHandler<
         { tenantId: payload.tenantId, organizationId: payload.organizationId },
       )
       if (!shipmentEntity || !shipmentEntity.order) {
-        throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })
+        throw new CrudHttpError(404, { error: translate('sales.shipment.not_found', 'Shipment not found') })
       }
       try {
         ensureSameScope(shipmentEntity, payload.organizationId, payload.tenantId)
@@ -895,7 +895,7 @@ const deleteShipmentCommand: CommandHandler<
       }
       const order = shipmentEntity.order as SalesOrder
       if (order.id !== payload.orderId) {
-        throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
+        throw new CrudHttpError(400, { error: translate('sales.shipment.invalid_order', 'Shipment does not belong to this order') })
       }
       const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
       const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)

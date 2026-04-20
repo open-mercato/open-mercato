@@ -86,10 +86,10 @@ function enforceTenantScope(
 
 const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   metadata: {
-    GET: { requireAuth: true, requireFeatures: ['directory.organizations.view'] },
-    POST: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
-    PUT: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
-    DELETE: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
+    GET: { requireAuth: true, requireFeatures: ['directory.organization.view'] },
+    POST: { requireAuth: true, requireFeatures: ['directory.organization.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['directory.organization.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['directory.organization.manage'] },
   },
   orm: {
     entity: Organization,
@@ -102,20 +102,20 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   indexer: organizationCrudIndexer,
   actions: {
     create: {
-      commandId: 'directory.organizations.create',
+      commandId: 'directory.organization.create',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
-      commandId: 'directory.organizations.update',
+      commandId: 'directory.organization.update',
       schema: rawBodySchema,
       mapInput: ({ parsed }) => parsed,
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'directory.organizations.delete',
+      commandId: 'directory.organization.delete',
       response: () => ({ ok: true }),
     },
   },
@@ -573,7 +573,7 @@ const organizationsPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organization.manage feature', schema: directoryErrorSchema },
   ],
 }
 
@@ -592,7 +592,7 @@ const organizationsPutDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organization.manage feature', schema: directoryErrorSchema },
   ],
 }
 
@@ -611,7 +611,7 @@ const organizationsDeleteDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
-    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organization.manage feature', schema: directoryErrorSchema },
   ],
 }
 

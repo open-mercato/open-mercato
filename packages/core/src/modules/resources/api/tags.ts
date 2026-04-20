@@ -59,7 +59,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'resources.resourceTags.create',
+      commandId: 'resources.resource-tag.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -76,20 +76,20 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'resources.resourceTags.update',
+      commandId: 'resources.resource-tag.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         try {
           return resourcesResourceTagUpdateSchema.parse(raw ?? {})
         } catch {
-          throw new CrudHttpError(400, { error: translate('resources.resources.tags.errors.invalid', 'Invalid tag payload') })
+          throw new CrudHttpError(400, { error: translate('resources.resource.tags.errors.invalid', 'Invalid tag payload') })
         }
       },
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'resources.resourceTags.delete',
+      commandId: 'resources.resource-tag.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -99,7 +99,7 @@ const crud = makeCrudRoute({
           parsed?.query?.id ??
           (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) {
-          throw new CrudHttpError(400, { error: translate('resources.resources.tags.errors.required', 'Tag id is required') })
+          throw new CrudHttpError(400, { error: translate('resources.resource.tags.errors.required', 'Tag id is required') })
         }
         return { id }
       },

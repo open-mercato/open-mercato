@@ -42,10 +42,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.deal.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.deal.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.deal.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.deal.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -195,7 +195,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   },
   actions: {
     create: {
-      commandId: 'customers.deals.create',
+      commandId: 'customers.deal.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -205,7 +205,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       status: 201,
     },
     update: {
-      commandId: 'customers.deals.update',
+      commandId: 'customers.deal.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -214,7 +214,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'customers.deals.delete',
+      commandId: 'customers.deal.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

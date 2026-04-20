@@ -39,7 +39,7 @@ const validationErrorSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['auth.users.create'] },
+  POST: { requireAuth: true, requireFeatures: ['auth.user.create'] },
 }
 
 export async function POST(req: Request) {
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       isSuperAdmin = !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('[auth.users.resend-invite] Failed to resolve rbac:', err)
+    console.error('[auth.user.resend-invite] Failed to resolve rbac:', err)
   }
 
   const where: Record<string, unknown> = { id: parsed.data.id, deletedAt: null }
@@ -112,7 +112,7 @@ export async function POST(req: Request) {
     base = getSecurityEmailBaseUrl(req.url)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
-      scope: 'auth.users.resend-invite',
+      scope: 'auth.user.resend-invite',
       configMessage: 'Invitation email is not configured',
     })
     if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
   try {
     await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
   } catch (err) {
-    console.error('[auth.users.resend-invite] Failed to send invitation email:', err)
+    console.error('[auth.user.resend-invite] Failed to send invitation email:', err)
     emailSent = false
   }
 

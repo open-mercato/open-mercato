@@ -13,7 +13,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['scheduler.jobs.trigger'],
+  requireFeatures: ['scheduler.job.trigger'],
 }
 
 /**
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     // System-scoped schedules (no tenantId/orgId) require superadmin
-    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.role.some(
       (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
     )
     if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {

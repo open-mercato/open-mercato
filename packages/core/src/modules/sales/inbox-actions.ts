@@ -123,7 +123,7 @@ async function executeCreateDocumentAction(
   if (effectiveKind === 'order') {
     const result = await executeCommand<Record<string, unknown>, { orderId?: string }>(
       hCtx,
-      'sales.orders.create',
+      'sales.order.create',
       createInput,
     )
     if (!result.orderId) {
@@ -134,7 +134,7 @@ async function executeCreateDocumentAction(
 
   const result = await executeCommand<Record<string, unknown>, { quoteId?: string }>(
     hCtx,
-    'sales.quotes.create',
+    'sales.quote.create',
     createInput,
   )
   if (!result.quoteId) {
@@ -176,7 +176,7 @@ async function executeUpdateOrderAction(
   if (Object.keys(updateInput).length > 3) {
     await executeCommand<Record<string, unknown>, { orderId?: string }>(
       hCtx,
-      'sales.orders.update',
+      'sales.order.update',
       updateInput,
     )
   }
@@ -203,7 +203,7 @@ async function executeUpdateOrderAction(
 
     await executeCommand<{ body: Record<string, unknown> }, { orderId?: string; lineId?: string }>(
       hCtx,
-      'sales.orders.lines.upsert',
+      'sales.order.line.upsert',
       {
         body: {
           id: lineItemId,
@@ -281,7 +281,7 @@ async function executeUpdateShipmentAction(
 
   await executeCommand<Record<string, unknown>, { shipmentId?: string }>(
     hCtx,
-    'sales.shipments.update',
+    'sales.shipment.update',
     updateInput,
   )
 
@@ -312,7 +312,7 @@ async function normalizeOrderPayload(
 export const inboxActions: InboxActionDefinition[] = [
   {
     type: 'create_order',
-    requiredFeature: 'sales.orders.manage',
+    requiredFeature: 'sales.order.manage',
     payloadSchema: orderPayloadSchema,
     label: 'Create Sales Order',
     promptSchema: `create_order / create_quote payload:
@@ -328,7 +328,7 @@ export const inboxActions: InboxActionDefinition[] = [
   },
   {
     type: 'create_quote',
-    requiredFeature: 'sales.quotes.manage',
+    requiredFeature: 'sales.quote.manage',
     payloadSchema: orderPayloadSchema,
     label: 'Create Quote',
     promptSchema: '(shared with create_order)',
@@ -337,7 +337,7 @@ export const inboxActions: InboxActionDefinition[] = [
   },
   {
     type: 'update_order',
-    requiredFeature: 'sales.orders.manage',
+    requiredFeature: 'sales.order.manage',
     payloadSchema: updateOrderPayloadSchema,
     label: 'Update Order',
     promptSchema: `update_order payload:
@@ -346,7 +346,7 @@ export const inboxActions: InboxActionDefinition[] = [
   },
   {
     type: 'update_shipment',
-    requiredFeature: 'sales.shipments.manage',
+    requiredFeature: 'sales.shipment.manage',
     payloadSchema: updateShipmentPayloadSchema,
     label: 'Update Shipment',
     promptSchema: `update_shipment payload:

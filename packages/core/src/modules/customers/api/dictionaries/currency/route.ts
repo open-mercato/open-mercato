@@ -5,7 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.person.view'] },
 }
 
 export async function GET(req: Request) {
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       return NextResponse.json(
         {
           error: translate(
-            'customers.deals.form.currency.missing',
+            'customers.deal.form.currency.missing',
             'Currency dictionary is not configured yet.',
           ),
         },

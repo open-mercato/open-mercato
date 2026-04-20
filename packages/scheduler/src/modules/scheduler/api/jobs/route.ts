@@ -20,10 +20,10 @@ import {
 const rawBodySchema = z.object({}).passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['scheduler.jobs.view'] },
-  POST: { requireAuth: true, requireFeatures: ['scheduler.jobs.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['scheduler.jobs.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['scheduler.jobs.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['scheduler.job.view'] },
+  POST: { requireAuth: true, requireFeatures: ['scheduler.job.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['scheduler.job.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['scheduler.job.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -136,7 +136,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'scheduler.jobs.create',
+      commandId: 'scheduler.job.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         // Auto-populate organizationId and tenantId based on scopeType
@@ -146,7 +146,7 @@ const crud = makeCrudRoute({
         
         if (scopeType === 'system') {
           // System scope requires superadmin privileges
-          const isSuperAdmin = Array.isArray(ctx.auth?.roles) && ctx.auth.roles.some(
+          const isSuperAdmin = Array.isArray(ctx.auth?.roles) && ctx.auth.role.some(
             (role: unknown) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
           )
           if (!isSuperAdmin) {
@@ -178,7 +178,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'scheduler.jobs.update',
+      commandId: 'scheduler.job.update',
       schema: rawBodySchema,
       mapInput: async ({ raw }) => {
         const parsed = scheduleUpdateSchema.parse(raw)
@@ -187,7 +187,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'scheduler.jobs.delete',
+      commandId: 'scheduler.job.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

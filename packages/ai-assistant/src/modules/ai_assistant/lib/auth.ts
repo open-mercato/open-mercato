@@ -118,7 +118,7 @@ export async function authenticateMcpRequest(
  * - Super admin bypass (always returns true)
  * - Direct feature match (e.g., 'customers.view')
  * - Global wildcard ('*' grants all features)
- * - Prefix wildcard (e.g., 'customers.*' grants 'customers.people.view')
+ * - Prefix wildcard (e.g., 'customers.*' grants 'customers.person.view')
  *
  * @param requiredFeatures - List of features required for access
  * @param userFeatures - List of features the user has
@@ -145,7 +145,7 @@ export function hasRequiredFeatures(
     if (userFeatures.includes(required)) return true
     if (userFeatures.includes('*')) return true
 
-    // Check wildcard patterns (e.g., 'customers.*' grants 'customers.people.view')
+    // Check wildcard patterns (e.g., 'customers.*' grants 'customers.person.view')
     return userFeatures.some((feature) => {
       if (feature.endsWith('.*')) {
         const prefix = feature.slice(0, -2)

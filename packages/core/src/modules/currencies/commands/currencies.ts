@@ -86,7 +86,7 @@ async function enforceBaseCurrency(
 }
 
 const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: string }> = {
-  id: 'currencies.currencies.create',
+  id: 'currencies.currency.create',
   async execute(input, ctx) {
     const parsed = currencyCreateSchema.parse(input)
 
@@ -174,7 +174,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
 }
 
 const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: string }> = {
-  id: 'currencies.currencies.update',
+  id: 'currencies.currency.update',
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager
@@ -293,7 +293,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
 }
 
 const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: string }> = {
-  id: 'currencies.currencies.delete',
+  id: 'currencies.currency.delete',
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager

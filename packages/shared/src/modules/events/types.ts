@@ -18,7 +18,7 @@ export type EventCategory = 'crud' | 'lifecycle' | 'system' | 'custom'
  * Event definition structure
  */
 export interface EventDefinition {
-  /** Event name pattern (e.g., 'customers.people.created') */
+  /** Event name pattern (e.g., 'customers.person.created') */
   id: string
   /** Human-readable label for UI */
   label: string

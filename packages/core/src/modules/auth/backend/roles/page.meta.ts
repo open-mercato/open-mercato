@@ -6,7 +6,7 @@ const shieldIcon = React.createElement('svg', { width: 16, height: 16, viewBox: 
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['auth.roles.list'],
+  requireFeatures: ['auth.role.list'],
   pageTitle: 'Roles',
   pageTitleKey: 'auth.nav.roles',
   pageGroup: 'Auth',

@@ -6,7 +6,7 @@ const widget: InjectionWidgetModule<any, any> = {
     id: 'workflows.injection.order-approval',
     title: 'Order Approval',
     description: 'Approve or reject orders requiring authorization',
-    features: ['sales.orders.approve'],
+    features: ['sales.order.approve'],
     priority: 100,
     enabled: true,
   },

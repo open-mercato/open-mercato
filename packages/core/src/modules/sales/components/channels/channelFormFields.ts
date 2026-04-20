@@ -26,22 +26,22 @@ export type ChannelFormValues = {
 function useChannelFieldLabels() {
   const t = useT()
   return React.useMemo(() => ({
-    name: t('sales.channels.form.name', 'Channel name'),
-    code: t('sales.channels.form.code', 'Code'),
-    description: t('sales.channels.form.description', 'Description'),
-    websiteUrl: t('sales.channels.form.websiteUrl', 'Website URL'),
-    contactEmail: t('sales.channels.form.contactEmail', 'Contact email'),
-    contactPhone: t('sales.channels.form.contactPhone', 'Contact phone'),
-    statusEntryId: t('sales.channels.form.status', 'Status entry ID'),
-    addressLine1: t('sales.channels.form.address1', 'Address line 1'),
-    addressLine2: t('sales.channels.form.address2', 'Address line 2'),
-    city: t('sales.channels.form.city', 'City'),
-    region: t('sales.channels.form.region', 'State / region'),
-    postalCode: t('sales.channels.form.postalCode', 'Postal code'),
-    country: t('sales.channels.form.country', 'Country'),
-    latitude: t('sales.channels.form.latitude', 'Latitude'),
-    longitude: t('sales.channels.form.longitude', 'Longitude'),
-    isActive: t('sales.channels.form.isActive', 'Active'),
+    name: t('sales.channel.form.name', 'Channel name'),
+    code: t('sales.channel.form.code', 'Code'),
+    description: t('sales.channel.form.description', 'Description'),
+    websiteUrl: t('sales.channel.form.websiteUrl', 'Website URL'),
+    contactEmail: t('sales.channel.form.contactEmail', 'Contact email'),
+    contactPhone: t('sales.channel.form.contactPhone', 'Contact phone'),
+    statusEntryId: t('sales.channel.form.status', 'Status entry ID'),
+    addressLine1: t('sales.channel.form.address1', 'Address line 1'),
+    addressLine2: t('sales.channel.form.address2', 'Address line 2'),
+    city: t('sales.channel.form.city', 'City'),
+    region: t('sales.channel.form.region', 'State / region'),
+    postalCode: t('sales.channel.form.postalCode', 'Postal code'),
+    country: t('sales.channel.form.country', 'Country'),
+    latitude: t('sales.channel.form.latitude', 'Latitude'),
+    longitude: t('sales.channel.form.longitude', 'Longitude'),
+    isActive: t('sales.channel.form.isActive', 'Active'),
   }), [t])
 }
 
@@ -134,19 +134,19 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'general',
-      title: t('sales.channels.form.groups.general', 'General'),
+      title: t('sales.channel.form.groups.general', 'General'),
       column: 1,
       fields: ['name', 'code', 'description', 'isActive'],
     },
     {
       id: 'contact',
-      title: t('sales.channels.form.groups.contact', 'Contact'),
+      title: t('sales.channel.form.groups.contact', 'Contact'),
       column: 1,
       fields: ['websiteUrl', 'contactEmail', 'contactPhone'],
     },
     {
       id: 'address',
-      title: t('sales.channels.form.groups.address', 'Location'),
+      title: t('sales.channel.form.groups.address', 'Location'),
       column: 2,
       fields: ['addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'country', 'latitude', 'longitude'],
     },

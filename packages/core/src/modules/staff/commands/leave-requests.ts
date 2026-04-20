@@ -215,7 +215,7 @@ async function invalidateAvailabilityCache(params: {
 }
 
 const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { requestId: string }> = {
-  id: 'staff.leave-requests.create',
+  id: 'staff.leave-request.create',
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -349,7 +349,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
 }
 
 const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { requestId: string }> = {
-  id: 'staff.leave-requests.update',
+  id: 'staff.leave-request.update',
   async prepare(rawInput, ctx) {
     const parsed = staffLeaveRequestUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -469,7 +469,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
 }
 
 const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: string }> = {
-  id: 'staff.leave-requests.delete',
+  id: 'staff.leave-request.delete',
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.pick({ id: true }).parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -550,7 +550,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
 }
 
 const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, { requestId: string; ruleIds: string[] }> = {
-  id: 'staff.leave-requests.accept',
+  id: 'staff.leave-request.accept',
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -750,7 +750,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
 }
 
 const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, { requestId: string }> = {
-  id: 'staff.leave-requests.reject',
+  id: 'staff.leave-request.reject',
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()

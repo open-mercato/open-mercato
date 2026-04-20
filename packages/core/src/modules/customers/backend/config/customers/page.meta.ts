@@ -13,7 +13,7 @@ const settingsIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.settings.manage', 'customers.people.view'],
+  requireFeatures: ['customers.settings.manage', 'customers.person.view'],
   pageTitle: 'Customers',
   pageTitleKey: 'customers.config.nav.customers',
   pageGroup: 'Module Configs',

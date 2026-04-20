@@ -270,7 +270,7 @@ async function resolveUniqueSlug(em: EntityManager, tenantId: string, baseSlug: 
 }
 
 const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
-  id: 'directory.organizations.create',
+  id: 'directory.organization.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -404,7 +404,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 }
 
 const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
-  id: 'directory.organizations.update',
+  id: 'directory.organization.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -615,7 +615,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 }
 
 const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<string, string> }, Organization> = {
-  id: 'directory.organizations.delete',
+  id: 'directory.organization.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)

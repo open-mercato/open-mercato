@@ -147,7 +147,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   if (autoMarkRead) {
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    await commandBus.execute('messages.recipients.mark_read', {
+    await commandBus.execute('messages.recipient.mark_read', {
       input: {
         messageId: params.id,
         tenantId: scope.tenantId,
@@ -268,7 +268,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   try {
-    const { logEntry } = await commandBus.execute('messages.messages.update_draft', {
+    const { logEntry } = await commandBus.execute('messages.message.update_draft', {
       input: {
         ...input,
         messageId: message.id,
@@ -329,7 +329,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   }
 
   try {
-    const { logEntry } = await commandBus.execute('messages.messages.delete_for_actor', {
+    const { logEntry } = await commandBus.execute('messages.message.delete_for_actor', {
       input: {
         messageId: params.id,
         tenantId: scope.tenantId,

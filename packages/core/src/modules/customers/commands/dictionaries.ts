@@ -116,7 +116,7 @@ type CreateResult = {
 }
 
 const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreateInput, CreateResult> = {
-  id: 'customers.dictionaryEntries.create',
+  id: 'customers.dictionary-entry.create',
   async execute(rawInput, ctx) {
     const parsed = customerDictionaryEntryCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -286,7 +286,7 @@ type UpdateResult = {
 }
 
 const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdateInput, UpdateResult> = {
-  id: 'customers.dictionaryEntries.update',
+  id: 'customers.dictionary-entry.update',
   async prepare(rawInput, ctx) {
     const parsed = customerDictionaryEntryUpdateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -423,7 +423,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
 }
 
 const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDeleteInput, { entryId: string }> = {
-  id: 'customers.dictionaryEntries.delete',
+  id: 'customers.dictionary-entry.delete',
   async prepare(rawInput, ctx) {
     const parsed = customerDictionaryEntryDeleteSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)

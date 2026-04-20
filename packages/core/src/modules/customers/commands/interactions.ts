@@ -252,7 +252,7 @@ async function emitNextInteractionUpdatedEvent(
 // ─── Create ─────────────────────────────────────────────────────────
 
 const createInteractionCommand: CommandHandler<InteractionCreateInput, { interactionId: string; entityId: string }> = {
-  id: 'customers.interactions.create',
+  id: 'customers.interaction.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
 
@@ -384,7 +384,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 // ─── Update ─────────────────────────────────────────────────────────
 
 const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
-  id: 'customers.interactions.update',
+  id: 'customers.interaction.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -583,7 +583,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 // ─── Complete ───────────────────────────────────────────────────────
 
 const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { interactionId: string }> = {
-  id: 'customers.interactions.complete',
+  id: 'customers.interaction.complete',
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -715,7 +715,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
 // ─── Cancel ─────────────────────────────────────────────────────────
 
 const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interactionId: string }> = {
-  id: 'customers.interactions.cancel',
+  id: 'customers.interaction.cancel',
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -845,7 +845,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
 
 const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { interactionId: string }> =
   {
-    id: 'customers.interactions.delete',
+    id: 'customers.interaction.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager)

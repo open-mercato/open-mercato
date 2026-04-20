@@ -112,7 +112,7 @@ const createActivityCommand: CommandHandler<
   StaffTeamMemberActivityCreateInput,
   { activityId: string; authorUserId: string | null }
 > = {
-  id: 'staff.team-member-activities.create',
+  id: 'staff.team-member-activity.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -195,7 +195,7 @@ const createActivityCommand: CommandHandler<
 }
 
 const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, { activityId: string }> = {
-  id: 'staff.team-member-activities.update',
+  id: 'staff.team-member-activity.update',
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberActivityUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -360,7 +360,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
 
 const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { activityId: string }> =
   {
-    id: 'staff.team-member-activities.delete',
+    id: 'staff.team-member-activity.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Activity id required')
       const em = (ctx.container.resolve('em') as EntityManager)

@@ -86,10 +86,10 @@ const listSchema = z
 type ProductsQuery = z.infer<typeof listSchema>;
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ["catalog.products.view"] },
-  POST: { requireAuth: true, requireFeatures: ["catalog.products.manage"] },
-  PUT: { requireAuth: true, requireFeatures: ["catalog.products.manage"] },
-  DELETE: { requireAuth: true, requireFeatures: ["catalog.products.manage"] },
+  GET: { requireAuth: true, requireFeatures: ["catalog.product.view"] },
+  POST: { requireAuth: true, requireFeatures: ["catalog.product.manage"] },
+  PUT: { requireAuth: true, requireFeatures: ["catalog.product.manage"] },
+  DELETE: { requireAuth: true, requireFeatures: ["catalog.product.manage"] },
 };
 
 export const metadata = routeMetadata;
@@ -822,7 +822,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: "catalog.products.create",
+      commandId: "catalog.product.create",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
@@ -843,7 +843,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: "catalog.products.update",
+      commandId: "catalog.product.update",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
@@ -861,7 +861,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: "catalog.products.delete",
+      commandId: "catalog.product.delete",
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations();

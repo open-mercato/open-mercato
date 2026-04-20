@@ -41,14 +41,14 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const { translate } = await resolveTranslations();
     if (!quote) {
       throw new CrudHttpError(404, {
-        error: translate("sales.quotes.public.notFound", "Quote not found."),
+        error: translate("sales.quote.public.notFound", "Quote not found."),
       });
     }
 
     const auth = await getAuthFromRequest(req);
     if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
       throw new CrudHttpError(404, {
-        error: translate("sales.quotes.public.notFound", "Quote not found."),
+        error: translate("sales.quote.public.notFound", "Quote not found."),
       });
     }
 
@@ -142,10 +142,10 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       return NextResponse.json(err.body, { status: err.status });
     }
     const { translate } = await resolveTranslations();
-    console.error("sales.quotes.public failed", err);
+    console.error("sales.quote.public failed", err);
     return NextResponse.json(
       {
-        error: translate("sales.quotes.public.failed", "Failed to load quote."),
+        error: translate("sales.quote.public.failed", "Failed to load quote."),
       },
       { status: 400 },
     );

@@ -11,7 +11,7 @@ const peopleIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.people.view'],
+  requireFeatures: ['customers.person.view'],
   pageTitle: 'People',
   pageTitleKey: 'customers.nav.people',
   pageGroup: 'Customers',

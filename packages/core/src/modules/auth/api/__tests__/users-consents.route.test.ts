@@ -8,7 +8,7 @@ describe('GET /api/auth/users/consents metadata', () => {
       path: '/auth/users/consents',
       GET: {
         requireAuth: true,
-        requireFeatures: ['auth.users.edit'],
+        requireFeatures: ['auth.user.edit'],
       },
     })
   })

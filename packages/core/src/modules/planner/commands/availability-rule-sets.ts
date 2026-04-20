@@ -70,7 +70,7 @@ async function loadAvailabilityRuleSetSnapshot(
 }
 
 const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSetCreateInput, { ruleSetId: string }> = {
-  id: 'planner.availability-rule-sets.create',
+  id: 'planner.availability-rule-set.create',
   async execute(input, ctx) {
     const { parsed, custom } = parseWithCustomFields(plannerAvailabilityRuleSetCreateSchema, input)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -167,7 +167,7 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
 }
 
 const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSetUpdateInput, { ruleSetId: string }> = {
-  id: 'planner.availability-rule-sets.update',
+  id: 'planner.availability-rule-set.update',
   async prepare(input, ctx) {
     const { parsed } = parseWithCustomFields(plannerAvailabilityRuleSetUpdateSchema, input)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -295,7 +295,7 @@ const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
 }
 
 const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSetId: string }> = {
-  id: 'planner.availability-rule-sets.delete',
+  id: 'planner.availability-rule-set.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Availability rule set id is required.' })

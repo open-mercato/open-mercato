@@ -322,7 +322,7 @@ const createPaymentCommand: CommandHandler<
   PaymentCreateInput,
   { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null }
 > = {
-  id: 'sales.payments.create',
+  id: 'sales.payment.create',
   async execute(rawInput, ctx) {
     const input = paymentCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -330,17 +330,17 @@ const createPaymentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     if (!input.orderId) {
-      throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
+      throw new CrudHttpError(400, { error: translate('sales.payment.order_required', 'Order is required for payments.') })
     }
 
     const { payment, order, totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore } = await em.transactional(async (tx) => {
       const order = assertFound(
         await findOneWithDecryption(tx, SalesOrder, { id: input.orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: input.tenantId, organizationId: input.organizationId }),
-        'sales.payments.order_not_found'
+        'sales.payment.order_not_found'
       )
       ensureSameScope(order, input.organizationId, input.tenantId)
       if (order.deletedAt) {
-        throw new CrudHttpError(404, { error: 'sales.payments.order_not_found' })
+        throw new CrudHttpError(404, { error: 'sales.payment.order_not_found' })
       }
       if (
         order.currencyCode &&
@@ -348,14 +348,14 @@ const createPaymentCommand: CommandHandler<
         order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
       ) {
         throw new CrudHttpError(400, {
-          error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
+          error: translate('sales.payment.currency_mismatch', 'Payment currency must match the order currency.'),
         })
       }
       let paymentMethod = null
       if (input.paymentMethodId) {
         const method = assertFound(
           await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
-          'sales.payments.method_not_found'
+          'sales.payment.method_not_found'
         )
         ensureSameScope(method, input.organizationId, input.tenantId)
         paymentMethod = method
@@ -484,7 +484,7 @@ const createPaymentCommand: CommandHandler<
           ? `${payment.currencyCode} ${payment.amount}`
           : ''
         const notificationInput = buildFeatureNotificationFromType(typeDef, {
-          requiredFeature: 'sales.orders.manage',
+          requiredFeature: 'sales.order.manage',
           bodyVariables: {
             orderNumber: order.orderNumber ?? '',
             amount: amountDisplay,
@@ -501,7 +501,7 @@ const createPaymentCommand: CommandHandler<
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error('[sales.payments.create] Failed to create notification:', err)
+      console.error('[sales.payment.create] Failed to create notification:', err)
     }
 
     return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore }
@@ -581,7 +581,7 @@ const updatePaymentCommand: CommandHandler<
   PaymentUpdateInput,
   { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } }
 > = {
-  id: 'sales.payments.update',
+  id: 'sales.payment.update',
   async prepare(rawInput, ctx) {
     const parsed = paymentUpdateSchema.parse(rawInput ?? {})
     if (!parsed.id) return {}
@@ -600,7 +600,7 @@ const updatePaymentCommand: CommandHandler<
     const { translate } = await resolveTranslations()
     const scopeSeed = assertFound(
       await findOneWithDecryption(em, SalesPayment, { id: input.id }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
-      'sales.payments.not_found'
+      'sales.payment.not_found'
     )
     const resolvedTenantId = input.tenantId ?? scopeSeed.tenantId
     const resolvedOrganizationId = input.organizationId ?? scopeSeed.organizationId
@@ -614,7 +614,7 @@ const updatePaymentCommand: CommandHandler<
         { populate: ['order'] },
         { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId },
       ),
-      'sales.payments.not_found'
+      'sales.payment.not_found'
     )
     ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
@@ -624,7 +624,7 @@ const updatePaymentCommand: CommandHandler<
       } else {
         const order = assertFound(
           await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-          'sales.payments.order_not_found'
+          'sales.payment.order_not_found'
         )
         ensureSameScope(order, resolvedOrganizationId, resolvedTenantId)
         if (
@@ -633,7 +633,7 @@ const updatePaymentCommand: CommandHandler<
           order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
         ) {
           throw new CrudHttpError(400, {
-            error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
+            error: translate('sales.payment.currency_mismatch', 'Payment currency must match the order currency.'),
           })
         }
         payment.order = order
@@ -645,7 +645,7 @@ const updatePaymentCommand: CommandHandler<
       } else {
         const method = assertFound(
           await findOneWithDecryption(em, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-          'sales.payments.method_not_found'
+          'sales.payment.method_not_found'
         )
         ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
         payment.paymentMethod = method
@@ -653,7 +653,7 @@ const updatePaymentCommand: CommandHandler<
     }
     const currentOrder = payment.order as SalesOrder | null
     if ((input.documentStatusEntryId !== undefined || input.lineStatusEntryId !== undefined) && !currentOrder) {
-      throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
+      throw new CrudHttpError(400, { error: translate('sales.payment.order_required', 'Order is required for payments.') })
     }
     if (currentOrder && input.documentStatusEntryId !== undefined) {
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
@@ -834,7 +834,7 @@ const deletePaymentCommand: CommandHandler<
   { id: string; orderId?: string | null; organizationId: string; tenantId: string },
   { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } }
 > = {
-  id: 'sales.payments.delete',
+  id: 'sales.payment.delete',
   async prepare(rawInput, ctx) {
     const parsed = paymentUpdateSchema.parse(rawInput ?? {})
     if (!parsed.id) return {}
@@ -860,7 +860,7 @@ const deletePaymentCommand: CommandHandler<
         { populate: ['order'] },
         { tenantId: input.tenantId, organizationId: input.organizationId },
       ),
-      'sales.payments.not_found'
+      'sales.payment.not_found'
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)
     const order = payment.order as SalesOrder | null

@@ -7,7 +7,7 @@ import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
-export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.person.form.primaryPhone.invalid'
 
 const optionalPhoneField = (max = 50) =>
   z

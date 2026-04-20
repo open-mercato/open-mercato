@@ -20,13 +20,13 @@ const currencyIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.orders.view'],
+  requireFeatures: ['sales.order.view'],
   pageTitle: 'Orders',
-  pageTitleKey: 'sales.orders.list.title',
+  pageTitleKey: 'sales.order.list.title',
   pageGroup: 'Sales',
   pageGroupKey: 'customers~sales.nav.group',
   pagePriority: 40,
   pageOrder: 90,
   icon: currencyIcon,
-  breadcrumb: [{ label: 'Orders', labelKey: 'sales.orders.list.title' }],
+  breadcrumb: [{ label: 'Orders', labelKey: 'sales.order.list.title' }],
 } as const

@@ -101,7 +101,7 @@ export async function GET(req: Request) {
       { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
     )
     if (!user) {
-      return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+      return NextResponse.json({ error: translate('auth.user.form.errors.notFound', 'User not found') }, { status: 404 })
     }
     return NextResponse.json({ email: String(user.email), roles: auth.roles ?? [] })
   } catch (err) {
@@ -140,7 +140,7 @@ export async function PUT(req: Request) {
         { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
       )
       if (!user) {
-        return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+        return NextResponse.json({ error: translate('auth.user.form.errors.notFound', 'User not found') }, { status: 404 })
       }
       const currentPassword = parsed.data.currentPassword?.trim() ?? ''
       const isCurrentPasswordValid = await authService.verifyPassword(user, currentPassword)
@@ -161,7 +161,7 @@ export async function PUT(req: Request) {
     const commandBus = (container.resolve('commandBus') as CommandBus)
     const ctx = buildCommandContext(container, auth, req)
     const { result } = await commandBus.execute<{ id: string; email?: string; password?: string }, User>(
-      'auth.users.update',
+      'auth.user.update',
       {
         input: {
           id: auth.sub,

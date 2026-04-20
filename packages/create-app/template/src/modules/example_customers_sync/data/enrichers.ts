@@ -31,7 +31,7 @@ function mergeExampleIntegration(
 const exampleCustomersSyncEnricher: ResponseEnricher<InteractionRecord> = {
   id: 'example_customers_sync.interaction-links',
   targetEntity: 'customers.interaction',
-  features: ['example.todos.view'],
+  features: ['example.todo.view'],
   priority: 20,
   timeout: 2000,
   fallback: {},

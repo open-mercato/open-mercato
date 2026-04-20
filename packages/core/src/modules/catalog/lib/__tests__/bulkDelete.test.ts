@@ -52,7 +52,7 @@ describe('deleteCatalogProductsWithProgress', () => {
     })
 
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(execute).toHaveBeenNthCalledWith(1, 'catalog.products.delete', {
+    expect(execute).toHaveBeenNthCalledWith(1, 'catalog.product.delete', {
       input: { body: { id: 'prod-1' } },
       ctx: expect.objectContaining({
         selectedOrganizationId: 'org-1',
@@ -60,7 +60,7 @@ describe('deleteCatalogProductsWithProgress', () => {
       }),
       skipCacheInvalidation: true,
     })
-    expect(execute).toHaveBeenNthCalledWith(2, 'catalog.products.delete', {
+    expect(execute).toHaveBeenNthCalledWith(2, 'catalog.product.delete', {
       input: { body: { id: 'prod-2' } },
       ctx: expect.objectContaining({
         selectedOrganizationId: 'org-1',

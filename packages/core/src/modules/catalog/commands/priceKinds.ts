@@ -61,7 +61,7 @@ async function loadPriceKindSnapshot(em: EntityManager, id: string): Promise<Pri
 }
 
 const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId: string }> = {
-  id: 'catalog.priceKinds.create',
+  id: 'catalog.price-kind.create',
   async execute(input, ctx) {
     const parsed = priceKindCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -126,7 +126,7 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
 }
 
 const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId: string }> = {
-  id: 'catalog.priceKinds.update',
+  id: 'catalog.price-kind.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Price kind id is required')
     const em = ctx.container.resolve('em') as EntityManager
@@ -209,7 +209,7 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
 }
 
 const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: string }> = {
-  id: 'catalog.priceKinds.delete',
+  id: 'catalog.price-kind.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Price kind id is required')
     const em = ctx.container.resolve('em') as EntityManager

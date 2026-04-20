@@ -7,7 +7,7 @@ const widget: DashboardWidgetModule<AovKpiSettings> = {
     id: 'dashboards.analytics.aovKpi',
     title: 'Average Order Value',
     description: 'Average order value with period comparison',
-    features: ['analytics.view', 'sales.orders.view'],
+    features: ['analytics.view', 'sales.order.view'],
     defaultSize: 'sm',
     defaultEnabled: false,
     defaultSettings: DEFAULT_SETTINGS,

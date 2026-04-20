@@ -849,7 +849,7 @@ function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
 
 function resolveStatusChangeActor(auth: AuthContext | null, translate: TranslateWithFallbackFn): string {
   const unknownLabel = translate(
-    "sales.orders.status_change.actor_unknown",
+    "sales.order.status_change.actor_unknown",
     "unknown user",
   );
   if (!auth) return unknownLabel;
@@ -860,7 +860,7 @@ function resolveStatusChangeActor(auth: AuthContext | null, translate: Translate
       keyName || keyId || (typeof auth.sub === "string" ? auth.sub : "");
     return label
       ? translate(
-          "sales.orders.status_change.actor_api_key",
+          "sales.order.status_change.actor_api_key",
           "API key {name}",
           { name: label },
         )
@@ -875,7 +875,7 @@ function resolveStatusChangeActor(auth: AuthContext | null, translate: Translate
 
 function formatStatusLabel(status: string | null, translate: TranslateWithFallbackFn): string {
   if (status && status.trim().length) return status.trim();
-  return translate("sales.orders.status_change.empty", "unset");
+  return translate("sales.order.status_change.empty", "unset");
 }
 
 async function appendOrderStatusChangeNote({
@@ -893,7 +893,7 @@ async function appendOrderStatusChangeNote({
   if (previousStatus === nextStatus) return null;
   const { translate } = await resolveTranslations();
   const body = translate(
-    "sales.orders.status_change.note",
+    "sales.order.status_change.note",
     "Status changed from {from} to {to} by {actor}.",
     {
       from: formatStatusLabel(previousStatus, translate),
@@ -968,14 +968,14 @@ async function applyDocumentUpdate({
   if (kind === "order" && wantsCustomerChange) {
     guardStatus(
       settings?.orderCustomerEditableStatuses ?? null,
-      "sales.orders.edit_customer_blocked",
+      "sales.order.edit_customer_blocked",
       "Editing the customer is blocked for this status.",
     );
   }
   if (kind === "order" && wantsAddressChange) {
     guardStatus(
       settings?.orderAddressEditableStatuses ?? null,
-      "sales.orders.edit_addresses_blocked",
+      "sales.order.edit_addresses_blocked",
       "Editing addresses is blocked for this status.",
     );
   }
@@ -4406,7 +4406,7 @@ const createQuoteCommand: CommandHandler<
   QuoteCreateInput,
   { quoteId: string }
 > = {
-  id: "sales.quotes.create",
+  id: "sales.quote.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -4654,7 +4654,7 @@ const createQuoteCommand: CommandHandler<
     });
     await em.flush();
 
-    // Create notification for users with sales.quotes.manage feature
+    // Create notification for users with sales.quote.manage feature
     try {
       const notificationService = resolveNotificationService(ctx.container);
       const typeDef = notificationTypes.find(
@@ -4667,7 +4667,7 @@ const createQuoteCommand: CommandHandler<
             : "";
         const totalDisplay = totalAmount ? ` (${totalAmount})` : "";
         const notificationInput = buildFeatureNotificationFromType(typeDef, {
-          requiredFeature: "sales.quotes.manage",
+          requiredFeature: "sales.quote.manage",
           bodyVariables: {
             quoteNumber: quote.quoteNumber,
             total: totalDisplay,
@@ -4686,7 +4686,7 @@ const createQuoteCommand: CommandHandler<
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
       console.error(
-        "[sales.quotes.create] Failed to create notification:",
+        "[sales.quote.create] Failed to create notification:",
         err,
       );
     }
@@ -4764,7 +4764,7 @@ const deleteQuoteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string }
 > = {
-  id: "sales.quotes.delete",
+  id: "sales.quote.delete",
   async prepare(input, ctx) {
     const id = requireId(input, "Quote id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -4882,7 +4882,7 @@ const updateQuoteCommand: CommandHandler<
   DocumentUpdateInput,
   { quote: SalesQuote }
 > = {
-  id: "sales.quotes.update",
+  id: "sales.quote.update",
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5088,7 +5088,7 @@ const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
   { order: SalesOrder }
 > = {
-  id: "sales.orders.update",
+  id: "sales.order.update",
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5304,7 +5304,7 @@ const createOrderCommand: CommandHandler<
   OrderCreateInput,
   { orderId: string }
 > = {
-  id: "sales.orders.create",
+  id: "sales.order.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -5575,7 +5575,7 @@ const createOrderCommand: CommandHandler<
     });
     await em.flush();
 
-    // Create notification for users with sales.orders.manage feature
+    // Create notification for users with sales.order.manage feature
     try {
       const notificationService = resolveNotificationService(ctx.container);
       const typeDef = notificationTypes.find(
@@ -5588,7 +5588,7 @@ const createOrderCommand: CommandHandler<
             : "";
         const totalDisplay = totalAmount ? ` (${totalAmount})` : "";
         const notificationInput = buildFeatureNotificationFromType(typeDef, {
-          requiredFeature: "sales.orders.manage",
+          requiredFeature: "sales.order.manage",
           bodyVariables: {
             orderNumber: order.orderNumber,
             total: totalDisplay,
@@ -5607,7 +5607,7 @@ const createOrderCommand: CommandHandler<
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
       console.error(
-        "[sales.orders.create] Failed to create notification:",
+        "[sales.order.create] Failed to create notification:",
         err,
       );
     }
@@ -5685,7 +5685,7 @@ const deleteOrderCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string }
 > = {
-  id: "sales.orders.delete",
+  id: "sales.order.delete",
   async prepare(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5845,7 +5845,7 @@ const convertQuoteToOrderCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string }
 > = {
-  id: "sales.quotes.convert_to_order",
+  id: "sales.quote.convert_to_order",
   async prepare(input, ctx) {
     const parsed = quoteConvertToOrderSchema.safeParse(input ?? {});
     const quoteId = parsed.success
@@ -6321,7 +6321,7 @@ const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
 > = {
-  id: "sales.orders.lines.upsert",
+  id: "sales.order.line.upsert",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
@@ -6625,7 +6625,7 @@ const orderLineDeleteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
 > = {
-  id: "sales.orders.lines.delete",
+  id: "sales.order.line.delete",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
@@ -6793,7 +6793,7 @@ const quoteLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string; lineId: string }
 > = {
-  id: "sales.quotes.lines.upsert",
+  id: "sales.quote.line.upsert",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
@@ -7094,7 +7094,7 @@ const quoteLineDeleteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string; lineId: string }
 > = {
-  id: "sales.quotes.lines.delete",
+  id: "sales.quote.line.delete",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
@@ -7238,7 +7238,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; adjustmentId: string }
 > = {
-  id: "sales.orders.adjustments.upsert",
+  id: "sales.order.adjustment.upsert",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
@@ -7465,7 +7465,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; adjustmentId: string }
 > = {
-  id: "sales.orders.adjustments.delete",
+  id: "sales.order.adjustment.delete",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
@@ -7620,7 +7620,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string; adjustmentId: string }
 > = {
-  id: "sales.quotes.adjustments.upsert",
+  id: "sales.quote.adjustment.upsert",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
@@ -7846,7 +7846,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string; adjustmentId: string }
 > = {
-  id: "sales.quotes.adjustments.delete",
+  id: "sales.quote.adjustment.delete",
   async prepare(input, ctx) {
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
@@ -8015,7 +8015,7 @@ const createInvoiceCommand: CommandHandler<
   InvoiceCreateInput,
   { invoiceId: string }
 > = {
-  id: "sales.invoices.create",
+  id: "sales.invoice.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -8193,7 +8193,7 @@ const updateInvoiceCommand: CommandHandler<
   z.infer<typeof invoiceUpdateSchema>,
   { invoiceId: string }
 > = {
-  id: "sales.invoices.update",
+  id: "sales.invoice.update",
   async prepare(input, ctx) {
     const id = requireId(input);
     const em = ctx.container.resolve("em") as EntityManager;
@@ -8327,7 +8327,7 @@ const deleteInvoiceCommand: CommandHandler<
   { id: string; organizationId: string; tenantId: string },
   { invoiceId: string }
 > = {
-  id: "sales.invoices.delete",
+  id: "sales.invoice.delete",
   async prepare(input, ctx) {
     const id = requireId(input);
     const em = ctx.container.resolve("em") as EntityManager;
@@ -8482,7 +8482,7 @@ const createCreditMemoCommand: CommandHandler<
   CreditMemoCreateInput,
   { creditMemoId: string }
 > = {
-  id: "sales.credit_memos.create",
+  id: "sales.credit-memo.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -8668,7 +8668,7 @@ const updateCreditMemoCommand: CommandHandler<
   z.infer<typeof creditMemoUpdateSchema>,
   { creditMemoId: string }
 > = {
-  id: "sales.credit_memos.update",
+  id: "sales.credit-memo.update",
   async prepare(input, ctx) {
     const id = requireId(input);
     const em = ctx.container.resolve("em") as EntityManager;
@@ -8797,7 +8797,7 @@ const deleteCreditMemoCommand: CommandHandler<
   { id: string; organizationId: string; tenantId: string },
   { creditMemoId: string }
 > = {
-  id: "sales.credit_memos.delete",
+  id: "sales.credit-memo.delete",
   async prepare(input, ctx) {
     const id = requireId(input);
     const em = ctx.container.resolve("em") as EntityManager;

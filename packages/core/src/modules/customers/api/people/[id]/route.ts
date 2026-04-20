@@ -37,7 +37,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.person.view'] },
 }
 
 const paramsSchema = z.object({
@@ -375,7 +375,7 @@ async function resolveTodoDetails(
       profiler?.mark('todo_items_processed', { source, enriched })
     } catch (err) {
       profiler?.mark('todo_query_failed', { source, error: err instanceof Error ? err.message : String(err) })
-      console.warn(`customers.people.detail: failed to resolve todos for source ${source}`, err)
+      console.warn(`customers.person.detail: failed to resolve todos for source ${source}`, err)
     }
   }
 
@@ -384,7 +384,7 @@ async function resolveTodoDetails(
 }
 
 export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
-  const profiler = createRouteProfiler('customers.people.detail')
+  const profiler = createRouteProfiler('customers.person.detail')
   profiler.mark('request_received')
 
   const includeTokens = parseIncludeParams(_req)
@@ -538,7 +538,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             profiler,
           )
         } catch (err) {
-          console.warn('customers.people.detail: failed to enrich todo links', err)
+          console.warn('customers.person.detail: failed to enrich todo links', err)
         }
         profiler.mark('todo_details_enriched', { count: todoDetails.size, links: todoLinks.length })
       }

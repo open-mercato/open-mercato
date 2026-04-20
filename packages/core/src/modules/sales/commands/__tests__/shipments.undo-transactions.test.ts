@@ -99,7 +99,7 @@ describe('shipment undo handlers — transactional wrapping', () => {
   })
 
   it('createShipmentCommand.undo runs inside em.transactional', async () => {
-    const undo = commandRegistry.get('sales.shipments.create')?.undo
+    const undo = commandRegistry.get('sales.shipment.create')?.undo
     expect(undo).toBeInstanceOf(Function)
 
     const envelope = buildEnvelope({
@@ -118,7 +118,7 @@ describe('shipment undo handlers — transactional wrapping', () => {
   })
 
   it('updateShipmentCommand.undo runs inside em.transactional', async () => {
-    const undo = commandRegistry.get('sales.shipments.update')?.undo
+    const undo = commandRegistry.get('sales.shipment.update')?.undo
     expect(undo).toBeInstanceOf(Function)
 
     const envelope = buildEnvelope({
@@ -137,7 +137,7 @@ describe('shipment undo handlers — transactional wrapping', () => {
   })
 
   it('deleteShipmentCommand.undo runs inside em.transactional', async () => {
-    const undo = commandRegistry.get('sales.shipments.delete')?.undo
+    const undo = commandRegistry.get('sales.shipment.delete')?.undo
     expect(undo).toBeInstanceOf(Function)
 
     const envelope = buildEnvelope({

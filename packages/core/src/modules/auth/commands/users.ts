@@ -157,14 +157,14 @@ async function notifyRoleChanges(
       }
     }
   } catch (err) {
-    console.error('[auth.users.roles] Failed to create notification:', err)
+    console.error('[auth.user.roles] Failed to create notification:', err)
   }
 }
 
 type CreateUserResult = { user: User; warning?: 'invite_email_failed' }
 
 const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResult> = {
-  id: 'auth.users.create',
+  id: 'auth.user.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -360,7 +360,7 @@ async function sendInviteToUser(
   try {
     await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
   } catch (err) {
-    console.error('[auth.users.invite] Failed to send invitation email:', err)
+    console.error('[auth.user.invite] Failed to send invitation email:', err)
     emailSent = false
   }
 
@@ -378,7 +378,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
-  id: 'auth.users.update',
+  id: 'auth.user.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -615,7 +615,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 }
 
 const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, User> = {
-  id: 'auth.users.delete',
+  id: 'auth.user.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -929,7 +929,7 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
 
 async function throwDuplicateEmailError(): Promise<never> {
   const { translate } = await resolveTranslations()
-  const message = translate('auth.users.errors.emailExists', 'Email already in use')
+  const message = translate('auth.user.errors.emailExists', 'Email already in use')
   throw new CrudHttpError(400, {
     error: message,
     fieldErrors: { email: message },

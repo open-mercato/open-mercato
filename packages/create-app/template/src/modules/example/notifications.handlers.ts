@@ -4,7 +4,7 @@ export const notificationHandlers: NotificationHandler[] = [
   {
     id: 'example.umes.actionable-toast',
     notificationType: 'example.umes.actionable',
-    features: ['example.todos.manage'],
+    features: ['example.todo.manage'],
     priority: 100,
     handle(notification, context) {
       context.toast({

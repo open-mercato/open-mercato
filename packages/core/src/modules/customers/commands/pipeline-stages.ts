@@ -16,7 +16,7 @@ import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } fro
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { stageId: string }> = {
-  id: 'customers.pipeline-stages.create',
+  id: 'customers.pipeline-stage.create',
   async execute(rawInput, ctx) {
     const parsed = pipelineStageCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -57,7 +57,7 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
 }
 
 const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void> = {
-  id: 'customers.pipeline-stages.update',
+  id: 'customers.pipeline-stage.update',
   async execute(rawInput, ctx) {
     const parsed = pipelineStageUpdateSchema.parse(rawInput)
 
@@ -89,7 +89,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
 }
 
 const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void> = {
-  id: 'customers.pipeline-stages.delete',
+  id: 'customers.pipeline-stage.delete',
   async execute(rawInput, ctx) {
     const parsed = pipelineStageDeleteSchema.parse(rawInput)
 
@@ -114,7 +114,7 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
 }
 
 const reorderPipelineStagesCommand: CommandHandler<PipelineStageReorderInput, void> = {
-  id: 'customers.pipeline-stages.reorder',
+  id: 'customers.pipeline-stage.reorder',
   async execute(rawInput, ctx) {
     const parsed = pipelineStageReorderSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)

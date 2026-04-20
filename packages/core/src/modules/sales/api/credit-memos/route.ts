@@ -29,10 +29,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
 }
 
 const crud = makeCrudRoute({
@@ -95,7 +95,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.credit_memos.create',
+      commandId: 'sales.credit-memo.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -105,7 +105,7 @@ const crud = makeCrudRoute({
       },
     },
     update: {
-      commandId: 'sales.credit_memos.update',
+      commandId: 'sales.credit-memo.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -115,7 +115,7 @@ const crud = makeCrudRoute({
       },
     },
     delete: {
-      commandId: 'sales.credit_memos.delete',
+      commandId: 'sales.credit-memo.delete',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()

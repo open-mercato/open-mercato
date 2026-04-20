@@ -92,7 +92,7 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
 }
 
 const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> = {
-  id: 'catalog.offers.create',
+  id: 'catalog.offer.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(offerCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -203,7 +203,7 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
 }
 
 const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> = {
-  id: 'catalog.offers.update',
+  id: 'catalog.offer.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Offer id is required.')
     const em = ctx.container.resolve('em') as EntityManager
@@ -370,7 +370,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
 }
 
 const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> = {
-  id: 'catalog.offers.delete',
+  id: 'catalog.offer.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Offer id is required.')
     const em = ctx.container.resolve('em') as EntityManager

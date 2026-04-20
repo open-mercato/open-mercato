@@ -158,7 +158,7 @@ describe('POST /api/inbox_ops/proposals/[id]/actions/[actionId]/accept', () => {
       operationLogEntry: {
         id: 'log-1',
         undoToken: 'undo-1',
-        commandId: 'sales.orders.create',
+        commandId: 'sales.order.create',
         actionLabel: 'Create order',
         resourceKind: 'sales.order',
         resourceId: 'order-1',
@@ -172,7 +172,7 @@ describe('POST /api/inbox_ops/proposals/[id]/actions/[actionId]/accept', () => {
     expect(metadata).toEqual({
       id: 'log-1',
       undoToken: 'undo-1',
-      commandId: 'sales.orders.create',
+      commandId: 'sales.order.create',
       actionLabel: 'Create order',
       resourceKind: 'sales.order',
       resourceId: 'order-1',
@@ -264,7 +264,7 @@ describe('POST /api/inbox_ops/proposals/[id]/actions/[actionId]/accept', () => {
 
     mockExecuteAction.mockResolvedValueOnce({
       success: false,
-      error: 'Insufficient permissions: sales.orders.manage required',
+      error: 'Insufficient permissions: sales.order.manage required',
       statusCode: 403,
     })
 

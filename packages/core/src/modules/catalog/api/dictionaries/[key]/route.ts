@@ -11,7 +11,7 @@ const KEY_ALIASES: Record<string, string[]> = {
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.product.manage'] },
 }
 
 export async function GET(

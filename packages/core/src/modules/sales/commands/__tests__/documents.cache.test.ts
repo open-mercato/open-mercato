@@ -103,7 +103,7 @@ describe('sales quote update cache + snapshot refresh', () => {
       organizationIds: null,
     }
 
-    const handler = commandRegistry.get<DocumentUpdateInput, { quote: SalesQuote }>('sales.quotes.update')
+    const handler = commandRegistry.get<DocumentUpdateInput, { quote: SalesQuote }>('sales.quote.update')
     expect(handler).toBeTruthy()
 
     await handler?.execute({ id: quoteId, customerEntityId: customerId }, ctx)

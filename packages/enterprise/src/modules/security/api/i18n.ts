@@ -32,7 +32,7 @@ const exactMessageMap = new Map<string, MessageDescriptor>([
   ['Failed to process enforcement request.', { key: 'security.api.errors.enforcementRequestFailed', fallback: 'Failed to process enforcement request.' }],
   ['Failed to process user security request.', { key: 'security.api.errors.userSecurityRequestFailed', fallback: 'Failed to process user security request.' }],
   ['Failed to process sudo request.', { key: 'security.api.errors.sudoRequestFailed', fallback: 'Failed to process sudo request.' }],
-  ['User not found', { key: 'auth.users.form.errors.notFound', fallback: 'User not found' }],
+  ['User not found', { key: 'auth.user.form.errors.notFound', fallback: 'User not found' }],
   ['Admin ID is required', { key: 'security.api.errors.adminIdRequired', fallback: 'Admin ID is required.' }],
   ['User ID is required', { key: 'security.api.errors.userIdRequired', fallback: 'User ID is required.' }],
   ['Reset reason is required', { key: 'security.api.errors.resetReasonRequired', fallback: 'Reset reason is required.' }],

@@ -59,13 +59,13 @@ async function ensureKindPermission(
   const auth = ctx.auth
   if (!rbac || !auth?.sub) return
   const kindFeatureMap: Record<string, string> = {
-    order: 'sales.orders.manage',
-    quote: 'sales.quotes.manage',
-    invoice: 'sales.invoices.manage',
-    credit_memo: 'sales.credit_memos.manage',
+    order: 'sales.order.manage',
+    quote: 'sales.quote.manage',
+    invoice: 'sales.invoice.manage',
+    credit_memo: 'sales.credit-memo.manage',
   }
   const requiredFeatures = [
-    kindFeatureMap[kind] ?? 'sales.orders.manage',
+    kindFeatureMap[kind] ?? 'sales.order.manage',
     'sales.documents.number.edit',
   ]
   const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {

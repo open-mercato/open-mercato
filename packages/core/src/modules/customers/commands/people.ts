@@ -483,7 +483,7 @@ async function setCustomFieldsForPerson(
 }
 
 const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string; personId: string }> = {
-  id: 'customers.people.create',
+  id: 'customers.person.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(personCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -660,7 +660,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
 }
 
 const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string }> = {
-  id: 'customers.people.update',
+  id: 'customers.person.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -936,7 +936,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
 const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { entityId: string }> =
   {
-    id: 'customers.people.delete',
+    id: 'customers.person.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager)

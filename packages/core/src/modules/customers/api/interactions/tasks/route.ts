@@ -27,7 +27,7 @@ const querySchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.interaction.view'] },
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -86,7 +86,7 @@ export async function GET(request: Request): Promise<Response> {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
-    console.error('customers.interactions.tasks.get failed', err)
+    console.error('customers.interaction.tasks.get failed', err)
     return NextResponse.json({ error: translate('customers.errors.internalError', 'Internal server error') }, { status: 500 })
   }
 }

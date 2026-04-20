@@ -215,7 +215,7 @@ describe('quote send + accept flow', () => {
     expect(body.orderId).toBe('order-1')
     expect(quote.status).toBe('confirmed')
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
-      'sales.quotes.convert_to_order',
+      'sales.quote.convert_to_order',
       expect.objectContaining({ input: { quoteId: quote.id } })
     )
   })
@@ -637,10 +637,10 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
 
 describe('quote editing invalidates sent token', () => {
   test('updating a sent quote clears token and reverts status to draft', async () => {
-    // Registers commands (including sales.quotes.update) into the global command registry.
+    // Registers commands (including sales.quote.update) into the global command registry.
     await import('@open-mercato/core/modules/sales/commands/documents')
 
-    const handler = commandRegistry.get<any, any>('sales.quotes.update')
+    const handler = commandRegistry.get<any, any>('sales.quote.update')
     expect(handler).toBeTruthy()
 
     const quote: any = {

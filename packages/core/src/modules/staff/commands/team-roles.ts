@@ -87,7 +87,7 @@ async function ensureTeamExists(
 }
 
 const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: string }> = {
-  id: 'staff.team-roles.create',
+  id: 'staff.team-role.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamRoleCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -194,7 +194,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
 }
 
 const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: string }> = {
-  id: 'staff.team-roles.update',
+  id: 'staff.team-role.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamRoleUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -340,7 +340,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
 }
 
 const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }> = {
-  id: 'staff.team-roles.delete',
+  id: 'staff.team-role.delete',
   async prepare(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Role id is required.' })

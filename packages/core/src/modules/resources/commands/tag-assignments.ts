@@ -26,7 +26,7 @@ type ResourceTagAssignmentUndoPayload = {
 }
 
 const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInput, { assignmentId: string }> = {
-  id: 'resources.resourceTags.assign',
+  id: 'resources.resource-tag.assign',
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceTagAssignmentSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -127,7 +127,7 @@ const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInp
 }
 
 const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInput, { assignmentId: string | null }> = {
-  id: 'resources.resourceTags.unassign',
+  id: 'resources.resource-tag.unassign',
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceTagAssignmentSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)

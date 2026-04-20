@@ -14,19 +14,19 @@ import {
 export const metadata = {
   GET: {
     requireAuth: true,
-    requireFeatures: ['example.todos.view']
+    requireFeatures: ['example.todo.view']
   },
   POST: {
     requireAuth: true,
-    requireFeatures: ['example.todos.manage']
+    requireFeatures: ['example.todo.manage']
   },
   PUT: {
     requireAuth: true,
-    requireFeatures: ['example.todos.manage']
+    requireFeatures: ['example.todo.manage']
   },
   DELETE: {
     requireAuth: true,
-    requireFeatures: ['example.todos.manage']
+    requireFeatures: ['example.todo.manage']
   }
 }
 

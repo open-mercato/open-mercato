@@ -21,10 +21,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.orders.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.order.view'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.order.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.order.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.order.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -50,7 +50,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'sales.tags.create',
+      commandId: 'sales.tag.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -72,7 +72,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'sales.tags.update',
+      commandId: 'sales.tag.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -85,7 +85,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'sales.tags.delete',
+      commandId: 'sales.tag.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

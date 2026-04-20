@@ -50,10 +50,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['customers.interactions.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.interaction.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.interaction.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -73,7 +73,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'customers.interactions.create',
+      commandId: 'customers.interaction.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -83,7 +83,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'customers.interactions.update',
+      commandId: 'customers.interaction.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -92,7 +92,7 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'customers.interactions.delete',
+      commandId: 'customers.interaction.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -307,7 +307,7 @@ export async function GET(req: Request) {
     const cursor = decodeCursor(query.cursor, sortConfig.type)
     if (query.cursor && !cursor) {
       throw new CrudHttpError(400, {
-        error: translate('customers.interactions.cursor.invalid', 'Invalid cursor'),
+        error: translate('customers.interaction.cursor.invalid', 'Invalid cursor'),
       })
     }
 
@@ -474,10 +474,10 @@ export async function GET(req: Request) {
         { status: 400 },
       )
     }
-    console.error('customers.interactions.get failed', err)
+    console.error('customers.interaction.get failed', err)
     const { translate } = await resolveTranslations()
     return NextResponse.json(
-      { error: translate('customers.interactions.load.error', 'Failed to load interactions.') },
+      { error: translate('customers.interaction.load.error', 'Failed to load interactions.') },
       { status: 500 },
     )
   }

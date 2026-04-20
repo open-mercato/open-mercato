@@ -12,10 +12,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['resources.view'],
   pageTitle: 'Resources',
-  pageTitleKey: 'resources.resources.page.title',
+  pageTitleKey: 'resources.resource.page.title',
   pageGroup: 'Resource planning',
   pageGroupKey: 'resources.nav.group',
   pageOrder: 31,
   icon: resourcesIcon,
-  breadcrumb: [{ label: 'Resources', labelKey: 'resources.resources.page.title' }],
+  breadcrumb: [{ label: 'Resources', labelKey: 'resources.resource.page.title' }],
 }
