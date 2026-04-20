@@ -225,6 +225,13 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
     assert.equal(existsSync(join(targetDir, '.cursor')), false)
     assert.equal(existsSync(join(targetDir, '.codex')), false)
     assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example', '__integration__')), false)
+
+    const nextConfig = readFileSync(join(targetDir, 'next.config.ts'), 'utf8')
+    assert.match(nextConfig, /resolveAllowedDevOrigins/)
+
+    const devOriginsHelper = readFileSync(join(targetDir, 'src', 'lib', 'dev-origins.ts'), 'utf8')
+    assert.match(devOriginsHelper, /APP_ALLOWED_ORIGINS/)
+    assert.match(devOriginsHelper, /NEXT_PUBLIC_APP_URL/)
   } finally {
     rmSync(targetRoot, { recursive: true, force: true })
   }

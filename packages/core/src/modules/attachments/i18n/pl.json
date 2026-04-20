@@ -1,6 +1,7 @@
 {
   "attachments.customers.storage.nav.group": "Magazyn",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
+  "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
   "attachments.errors.publicPartitionBlocked": "Nie można jawnie wybrać publicznej partycji do tego przesyłania.",
   "attachments.errors.quotaExceeded": "Przekroczono limit miejsca na załączniki dla tego tenantu.",

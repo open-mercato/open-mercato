@@ -18,13 +18,10 @@ import {
   customerSignupIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
-
-type OrganizationLookupRow = {
-  slug?: string | null
-}
 
 function resolveBaseUrl(req: Request): string {
   return getAppBaseUrl(req)
@@ -77,10 +74,7 @@ export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
   const baseUrl = resolveBaseUrl(req)
 
-  const [orgRow] = await em.getConnection().execute<OrganizationLookupRow[]>(
-    `SELECT slug FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
-    [organizationId],
-  )
+  const orgRow = await findOrganizationInTenant(em, organizationId, tenantId)
   if (!orgRow) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }

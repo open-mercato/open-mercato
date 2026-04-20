@@ -57,6 +57,10 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │   └── SKILL.md
 ├── auto-review-pr/
 │   └── SKILL.md
+├── auto-update-changelog/
+│   └── SKILL.md
+├── sync-merged-pr-issues/
+│   └── SKILL.md
 └── skill-creator/
     ├── SKILL.md
     ├── references/
@@ -195,6 +199,8 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `integration-tests` | Running existing integration tests and generating new QA tests (Playwright TypeScript, with optional markdown scenarios) from specs or feature descriptions |
 | `pre-implement-spec` | Analyzing a spec before implementation: backward compatibility audit, risk assessment, gap analysis, and readiness report |
 | `auto-review-pr` | Reviewing or re-reviewing a GitHub PR by number in an isolated worktree: fetches the exact PR from GitHub, runs the full code-review skill, submits a GitHub review, and in autofix mode iterates through conflict resolution, fixes, unit tests, typecheck, and re-review until the branch is merge-ready or a real blocker remains |
+| `auto-update-changelog` | Drafting a new CHANGELOG.md release entry in the house emoji-driven format (✨ Features / 🔒 Security / 🐛 Fixes / 🛠️ Improvements / 🧪 Testing / 📝 Specs & Documentation / 🚀 CI/CD) for every PR merged since the last release and delegating the edit to `auto-create-pr` so it lands as a docs PR against `develop`; honors the Supersede Credit Rule so when `auto-review-pr` has carried a fork PR forward, the changelog credits the original contributor instead of the reviewer |
+| `sync-merged-pr-issues` | Post-merge housekeeping: walking recently merged and recently closed-unmerged PRs, auto-closing the open issues they authoritatively fix (via `fixes`/`closes`/`resolves` close-keywords or GitHub's own `closingIssuesReferences`), and leaving informational comments on issues whose PRs were closed without merging (with supersede detection); uses the same claim/release protocol as `auto-fix-github` |
 | `skill-creator` | Creating a new skill or updating an existing skill |
 
 ---

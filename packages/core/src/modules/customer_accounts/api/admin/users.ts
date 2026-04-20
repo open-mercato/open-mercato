@@ -175,6 +175,7 @@ export async function POST(req: Request) {
     parsed.data.displayName,
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
   )
+  user.emailVerifiedAt = new Date()
   em.persist(user)
   await em.flush()
 

@@ -236,12 +236,13 @@ export class BasicQueryEngine implements QueryEngine {
         'See migration guide or documentation for details.'
       )
     }
+    const skipAutoScope = opts.omitAutomaticTenantOrgScope === true
     // Optional organization filter (when present in schema)
-    if (orgScope && await this.columnExists(table, 'organization_id')) {
+    if (!skipAutoScope && orgScope && await this.columnExists(table, 'organization_id')) {
       q = this.applyOrganizationScope(q, qualify('organization_id'), orgScope)
     }
     // Tenant guard (required) when present in schema
-    if (await this.columnExists(table, 'tenant_id')) {
+    if (!skipAutoScope && await this.columnExists(table, 'tenant_id')) {
       q = q.where(qualify('tenant_id'), '=', opts.tenantId)
     }
     // Default soft-delete guard: exclude rows with deleted_at when column exists
@@ -406,7 +407,7 @@ export class BasicQueryEngine implements QueryEngine {
       q = applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
     }
 
-    // Apply OR-grouped filters as a single WHERE (... OR ... OR ...)
+    // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
     if (orGroupFilters.length > 0) {
       const groups = new Map<string, typeof orGroupFilters>()
       for (const f of orGroupFilters) {
@@ -414,12 +415,13 @@ export class BasicQueryEngine implements QueryEngine {
         group.push(f)
         groups.set(f.orGroup!, group)
       }
+      const resolvedGroupFilters: Array<Array<{ qualified: string; op: string; value: unknown; fieldName: string }>> = []
       for (const [, groupFilters] of groups) {
-        const resolvedOrFilters: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
+        const resolved: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
         for (const filter of groupFilters) {
           const column = await this.resolveBaseColumn(table, String(filter.field))
           if (column) {
-            resolvedOrFilters.push({
+            resolved.push({
               qualified: qualify(column),
               op: filter.op,
               value: filter.value,
@@ -427,11 +429,14 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (resolvedOrFilters.length > 0) {
-          q = q.where((eb: any) => eb.or(
-            resolvedOrFilters.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
+        if (resolved.length > 0) resolvedGroupFilters.push(resolved)
+      }
+      if (resolvedGroupFilters.length > 0) {
+        q = q.where((eb: any) => eb.or(
+          resolvedGroupFilters.map((group) => eb.and(
+            group.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
           ))
-        }
+        ))
       }
     }
 
@@ -439,10 +444,10 @@ export class BasicQueryEngine implements QueryEngine {
       const targetTable = aliasTables.get(aliasName)
       if (!targetTable) return builder
       let next = builder
-      if (orgScope && await this.columnExists(targetTable, 'organization_id')) {
+      if (!skipAutoScope && orgScope && await this.columnExists(targetTable, 'organization_id')) {
         next = this.applyOrganizationScope(next, `${aliasName}.organization_id`, orgScope)
       }
-      if (opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
+      if (!skipAutoScope && opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
         next = next.where(`${aliasName}.tenant_id`, '=', opts.tenantId)
       }
       return next
@@ -808,9 +813,13 @@ export class BasicQueryEngine implements QueryEngine {
   private applyColumnOp(builder: AnyBuilder, column: string | RawBuilder<unknown>, op: string, value: unknown): AnyBuilder {
     switch (op) {
       case 'eq':
-        return builder.where(column as any, '=', value as any)
+        return value === null
+          ? builder.where(column as any, 'is', null)
+          : builder.where(column as any, '=', value as any)
       case 'ne':
-        return builder.where(column as any, '!=', value as any)
+        return value === null
+          ? builder.where(column as any, 'is not', null)
+          : builder.where(column as any, '!=', value as any)
       case 'gt':
         return builder.where(column as any, '>', value as any)
       case 'gte':
@@ -838,8 +847,8 @@ export class BasicQueryEngine implements QueryEngine {
 
   private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
     switch (op) {
-      case 'eq': return eb(column, '=', value)
-      case 'ne': return eb(column, '!=', value)
+      case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
+      case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
       case 'gt': return eb(column, '>', value)
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)

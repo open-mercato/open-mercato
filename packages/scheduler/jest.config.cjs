@@ -10,6 +10,7 @@ module.exports = {
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/../events/src/$1',
+    '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
     // Strip .js extensions from relative imports (@mikro-orm ESM compatibility)
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },

@@ -21,10 +21,12 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
   const push = (field: string, op: FilterOp, value?: unknown, orGroup?: string) => {
     out.push({ field, op, value, orGroup })
   }
-  // Handle $or at top level
+  // Handle $or at top level — one group id per disjunct so fields inside a clause are ANDed by the engine.
   if (Array.isArray(obj.$or)) {
-    const orGroupId = `or_${Date.now()}`
-    for (const clause of obj.$or as Record<string, unknown>[]) {
+    const clauses = obj.$or as Record<string, unknown>[]
+    for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex++) {
+      const clause = clauses[clauseIndex]
+      const orGroupId = `or_${clauseIndex}`
       if (clause && typeof clause === 'object') {
         for (const [rawKey, rawVal] of Object.entries(clause)) {
           const field = normalizeField(rawKey)

@@ -214,6 +214,7 @@
   "business_rules.rules.form.effectiveTo": "Vigente Hasta",
   "business_rules.rules.form.enabled": "Habilitada",
   "business_rules.rules.form.entityType": "Tipo de Entidad",
+  "business_rules.rules.form.errors.effectiveToBeforeFrom": "«Vigente Hasta» debe ser posterior a «Vigente Desde»",
   "business_rules.rules.form.eventType": "Tipo de Evento",
   "business_rules.rules.form.metadata.title": "Metadatos",
   "business_rules.rules.form.placeholders.description": "Opcional: Describa el propósito de esta regla",
