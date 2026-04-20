@@ -312,10 +312,10 @@ describe('CRUD Factory', () => {
 
     const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     mine.id = '550e8400-e29b-41d4-a716-446655440020'
-    await em.persistAndFlush(mine)
+    await em.persist(mine).flush()
     const other = em.create(Todo, { title: 'Other', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
     other.id = '550e8400-e29b-41d4-a716-446655440021'
-    await em.persistAndFlush(other)
+    await em.persist(other).flush()
 
     const res = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
     expect(res.status).toBe(200)
@@ -338,13 +338,13 @@ describe('CRUD Factory', () => {
 
     const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     mine.id = '550e8400-e29b-41d4-a716-446655440030'
-    await em.persistAndFlush(mine)
+    await em.persist(mine).flush()
     const otherOrg = em.create(Todo, { title: 'OtherOrg', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
     otherOrg.id = '550e8400-e29b-41d4-a716-446655440031'
-    await em.persistAndFlush(otherOrg)
+    await em.persist(otherOrg).flush()
     const otherTenant = em.create(Todo, { title: 'OtherTenant', organizationId: defaultOrganizationId, tenantId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }) as Rec
     otherTenant.id = '550e8400-e29b-41d4-a716-446655440032'
-    await em.persistAndFlush(otherTenant)
+    await em.persist(otherTenant).flush()
 
     const res = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
     expect(res.status).toBe(200)
