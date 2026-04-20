@@ -17,7 +17,7 @@ const CODE_WORKFLOW_ID = 'workflows.simple-approval'
 const CODE_WORKFLOW_API_ID = `code:${CODE_WORKFLOW_ID}`
 
 type DetailResponse = {
-  data?: { id?: string; workflowId?: string; source?: string }
+  data?: { id?: string; workflowId?: string; workflowName?: string; description?: string | null; source?: string }
 }
 type ListResponse = {
   data?: Array<{ id: string; workflowId: string; source?: string }>
@@ -109,5 +109,145 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
         await deleteWorkflowDefinitionIfExists(request, apiToken, overrideId)
       }
     }
+  })
+
+  test('list page source badge flips from Code-defined to Customized', async ({ page, request }) => {
+    const apiToken = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
+
+    try {
+      await login(page, 'admin')
+
+      const stale = await findOverrideIdByWorkflowId(request, apiToken, CODE_WORKFLOW_ID)
+      if (stale) await deleteWorkflowDefinitionIfExists(request, apiToken, stale)
+
+      // Step 1: list page shows the row with the "Code-defined" badge.
+      // There are two workflows named "Simple Approval Workflow" (one seeded user
+      // def, one code-defined), so we pick the row carrying the Code-defined badge.
+      await page.goto('/backend/definitions')
+      const codeRow = page
+        .getByRole('row')
+        .filter({ hasText: 'Simple Approval' })
+        .filter({ hasText: 'Code-defined' })
+      await expect(codeRow).toHaveCount(1)
+      await expect(codeRow.getByText('Customized', { exact: true })).toHaveCount(0)
+
+      // Step 2: customize via API (this flow is exercised through the UI in the first test).
+      const customizeResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
+        { token: apiToken },
+      )
+      expect(customizeResponse.status()).toBe(200)
+      const customizeBody = await readJsonSafe<DetailResponse>(customizeResponse)
+      overrideId = customizeBody?.data?.id ?? null
+      expect(overrideId).toBeTruthy()
+
+      // Step 3: reload list and verify the badge flipped.
+      await page.goto('/backend/definitions')
+      const customizedRow = page
+        .getByRole('row')
+        .filter({ hasText: 'Simple Approval' })
+        .filter({ hasText: 'Customized' })
+      await expect(customizedRow).toHaveCount(1)
+      // No row for this workflow should show Code-defined anymore
+      // (the code entry is replaced by the DB override in the merged list).
+      await expect(
+        page
+          .getByRole('row')
+          .filter({ hasText: 'workflows.simple-approval' })
+          .filter({ hasText: 'Code-defined' }),
+      ).toHaveCount(0)
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, apiToken, overrideId)
+    }
+  })
+
+  test('admin can edit a customized workflow and the change persists', async ({ page, request }) => {
+    const apiToken = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
+
+    try {
+      await login(page, 'admin')
+
+      const stale = await findOverrideIdByWorkflowId(request, apiToken, CODE_WORKFLOW_ID)
+      if (stale) await deleteWorkflowDefinitionIfExists(request, apiToken, stale)
+
+      // Customize via API to skip the flow covered by the first test.
+      const customizeResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
+        { token: apiToken },
+      )
+      expect(customizeResponse.status()).toBe(200)
+      const customizeBody = await readJsonSafe<DetailResponse>(customizeResponse)
+      overrideId = customizeBody?.data?.id ?? null
+      expect(overrideId).toBeTruthy()
+
+      // Open the edit page for the override.
+      await page.goto(`/backend/definitions/${encodeURIComponent(overrideId!)}`)
+      await expect(
+        page.getByText('This workflow has been customized from its code-defined version.'),
+      ).toBeVisible()
+
+      // Edit the description and submit the full form — this is the real
+      // CrudForm submission that previously tripped the strict update validator.
+      const newDescription = `QA edit ${Date.now()}`
+      // The form and the Steps editor both render a "Description" label, so we
+      // scope by placeholder, which is unique to the top-level workflow description.
+      const descriptionField = page
+        .getByPlaceholder('Optional: Describe the purpose of this workflow')
+        .first()
+      await expect(descriptionField).toBeEditable()
+      await descriptionField.fill(newDescription)
+
+      // CrudForm renders the submit in both the sticky header and the form footer;
+      // target the footer (in-form) button, which fires the native submit.
+      const updateButton = page
+        .locator('button[type="submit"]', { hasText: 'Update Workflow' })
+        .first()
+      await expect(updateButton).toBeVisible()
+      await Promise.all([
+        page.waitForResponse(
+          (res) =>
+            res.url().includes(`/api/workflows/definitions/${overrideId}`) &&
+            res.request().method() === 'PUT',
+          { timeout: 15_000 },
+        ),
+        updateButton.click(),
+      ])
+
+      // Verify via API that the edit persisted and the row is still a code_override.
+      const after = await apiRequest(
+        request,
+        'GET',
+        `/api/workflows/definitions/${encodeURIComponent(overrideId!)}`,
+        { token: apiToken },
+      )
+      expect(after.status()).toBe(200)
+      const afterBody = await readJsonSafe<DetailResponse>(after)
+      expect(afterBody?.data?.description).toBe(newDescription)
+      expect(afterBody?.data?.source).toBe('code_override')
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, apiToken, overrideId)
+    }
+  })
+
+  test('code-defined detail form is read-only (no Update Workflow button)', async ({ page }) => {
+    await login(page, 'admin')
+
+    await page.goto(`/backend/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
+
+    await expect(
+      page.getByText('This workflow is defined in code. Customize it to make changes.'),
+    ).toBeVisible()
+
+    // The CrudForm suppresses its submit button in readOnly mode.
+    await expect(page.getByRole('button', { name: 'Update Workflow', exact: true })).toHaveCount(0)
+
+    // Customize is the only action available.
+    await expect(page.getByRole('button', { name: 'Customize', exact: true })).toBeVisible()
   })
 })

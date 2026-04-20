@@ -74,12 +74,6 @@ export default function EditWorkflowDefinitionPage() {
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
-  const [triggers, setTriggers] = React.useState<WorkflowDefinitionTrigger[]>([])
-
-  React.useEffect(() => {
-    setTriggers(initialValues?.triggers ?? [])
-  }, [initialValues])
-
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
 
