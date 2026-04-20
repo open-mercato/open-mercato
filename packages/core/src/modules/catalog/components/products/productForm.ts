@@ -134,14 +134,14 @@ const optionalBoundedIntegerInput = (min: number, max: number) =>
 
 export const productFormSchema = z
   .object({
-    title: z.string().trim().min(1, "catalog.product.validation.titleRequired"),
+    title: z.string().trim().min(1, "catalog.products.validation.titleRequired"),
     subtitle: z.string().optional(),
     handle: z
       .string()
       .trim()
       .regex(
         /^[a-z0-9\-_]*$/,
-        "catalog.product.validation.handleFormat",
+        "catalog.products.validation.handleFormat",
       )
       .max(150)
       .optional(),
@@ -150,7 +150,7 @@ export const productFormSchema = z
       .trim()
       .regex(
         /^[A-Za-z0-9\-_\.]*$/,
-        "catalog.product.validation.skuFormat",
+        "catalog.products.validation.skuFormat",
       )
       .max(191)
       .optional(),
