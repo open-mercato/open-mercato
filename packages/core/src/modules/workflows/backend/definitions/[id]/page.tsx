@@ -9,6 +9,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -89,20 +90,30 @@ export default function EditWorkflowDefinitionPage() {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || t('workflows.errors.updateFailed'))
-    }
-
-    const result = await response.json()
-    // If we just customized a code def, redirect to the new DB row
-    if (isCodeOnly && result.data?.id) {
-      router.push(`/backend/definitions/${result.data.id}`)
-      router.refresh()
-      return
+      const error = await readJsonSafe<{ error?: string }>(response, null)
+      throw new Error(error?.error || t('workflows.errors.updateFailed'))
     }
 
     router.push('/backend/definitions')
     router.refresh()
+  }
+
+  const handleCustomize = async () => {
+    const response = await apiFetch(`/api/workflows/definitions/${definitionId}/customize`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      const error = await readJsonSafe<{ error?: string }>(response, null)
+      flash(error?.error || t('workflows.errors.updateFailed'), 'error')
+      return
+    }
+
+    const result = await readJsonSafe<{ data?: { id?: string } }>(response, null)
+    if (result?.data?.id) {
+      router.push(`/backend/definitions/${result.data.id}`)
+      router.refresh()
+    }
   }
 
   const handleResetToCode = async () => {
@@ -119,9 +130,9 @@ export default function EditWorkflowDefinitionPage() {
     })
 
     if (response.ok) {
-      const result = await response.json()
+      const result = await readJsonSafe<{ data?: { id?: string } }>(response, null)
       flash(t('workflows.messages.updated'), 'success')
-      const codeId = result.data?.id || `code:${definition?.workflowId}`
+      const codeId = result?.data?.id || `code:${definition?.workflowId}`
       router.push(`/backend/definitions/${codeId}`)
       router.refresh()
     } else {
@@ -179,7 +190,7 @@ export default function EditWorkflowDefinitionPage() {
           <Alert variant="info" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code.readonlyBanner')}</span>
-              <Button variant="outline" size="sm" onClick={() => handleSubmit(initialValues!)}>
+              <Button variant="outline" size="sm" onClick={handleCustomize}>
                 {t('workflows.actions.customize')}
               </Button>
             </AlertDescription>
