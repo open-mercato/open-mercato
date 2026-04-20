@@ -14,7 +14,7 @@ import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
-import type { StorageDriverFactory } from '../../../lib/drivers';
+import { StorageDriverFactory } from '../../../lib/drivers';
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -34,7 +34,9 @@ export async function GET(
   const auth = await getAuthFromRequest(req);
   const { resolve } = await createRequestContainer();
   const em = resolve("em") as EntityManager;
-  const storageDriverFactory = resolve("storageDriverFactory") as StorageDriverFactory;
+  const storageDriverFactory =
+    (resolve("storageDriverFactory") as StorageDriverFactory | null) ??
+    new StorageDriverFactory(em);
 
   const attachment = await em.findOne(Attachment, { id });
   if (!attachment) {

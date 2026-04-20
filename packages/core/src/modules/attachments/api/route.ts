@@ -8,7 +8,7 @@ import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartition
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { extractAttachmentContent } from '../lib/textExtraction'
 import { requestOcrProcessing } from '../lib/ocrQueue'
-import type { StorageDriverFactory } from '../lib/drivers'
+import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import {
@@ -245,7 +245,8 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
-  const storageDriverFactory = resolve('storageDriverFactory') as StorageDriverFactory
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -475,7 +476,8 @@ export async function DELETE(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
-  const storageDriverFactory = resolve('storageDriverFactory') as StorageDriverFactory
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })

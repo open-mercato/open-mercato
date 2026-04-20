@@ -19,7 +19,7 @@ import {
   validateImageDimensions,
   validateImageMagicBytes,
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
-import type { StorageDriverFactory } from '../../../../lib/drivers'
+import { StorageDriverFactory } from '../../../../lib/drivers'
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -50,7 +50,8 @@ export async function GET(
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
-  const storageDriverFactory = resolve('storageDriverFactory') as StorageDriverFactory
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
 
   const attachment = await em.findOne(Attachment, {
     id,
