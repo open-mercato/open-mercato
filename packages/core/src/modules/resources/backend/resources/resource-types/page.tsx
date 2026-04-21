@@ -107,9 +107,11 @@ export default function ResourcesResourceTypesPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_SUBTEXT_CLASSNAME}>
-              {row.original.description}
-            </ReactMarkdown>
+            <div className={MARKDOWN_SUBTEXT_CLASSNAME}>
+              <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
+                {row.original.description}
+              </ReactMarkdown>
+            </div>
           ) : null}
         </div>
       ),
@@ -152,9 +154,11 @@ export default function ResourcesResourceTypesPage() {
       header: translations.table.description,
       meta: { priority: 5 },
       cell: ({ row }) => row.original.description ? (
-        <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_DESCRIPTION_CLASSNAME}>
-          {row.original.description}
-        </ReactMarkdown>
+        <div className={MARKDOWN_DESCRIPTION_CLASSNAME}>
+          <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
+            {row.original.description}
+          </ReactMarkdown>
+        </div>
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
       ),

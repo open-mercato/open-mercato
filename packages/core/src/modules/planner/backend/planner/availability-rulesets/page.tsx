@@ -149,9 +149,11 @@ export default function PlannerAvailabilityRuleSetsPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_SUBTEXT_CLASSNAME}>
-              {row.original.description}
-            </ReactMarkdown>
+            <div className={MARKDOWN_SUBTEXT_CLASSNAME}>
+              <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
+                {row.original.description}
+              </ReactMarkdown>
+            </div>
           ) : null}
         </div>
       ),

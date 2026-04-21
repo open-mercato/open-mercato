@@ -25,8 +25,8 @@ export function MarkdownContent({
   }
 
   return (
-    <ReactMarkdown className={className} remarkPlugins={plugins}>
-      {body}
-    </ReactMarkdown>
+    <div className={className}>
+      <ReactMarkdown remarkPlugins={plugins}>{body}</ReactMarkdown>
+    </div>
   )
 }
