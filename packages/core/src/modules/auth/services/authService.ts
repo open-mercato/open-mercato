@@ -21,7 +21,7 @@ export class AuthService {
 
   async findUsersByEmail(email: string) {
     const emailHash = computeEmailHash(email)
-    return this.em.find(User, {
+    return findWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
@@ -32,14 +32,20 @@ export class AuthService {
 
   async findUserByEmailAndTenant(email: string, tenantId: string) {
     const emailHash = computeEmailHash(email)
-    return this.em.findOne(User, {
-      tenantId,
-      deletedAt: null,
-      $or: [
-        { email },
-        { emailHash },
-      ],
-    } as any)
+    return findOneWithDecryption(
+      this.em,
+      User,
+      {
+        tenantId,
+        deletedAt: null,
+        $or: [
+          { email },
+          { emailHash },
+        ],
+      } as any,
+      undefined,
+      { tenantId },
+    )
   }
 
   async verifyPassword(user: User, password: string) {
