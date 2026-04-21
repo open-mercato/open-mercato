@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.4.10",
+  "version": "0.5.0",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
