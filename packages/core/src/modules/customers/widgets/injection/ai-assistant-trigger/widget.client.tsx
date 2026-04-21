@@ -212,7 +212,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
           className={cn(
             'sm:max-w-xl sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
             'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-l-2xl',
-            'flex flex-col gap-3 p-4',
+            'flex flex-col gap-3 p-4 z-[70]',
           )}
           data-ai-customers-inject-sheet=""
         >
