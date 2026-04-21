@@ -4,14 +4,16 @@ import type { Knex } from 'knex'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
-import { MessageObject } from '../data/entities'
+import { Message, MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema } from '../data/validators'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageSchema as composeSchema,
@@ -24,29 +26,18 @@ type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
   threadId: string
 }
 
+const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
+
 function getKnex(em: EntityManager): Knex {
   return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 }
 
-type MessageListRow = {
+type MessageListScopeRow = {
   id: string
-  type: string
-  visibility: 'public' | 'internal' | null
-  source_entity_type: string | null
-  source_entity_id: string | null
-  external_email: string | null
-  external_name: string | null
-  subject: string
-  body: string
   sender_user_id: string
-  priority: string
-  recipient_status: string | null
   is_draft: boolean
-  action_data: { actions?: unknown[] } | null
-  action_taken: string | null
-  sent_at: string | null
+  recipient_status: string | null
   read_at: string | null
-  thread_id: string | null
 }
 
 type AttachmentCountRow = {
@@ -149,7 +140,7 @@ export async function GET(req: Request) {
   }
 
   if (input.externalEmail) {
-    query = query.whereILike('m.external_email', `%${input.externalEmail}%`)
+    query = query.where('m.external_email_hash', hashForLookup(input.externalEmail))
   }
 
   if (input.senderId) {
@@ -157,9 +148,17 @@ export async function GET(req: Request) {
   }
 
   if (input.search) {
-    query = query.where(function () {
-      this.whereILike('m.subject', `%${input.search}%`).orWhereILike('m.body', `%${input.search}%`)
+    const matchedIds = await findMessageIdsBySearchTokens({
+      em,
+      query: input.search,
+      tenantId: scope.tenantId ?? null,
+      organizationId: scope.organizationId,
     })
+    if (matchedIds === null || matchedIds.length === 0) {
+      query = query.where('m.id', NO_MATCH_ID)
+    } else {
+      query = query.whereIn('m.id', matchedIds)
+    }
   }
 
   if (input.since) {
@@ -187,14 +186,36 @@ export async function GET(req: Request) {
   const total = Number(countResult?.count ?? 0)
 
   const offset = (input.page - 1) * input.pageSize
-  const messages = await query
-    .select('m.*', 'r.status as recipient_status', 'r.read_at')
+  const scopeRows = await query
+    .select(
+      'm.id',
+      'm.sender_user_id',
+      'm.is_draft',
+      'r.status as recipient_status',
+      'r.read_at',
+    )
     .orderBy('m.sent_at', 'desc')
     .offset(offset)
     .limit(input.pageSize)
 
-  const typedMessages = messages as MessageListRow[]
-  const messageIds = typedMessages.map((message) => message.id)
+  const typedRows = scopeRows as MessageListScopeRow[]
+  const messageIds = typedRows.map((row) => row.id)
+
+  const messageEntities = messageIds.length > 0
+    ? await findWithDecryption(
+        em,
+        Message,
+        { id: { $in: messageIds } },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      )
+    : []
+
+  const messagesById = new Map<string, Message>()
+  for (const message of messageEntities) {
+    messagesById.set(message.id, message)
+  }
+
   const objects = messageIds.length > 0
     ? await em.find(MessageObject, { messageId: { $in: messageIds } })
     : []
@@ -233,7 +254,7 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
-  const senderUserIds = Array.from(new Set(typedMessages.map((message) => message.sender_user_id).filter(Boolean)))
+  const senderUserIds = Array.from(new Set(typedRows.map((row) => row.sender_user_id).filter(Boolean)))
   const senderUsers = senderUserIds.length > 0
     ? await findWithDecryption(
         em,
@@ -251,39 +272,48 @@ export async function GET(req: Request) {
   })
 
   return Response.json({
-    items: typedMessages.map((message) => ({
-      ...(senderMetaById.get(message.sender_user_id)
-        ? {
-            senderName: senderMetaById.get(message.sender_user_id)?.name ?? null,
-            senderEmail: senderMetaById.get(message.sender_user_id)?.email ?? null,
-          }
-        : { senderName: null, senderEmail: null }),
-      id: message.id,
-      type: message.type,
-      visibility: message.visibility,
-      sourceEntityType: message.source_entity_type,
-      sourceEntityId: message.source_entity_id,
-      externalEmail: message.external_email,
-      externalName: message.external_name,
-      subject: message.subject,
-      bodyPreview: message.body.substring(0, 150) + (message.body.length > 150 ? '...' : ''),
-      senderUserId: message.sender_user_id,
-      priority: message.priority,
-      status: message.recipient_status ?? (message.is_draft ? 'draft' : 'sent'),
-      hasObjects: (objectsByMessage[message.id] || []).length > 0,
-      objectCount: (objectsByMessage[message.id] || []).length,
-      hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
-      attachmentCount: attachmentCountByMessage[message.id] || 0,
-      recipientCount: recipientCountByMessage[message.id] || 0,
-      hasActions:
-        Boolean(message.action_data?.actions?.length)
-        || Boolean(getMessageType(message.type)?.defaultActions?.length)
-        || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
-      actionTaken: message.action_taken,
-      sentAt: message.sent_at,
-      readAt: message.read_at,
-      threadId: message.thread_id,
-    })),
+    items: typedRows
+      .map((row) => {
+        const message = messagesById.get(row.id)
+        if (!message) return null
+        const body = typeof message.body === 'string' ? message.body : ''
+        const bodyPreview = body.substring(0, 150) + (body.length > 150 ? '...' : '')
+        const actionData = message.actionData ?? null
+        return {
+          ...(senderMetaById.get(row.sender_user_id)
+            ? {
+                senderName: senderMetaById.get(row.sender_user_id)?.name ?? null,
+                senderEmail: senderMetaById.get(row.sender_user_id)?.email ?? null,
+              }
+            : { senderName: null, senderEmail: null }),
+          id: message.id,
+          type: message.type,
+          visibility: message.visibility ?? null,
+          sourceEntityType: message.sourceEntityType ?? null,
+          sourceEntityId: message.sourceEntityId ?? null,
+          externalEmail: message.externalEmail ?? null,
+          externalName: message.externalName ?? null,
+          subject: message.subject,
+          bodyPreview,
+          senderUserId: message.senderUserId,
+          priority: message.priority,
+          status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          hasObjects: (objectsByMessage[message.id] || []).length > 0,
+          objectCount: (objectsByMessage[message.id] || []).length,
+          hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
+          attachmentCount: attachmentCountByMessage[message.id] || 0,
+          recipientCount: recipientCountByMessage[message.id] || 0,
+          hasActions:
+            Boolean(actionData?.actions?.length)
+            || Boolean(getMessageType(message.type)?.defaultActions?.length)
+            || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
+          actionTaken: message.actionTaken ?? null,
+          sentAt: message.sentAt ? message.sentAt.toISOString() : null,
+          readAt: row.read_at,
+          threadId: message.threadId ?? null,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
     page: input.page,
     pageSize: input.pageSize,
     total,

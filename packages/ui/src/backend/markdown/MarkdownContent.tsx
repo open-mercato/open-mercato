@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import ReactMarkdown from 'react-markdown'
 import type { PluggableList } from 'unified'
 import { useMarkdownRemarkPlugins } from './useMarkdownRemarkPlugins'
+
+const ReactMarkdown = React.lazy(() => import('react-markdown'))
 
 export type MarkdownContentProps = {
   body: string
@@ -12,21 +13,28 @@ export type MarkdownContentProps = {
   remarkPlugins?: PluggableList
 }
 
+const EMPTY_PLUGINS: PluggableList = []
+
 export function MarkdownContent({
   body,
   format = 'text',
   className,
   remarkPlugins,
 }: MarkdownContentProps) {
-  const plugins = useMarkdownRemarkPlugins(remarkPlugins)
+  const shouldRenderMarkdown = format === 'markdown'
+  const plugins = useMarkdownRemarkPlugins(
+    shouldRenderMarkdown ? remarkPlugins : EMPTY_PLUGINS,
+  )
 
-  if (format !== 'markdown') {
+  if (!shouldRenderMarkdown) {
     return <div className={className}>{body}</div>
   }
 
   return (
-    <div className={className}>
-      <ReactMarkdown remarkPlugins={plugins}>{body}</ReactMarkdown>
-    </div>
+    <React.Suspense fallback={<div className={className}>{body}</div>}>
+      <div className={className}>
+        <ReactMarkdown remarkPlugins={plugins}>{body}</ReactMarkdown>
+      </div>
+    </React.Suspense>
   )
 }

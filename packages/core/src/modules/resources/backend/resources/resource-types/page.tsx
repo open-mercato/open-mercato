@@ -4,10 +4,8 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import type { PluggableList } from 'unified'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -22,11 +20,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
-const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]
-const MARKDOWN_DESCRIPTION_CLASSNAME =
-  'text-sm text-foreground [&>p]:m-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5'
-const MARKDOWN_SUBTEXT_CLASSNAME =
-  'text-xs text-muted-foreground [&>p]:m-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5'
+const DESCRIPTION_CLASSNAME = 'line-clamp-3 whitespace-pre-line text-sm text-foreground'
+const SUBTEXT_CLASSNAME = 'line-clamp-2 text-xs text-muted-foreground'
 
 type ResourceTypeRow = {
   id: string
@@ -107,11 +102,9 @@ export default function ResourcesResourceTypesPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <div className={MARKDOWN_SUBTEXT_CLASSNAME}>
-              <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
-                {row.original.description}
-              </ReactMarkdown>
-            </div>
+            <span className={SUBTEXT_CLASSNAME}>
+              {markdownToPlainText(row.original.description)}
+            </span>
           ) : null}
         </div>
       ),
@@ -154,11 +147,9 @@ export default function ResourcesResourceTypesPage() {
       header: translations.table.description,
       meta: { priority: 5 },
       cell: ({ row }) => row.original.description ? (
-        <div className={MARKDOWN_DESCRIPTION_CLASSNAME}>
-          <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
-            {row.original.description}
-          </ReactMarkdown>
-        </div>
+        <span className={DESCRIPTION_CLASSNAME}>
+          {markdownToPlainText(row.original.description)}
+        </span>
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
       ),

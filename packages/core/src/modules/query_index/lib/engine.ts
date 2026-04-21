@@ -233,6 +233,13 @@ export class HybridQueryEngine implements QueryEngine {
         return await applyAfterExtensions(fallbackResult)
       }
 
+      if (opts.omitAutomaticTenantOrgScope === true) {
+        if (debugEnabled) this.debug('query:fallback:omit-automatic-scope', { entity })
+        const fallbackResult = await this.fallback.query(entity, opts)
+        finishProfile({ result: 'fallback', reason: 'omit_automatic_tenant_org_scope' })
+        return await applyAfterExtensions(fallbackResult)
+      }
+
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       const coverageScope = this.resolveCoverageSnapshotScope(opts)

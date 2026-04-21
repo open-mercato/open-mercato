@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import { Message, MessageRecipient } from '../data/entities'
 
@@ -57,7 +57,8 @@ export async function buildForwardThreadSlice(
   scope: MessageScope,
   selectedMessage: Message,
 ): Promise<ForwardMessageBlock[]> {
-  const threadMessages = await em.find(
+  const decryptedThreadMessages = await findWithDecryption(
+    em,
     Message,
     {
       threadId: selectedMessage.threadId ?? selectedMessage.id,
@@ -73,20 +74,27 @@ export async function buildForwardThreadSlice(
         id: 'ASC',
       },
     },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
 
-  const messagesById = new Map(threadMessages.map((item) => [item.id, item]))
+  const messagesById = new Map(decryptedThreadMessages.map((item) => [item.id, item]))
   messagesById.set(selectedMessage.id, selectedMessage)
 
   const threadRootId = selectedMessage.threadId ?? null
   if (threadRootId && !messagesById.has(threadRootId)) {
-    const threadRoot = await em.findOne(Message, {
-      id: threadRootId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      deletedAt: null,
-      isDraft: false,
-    })
+    const threadRoot = await findOneWithDecryption(
+      em,
+      Message,
+      {
+        id: threadRootId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+        isDraft: false,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
     if (threadRoot) {
       messagesById.set(threadRoot.id, threadRoot)
     }
@@ -94,13 +102,19 @@ export async function buildForwardThreadSlice(
 
   let parentMessageId = selectedMessage.parentMessageId ?? null
   while (parentMessageId) {
-    const parentMessage = await em.findOne(Message, {
-      id: parentMessageId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      deletedAt: null,
-      isDraft: false,
-    })
+    const parentMessage = await findOneWithDecryption(
+      em,
+      Message,
+      {
+        id: parentMessageId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+        isDraft: false,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
     if (!parentMessage) break
     messagesById.set(parentMessage.id, parentMessage)
     parentMessageId = parentMessage.parentMessageId ?? null
