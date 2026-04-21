@@ -39,5 +39,9 @@ module.exports = {
   setupFiles: ['<rootDir>/../../jest.setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/../../jest.dom.setup.ts'],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
+  transformIgnorePatterns: [
+    '/node_modules/(?!meilisearch)/',
+    '\\.pnp\\.[^\\/]+$',
+  ],
   passWithNoTests: true,
 }
