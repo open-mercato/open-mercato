@@ -744,8 +744,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
 
     React.useEffect(() => {
       const current = typeof value === 'string' ? value.trim() : ''
-      const wasAuto = autoValueRef.current && current === autoValueRef.current
-      if (!current.length || (wasAuto && lastKindRef.current && lastKindRef.current !== kind)) {
+      if (!current.length && !lastKindRef.current) {
         void requestNumber()
       } else {
         lastKindRef.current = kind

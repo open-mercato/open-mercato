@@ -3,12 +3,17 @@ import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/d
 
 const resolveMessageContextMock = jest.fn()
 const buildForwardPreviewMock = jest.fn()
+const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   hasOrganizationAccess: (scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined) => (
     scopeOrganizationId ? messageOrganizationId === scopeOrganizationId : messageOrganizationId == null
   ),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/forwarding', () => ({
@@ -47,10 +52,12 @@ describe('messages /api/messages/[id]/forward-preview', () => {
       subject: 'Fwd: Subject',
       body: 'forward-body',
     })
+
+    findOneWithDecryptionMock.mockReset()
   })
 
   it('returns preview for sender with 200', async () => {
-    em.findOne
+    findOneWithDecryptionMock
       .mockResolvedValueOnce({
         id: 'message-1',
         tenantId: 'tenant-1',
@@ -69,7 +76,7 @@ describe('messages /api/messages/[id]/forward-preview', () => {
   })
 
   it('returns 404 when message is missing', async () => {
-    em.findOne.mockResolvedValueOnce(null)
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
 
     const response = await GET(new Request('http://localhost'), { params: { id: 'missing' } })
 
@@ -78,14 +85,14 @@ describe('messages /api/messages/[id]/forward-preview', () => {
   })
 
   it('returns 403 when actor has no access to message', async () => {
-    em.findOne
+    findOneWithDecryptionMock
       .mockResolvedValueOnce({
         id: 'message-1',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
         senderUserId: 'user-2',
       })
-      .mockResolvedValueOnce(null)
+    em.findOne.mockResolvedValueOnce(null)
 
     const response = await GET(new Request('http://localhost'), { params: { id: 'message-1' } })
 
@@ -99,7 +106,7 @@ describe('messages /api/messages/[id]/forward-preview', () => {
   })
 
   it('returns 413 when generated preview exceeds length limit', async () => {
-    em.findOne.mockResolvedValueOnce({
+    findOneWithDecryptionMock.mockResolvedValueOnce({
       id: 'message-1',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -114,14 +121,14 @@ describe('messages /api/messages/[id]/forward-preview', () => {
   })
 
   it('checks recipient access when actor is not sender', async () => {
-    em.findOne
+    findOneWithDecryptionMock
       .mockResolvedValueOnce({
         id: 'message-1',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
         senderUserId: 'user-2',
       })
-      .mockResolvedValueOnce({
+    em.findOne.mockResolvedValueOnce({
         id: 'recipient-1',
         messageId: 'message-1',
         recipientUserId: 'user-1',
@@ -134,12 +141,21 @@ describe('messages /api/messages/[id]/forward-preview', () => {
       subject: 'Fwd: Subject',
       body: 'forward-body',
     })
-    expect(em.findOne).toHaveBeenNthCalledWith(1, Message, {
-      id: 'message-1',
-      tenantId: 'tenant-1',
-      deletedAt: null,
-    })
-    expect(em.findOne).toHaveBeenNthCalledWith(2, MessageRecipient, {
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      Message,
+      {
+        id: 'message-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+      },
+      undefined,
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+    )
+    expect(em.findOne).toHaveBeenCalledWith(MessageRecipient, {
       messageId: 'message-1',
       recipientUserId: 'user-1',
       deletedAt: null,

@@ -150,13 +150,28 @@ export async function PUT(
       )
     }
 
-    // Update fields
+    // Update fields. workflowId and version are intentionally ignored —
+    // they identify the row and bumping versions is handled elsewhere.
+    if (input.workflowName !== undefined) {
+      definition.workflowName = input.workflowName
+    }
+    if (input.description !== undefined) {
+      definition.description = input.description
+    }
     if (input.definition !== undefined) {
       definition.definition = input.definition
     }
-
+    if (input.metadata !== undefined) {
+      definition.metadata = input.metadata
+    }
     if (input.enabled !== undefined) {
       definition.enabled = input.enabled
+    }
+    if (input.effectiveFrom !== undefined) {
+      definition.effectiveFrom = input.effectiveFrom
+    }
+    if (input.effectiveTo !== undefined) {
+      definition.effectiveTo = input.effectiveTo
     }
 
     definition.updatedAt = new Date()

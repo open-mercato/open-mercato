@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useMessageDetailsQueries } from './useMessageDetailsQueries'
 import { useMessageDetailsActions } from './useMessageDetailsActions'
 import { useMessageDetailsConversation } from './useMessageDetailsConversation'
@@ -21,6 +22,33 @@ export function useMessageDetails(id: string) {
     scopeVersion,
     queryClient,
   })
+
+  const invalidateDetailQueries = React.useCallback(
+    (payload: Record<string, unknown>) => {
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'detail', id] })
+      const messageId = typeof payload.messageId === 'string' ? payload.messageId : null
+      if (messageId && messageId !== id) {
+        void queryClient.invalidateQueries({ queryKey: ['messages', 'detail', messageId] })
+      }
+    },
+    [id, queryClient],
+  )
+
+  useAppEvent(
+    'messages.message.*',
+    (evt) => {
+      invalidateDetailQueries((evt.payload ?? {}) as Record<string, unknown>)
+    },
+    [invalidateDetailQueries],
+  )
+
+  useAppEvent(
+    'om:bridge:reconnected',
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'detail', id] })
+    },
+    [id, queryClient],
+  )
 
   const isArchived = (queryState.detail?.recipients ?? []).some((item) => item.status === 'archived')
 
