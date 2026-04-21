@@ -7,6 +7,15 @@ export const CUSTOMER_JWT_AUDIENCE = 'customer'
 const CUSTOMER_JWT_TTL_SECONDS = 60 * 60 * 8
 
 const DEFAULT_SESSION_TTL_DAYS = 30
+const DEFAULT_MAX_SESSIONS_PER_USER = 5
+
+function resolveMaxSessionsPerUser(): number {
+  const raw = process.env.MAX_CUSTOMER_SESSIONS_PER_USER
+  if (!raw) return DEFAULT_MAX_SESSIONS_PER_USER
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_SESSIONS_PER_USER
+  return Math.floor(parsed)
+}
 
 export class CustomerSessionService {
   constructor(private em: EntityManager) {}
@@ -21,6 +30,8 @@ export class CustomerSessionService {
     const tokenHash = hashToken(rawToken)
     const days = Number(process.env.CUSTOMER_SESSION_TTL_DAYS || DEFAULT_SESSION_TTL_DAYS)
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+
+    await this.enforceSessionCap(user.id)
 
     const session = this.em.create(CustomerUserSession, {
       user,
@@ -96,6 +107,27 @@ export class CustomerSessionService {
 
   async revokeSession(sessionId: string): Promise<void> {
     await this.em.nativeUpdate(CustomerUserSession, { id: sessionId }, { deletedAt: new Date() })
+  }
+
+  private async enforceSessionCap(userId: string): Promise<void> {
+    const cap = resolveMaxSessionsPerUser()
+    const existing = await this.em.find(
+      CustomerUserSession,
+      {
+        user: userId as any,
+        deletedAt: null,
+        expiresAt: { $gt: new Date() },
+      },
+      { orderBy: { createdAt: 'asc' } },
+    )
+    const toRevoke = existing.length - (cap - 1)
+    if (toRevoke <= 0) return
+    const oldestIds = existing.slice(0, toRevoke).map((s) => s.id)
+    await this.em.nativeUpdate(
+      CustomerUserSession,
+      { id: { $in: oldestIds } },
+      { deletedAt: new Date() },
+    )
   }
 
   async revokeAllUserSessions(userId: string): Promise<void> {
