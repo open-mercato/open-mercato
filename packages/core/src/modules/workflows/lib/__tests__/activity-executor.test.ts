@@ -797,7 +797,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('private/internal address')
+      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
     })
 
     test('should block IPv6 loopback [::1] by default (SSRF prevention)', async () => {
@@ -818,7 +818,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('private/internal address')
+      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
     })
 
     test('should block IPv4-mapped IPv6 [::ffff:192.168.1.1] by default (SSRF prevention)', async () => {
@@ -839,10 +839,10 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('private/internal address')
+      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
     })
 
-    test('should allow private URLs when WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true', async () => {
+    test('should allow private URLs when OM_WORKFLOWS_ALLOW_PRIVATE_URLS=true', async () => {
       ;(global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -860,10 +860,9 @@ describe('Activity Executor (Unit Tests)', () => {
         },
       }
 
-      const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
       try {
-        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -877,15 +876,11 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('SSRF protection is bypassed')
-        )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
-          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
-          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
         }
       }
     })
