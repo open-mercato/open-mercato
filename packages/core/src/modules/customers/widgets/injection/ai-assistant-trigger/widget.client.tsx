@@ -20,8 +20,8 @@
  */
 
 import * as React from 'react'
-import { Sparkles } from 'lucide-react'
-import { AiChat } from '@open-mercato/ui/ai/AiChat'
+import { Building2, Handshake, Search, Sparkles, Users } from 'lucide-react'
+import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -101,6 +101,77 @@ function buildPageContext(context: HostInjectionContext | undefined): CustomersA
   }
 }
 
+function useCustomerSuggestions(hasSelection: boolean, selectedCount: number): AiChatSuggestion[] {
+  const t = useT()
+  return React.useMemo(() => {
+    if (hasSelection) {
+      return [
+        {
+          label: t('customers.ai_assistant.suggestions.summarizeSelected', 'Summarize selected contacts'),
+          prompt: `Give me a summary of my ${selectedCount} selected contacts — key details and recent activity`,
+          icon: <Users className="size-4" />,
+        },
+        {
+          label: t('customers.ai_assistant.suggestions.findDeals', 'Show deals for selected people'),
+          prompt: `Show me all deals associated with my ${selectedCount} selected contacts`,
+          icon: <Handshake className="size-4" />,
+        },
+        {
+          label: t('customers.ai_assistant.suggestions.findCompanies', 'Find related companies'),
+          prompt: `Find companies related to my ${selectedCount} selected contacts`,
+          icon: <Building2 className="size-4" />,
+        },
+      ]
+    }
+    return [
+      {
+        label: t('customers.ai_assistant.suggestions.searchPeople', 'Search for a contact'),
+        prompt: 'Search for contacts by name, email, or company',
+        icon: <Search className="size-4" />,
+      },
+      {
+        label: t('customers.ai_assistant.suggestions.recentDeals', 'Show recent deals'),
+        prompt: 'Show me the most recent deals and their current stages',
+        icon: <Handshake className="size-4" />,
+      },
+      {
+        label: t('customers.ai_assistant.suggestions.topCompanies', 'List top companies'),
+        prompt: 'List companies with the most associated contacts and deals',
+        icon: <Building2 className="size-4" />,
+      },
+      {
+        label: t('customers.ai_assistant.suggestions.activityOverview', 'Activity overview'),
+        prompt: 'Give me an overview of recent customer activities and interactions',
+        icon: <Users className="size-4" />,
+      },
+    ]
+  }, [hasSelection, selectedCount, t])
+}
+
+function useCustomerContextItems(pageContext: CustomersAiInjectPageContext): AiChatContextItem[] {
+  const t = useT()
+  return React.useMemo(() => {
+    const items: AiChatContextItem[] = []
+    const { selectedCount, totalMatching } = pageContext.extra
+    if (selectedCount > 0) {
+      items.push({
+        label: t('customers.ai_assistant.context.selectedPeople', '{count} contacts selected').replace(
+          '{count}',
+          String(selectedCount),
+        ),
+      })
+    } else if (totalMatching > 0) {
+      items.push({
+        label: t('customers.ai_assistant.context.matchingPeople', '{count} contacts in view').replace(
+          '{count}',
+          String(totalMatching),
+        ),
+      })
+    }
+    return items
+  }, [pageContext, t])
+}
+
 export default function AiAssistantTriggerWidget({ context }: AiAssistantTriggerProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -108,6 +179,8 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
 
   const selectedCount = pageContext.extra.selectedCount
   const hasSelection = selectedCount > 0
+  const suggestions = useCustomerSuggestions(hasSelection, selectedCount)
+  const contextItems = useCustomerContextItems(pageContext)
 
   const handleClick = React.useCallback(() => {
     setOpen(true)
@@ -128,6 +201,11 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
       >
         <Sparkles className="size-4" aria-hidden />
         <span>{t('customers.ai_assistant.trigger.label', 'Ask AI')}</span>
+        {hasSelection ? (
+          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+            {selectedCount}
+          </span>
+        ) : null}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
@@ -157,10 +235,15 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
               ) : null}
             </div>
             <DialogDescription>
-              {t(
-                'customers.ai_assistant.sheet.description',
-                'Read-only assistant. Ask about people, companies, deals, and activities scoped to this list.',
-              )}
+              {hasSelection
+                ? t(
+                    'customers.ai_assistant.sheet.descriptionWithSelection',
+                    'Working with {count} selected contacts. Ask about their details, deals, companies, and activities.',
+                  ).replace('{count}', String(selectedCount))
+                : t(
+                    'customers.ai_assistant.sheet.description',
+                    'Your CRM assistant. Ask about people, companies, deals, and activities.',
+                  )}
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1" data-ai-customers-inject-chat-container="">
@@ -172,6 +255,20 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
                 'customers.ai_assistant.sheet.composerPlaceholder',
                 'Ask about people, companies, deals...',
               )}
+              suggestions={suggestions}
+              contextItems={contextItems}
+              welcomeTitle={t('customers.ai_assistant.sheet.welcomeTitle', 'CRM Assistant')}
+              welcomeDescription={
+                hasSelection
+                  ? t(
+                      'customers.ai_assistant.sheet.welcomeDescriptionSelection',
+                      'Ready to explore your {count} selected contacts:',
+                    ).replace('{count}', String(selectedCount))
+                  : t(
+                      'customers.ai_assistant.sheet.welcomeDescriptionAll',
+                      'Ask me anything about your customers, companies, and deals:',
+                    )
+              }
             />
           </div>
         </DialogContent>

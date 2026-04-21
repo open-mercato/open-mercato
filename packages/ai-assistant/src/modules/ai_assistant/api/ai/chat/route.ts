@@ -21,9 +21,9 @@ const chatMessageSchema = z.object({
 
 const pageContextSchema = z
   .object({
-    pageId: z.string().optional(),
-    entityType: z.string().optional(),
-    recordId: z.string().optional(),
+    pageId: z.string().nullable().optional(),
+    entityType: z.string().nullable().optional(),
+    recordId: z.string().nullable().optional(),
   })
   .passthrough()
 

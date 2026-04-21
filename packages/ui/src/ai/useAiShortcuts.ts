@@ -9,16 +9,16 @@ import * as React from 'react'
  * settings page so every surface honours the same shortcuts without each
  * page rolling its own listener.
  *
- * - `onSubmit` fires on `Cmd+Enter` or `Ctrl+Enter` when the shortcut is
- *   triggered while focus is inside the bound element.
+ * - `onSubmit` fires on `Enter` (without `Shift`) when the shortcut is
+ *   triggered while focus is inside the bound element. `Shift+Enter` is
+ *   left to the browser for native newline insertion.
  * - `onCancel` fires on `Escape`. Callers decide what cancel means (abort an
  *   in-flight stream, blur the composer, close a drawer, reset a draft).
  * - `enabled` gates the hook for conditional bindings without unmounting.
  *
  * The hook is deliberately minimal. It never stops propagation; callers that
  * embed modal dialogs keep their own Escape handling because React events
- * bubble predictably. It also does NOT swallow plain `Enter` — the AI
- * composer textareas keep the native newline behavior.
+ * bubble predictably.
  */
 export interface UseAiShortcutsOptions {
   onSubmit?: () => void
@@ -49,8 +49,8 @@ export function useAiShortcuts(options: UseAiShortcutsOptions): UseAiShortcutsRe
   const handleKeyDown = React.useCallback<UseAiShortcutsResult['handleKeyDown']>(
     (event) => {
       if (!enabled) return false
-      // Cmd/Ctrl+Enter — primary submit.
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      // Enter — primary submit. Shift+Enter inserts a newline instead.
+      if (event.key === 'Enter' && !event.shiftKey) {
         if (onSubmitRef.current) {
           event.preventDefault()
           onSubmitRef.current()

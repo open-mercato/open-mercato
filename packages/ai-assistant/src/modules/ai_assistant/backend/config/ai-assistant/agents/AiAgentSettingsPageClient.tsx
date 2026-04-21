@@ -1126,9 +1126,19 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
               }
               overrideText={overrideDrafts[sectionId]}
               override={overrideFlags[sectionId]}
-              onToggleOverride={(next) =>
+              onToggleOverride={(next) => {
                 setOverrideFlags((prev) => ({ ...prev, [sectionId]: next }))
-              }
+                if (next) {
+                  setOverrideDrafts((prev) => {
+                    if (prev[sectionId]) return prev
+                    const defaultText =
+                      sectionId === 'role'
+                        ? agent.systemPrompt
+                        : ''
+                    return { ...prev, [sectionId]: defaultText }
+                  })
+                }
+              }}
               onOverrideChange={(next) =>
                 setOverrideDrafts((prev) => ({ ...prev, [sectionId]: next }))
               }

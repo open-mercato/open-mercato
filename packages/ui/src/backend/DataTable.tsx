@@ -1008,7 +1008,7 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId])
   const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
-  const resolvedInjectionContext = React.useMemo(
+  const baseInjectionContext = React.useMemo(
     () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
     [injectionContext, perspective?.tableId, title]
   )
@@ -1295,6 +1295,15 @@ export function DataTable<T>({
     if (Object.keys(rowSelection).length === 0) return
     setRowSelection({})
   }, [hasInjectedBulkActions, rowSelection])
+  const resolvedInjectionContext = React.useMemo(
+    () => {
+      if (!hasInjectedBulkActions) return baseInjectionContext
+      const selectedIds = Object.keys(rowSelection).filter((key) => rowSelection[key])
+      if (selectedIds.length === 0) return baseInjectionContext
+      return { ...baseInjectionContext, _selectedRowIds: selectedIds, _selectedCount: selectedIds.length }
+    },
+    [baseInjectionContext, hasInjectedBulkActions, rowSelection],
+  )
   React.useEffect(() => {
     const ids = table.getAllLeafColumns().map((column) => column.id)
     if (!ids.length) return

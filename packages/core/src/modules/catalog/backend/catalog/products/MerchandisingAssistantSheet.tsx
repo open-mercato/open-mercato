@@ -31,8 +31,8 @@
  */
 
 import * as React from 'react'
-import { Sparkles } from 'lucide-react'
-import { AiChat } from '@open-mercato/ui/ai/AiChat'
+import { FileText, Package, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
+import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -72,6 +72,126 @@ export interface MerchandisingAssistantSheetProps {
 
 export const MERCHANDISING_AGENT_ID = 'catalog.merchandising_assistant'
 
+function useMerchandisingSuggestions(
+  hasSelection: boolean,
+  selectedCount: number,
+): AiChatSuggestion[] {
+  const t = useT()
+  return React.useMemo(() => {
+    if (hasSelection) {
+      return [
+        {
+          label: t(
+            'catalog.merchandising_assistant.suggestions.draftDescriptions',
+            'Draft product descriptions for selected items',
+          ),
+          prompt: `Draft compelling product descriptions for my ${selectedCount} selected products`,
+          icon: <PenLine className="size-4" />,
+        },
+        {
+          label: t(
+            'catalog.merchandising_assistant.suggestions.extractAttributes',
+            'Extract attributes from descriptions',
+          ),
+          prompt: `Extract structured attributes from the descriptions of my ${selectedCount} selected products`,
+          icon: <Tags className="size-4" />,
+        },
+        {
+          label: t(
+            'catalog.merchandising_assistant.suggestions.titleVariants',
+            'Generate title variants for SEO',
+          ),
+          prompt: `Generate SEO-optimized title variants for my ${selectedCount} selected products`,
+          icon: <FileText className="size-4" />,
+        },
+        {
+          label: t(
+            'catalog.merchandising_assistant.suggestions.priceAdjustments',
+            'Suggest price adjustments',
+          ),
+          prompt: `Analyze and suggest price adjustments for my ${selectedCount} selected products`,
+          icon: <TrendingUp className="size-4" />,
+        },
+      ]
+    }
+    return [
+      {
+        label: t(
+          'catalog.merchandising_assistant.suggestions.browseProducts',
+          'Show me an overview of my product catalog',
+        ),
+        prompt: 'Give me an overview of my product catalog — categories, total products, and pricing ranges',
+        icon: <Package className="size-4" />,
+      },
+      {
+        label: t(
+          'catalog.merchandising_assistant.suggestions.findMissingDescriptions',
+          'Find products with missing descriptions',
+        ),
+        prompt: 'Find products that are missing descriptions or have very short descriptions',
+        icon: <PenLine className="size-4" />,
+      },
+      {
+        label: t(
+          'catalog.merchandising_assistant.suggestions.analyzeAttributes',
+          'Analyze attribute coverage',
+        ),
+        prompt: 'Analyze which products have incomplete attribute data',
+        icon: <Tags className="size-4" />,
+      },
+      {
+        label: t(
+          'catalog.merchandising_assistant.suggestions.pricingOverview',
+          'Show pricing distribution',
+        ),
+        prompt: 'Show me the pricing distribution across categories',
+        icon: <TrendingUp className="size-4" />,
+      },
+    ]
+  }, [hasSelection, selectedCount, t])
+}
+
+function useContextItems(pageContext: MerchandisingPageContext): AiChatContextItem[] {
+  const t = useT()
+  return React.useMemo(() => {
+    const items: AiChatContextItem[] = []
+    const { selectedCount, totalMatching, filter } = pageContext.extra
+    if (selectedCount > 0) {
+      items.push({
+        label: t(
+          'catalog.merchandising_assistant.context.selectedProducts',
+          '{count} products selected',
+        ).replace('{count}', String(selectedCount)),
+      })
+    } else if (totalMatching > 0) {
+      items.push({
+        label: t(
+          'catalog.merchandising_assistant.context.matchingProducts',
+          '{count} products in view',
+        ).replace('{count}', String(totalMatching)),
+      })
+    }
+    if (filter.categoryId) {
+      items.push({
+        label: t('catalog.merchandising_assistant.context.filteredByCategory', 'Filtered by category'),
+        detail: filter.categoryId,
+      })
+    }
+    if (filter.status) {
+      items.push({ label: filter.status })
+    }
+    if (filter.tags.length > 0) {
+      items.push({
+        label: t('catalog.merchandising_assistant.context.tags', '{count} tags').replace(
+          '{count}',
+          String(filter.tags.length),
+        ),
+      })
+    }
+    return items
+  }, [pageContext, t])
+}
+
 export function MerchandisingAssistantSheet({
   pageContext,
   enabled = true,
@@ -83,6 +203,8 @@ export function MerchandisingAssistantSheet({
 
   const selectedCount = pageContext.extra.selectedCount
   const hasSelection = selectedCount > 0
+  const suggestions = useMerchandisingSuggestions(hasSelection, selectedCount)
+  const contextItems = useContextItems(pageContext)
 
   return (
     <>
@@ -100,6 +222,11 @@ export function MerchandisingAssistantSheet({
       >
         <Sparkles className="size-4" aria-hidden />
         <span>{t('catalog.merchandising_assistant.trigger.label', 'AI Merchandising')}</span>
+        {hasSelection ? (
+          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+            {selectedCount}
+          </span>
+        ) : null}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
@@ -129,10 +256,15 @@ export function MerchandisingAssistantSheet({
               ) : null}
             </div>
             <DialogDescription>
-              {t(
-                'catalog.merchandising_assistant.sheet.description',
-                'Read-only demo. Proposes descriptions, attributes, titles, and price adjustments for the current selection. No writes are applied in this phase.',
-              )}
+              {hasSelection
+                ? t(
+                    'catalog.merchandising_assistant.sheet.descriptionWithSelection',
+                    'Working with {count} selected products. Ask for descriptions, attribute extraction, title suggestions, or pricing analysis.',
+                  ).replace('{count}', String(selectedCount))
+                : t(
+                    'catalog.merchandising_assistant.sheet.description',
+                    'Your AI merchandising copilot. Select products from the list for targeted actions, or explore your full catalog.',
+                  )}
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1" data-ai-merchandising-chat-container="">
@@ -144,6 +276,23 @@ export function MerchandisingAssistantSheet({
                 'catalog.merchandising_assistant.sheet.composerPlaceholder',
                 'Ask for descriptions, attributes, titles, or price ideas...',
               )}
+              suggestions={suggestions}
+              contextItems={contextItems}
+              welcomeTitle={t(
+                'catalog.merchandising_assistant.sheet.welcomeTitle',
+                'Merchandising Assistant',
+              )}
+              welcomeDescription={
+                hasSelection
+                  ? t(
+                      'catalog.merchandising_assistant.sheet.welcomeDescriptionSelection',
+                      'Ready to work with your {count} selected products. Try one of these:',
+                    ).replace('{count}', String(selectedCount))
+                  : t(
+                      'catalog.merchandising_assistant.sheet.welcomeDescriptionAll',
+                      'Select products for targeted actions, or explore your catalog:',
+                    )
+              }
             />
           </div>
         </DialogContent>

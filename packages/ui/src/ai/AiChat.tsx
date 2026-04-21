@@ -42,6 +42,19 @@ export interface AiChatDebugPromptSection {
   text?: string
 }
 
+/** Quick-action suggestion shown in the welcome state. */
+export interface AiChatSuggestion {
+  label: string
+  prompt: string
+  icon?: React.ReactNode
+}
+
+/** Context item displayed as a chip/pill in the chat header. */
+export interface AiChatContextItem {
+  label: string
+  detail?: string
+}
+
 export interface AiChatProps {
   agent: string
   apiPath?: string
@@ -90,6 +103,14 @@ export interface AiChatProps {
    * `debug` is falsy.
    */
   debugPromptSections?: AiChatDebugPromptSection[]
+  /** Suggested prompts shown in the empty / welcome state. */
+  suggestions?: AiChatSuggestion[]
+  /** Context items shown as pills above the transcript (e.g. selected products). */
+  contextItems?: AiChatContextItem[]
+  /** Welcome heading shown when there are no messages yet. */
+  welcomeTitle?: string
+  /** Welcome description shown below the heading. */
+  welcomeDescription?: string
 }
 
 interface ServerEmittedUiPartRef {
@@ -202,13 +223,89 @@ function AiUiPartRenderer({
   )
 }
 
+function WelcomeState({
+  title,
+  description,
+  suggestions,
+  onSuggestionClick,
+}: {
+  title?: string
+  description?: string
+  suggestions?: AiChatSuggestion[]
+  onSuggestionClick: (prompt: string) => void
+}) {
+  const t = useT()
+  const heading = title ?? t('ai_assistant.chat.welcomeTitle', 'How can I help?')
+  const desc =
+    description ??
+    t(
+      'ai_assistant.chat.welcomeDescription',
+      'Ask me anything about your data. Here are some things I can do:',
+    )
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-8">
+      <div
+        className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary"
+        aria-hidden
+      >
+        <Bot className="size-6" />
+      </div>
+      <div className="space-y-1 text-center">
+        <h3 className="text-sm font-semibold">{heading}</h3>
+        <p className="text-xs text-muted-foreground">{desc}</p>
+      </div>
+      {suggestions && suggestions.length > 0 ? (
+        <div className="flex w-full max-w-md flex-col gap-2" data-ai-chat-suggestions="">
+          {suggestions.map((suggestion, index) => (
+            <button
+              key={index}
+              type="button"
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => onSuggestionClick(suggestion.prompt)}
+              data-ai-chat-suggestion={index}
+            >
+              {suggestion.icon ? (
+                <span className="shrink-0 text-muted-foreground" aria-hidden>
+                  {suggestion.icon}
+                </span>
+              ) : null}
+              <span>{suggestion.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ContextItemsPill({ items }: { items: AiChatContextItem[] }) {
+  if (items.length === 0) return null
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 border-b border-border px-3 py-2"
+      data-ai-chat-context-items=""
+    >
+      {items.map((item, index) => (
+        <span
+          key={index}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+          data-ai-chat-context-item={index}
+          title={item.detail}
+        >
+          {item.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /**
  * Embeddable AI chat component. Binds to the dispatcher route
  * `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` via
  * {@link createAiAgentTransport}. Phase 2 WS-A deliverable (Step 4.1).
  *
- * - Keyboard: `Cmd/Ctrl+Enter` submits; `Escape` aborts streaming (or blurs
- *   the composer when idle).
+ * - Keyboard: `Enter` submits; `Shift+Enter` inserts a newline; `Escape`
+ *   aborts streaming (or blurs the composer when idle).
  * - Error envelopes from the dispatcher surface as `Alert` + `onError`.
  * - UI parts render via the client-side registry; unknown parts render a
  *   neutral placeholder chip so mutation-card slots reserved for Phase 3
@@ -230,6 +327,10 @@ export function AiChat({
   debugTools,
   debugPromptSections,
   conversationId,
+  suggestions,
+  contextItems,
+  welcomeTitle,
+  welcomeDescription,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -266,12 +367,18 @@ export function AiChat({
     [uiPartsProp],
   )
 
+  const handleSendMessage = React.useCallback(
+    (text: string) => {
+      if (!text.trim() || isBusy) return
+      setInput('')
+      void chat.sendMessage(text)
+    },
+    [chat, isBusy],
+  )
+
   const handleSubmit = React.useCallback(() => {
-    const value = input
-    if (!value.trim() || isBusy) return
-    setInput('')
-    void chat.sendMessage(value)
-  }, [chat, input, isBusy])
+    handleSendMessage(input)
+  }, [handleSendMessage, input])
 
   const cancelOrBlur = React.useCallback(() => {
     if (isBusy) {
@@ -285,6 +392,10 @@ export function AiChat({
     onSubmit: handleSubmit,
     onCancel: cancelOrBlur,
   })
+
+  React.useEffect(() => {
+    textareaRef.current?.focus()
+  }, [])
 
   React.useEffect(() => {
     const node = transcriptRef.current
@@ -307,6 +418,9 @@ export function AiChat({
       data-ai-chat-agent={agent}
       data-ai-chat-conversation-id={chat.conversationId}
     >
+      {contextItems && contextItems.length > 0 ? (
+        <ContextItemsPill items={contextItems} />
+      ) : null}
       <div
         ref={transcriptRef}
         role="log"
@@ -315,12 +429,12 @@ export function AiChat({
         className="flex-1 space-y-2 overflow-y-auto pr-1"
       >
         {chat.messages.length === 0 ? (
-          <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-            {t(
-              'ai_assistant.chat.emptyTranscript',
-              'No messages yet. Ask the agent anything to get started.',
-            )}
-          </p>
+          <WelcomeState
+            title={welcomeTitle}
+            description={welcomeDescription}
+            suggestions={suggestions}
+            onSuggestionClick={handleSendMessage}
+          />
         ) : (
           chat.messages.map((message) => (
             <MessageRow key={message.id} message={message} />
@@ -387,7 +501,7 @@ export function AiChat({
           <p className="text-xs text-muted-foreground">
             {t(
               'ai_assistant.chat.shortcutHint',
-              'Press Cmd/Ctrl+Enter to send, Escape to cancel.',
+              'Press Enter to send, Shift+Enter for new line.',
             )}
           </p>
           <div className="flex items-center gap-2">

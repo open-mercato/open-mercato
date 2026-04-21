@@ -249,6 +249,28 @@ async function resolveMutationPolicyOverride(
 }
 
 /**
+ * Normalizes simple `{ role, content }` chat messages into the AI SDK
+ * `UIMessage` shape that `convertToModelMessages` requires. When the
+ * incoming message already carries a `parts` array it is left untouched;
+ * otherwise a single `TextUIPart` is synthesized from `content`.
+ */
+function ensureUiMessageShape(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message, index) => {
+    const raw = message as unknown as { id?: string; role?: string; content?: string; parts?: unknown[] }
+    if (Array.isArray(raw.parts) && raw.parts.length > 0) {
+      // Already has parts — only ensure `id` is present
+      return { ...message, id: raw.id ?? `msg-${index}` } as UIMessage
+    }
+    const textContent = typeof raw.content === 'string' ? raw.content : ''
+    return {
+      id: raw.id ?? `msg-${index}`,
+      role: raw.role ?? 'user',
+      parts: [{ type: 'text', text: textContent }],
+    } as unknown as UIMessage
+  })
+}
+
+/**
  * Appends AI SDK v6 `FileUIPart` entries to the last user message in the
  * request so resolved attachment bytes / signed URLs reach the model. Pure
  * helper so chat-mode and object-mode share identical behavior — any
@@ -345,7 +367,8 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
-  const hydratedMessages = attachAttachmentsToMessages(input.messages, resolvedAttachments)
+  const normalizedMessages = ensureUiMessageShape(input.messages)
+  const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
   const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
     ? stepCountIs(agent.maxSteps)
@@ -521,8 +544,9 @@ export async function runAiAgentObject<TSchema = unknown>(
   const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
+  const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
-    normalizeObjectMessages(input.input),
+    normalizedMessages,
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)

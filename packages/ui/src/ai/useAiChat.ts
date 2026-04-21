@@ -307,16 +307,36 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
           )
         }
         setLastResponseDebug({ status: response.status, text: streamedText })
+        // When the stream completes without producing any text, the LLM
+        // provider likely rejected the request (invalid API key, rate limit,
+        // model error) but the dispatcher already returned 200 for the
+        // streaming response. Surface a clear error so the operator knows.
+        if (!streamedText.trim()) {
+          emitError({
+            code: 'empty_response',
+            message: 'The AI agent returned an empty response. This usually means the LLM provider rejected the request (invalid API key, rate limit, or model error). Check your server logs for details.',
+          })
+          setMessages((current) => current.filter((entry) => entry.id !== assistantId))
+        }
       } catch (streamError) {
         if ((streamError as { name?: string })?.name === 'AbortError') {
           // Cancelled by the user — keep whatever we have so far and exit
           // quietly.
         } else {
-          const message =
+          const rawMessage =
             streamError instanceof Error
               ? streamError.message
               : 'Stream interrupted.'
-          emitError({ message })
+          // LLM provider errors (auth failures, rate limits, invalid tool
+          // schemas) surface as stream read errors. Include a hint so the
+          // operator can check server logs for the full stack trace.
+          const message = rawMessage.includes('API')
+            ? rawMessage
+            : `${rawMessage} — check server logs for LLM provider details.`
+          emitError({ code: 'stream_error', message })
+          // Remove the empty assistant placeholder so the error alert is
+          // the only visible feedback.
+          setMessages((current) => current.filter((entry) => entry.id !== assistantId))
         }
       } finally {
         reader.releaseLock()

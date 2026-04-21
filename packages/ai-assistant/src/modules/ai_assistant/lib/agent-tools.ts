@@ -120,6 +120,16 @@ function toPolicyAuthContext(ctx: AiChatRequestContext): {
   }
 }
 
+/**
+ * Sanitize a dotted tool name (e.g. `search.hybrid_search`) into a format
+ * accepted by all major LLM providers. OpenAI requires tool names to match
+ * `^[a-zA-Z0-9_-]+$`; dots are replaced with double underscores (`__`).
+ * Anthropic and Google accept both formats, so this is safe across providers.
+ */
+function sanitizeToolNameForModel(name: string): string {
+  return name.replace(/\./g, '__')
+}
+
 function formatToolResult(result: unknown): string {
   if (result === null || result === undefined) return 'No result returned'
   if (typeof result === 'string') return result
@@ -304,7 +314,14 @@ export async function resolveAiAgentTools(
               uiPartQueue,
             }
           : null
-      tools[toolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions)
+      // Sanitize tool name for model API compatibility: OpenAI requires
+      // names matching ^[a-zA-Z0-9_-]+$ (no dots). Replace dots with
+      // double underscores so `search.hybrid_search` becomes
+      // `search__hybrid_search`. The AI SDK uses the record key as the
+      // tool name sent to the model; the original dotted name stays on
+      // the `tool` object for logging and prepareMutation hashing.
+      const modelSafeToolName = sanitizeToolNameForModel(toolName)
+      tools[modelSafeToolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions)
     } catch (error) {
       console.error(
         `[AI Agents] Failed to adapt tool "${toolName}" for agent "${agent.id}":`,
