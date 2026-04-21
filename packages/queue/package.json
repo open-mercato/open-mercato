@@ -51,5 +51,10 @@
   },
   "dependencies": {
     "@open-mercato/shared": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/queue"
   }
 }
