@@ -51,7 +51,11 @@ async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload
   tenantId: string
   organizationId: string | null
 }) {
-  await emitMessagesEvent('messages.message.deleted', payload, { persistent: true })
+  await emitMessagesEvent(
+    'messages.message.deleted',
+    { ...payload, recipientUserId: payload.actorUserId },
+    { persistent: true },
+  )
 }
 
 async function emitMessageIndexUpsert(
