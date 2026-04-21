@@ -88,7 +88,8 @@ export async function POST(req: Request) {
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    const loginUrl = resolvePortalLoginUrl(baseUrl, orgRow.slug)
+    const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
+    const loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
     const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
     const copy = {
       preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),

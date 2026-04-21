@@ -38,6 +38,16 @@ describe('customer_accounts signup — organization lookup must bind tenantId', 
     expect(signupSource).not.toMatch(legacyPattern)
     expect(helperSource).not.toMatch(legacyPattern)
   })
+
+  test('existing-account email resolves slug from existing.organizationId, not attacker-supplied organizationId', () => {
+    const existingLookupPattern = /findOrganizationInTenant\s*\(\s*em\s*,\s*existing\.organizationId\s*,\s*tenantId\s*\)/
+    expect(signupSource).toMatch(existingLookupPattern)
+
+    const existingBranchMatch = signupSource.match(/if\s*\(\s*existing\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)
+    expect(existingBranchMatch).not.toBeNull()
+    const existingBranch = existingBranchMatch?.[1] ?? ''
+    expect(existingBranch).not.toMatch(/resolvePortalLoginUrl\s*\(\s*baseUrl\s*,\s*orgRow\.slug/)
+  })
 })
 
 describe('customer_accounts login — emailVerifiedAt gate blocks unverified accounts', () => {
