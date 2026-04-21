@@ -157,7 +157,6 @@ async function openBackendSession(
   await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
   await streamRequest
   await installEventCollector(page)
-  await page.waitForTimeout(1_500)
   await waitForBridgeReady(page, request, token, organizationId, seed)
 }
 

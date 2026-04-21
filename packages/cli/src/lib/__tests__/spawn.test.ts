@@ -11,25 +11,25 @@ describe('resolveSpawnCommand', () => {
     })
   })
 
-  it('wraps Windows cmd shims in an explicit cmd.exe invocation', () => {
+  it('keeps Windows cmd shims as direct executable invocations for cross-spawn', () => {
     const result = resolveSpawnCommand('mercato.cmd', ['generate', '--watch'], { platform: 'win32' })
 
     expect(result).toEqual({
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'mercato.cmd generate --watch'],
-      spawnOptions: { windowsVerbatimArguments: true },
+      command: 'mercato.cmd',
+      args: ['generate', '--watch'],
+      spawnOptions: {},
     })
   })
 
-  it('quotes Windows cmd arguments that need shell escaping', () => {
+  it('keeps Windows cmd arguments unchanged so cross-spawn can quote them', () => {
     const result = resolveSpawnCommand('npx.cmd', ['playwright', 'test', 'spec with spaces.ts', '--grep="foo bar"'], {
       platform: 'win32',
     })
 
     expect(result).toEqual({
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npx.cmd playwright test "spec with spaces.ts" "--grep=""foo bar"""'],
-      spawnOptions: { windowsVerbatimArguments: true },
+      command: 'npx.cmd',
+      args: ['playwright', 'test', 'spec with spaces.ts', '--grep="foo bar"'],
+      spawnOptions: {},
     })
   })
 

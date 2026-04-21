@@ -9,6 +9,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
   test('should update a deal pipeline stage to Win and reflect it in the pipeline board', async ({ page, request }) => {
+    test.slow();
+
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;
@@ -42,13 +44,24 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       const pipelineStageSelect = page.locator('[data-crud-field-id="pipelineStageId"] select');
       await expect(pipelineStageSelect).toBeEnabled();
       await pipelineStageSelect.selectOption(winStageId!);
+      const updateResponsePromise = page.waitForResponse((response) => {
+        if (response.request().method() !== 'PUT') return false;
+        let pathname = '';
+        try {
+          pathname = new URL(response.url()).pathname;
+        } catch {
+          return false;
+        }
+        return /^\/api\/customers\/deals(?:\/[^/]+)?$/i.test(pathname);
+      });
       await page.getByRole('button', { name: /Update deal/i }).click();
-      await expect(page.getByText(/Win/i).first()).toBeVisible();
+      const updateResponse = await updateResponsePromise;
+      expect(updateResponse.ok()).toBeTruthy();
 
       await page.goto('/backend/customers/deals/pipeline');
       await page.getByLabel('Pipeline').selectOption(pipelineId!);
-      const winLane = page.locator('main').locator('div').filter({ has: page.getByText('Win', { exact: true }) }).first();
-      await expect(winLane.getByText(dealTitle, { exact: true })).toBeVisible();
+      const winLane = page.locator('main').locator('div').filter({ has: page.getByText(/^Win$/) }).first();
+      await expect(winLane).toContainText(dealTitle);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

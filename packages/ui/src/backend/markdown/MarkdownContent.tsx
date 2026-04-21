@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic.js'
 import type { PluggableList } from 'unified'
 import { useMarkdownRemarkPlugins } from './useMarkdownRemarkPlugins'
 
@@ -12,12 +11,58 @@ type ReactMarkdownProps = {
 
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 
-const ReactMarkdownComponent: React.ComponentType<ReactMarkdownProps> = isTestEnv
-  ? ({ children }) => <>{children}</>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<ReactMarkdownProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<ReactMarkdownProps>)
+const TestMarkdownComponent: React.ComponentType<ReactMarkdownProps> = ({ children }) => <>{children}</>
+
+let loadedReactMarkdownComponent: React.ComponentType<ReactMarkdownProps> | null = isTestEnv
+  ? TestMarkdownComponent
+  : null
+let reactMarkdownComponentPromise: Promise<React.ComponentType<ReactMarkdownProps>> | null = null
+
+function loadReactMarkdownComponent(): Promise<React.ComponentType<ReactMarkdownProps>> {
+  if (loadedReactMarkdownComponent) {
+    return Promise.resolve(loadedReactMarkdownComponent)
+  }
+
+  if (!reactMarkdownComponentPromise) {
+    reactMarkdownComponentPromise = import('react-markdown').then((mod) => {
+      const component = mod.default as React.ComponentType<ReactMarkdownProps>
+      loadedReactMarkdownComponent = component
+      return component
+    })
+  }
+
+  return reactMarkdownComponentPromise
+}
+
+function ReactMarkdownComponent(props: ReactMarkdownProps) {
+  const [Component, setComponent] = React.useState<React.ComponentType<ReactMarkdownProps> | null>(
+    () => loadedReactMarkdownComponent,
+  )
+
+  React.useEffect(() => {
+    if (Component) {
+      return
+    }
+
+    let active = true
+
+    void loadReactMarkdownComponent().then((resolved) => {
+      if (active) {
+        setComponent(() => resolved)
+      }
+    })
+
+    return () => {
+      active = false
+    }
+  }, [Component])
+
+  if (!Component) {
+    return null
+  }
+
+  return <Component {...props} />
+}
 
 export type MarkdownContentProps = {
   body: string
