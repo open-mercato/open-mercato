@@ -1,7 +1,13 @@
 # 0.5.0 (2026-04-21)
 
 ## Highlights
-<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+Open Mercato `0.5.0` is the biggest release so far. It bundles more than 250 fixes and
+improvements delivered after the Hackathon in Sopot, alongside several major and important
+dependency upgrades across the platform.
+
+This release is also the reason `UPGRADE_NOTES.md` now exists. If you maintain custom
+modules, app-level code, or standalone extensions, review the upgrade notes before moving
+from `0.4.10` to `0.5.0`.
 
 ## ✨ Features
 - ✨ 928 - integrations health checks (supersedes #1177). (#1525) *(@Sawarz, via @pkarw)*

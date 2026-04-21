@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
+improvements that landed after the Hackathon in Sopot, alongside several important
+dependency and tooling upgrades. That combination is exactly why this document now exists:
+to give downstream app and module authors one place to review the upgrade work that may
+require code changes on their side.
+
 This document lists backward-incompatible changes that users of the Open Mercato platform
 must apply to their own modules, apps, and extensions when upgrading between framework
 versions. It only covers **actionable** incompatibilities — library behavior that affects
@@ -17,6 +23,12 @@ most of the patterns listed below in a user's codebase.
 ---
 
 ## 0.4.10 → 0.5.0 (unreleased)
+
+Release context:
+- Biggest Open Mercato release so far
+- More than 250 fixes and improvements delivered after the Hackathon in Sopot
+- Includes several major dependency upgrades, which is why `UPGRADE_NOTES.md` was added
+  for this release window
 
 This window bundles the consolidated Dependabot dependency bumps from
 [#1620](https://github.com/open-mercato/open-mercato/pull/1620) (minor/patch) and
