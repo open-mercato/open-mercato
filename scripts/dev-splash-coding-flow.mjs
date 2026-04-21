@@ -324,8 +324,29 @@ export function assertShellSafePath(value, label) {
 
 export { sanitizeLaunchDirectory }
 
+function resolveSafeLaunchFallbackDirectory() {
+  const candidates = [process.cwd(), os.homedir(), path.parse(process.cwd()).root]
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate)
+    if (!isShellSafePathString(resolvedCandidate)) {
+      continue
+    }
+
+    try {
+      const stat = fs.statSync(resolvedCandidate)
+      if (stat.isDirectory()) {
+        return resolvedCandidate
+      }
+    } catch {
+      // Try next fallback candidate
+    }
+  }
+
+  return path.parse(process.cwd()).root
+}
+
 function sanitizeLaunchDirectory(value) {
-  const fallback = process.cwd()
+  const fallback = resolveSafeLaunchFallbackDirectory()
   if (!isShellSafePathString(value) || value.trim().length === 0) {
     return fallback
   }
