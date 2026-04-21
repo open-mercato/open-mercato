@@ -325,7 +325,10 @@ export function assertShellSafePath(value, label) {
 export { sanitizeLaunchDirectory }
 
 function sanitizeLaunchDirectory(value) {
-  const fallback = process.cwd()
+  const homeFallback = path.resolve(os.homedir())
+  const tmpFallback = path.resolve(os.tmpdir())
+  const fallback = isShellSafePathString(homeFallback) ? homeFallback : assertShellSafePath(tmpFallback, 'Fallback launch directory')
+
   if (!isShellSafePathString(value) || value.trim().length === 0) {
     return fallback
   }
