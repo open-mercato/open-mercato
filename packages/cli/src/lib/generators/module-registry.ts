@@ -130,6 +130,13 @@ type SerializablePageMetadata = {
     sectionLabelKey?: string
     order?: number
   }
+  nav?: {
+    label: string
+    labelKey?: string
+    group?: 'main' | 'account'
+    order?: number
+    icon?: string
+  }
   icon?: string
 }
 
@@ -651,7 +658,7 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
-  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
+  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
 }
 
 function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
@@ -680,6 +687,20 @@ function normalizePlacement(raw: unknown): SerializablePageMetadata['placement']
     sectionLabel: typeof source.sectionLabel === 'string' ? source.sectionLabel : undefined,
     sectionLabelKey: typeof source.sectionLabelKey === 'string' ? source.sectionLabelKey : undefined,
     order: typeof source.order === 'number' ? source.order : undefined,
+  }
+}
+
+function normalizePortalNav(raw: unknown): SerializablePageMetadata['nav'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const source = raw as Record<string, unknown>
+  if (typeof source.label !== 'string' || source.label.length === 0) return undefined
+  const group = source.group === 'main' || source.group === 'account' ? source.group : undefined
+  return {
+    label: source.label,
+    labelKey: typeof source.labelKey === 'string' ? source.labelKey : undefined,
+    group,
+    order: typeof source.order === 'number' ? source.order : undefined,
+    icon: typeof source.icon === 'string' ? source.icon : undefined,
   }
 }
 
@@ -713,6 +734,8 @@ function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
   if (breadcrumb) normalized.breadcrumb = breadcrumb
   const placement = normalizePlacement(source.placement)
   if (placement) normalized.placement = placement
+  const nav = normalizePortalNav(source.nav)
+  if (nav) normalized.nav = nav
   if (typeof source.icon === 'string') normalized.icon = source.icon
 
   return Object.keys(normalized).length > 0 ? normalized : null
@@ -1570,6 +1593,7 @@ function buildPageRouteEntries(metaExpr: WriterFunction, routePath: string): Gen
     { name: 'requireFeatures', value: optionalPropertyAccess(meta, 'requireFeatures') },
     { name: 'requireCustomerAuth', value: optionalPropertyAccess(meta, 'requireCustomerAuth') },
     { name: 'requireCustomerFeatures', value: optionalPropertyAccess(meta, 'requireCustomerFeatures') },
+    { name: 'nav', value: optionalPropertyAccess(meta, 'nav') },
     {
       name: 'title',
       value: nullishCoalesce([
@@ -2535,12 +2559,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
     const allEntryImports: string[] = [
       buildImportStatement(`{ backendRoutes }`, `./backend-routes.generated`),
+      buildImportStatement(`{ frontendRoutes }`, `./frontend-routes.generated`),
     ]
     const allRegImports: string[] = [
-      `import { registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'`,
+      `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
     ]
     const allCalls: string[] = [
       `registerBackendRouteManifests(backendRoutes)`,
+      `registerFrontendRouteManifests(frontendRoutes)`,
     ]
     for (const plugin of bootstrapPlugins) {
       const reg = plugin.bootstrapRegistration!
