@@ -22,7 +22,7 @@
     "dev:greenfield:verbose": "node ./scripts/dev.mjs --greenfield --verbose",
     "dev:app": "node ./scripts/dev.mjs --app-only",
     "dev:app:verbose": "yarn workspace @open-mercato/app dev:verbose",
-    "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
+    "watch:packages": "turbo run watch --filter='./packages/*'",
     "build": "yarn build:packages && yarn generate && yarn build:packages && yarn build:app",
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",

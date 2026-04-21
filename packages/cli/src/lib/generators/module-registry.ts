@@ -351,15 +351,301 @@ function extractObjectPropertiesFromAst(sourceFile: string, exportName: string):
   return Object.keys(result).length > 0 ? result : null
 }
 
-function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+export function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
   const literal = extractNamedObjectLiteralSource(sourceFile, exportName)
-  if (!literal) return null
-  try {
-    const extracted = Function(`"use strict"; return (${literal});`)()
-    return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
-  } catch {
-    return extractObjectPropertiesFromAst(sourceFile, exportName)
+  if (literal) {
+    try {
+      const extracted = Function(`"use strict"; return (${literal});`)()
+      if (extracted && typeof extracted === 'object') {
+        return extracted as Record<string, unknown>
+      }
+    } catch {
+      // fall through to AST-based resolver
+    }
   }
+  const resolved = resolveNamedObjectExport(sourceFile, exportName)
+  if (resolved) return resolved
+  return extractObjectPropertiesFromAst(sourceFile, exportName)
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current: ts.Expression = expression
+  while (
+    ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isParenthesizedExpression(current)
+    || ts.isSatisfiesExpression?.(current)
+    || ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+function collectLocalDeclarations(parsed: ts.SourceFile): Map<string, ts.Expression> {
+  const locals = new Map<string, ts.Expression>()
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        locals.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  return locals
+}
+
+function collectReexportedNames(parsed: ts.SourceFile): Set<string> {
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
+    }
+  }
+  return exportedNames
+}
+
+function findExportedInitializer(
+  parsed: ts.SourceFile,
+  exportName: string,
+  exportedNames: Set<string>,
+): ts.Expression | null {
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const isExported = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+    for (const declaration of statement.declarationList.declarations) {
+      if (!declaration.initializer) continue
+      if (ts.isIdentifier(declaration.name)) {
+        if (declaration.name.text !== exportName) continue
+        if (!isExported && !exportedNames.has(exportName)) continue
+        return declaration.initializer
+      }
+      if ((isExported || exportedNames.has(exportName)) && ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          const bindingName = ts.isIdentifier(element.name) ? element.name.text : null
+          const propertyName = element.propertyName && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : null
+          const targetKey = propertyName ?? bindingName
+          if (targetKey !== exportName) continue
+          const initializer = unwrapExpression(declaration.initializer)
+          if (ts.isCallExpression(initializer) && initializer.arguments.length > 0) {
+            const firstArg = unwrapExpression(initializer.arguments[0])
+            if (ts.isObjectLiteralExpression(firstArg)) {
+              for (const prop of firstArg.properties) {
+                if (!ts.isPropertyAssignment(prop)) continue
+                const key = ts.isIdentifier(prop.name) ? prop.name.text
+                  : ts.isStringLiteral(prop.name) ? prop.name.text
+                  : null
+                if (key === exportName) return prop.initializer
+              }
+            }
+          }
+          return null
+        }
+      }
+    }
+  }
+  return null
+}
+
+function resolveExpressionValue(
+  expression: ts.Expression,
+  locals: Map<string, ts.Expression>,
+  visited: Set<string>,
+): unknown {
+  const expr = unwrapExpression(expression)
+
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text
+  if (ts.isNumericLiteral(expr)) return Number(expr.text)
+  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false
+  if (expr.kind === ts.SyntaxKind.NullKeyword) return null
+  if (ts.isPrefixUnaryExpression(expr) && expr.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(expr.operand)) {
+    return -Number(expr.operand.text)
+  }
+
+  if (ts.isObjectLiteralExpression(expr)) {
+    const result: Record<string, unknown> = {}
+    for (const property of expr.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        const key = ts.isIdentifier(property.name) ? property.name.text
+          : ts.isStringLiteral(property.name) ? property.name.text
+          : null
+        if (!key) continue
+        const value = resolveExpressionValue(property.initializer, locals, visited)
+        if (value !== undefined) result[key] = value
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        const key = property.name.text
+        const initializer = locals.get(key)
+        if (initializer && !visited.has(key)) {
+          const nextVisited = new Set(visited)
+          nextVisited.add(key)
+          const value = resolveExpressionValue(initializer, locals, nextVisited)
+          if (value !== undefined) result[key] = value
+        }
+      } else if (ts.isSpreadAssignment(property)) {
+        const spread = resolveExpressionValue(property.expression, locals, visited)
+        if (spread && typeof spread === 'object' && !Array.isArray(spread)) {
+          Object.assign(result, spread)
+        }
+      }
+    }
+    return result
+  }
+
+  if (ts.isArrayLiteralExpression(expr)) {
+    const result: unknown[] = []
+    for (const element of expr.elements) {
+      if (ts.isSpreadElement(element)) {
+        const spread = resolveExpressionValue(element.expression, locals, visited)
+        if (Array.isArray(spread)) result.push(...spread)
+        continue
+      }
+      const value = resolveExpressionValue(element as ts.Expression, locals, visited)
+      if (value !== undefined) result.push(value)
+    }
+    return result
+  }
+
+  if (ts.isIdentifier(expr)) {
+    if (visited.has(expr.text)) return undefined
+    const initializer = locals.get(expr.text)
+    if (!initializer) return undefined
+    const nextVisited = new Set(visited)
+    nextVisited.add(expr.text)
+    return resolveExpressionValue(initializer, locals, nextVisited)
+  }
+
+  if (ts.isPropertyAccessExpression(expr)) {
+    const pathSegments: string[] = []
+    let cursor: ts.Expression = expr
+    while (ts.isPropertyAccessExpression(cursor)) {
+      if (!ts.isIdentifier(cursor.name)) return undefined
+      pathSegments.unshift(cursor.name.text)
+      cursor = cursor.expression
+    }
+    if (!ts.isIdentifier(cursor)) return undefined
+    const rootName = cursor.text
+    if (visited.has(rootName)) return undefined
+    const rootInit = locals.get(rootName)
+    if (!rootInit) return undefined
+    const unwrappedRoot = unwrapExpression(rootInit)
+    const nextVisited = new Set(visited)
+    nextVisited.add(rootName)
+    // Handle `const crud = makeCrudRoute({ metadata: routeMetadata, ... })`
+    if (ts.isCallExpression(unwrappedRoot) && unwrappedRoot.arguments.length > 0) {
+      const firstArg = unwrapExpression(unwrappedRoot.arguments[0])
+      if (ts.isObjectLiteralExpression(firstArg)) {
+        const argObject = resolveExpressionValue(firstArg, locals, nextVisited)
+        if (argObject && typeof argObject === 'object' && !Array.isArray(argObject)) {
+          let current: unknown = argObject
+          for (const segment of pathSegments) {
+            if (current && typeof current === 'object' && !Array.isArray(current) && segment in (current as Record<string, unknown>)) {
+              current = (current as Record<string, unknown>)[segment]
+            } else {
+              current = undefined
+              break
+            }
+          }
+          if (current !== undefined) return current
+        }
+      }
+    }
+    let value = resolveExpressionValue(rootInit, locals, nextVisited)
+    for (const segment of pathSegments) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+        value = (value as Record<string, unknown>)[segment]
+      } else {
+        return undefined
+      }
+    }
+    return value
+  }
+
+  return undefined
+}
+
+export function hasNamedExport(sourceFile: string, exportName: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+  for (const statement of parsed.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const isExported = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+      if (!isExported) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === exportName) return true
+        if (ts.isObjectBindingPattern(declaration.name)) {
+          for (const element of declaration.name.elements) {
+            const bindingName = ts.isIdentifier(element.name) ? element.name.text : null
+            const propertyName = element.propertyName && ts.isIdentifier(element.propertyName)
+              ? element.propertyName.text
+              : null
+            if ((propertyName ?? bindingName) === exportName) return true
+          }
+        }
+      }
+    }
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        const exposedName = element.name.text
+        const sourceName = element.propertyName?.text ?? exposedName
+        if (exposedName === exportName || sourceName === exportName) return true
+      }
+    }
+  }
+  return false
+}
+
+export function resolveNamedObjectExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return null
+  }
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+  const locals = collectLocalDeclarations(parsed)
+  const exportedNames = collectReexportedNames(parsed)
+  let initializer = findExportedInitializer(parsed, exportName, exportedNames)
+  if (!initializer && exportedNames.has(exportName)) {
+    initializer = locals.get(exportName) ?? null
+  }
+  if (!initializer) return null
+  const value = resolveExpressionValue(initializer, locals, new Set<string>())
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return Object.keys(record).length > 0 ? record : null
 }
 
 function inferScriptKind(filePath: string): ts.ScriptKind {
@@ -1001,7 +1287,7 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
-    if (!metadata) {
+    if (!metadata && !hasNamedExport(sourceFile, 'metadata')) {
       console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
     }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
@@ -1033,7 +1319,7 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
-    if (!metadata) {
+    if (!metadata && !hasNamedExport(sourceFile, 'metadata')) {
       console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
     }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
