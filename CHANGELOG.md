@@ -34,10 +34,10 @@
 - 🔒 Make JWTs revocable and isolate staff/customer audiences (supersedes #1286). (#1461) *(@WH173-P0NY, via @pkarw)*
 - 🔒 Reject executable double extensions (#1597). (#1602) *(@pkarw)*
 - 🔒 Fix/security customer signup tenant binding. (#1584) *(@WH173-P0NY)*
-- 🔒 Pin tenant scope on PUT, reject body-supplied te…. (#1583) *(@WH173-P0NY)*
+- 🔒 Pin tenant scope on PUT, reject body-supplied tenant fields. (#1583) *(@WH173-P0NY)*
 - 🔒 Fix/security dashboards mass assign scope. (#1582) *(@WH173-P0NY)*
 - 🔒 Reject // in redirect path to close open-redirect bypass (#1560). (#1570) *(@pkarw)*
-- 🔒 Require authentication on native /api/events registry …. (#1547) *(@WH173-P0NY)*
+- 🔒 Require authentication on native /api/events registry route. (#1547) *(@WH173-P0NY)*
 - 🔒 Fix/hunt webhook 01. (#1546) *(@WH173-P0NY)*
 - 🔒 Bump hono from 4.12.12 to 4.12.14 (develop). (#1545) *(@pkarw)*
 - 🔒 Fix race conditions in payments, quotes, shipments, and password reset (#1414). (#1505) *(@pkarw)*
@@ -116,7 +116,7 @@
 - 🐛 Stabilize develop integration and standalone flows. (#1494) *(@pkarw)*
 - 🔐 Honor redirect query param on login page. (#1490) *(@jtomaszewski)*
 - 🐛 Pg lock hopping connections. (#1484) *(@Sawarz)*
-- 🐛 Remove markitdown shell-out, replace with pure-JS e…. (#1481) *(@WH173-P0NY)*
+- 🐛 Remove markitdown shell-out, replace with pure-JS extractors (HUNT-PARSER-01). (#1481) *(@WH173-P0NY)*
 - 🔐 Enforce tenantId requirement for roles. (#1470) *(@pkarw)*
 - 🔧 Fix/windows build. (#1459) *(@PawelSydorow)*
 - 💰 Add pessimistic locking to prevent duplicate side effects. (#1452) *(@pkarw)*
@@ -132,14 +132,14 @@
 - 🐛 Allow creating rules without conditionExpression. (#1375) *(@pawelleszczewicz)*
 - 💰 Improve product search in sales line item dialog. (#1373) *(@amtmich)*
 - 🐛 Prevent ReDoS in event trigger regex filter conditions. (#1371) *(@RMN-45)*
-- 🐛 Prevent privilege escalation via CALL_API admin-by-na…. (#1370) *(@RMN-45)*
+- 🐛 Prevent privilege escalation via CALL_API admin-by-name lookup. (#1370) *(@RMN-45)*
 - 🐛 Block SSRF in outbound webhook delivery URLs. (#1369) *(@RMN-45)*
 - 🐛 Enforce tenant scope on public-partition file access. (#1366) *(@RMN-45)*
-- 🐛 Backport isolated-vm sandbox from main to develop …. (#1365) *(@RMN-45)*
+- 🐛 Backport isolated-vm sandbox from main to develop (RCE fix). (#1365) *(@RMN-45)*
 - 🔐 Honor All Organizations for ACL __all__ non-superAdmins. (#1357) *(@pawelleszczewicz)*
 - 🌍 Add missing i18n translation files (#897). (#1354) *(@pawelleszczewicz)*
 - 🐛 Add missing open-api specs for responses for workflows api #333. (#1345) *(@Marynat)*
-- 🐛 Ensure tag filters display labels instead of UUIDs across affect…. (#1344) *(@Marynat)*
+- 🐛 Ensure tag filters display labels instead of UUIDs across affected pages (fixes #238). (#1344) *(@Marynat)*
 - 🔧 Prevent build failures when the example module is disabled #601. (#1333) *(@Marynat)*
 - 🐛 Standardize org validation error when context is missing (#958). (#1321) *(@pawelleszczewicz)*
 - 🔐 Re-resolve customer portal ACL on every request. (#1316) *(@WH173-P0NY)*
@@ -156,7 +156,7 @@
 - 🔧 Enforce tenant isolation on sudo challenge configs. (#1272) *(@WH173-P0NY)*
 - 🔐 Prevent open redirect in locale switch endpoint. (#1264) *(@MarekUrzon)*
 - 🐛 Return 422 for deal UUID passed as timeline entityId. (#1262) *(@amtmich)*
-- 🔐 Reject non-superadmin actors with null tenant in roleTenan…. (#1257) *(@MarekUrzon)*
+- 🔐 Reject non-superadmin actors with null tenant in roleTenantGuard. (#1257) *(@MarekUrzon)*
 - 🔐 Apply input validation to feature-check endpoint to prevent DoS. (#1254) *(@staskolukasz)*
 - 🐛 Replace PDF OCR delegate chain with pdfjs-dist. (#1250) *(@WH173-P0NY)*
 - 💰 Prevent concurrent return double credits. (#1249) *(@WXYZx)*
@@ -212,7 +212,7 @@
 - 🛠️ Add integration tests for sales, customers, and auth modules #622. (#1349) *(@Marynat)*
 - 🛠️ Enforce RBAC on customer detail endpoints and add guardrail test. (#1327) *(@Tomeckyyyy)*
 - 🛠️ Add low-level coverage for agentic-setup.ts. (#1322) *(@pawelleszczewicz)*
-- 🛠️ #793 #792 add normalization for nested profile payloa…. (#1320) *(@Marynat)*
+- 🛠️ Add normalization for nested profile payloads in people and companies (#793, #792). (#1320) *(@Marynat)*
 - 🛠️ Fix API dispatcher auth default. (#1305) *(@WH173-P0NY)*
 - 🛠️ Add unit test coverage for content package. (#1303) *(@pawelleszczewicz)*
 - 🛠️ Prevent unsafe protocols in inline URL custom fields. (#1296) *(@WXYZx)*
@@ -225,7 +225,7 @@
 - 🛠️ Fix API dispatcher bypass for top-level RBAC metadata. (#1283) *(@AK-300codes)*
 - 🛠️ Feat/ds semantic tokens v2. (#1281) *(@zielivia)*
 - 🛠️ Replace raw fetch with apiCall/apiFetch, add readJsonSafe, expose openApi, fix Escape handler. (#1278) *(@strzesniewski)*
-- 🛠️ Add error handling and encryption-safe lookups to notification subscr…. (#1270) *(@strzesniewski)*
+- 🛠️ Add error handling and encryption-safe lookups to notification subscriber and email worker. (#1270) *(@strzesniewski)*
 - 🛠️ Fix/superadmin privilege escalation. (#1266) *(@WH173-P0NY)*
 - 🛠️ Fix/Jwt not expired. (#1252) *(@MarekUrzon)*
 - 🛠️ Refine unified AI tooling and sub-agents spec. (#1251) *(@pkarw)*
@@ -233,7 +233,7 @@
 - 🛠️ Add low-level coverage for module-entities.ts. (#1246) *(@pawelleszczewicz)*
 - 🛠️ Add Tenant org/scoped to all nativeDelete calls. (#1244) *(@strzesniewski)*
 - 🛠️ Logout from develop environment redirects to demo environment. (#1242) *(@pawelleszczewicz)*
-- 🛠️ Improve reliability of webhooks and fix cross-org data leak in webhoo…. (#1241) *(@strzesniewski)*
+- 🛠️ Improve reliability of webhooks and fix cross-org data leak in webhook workers. (#1241) *(@strzesniewski)*
 - 🛠️ Add low-level coverage for openapi-paths.ts. (#1238) *(@pawelleszczewicz)*
 - 🛠️ Sales Documents Tenant Scope Fixes. (#1236) *(@strzesniewski)*
 - 🛠️ Add low-level coverage for inspect.ts. (#1234) *(@pawelleszczewicz)*
@@ -268,7 +268,7 @@
 
 ## 🧪 Testing
 - 🧪 Integration tests for availability rule sets and CRUD (supersedes #1348). (#1474) *(@Marynat, via @pkarw)*
-- 🧪 Add integration tests for workflow definition and in…. (#1347) *(@Marynat)*
+- 🧪 Add integration tests for workflow definitions and instances. (#1347) *(@Marynat)*
 
 ## 📝 Specs & Documentation
 - 📝 Add local development walkthrough (#1435). (#1611) *(@pkarw)*
