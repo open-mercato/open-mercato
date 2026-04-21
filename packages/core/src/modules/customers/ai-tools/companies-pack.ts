@@ -32,7 +32,7 @@ function buildScope(ctx: CustomersToolContext, tenantId: string) {
 
 const listCompaniesInput = z
   .object({
-    q: z.string().trim().min(1).optional().describe('Search text matched against display name / email / domain.'),
+    q: z.string().trim().optional().describe('Search text matched against display name / email / domain. Omit or leave empty to list all.'),
     limit: z.number().int().min(1).max(100).optional().describe('Maximum rows to return (default 50, max 100).'),
     offset: z.number().int().min(0).optional().describe('Number of rows to skip (default 0).'),
     tags: z.array(z.string().uuid()).optional().describe('Restrict to companies carrying at least one of these tag ids.'),

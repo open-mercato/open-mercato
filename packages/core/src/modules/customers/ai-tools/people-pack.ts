@@ -38,7 +38,7 @@ function buildScope(ctx: CustomersToolContext, tenantId: string) {
 
 const listPeopleInput = z
   .object({
-    q: z.string().trim().min(1).optional().describe('Optional search text matched against display name / email / phone.'),
+    q: z.string().trim().optional().describe('Optional search text matched against display name / email / phone. Omit or leave empty to list all.'),
     limit: z.number().int().min(1).max(100).optional().describe('Maximum rows to return (default 50, max 100).'),
     offset: z.number().int().min(0).optional().describe('Number of rows to skip (default 0).'),
     tags: z.array(z.string().uuid()).optional().describe('Restrict to persons carrying at least one of these tag ids.'),
@@ -66,8 +66,9 @@ const listPeopleTool: CustomersAiToolDefinition = {
       deletedAt: null,
     }
     if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.q) {
-      const pattern = `%${escapeLikePattern(input.q)}%`
+    const searchQuery = input.q?.trim() || null
+    if (searchQuery) {
+      const pattern = `%${escapeLikePattern(searchQuery)}%`
       where.$or = [
         { displayName: { $ilike: pattern } },
         { primaryEmail: { $ilike: pattern } },
@@ -118,7 +119,7 @@ const listPeopleTool: CustomersAiToolDefinition = {
         return { items: [], total: 0, limit, offset }
       }
     }
-    const [rows, total] = await Promise.all([
+    let [rows, total] = await Promise.all([
       findWithDecryption<CustomerEntity>(
         em,
         CustomerEntity,
@@ -128,6 +129,26 @@ const listPeopleTool: CustomersAiToolDefinition = {
       ),
       em.count(CustomerEntity, where as any),
     ])
+
+    // Encrypted-data fallback: ILIKE can't match encrypted fields.
+    if (total === 0 && searchQuery) {
+      const fallbackWhere: Record<string, unknown> = { tenantId, kind: 'person', deletedAt: null }
+      if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
+      const allRows = await findWithDecryption<CustomerEntity>(
+        em, CustomerEntity, fallbackWhere as any,
+        { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
+        buildScope(ctx, tenantId),
+      )
+      const lowerQ = searchQuery.toLowerCase()
+      rows = allRows.filter((row) => {
+        const name = (row.displayName ?? '').toLowerCase()
+        const email = (row.primaryEmail ?? '').toLowerCase()
+        const phone = (row.primaryPhone ?? '').toLowerCase()
+        return name.includes(lowerQ) || email.includes(lowerQ) || phone.includes(lowerQ)
+      }).slice(0, limit)
+      total = rows.length
+    }
+
     const filtered = rows.filter((row) => row.tenantId === tenantId)
     return {
       items: filtered.map((row) => ({

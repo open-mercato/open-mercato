@@ -93,10 +93,10 @@ function resolveSearchService(ctx: CatalogToolContext): SearchServiceLike | null
 
 const searchProductsInput = z
   .object({
-    q: z.string().trim().min(1).optional().describe('Optional fulltext query (title / subtitle / sku / handle).'),
+    q: z.string().trim().optional().describe('Optional fulltext query (title / subtitle / sku / handle). Omit or leave empty to list all products.'),
     limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 50, max 100).'),
     offset: z.number().int().min(0).optional().describe('Rows to skip (default 0).'),
-    categoryId: z.string().uuid().optional().describe('Restrict to products assigned to this catalog category.'),
+    categoryId: z.string().optional().describe('Restrict to products assigned to this catalog category UUID. Only use a category ID returned by a previous tool call — do NOT guess.'),
     priceMin: z.number().optional().describe('Lower-bound (inclusive) on any gross price row.'),
     priceMax: z.number().optional().describe('Upper-bound (inclusive) on any gross price row.'),
     tags: z.array(z.string()).optional().describe('Tag labels or slugs (any-match) the product carries.'),
@@ -244,7 +244,7 @@ async function queryProductsWithFilters(
     }
   }
 
-  const [rows, total] = await Promise.all([
+  let [rows, total] = await Promise.all([
     findWithDecryption<CatalogProduct>(
       em,
       CatalogProduct,
@@ -254,6 +254,27 @@ async function queryProductsWithFilters(
     ),
     em.count(CatalogProduct, where as any),
   ])
+
+  // Encrypted-data fallback: ILIKE can't match encrypted fields.
+  if (total === 0 && input.q && !restrictToIds) {
+    const fallbackWhere: Record<string, unknown> = { tenantId, deletedAt: null }
+    if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
+    if (input.active === true) fallbackWhere.isActive = true
+    const allRows = await findWithDecryption<CatalogProduct>(
+      em, CatalogProduct, fallbackWhere as any,
+      { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
+      buildScope(ctx, tenantId),
+    )
+    const lowerQ = input.q.toLowerCase()
+    rows = allRows.filter((row) => {
+      const title = (row.title ?? '').toLowerCase()
+      const sku = (row.sku ?? '').toLowerCase()
+      const handle = (row.handle ?? '').toLowerCase()
+      return title.includes(lowerQ) || sku.includes(lowerQ) || handle.includes(lowerQ)
+    }).slice(0, limit)
+    total = rows.length
+  }
+
   const tenantScoped = rows.filter((row) => row.tenantId === tenantId)
   return { items: tenantScoped.map(toProductSummary), total }
 }
@@ -273,6 +294,26 @@ const searchProductsTool: CatalogAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
+
+    // Treat wildcard-style and empty queries as "list all".
+    if (!input.q || input.q === '*' || input.q === '**' || input.q === '%') {
+      input.q = undefined
+    }
+
+    // Guard against hallucinated or invalid category IDs.
+    if (input.categoryId) {
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      if (!uuidPattern.test(input.categoryId)) {
+        input.categoryId = undefined
+      } else {
+        try {
+          const catExists = await em.count(CatalogProductCategory, { id: input.categoryId, tenantId } as any)
+          if (catExists === 0) input.categoryId = undefined
+        } catch {
+          input.categoryId = undefined
+        }
+      }
+    }
 
     if (input.q && input.q.trim().length > 0) {
       const service = resolveSearchService(ctx)

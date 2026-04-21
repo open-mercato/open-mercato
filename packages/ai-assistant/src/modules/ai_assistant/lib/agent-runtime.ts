@@ -370,18 +370,20 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
-    ? stepCountIs(agent.maxSteps)
-    : undefined
+  // Default to 10 agentic steps when the agent does not declare maxSteps.
+  // Without stopWhen the AI SDK runs a single model call and never executes
+  // tool calls, which makes every tool-using query return an empty stream.
+  const effectiveMaxSteps = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
+    ? agent.maxSteps
+    : 10
+  const stopWhen = stepCountIs(effectiveMaxSteps)
 
   const streamArgs: Parameters<typeof streamText>[0] = {
     model,
     system: systemPrompt,
     messages: modelMessages,
     tools,
-  }
-  if (stopWhen) {
-    streamArgs.stopWhen = stopWhen
+    stopWhen,
   }
 
   const result = streamText(streamArgs)

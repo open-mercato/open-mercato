@@ -36,7 +36,7 @@ function buildScope(ctx: CustomersToolContext, tenantId: string) {
 
 const listDealsInput = z
   .object({
-    q: z.string().trim().min(1).optional().describe('Search text matched against deal title / description.'),
+    q: z.string().trim().optional().describe('Search text matched against deal title / description. Omit or leave empty to list all.'),
     limit: z.number().int().min(1).max(100).optional().describe('Maximum rows to return (default 50, max 100).'),
     offset: z.number().int().min(0).optional().describe('Number of rows to skip (default 0).'),
     personId: z.string().uuid().optional().describe('Return only deals linked to this person entity id.'),
@@ -65,8 +65,12 @@ const listDealsTool: CustomersAiToolDefinition = {
       deletedAt: null,
     }
     if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.q) {
-      const pattern = `%${escapeLikePattern(input.q)}%`
+    // NOTE: ILIKE queries don't work on encrypted fields. When q is set,
+    // we first try ILIKE; if 0 results, fall back to in-memory filtering
+    // on decrypted data. The fallback is added after the main query below.
+    const searchQuery = input.q?.trim() || null
+    if (searchQuery) {
+      const pattern = `%${escapeLikePattern(searchQuery)}%`
       where.$or = [
         { title: { $ilike: pattern } },
         { description: { $ilike: pattern } },
@@ -119,7 +123,7 @@ const listDealsTool: CustomersAiToolDefinition = {
       where.id = { $in: dealIdRestriction }
     }
 
-    const [rows, total] = await Promise.all([
+    let [rows, total] = await Promise.all([
       findWithDecryption<CustomerDeal>(
         em,
         CustomerDeal,
@@ -129,6 +133,29 @@ const listDealsTool: CustomersAiToolDefinition = {
       ),
       em.count(CustomerDeal, where as any),
     ])
+
+    // Encrypted-data fallback: ILIKE can't match encrypted fields. When the
+    // text query returned 0 results, re-fetch all records and filter in memory
+    // on the decrypted values. Practical for CRM-scale datasets (<10K).
+    if (total === 0 && searchQuery && !dealIdRestriction) {
+      const fallbackWhere: Record<string, unknown> = { tenantId, deletedAt: null }
+      if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
+      const allRows = await findWithDecryption<CustomerDeal>(
+        em,
+        CustomerDeal,
+        fallbackWhere as any,
+        { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
+        buildScope(ctx, tenantId),
+      )
+      const lowerQ = searchQuery.toLowerCase()
+      rows = allRows.filter((row) => {
+        const title = (row.title ?? '').toLowerCase()
+        const desc = (row.description ?? '').toLowerCase()
+        return title.includes(lowerQ) || desc.includes(lowerQ)
+      }).slice(0, limit)
+      total = rows.length
+    }
+
     const filtered = rows.filter((row) => row.tenantId === tenantId)
     return {
       items: filtered.map((row) => ({

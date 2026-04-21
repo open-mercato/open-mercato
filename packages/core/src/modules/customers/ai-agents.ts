@@ -143,11 +143,12 @@ const PROMPT_SECTIONS: PromptSection[] = [
     order: 2,
     content: [
       'SCOPE',
-      'Stay inside the customers module. Answer only with information you can',
-      'retrieve through the allowed tools. Do not speculate about data you have',
-      'not read. Respect tenant and organization isolation: the runtime already',
-      'scopes every query, but never fabricate or infer identifiers that were',
-      'not returned by a tool call.',
+      'Stay inside the customers module. Respect tenant and organization isolation.',
+      'ALWAYS call tools immediately — NEVER ask clarifying questions before acting. Use sensible defaults:',
+      '- "list people/companies/deals" → call the list tool with NO parameters',
+      '- User mentions a name → call the list tool with q=that name',
+      '- "show recent deals" → call customers.list_deals with no q, limited results',
+      'Present results first, then offer refinement options. The user does NOT want to answer questions before seeing data.',
     ].join('\n'),
   },
   {
@@ -163,6 +164,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
       'mentions free-text queries that span multiple entity types. When the',
       'operator asks about "this record" / "this deal" / "this account", rely',
       'on the page context supplied by the runtime instead of guessing.',
+      'CRITICAL: to list all records, call the list tool with NO q parameter. Do NOT use q="*" or wildcards. Do NOT invent or guess UUIDs or identifiers. Only use IDs returned by a previous tool call.',
     ].join('\n'),
   },
   {

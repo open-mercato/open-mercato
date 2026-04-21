@@ -1,6 +1,7 @@
 import { dynamicTool, type Tool } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import type { ZodType } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
 import type { AiChatRequestContext, AiUiPart } from './attachment-bridge-types'
 import type { AiToolDefinition, McpToolContext } from './types'
@@ -141,16 +142,15 @@ function formatToolResult(result: unknown): string {
   }
 }
 
-function buildToolHandlerContext(ctx: AiChatRequestContext): McpToolContext {
+function buildToolHandlerContext(
+  ctx: AiChatRequestContext,
+  container?: AwilixContainer,
+): McpToolContext {
   return {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    // Tool loader seeds the container per-request via loadAllModuleTools; direct
-    // helper callers that bypass the MCP server get an undefined container. Tools
-    // that require DI MUST guard for this themselves — identical contract to the
-    // existing `executeTool` path.
-    container: undefined as unknown as McpToolContext['container'],
+    container: (container ?? undefined) as unknown as McpToolContext['container'],
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
   }
@@ -186,9 +186,10 @@ function adaptToolToAiSdk(
   tool: AiToolDefinition,
   ctx: AiChatRequestContext,
   mutation: MutationInterceptorOptions | null,
+  container?: AwilixContainer,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
-  const handlerContext = buildToolHandlerContext(ctx)
+  const handlerContext = buildToolHandlerContext(ctx, container)
   return dynamicTool({
     description: tool.description,
     inputSchema: safeSchema,
@@ -231,8 +232,18 @@ function adaptToolToAiSdk(
         }
       }
       try {
-        const result = await tool.handler(args as never, handlerContext)
-        return formatToolResult(result)
+        // Create a fresh container per tool call so the EM is never stale.
+        const freshContainer = await createRequestContainer()
+        const freshContext: McpToolContext = {
+          ...handlerContext,
+          container: freshContainer as unknown as McpToolContext['container'],
+        }
+        const { executeTool } = await import('./tool-executor')
+        const execResult = await executeTool(tool.name, args, freshContext)
+        if (!execResult.success) {
+          throw new Error(execResult.error || 'Tool execution failed')
+        }
+        return formatToolResult(execResult.result)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         throw new Error(`Tool "${tool.name}" failed: ${message}`)
@@ -321,7 +332,7 @@ export async function resolveAiAgentTools(
       // tool name sent to the model; the original dotted name stays on
       // the `tool` object for logging and prepareMutation hashing.
       const modelSafeToolName = sanitizeToolNameForModel(toolName)
-      tools[modelSafeToolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions)
+      tools[modelSafeToolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions, input.container)
     } catch (error) {
       console.error(
         `[AI Agents] Failed to adapt tool "${toolName}" for agent "${agent.id}":`,

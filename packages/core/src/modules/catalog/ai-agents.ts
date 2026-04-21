@@ -175,6 +175,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
       'free-text queries that span multiple entity types. Treat prices as',
       'tenant-resolved values — never invent or recompute pricing outside',
       'what `catalog.list_prices` / `catalog.list_price_kinds_base` return.',
+      'CRITICAL: to list all products, call the list tool with NO query parameter. Do NOT use q="*" or q="%" — these are not wildcards. Do NOT invent or guess UUIDs, category IDs, or any identifiers. Only use IDs that were returned by a previous tool call.',
     ].join('\n'),
   },
   {
@@ -346,7 +347,12 @@ const MERCHANDISING_PROMPT_SECTIONS: PromptSection[] = [
     order: 2,
     content: [
       'SCOPE',
-      'You may only act on products that are in the current tenant and organization. Always restrict batch work to the explicit selection in pageContext.recordId; if no selection is present, ask the user to select products or confirm that the current filter is the intended scope.',
+      'You may only act on products that are in the current tenant and organization.',
+      'ALWAYS call tools immediately — NEVER ask clarifying questions before acting. Use sensible defaults:',
+      '- "list products" → call catalog.search_products with NO parameters (returns all active products)',
+      '- User mentions a product name → call catalog.search_products with q=that name',
+      '- Selected products in pageContext.recordId → call catalog.list_selected_products immediately',
+      'Present results first, then offer refinement options. The user does NOT want to answer questions before seeing data.',
     ].join('\n'),
   },
   {
@@ -355,6 +361,7 @@ const MERCHANDISING_PROMPT_SECTIONS: PromptSection[] = [
     content: [
       'DATA',
       'Prefer catalog.list_selected_products for the canonical bundle view of the selection. Use catalog.get_product_media when media matters for the answer — media is surfaced as real file parts, not links. Use catalog.get_attribute_schema before proposing attribute writes so the diff is schema-valid.',
+      'CRITICAL: to list all products, call catalog.search_products with NO q parameter and NO categoryId. Do NOT use q="*" or q="%" — these are not wildcards. Do NOT invent or guess category IDs, UUIDs, or any identifiers. Only use IDs that were returned by a previous tool call.',
     ].join('\n'),
   },
   {

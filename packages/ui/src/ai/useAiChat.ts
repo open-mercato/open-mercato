@@ -278,10 +278,8 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const decoder = new TextDecoder()
       let streamedText = ''
       try {
-        // Plain text streaming: the dispatcher currently returns a
-        // `toTextStreamResponse`-formatted body where every chunk is raw
-        // assistant text. When the spec migrates to UIMessageChunk format we
-        // will parse each chunk through the AI SDK's stream reader.
+        // Plain text streaming: toTextStreamResponse sends raw text chunks.
+        // Each chunk is appended to the message content in real-time.
         while (true) {
           const { value, done } = await reader.read()
           if (done) break
@@ -299,18 +297,13 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         const tail = decoder.decode()
         if (tail) {
           streamedText += tail
-          const finalSnapshot = streamedText
           setMessages((current) =>
             current.map((entry) =>
-              entry.id === assistantId ? { ...entry, content: finalSnapshot } : entry,
+              entry.id === assistantId ? { ...entry, content: streamedText } : entry,
             ),
           )
         }
         setLastResponseDebug({ status: response.status, text: streamedText })
-        // When the stream completes without producing any text, the LLM
-        // provider likely rejected the request (invalid API key, rate limit,
-        // model error) but the dispatcher already returned 200 for the
-        // streaming response. Surface a clear error so the operator knows.
         if (!streamedText.trim()) {
           emitError({
             code: 'empty_response',

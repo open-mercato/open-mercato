@@ -87,6 +87,7 @@ export function computeCatalogMerchandisingPageContext(
   const selectedCount = selectedRowIds.length > 0 ? selectedRowIds.length : readNumber(context?._selectedCount)
   return {
     view: 'catalog.products.list',
+    entityType: 'catalog.products.list',
     recordType: null,
     recordId: selectedRowIds.join(','),
     extra: {

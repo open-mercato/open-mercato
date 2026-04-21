@@ -84,7 +84,7 @@ const listAddressesTool: CustomersAiToolDefinition = {
 
 const listTagsInput = z
   .object({
-    q: z.string().trim().min(1).optional().describe('Fuzzy search against tag label / slug.'),
+    q: z.string().trim().optional().describe('Fuzzy search against tag label / slug. Omit or leave empty to list all.'),
     limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 100).'),
     offset: z.number().int().min(0).optional().describe('Rows to skip (default 0).'),
   })
