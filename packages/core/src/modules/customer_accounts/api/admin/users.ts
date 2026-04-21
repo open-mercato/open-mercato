@@ -9,6 +9,9 @@ import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+
+const EMAIL_LIKE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const metadata = {}
 
@@ -61,10 +64,17 @@ export async function GET(req: Request) {
 
   if (search) {
     const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
-    const searchFilter = [
+    // email/displayName are stored encrypted, so SQL ILIKE on the ciphertext
+    // never matches a plaintext search term. Match the deterministic emailHash
+    // (used by CustomerUser as a blind index) when the query looks like an
+    // email so administrators can still look users up by exact address.
+    const searchFilter: Record<string, unknown>[] = [
       { email: { $ilike: `%${escapedSearch}%` } },
       { displayName: { $ilike: `%${escapedSearch}%` } },
     ]
+    if (EMAIL_LIKE_PATTERN.test(search)) {
+      searchFilter.push({ emailHash: hashForLookup(search) })
+    }
     if (where.$or) {
       where.$and = [{ $or: where.$or }, { $or: searchFilter }]
       delete where.$or

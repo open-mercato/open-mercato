@@ -3,7 +3,10 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
 export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   {
     entityId: 'auth:user',
-    fields: [{ field: 'email', hashField: 'email_hash' }],
+    fields: [
+      { field: 'email', hashField: 'email_hash' },
+      { field: 'name' },
+    ],
   },
   {
     entityId: 'auth:user_consent',
