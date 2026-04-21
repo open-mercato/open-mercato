@@ -677,11 +677,11 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
 }
 
 function sanitizeDndContextId(value: string): string {
-  const normalized = value
+  const collapsed = value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const normalized = collapsed.replace(/^-+/, '').replace(/-+$/, '')
   return normalized.length > 0 ? normalized : 'data-table'
 }
 

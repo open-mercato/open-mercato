@@ -716,6 +716,10 @@ function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean 
 
 function toLiteral(value: unknown): string {
   return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 const GENERATED_MODULE_SPECIFIER_PREFIXES = ['@/', '@open-mercato/', '../../src/modules/', './'] as const

@@ -24,6 +24,10 @@ type InstallTarget = {
   args: string[]
 }
 
+const SAFE_PACKAGE_SPEC_PATTERN = /^@open-mercato\/[a-z0-9][a-z0-9-]*(?:@.+)?$/i
+const SAFE_PACKAGE_TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const SAFE_PACKAGE_FILE_LOCATOR_PATTERN = /^file:[A-Za-z0-9_./:\\-]+$/
+
 function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
@@ -135,6 +139,28 @@ function assertPackageName(packageName: string | null): asserts packageName is s
   }
 }
 
+function assertSupportedPackageSpec(packageSpec: string): string {
+  const trimmed = packageSpec.trim()
+
+  if (!SAFE_PACKAGE_SPEC_PATTERN.test(trimmed)) {
+    throw new Error('Unsupported package spec. Only direct @open-mercato/* package specs are allowed.')
+  }
+
+  const packageName = parsePackageNameFromSpec(trimmed)
+  assertPackageName(packageName)
+
+  if (trimmed === packageName) {
+    return trimmed
+  }
+
+  const suffix = trimmed.slice(packageName.length + 1)
+  if (SAFE_PACKAGE_TAG_PATTERN.test(suffix) || SAFE_PACKAGE_FILE_LOCATOR_PATTERN.test(suffix)) {
+    return trimmed
+  }
+
+  throw new Error('Unsupported package spec suffix. Use a tag/version token or a file: locator.')
+}
+
 function validateBeforeRegistration(
   modulePackage: ValidatedOfficialModulePackage,
   resolver: PackageResolver,
@@ -215,10 +241,11 @@ export async function addOfficialModule(
   eject: boolean,
   moduleId?: string,
 ): Promise<ModuleCommandResult> {
-  const packageName = parsePackageNameFromSpec(packageSpec)
+  const safePackageSpec = assertSupportedPackageSpec(packageSpec)
+  const packageName = parsePackageNameFromSpec(safePackageSpec)
   assertPackageName(packageName)
 
-  await installPackageSpec(resolver, packageSpec)
+  await installPackageSpec(resolver, safePackageSpec)
 
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
   return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)

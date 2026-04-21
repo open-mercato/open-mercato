@@ -11,13 +11,13 @@ describe('resolveSpawnCommand', () => {
     })
   })
 
-  it('wraps Windows cmd shims in a shell command', () => {
+  it('wraps Windows cmd shims in an explicit cmd.exe invocation', () => {
     const result = resolveSpawnCommand('mercato.cmd', ['generate', '--watch'], { platform: 'win32' })
 
     expect(result).toEqual({
-      command: 'mercato.cmd generate --watch',
-      args: [],
-      spawnOptions: { shell: true },
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', 'mercato.cmd generate --watch'],
+      spawnOptions: { windowsVerbatimArguments: true },
     })
   })
 
@@ -27,9 +27,15 @@ describe('resolveSpawnCommand', () => {
     })
 
     expect(result).toEqual({
-      command: 'npx.cmd playwright test "spec with spaces.ts" "--grep=""foo bar"""',
-      args: [],
-      spawnOptions: { shell: true },
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npx.cmd playwright test "spec with spaces.ts" "--grep=""foo bar"""'],
+      spawnOptions: { windowsVerbatimArguments: true },
     })
+  })
+
+  it('rejects unsafe Windows cmd arguments before shell handoff', () => {
+    expect(() => resolveSpawnCommand('yarn.cmd', ['%PATH%'], { platform: 'win32' })).toThrow(
+      'Windows command argument #1 contains unsupported characters',
+    )
   })
 })
