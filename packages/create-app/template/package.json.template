@@ -128,6 +128,10 @@
     "bullmq": "^5.34.8",
     "ioredis": "^5.8.2"
   },
+  "resolutions": {
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1"
+  },
   "imports": {
     "#generated/entities.ids.generated": {
       "types": "./.mercato/generated/entities.ids.generated.ts",

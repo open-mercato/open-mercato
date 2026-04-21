@@ -24,6 +24,10 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isPrivateUrl } from '@open-mercato/shared/lib/network'
+
+export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
   return parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)
