@@ -119,22 +119,31 @@ summary comment.
 
 ### Phase 4: Validation gate
 
-- [ ] 4.1 Run `yarn build:packages`
-- [ ] 4.2 Run `yarn generate` then `yarn build:packages` again
-- [ ] 4.3 Run `yarn i18n:check-sync` and `yarn i18n:check-usage`
-- [ ] 4.4 Run `yarn typecheck`
-- [ ] 4.5 Run `yarn test`
-- [ ] 4.6 Run `yarn build:app`
-- [ ] 4.7 Document gate results in PR body and in this plan's Changelog
+- [x] 4.1 Run `yarn build:packages` — passed (all 18 workspace packages built from source)
+- [x] 4.2 Run `yarn generate` — partial. Module generators succeeded, but the OpenAPI bundle approach failed with `SyntaxError: The requested module '@mikro-orm/core' does not provide an export named 'Entity'`. Fell back to the static regex OpenAPI generator, which produced 302 API paths
+- [x] 4.3 Run `yarn i18n:check-sync` and `yarn i18n:check-usage` — both passed (advisory 3942 unused keys, not a failure)
+- [x] 4.4 Run `yarn typecheck` — **FAIL**. Blocking issues, all inherited from the major bumps:
+  - `@mikro-orm/core` v7 no longer exports the decorators `Entity`, `PrimaryKey`, `Property`, `Index`, `ManyToOne`, `OneToMany`, `Unique` from the top-level package entry (they moved; needs an import-path migration across `packages/core/src/modules/*/data/entities.ts`)
+  - MikroORM 7 `EntityManager` dropped `persistAndFlush` / `removeAndFlush` and `Connection#getKnex` across `shared/src/lib/data/engine.ts`, `shared/src/lib/db/mikro.ts`, integrations/payment_gateways services
+  - TypeScript 6 deprecates `moduleResolution=node10` (multiple packages hit `error TS5107`); requires adding `"ignoreDeprecations": "6.0"` or migrating to a newer `moduleResolution`
+  - `stripe` v22 removed `Stripe.LatestApiVersion`; `meilisearch` v0.x→v1 renamed `MeiliSearch` → `Meilisearch`
+  - `knex` is no longer present as a resolvable module for `@types/knex` consumers after MikroORM 7 pulled it into its own namespace — several `import type { Knex } from 'knex'` lines fail
+- [x] 4.5 Run `yarn test` — **FAIL**. First failure short-circuits on `gateway-stripe` for the same TS 5107/MikroORM-7 reasons above
+- [x] 4.6 Run `yarn build:app` — **FAIL**. Next.js build fails because `packages/core/dist/...` re-exports modules that cannot be resolved at runtime under MikroORM 7 / Meilisearch v1
+- [x] 4.7 Document gate results in PR body and in this plan's Changelog — see Changelog entry 2026-04-21
 
 ### Phase 5: Open PR and reviews
 
 - [ ] 5.1 Push final commits to `origin/feat/dep-bumps-migrate-to-develop`
-- [ ] 5.2 Open PR against `develop`
-- [ ] 5.3 Apply `review` + `dependencies` + `needs-qa` labels with explainer comments
-- [ ] 5.4 Run `auto-review-pr` autofix pass
+- [ ] 5.2 Open PR against `develop` with `Status: in-progress`
+- [ ] 5.3 Apply `review` + `dependencies` + `blocked` labels with explainer comments (no `needs-qa` — PR cannot be QA'd until build is green)
+- [ ] 5.4 Skip `auto-review-pr` — run explicitly escalated because the validation gate is red; hand off to a human for the MikroORM 7 code migration
 - [ ] 5.5 Post comprehensive summary comment
 
 ## Changelog
 
 - 2026-04-21 — Plan created.
+- 2026-04-21 — Phases 1–3 complete; Phase 4 gate failed at typecheck/test/build:app with
+  expected MikroORM 7 / TypeScript 6 / Stripe 22 / Meilisearch 1 breakage that is
+  out of scope for this run. PR opened against `develop` with
+  `Status: in-progress` so a follow-up can perform the code migration.
