@@ -133,6 +133,7 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,
+    iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
     children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
   }
@@ -224,6 +225,7 @@ async function serializeSectionItem(item: {
     labelKey: item.labelKey,
     href: item.href,
     order: item.order,
+    iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
     children: item.children ? await Promise.all(item.children.map((child) => serializeSectionItem(child))) : undefined,
   }

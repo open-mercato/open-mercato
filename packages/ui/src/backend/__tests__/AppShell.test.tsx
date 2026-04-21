@@ -383,4 +383,71 @@ describe('AppShell', () => {
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
   })
+
+  it('renders nav icons from iconName when iconMarkup is missing', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString()
+      if (url.includes('/api/auth/admin/nav-icon-fallback')) {
+        return new Response(JSON.stringify({
+          groups: [
+            {
+              id: 'checkout',
+              name: 'Checkout',
+              defaultName: 'Checkout',
+              items: [
+                {
+                  href: '/backend/checkout/pay-links',
+                  title: 'Pay Links',
+                  defaultTitle: 'Pay Links',
+                  enabled: true,
+                  iconName: 'ticket',
+                },
+              ],
+            },
+          ],
+          settingsSections: [],
+          settingsPathPrefixes: [],
+          profileSections: [],
+          profilePathPrefixes: ['/backend/profile/'],
+          grantedFeatures: ['checkout.view'],
+          roles: ['admin'],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi="/api/auth/admin/nav-icon-fallback"
+        >
+          <div>Hydrated content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Pay Links')).toBeInTheDocument()
+      })
+
+      const link = screen.getByRole('link', { name: 'Pay Links' })
+      expect(link.querySelector('svg.lucide-ticket')).toBeTruthy()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
 })
