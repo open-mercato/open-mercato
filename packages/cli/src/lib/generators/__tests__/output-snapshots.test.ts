@@ -781,4 +781,29 @@ describe('generator output compatibility', () => {
       'modules.cli.generated.ts',
     ]))
   })
+
+  it('bootstrap-registrations always registers backend route manifests (issue #1595)', async () => {
+    const resolver = createMockResolver([])
+
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const content = readGenerated('bootstrap-registrations.generated.ts')
+    expect(content).not.toBeNull()
+    expect(content).toContain(`import { backendRoutes } from "./backend-routes.generated"`)
+    expect(content).toContain(
+      `import { registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'`,
+    )
+    expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerBackendRouteManifests\(backendRoutes\)[\s\S]*\}/)
+  })
+
+  it('bootstrap-registrations includes backend routes alongside plugin hooks', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const content = readGenerated('bootstrap-registrations.generated.ts')
+    expect(content).not.toBeNull()
+    expect(content).toContain(`registerBackendRouteManifests(backendRoutes)`)
+  })
 })

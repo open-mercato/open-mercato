@@ -71,6 +71,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
+  if (!user.emailVerifiedAt) {
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', {
+      email,
+      reason: 'email_not_verified',
+      tenantId,
+    }).catch(() => undefined)
+    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+  }
+
   await customerUserService.resetFailedAttempts(user)
   await customerUserService.updateLastLoginAt(user)
 

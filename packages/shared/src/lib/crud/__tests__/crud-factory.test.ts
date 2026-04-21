@@ -290,6 +290,64 @@ describe('CRUD Factory', () => {
     expect(body.items[0]?.id).toBe(first.id)
   })
 
+  it('GET ORM fallback keeps automatic tenant/org scoping by default', async () => {
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        buildFilters: () => ({} as any),
+      },
+    })
+
+    const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    mine.id = '550e8400-e29b-41d4-a716-446655440020'
+    await em.persistAndFlush(mine)
+    const other = em.create(Todo, { title: 'Other', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
+    other.id = '550e8400-e29b-41d4-a716-446655440021'
+    await em.persistAndFlush(other)
+
+    const res = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const ids = body.items.map((i: any) => i.id)
+    expect(ids).toContain(mine.id)
+    expect(ids).not.toContain(other.id)
+  })
+
+  it('GET ORM fallback skips automatic scoping when omitAutomaticTenantOrgScope is set', async () => {
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        buildFilters: () => ({} as any),
+        omitAutomaticTenantOrgScope: true,
+      },
+    })
+
+    const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    mine.id = '550e8400-e29b-41d4-a716-446655440030'
+    await em.persistAndFlush(mine)
+    const otherOrg = em.create(Todo, { title: 'OtherOrg', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
+    otherOrg.id = '550e8400-e29b-41d4-a716-446655440031'
+    await em.persistAndFlush(otherOrg)
+    const otherTenant = em.create(Todo, { title: 'OtherTenant', organizationId: defaultOrganizationId, tenantId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }) as Rec
+    otherTenant.id = '550e8400-e29b-41d4-a716-446655440032'
+    await em.persistAndFlush(otherTenant)
+
+    const res = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const ids = body.items.map((i: any) => i.id)
+    // With the flag, buildFilters returns {} and auto-scope is suppressed —
+    // so rows from other orgs/tenants are reachable. Callers are expected to
+    // encode full visibility in buildFilters themselves.
+    expect(ids).toContain(mine.id)
+    expect(ids).toContain(otherOrg.id)
+    expect(ids).toContain(otherTenant.id)
+  })
+
   it('GET returns CSV when format=csv', async () => {
     const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&format=csv'))
     expect(res.headers.get('content-type')).toContain('text/csv')
