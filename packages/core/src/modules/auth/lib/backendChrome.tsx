@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/backend/utils/nav'
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
@@ -277,7 +278,8 @@ export async function resolveBackendChromePayload({
       })
     : { isSuperAdmin: false, features: [] }
 
-  const grantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
+  const rawGrantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
+  const grantedFeatures = filterGrantsByEnabledModules(rawGrantedFeatures)
   const featureChecker = async (features: string[]): Promise<string[]> => {
     if (!allowNavigation || !features.length) return []
     const context = {
