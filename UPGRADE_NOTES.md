@@ -119,6 +119,36 @@ import { Briefcase, AtSign } from 'lucide-react'
 Other lucide icon name stabilizations landed in the v1 cut — check your imports
 against https://lucide.dev/icons if you see "module has no exported member" errors.
 
+Server-side navigation metadata:
+
+If you store page, sidebar, or settings-navigation icons in backend metadata that is
+serialized on the server, do **not** pass Lucide component references or JSX elements such
+as `icon: Users` or `icon: <Users />`. After the v1 upgrade these can cross the
+server/client boundary and break routes such as `/api/auth/admin/nav`.
+
+Use one of these patterns instead:
+
+```ts
+// preferred for backend/page metadata
+icon: 'users'
+```
+
+```ts
+// also safe when you need a custom shape
+const usersIcon = React.createElement(
+  'svg',
+  { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+  React.createElement('path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }),
+  React.createElement('circle', { cx: 9, cy: 7, r: 4 }),
+)
+
+icon: usersIcon
+```
+
+If your admin navigation starts failing with an error about calling
+`node_modules/lucide-react/dist/esm/Icon.js` from the server, audit every metadata-driven
+icon in that nav path and replace component references with icon names or inline SVG.
+
 #### `react-markdown` `^9` → `^10`
 
 The `className` prop was removed from `<ReactMarkdown>`. Wrap the invocation in a

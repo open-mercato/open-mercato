@@ -352,8 +352,17 @@ function publishRuntimeFailure(detail, options = {}) {
   })
 }
 
+function looksLikeWarningLine(line) {
+  if (typeof line !== 'string') return false
+
+  return line.startsWith('⚠')
+    || /^\(node:\d+\)\s+Warning:/i.test(line)
+    || /^Warning:/i.test(line)
+    || /^warn\s+-/i.test(line)
+}
+
 function looksLikeFailure(line) {
-  if (isStatelessRuntimeNoiseLine(line)) return false
+  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -1456,7 +1465,7 @@ function classifyServerLine(line) {
     }
   }
 
-  if (line.startsWith('⚠ ')) {
+  if (looksLikeWarningLine(line)) {
     return { type: 'status', message: line }
   }
 

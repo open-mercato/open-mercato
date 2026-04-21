@@ -12,6 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
+import type { LoadedInjectionDataWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 function print(value: unknown) {
   return JSON.stringify(value ?? null)
@@ -58,8 +59,8 @@ function readCustomerItems(payload: CustomersResponse | null): CustomerRecord[] 
   return []
 }
 
-function collectMenuItems(widgets: Array<{ menuItems?: InjectionMenuItem[] }>): InjectionMenuItem[] {
-  return widgets.flatMap((widget) => widget.menuItems ?? [])
+function collectMenuItems(widgets: LoadedInjectionDataWidget[]): InjectionMenuItem[] {
+  return widgets.flatMap((widget) => ('menuItems' in widget && Array.isArray(widget.menuItems)) ? widget.menuItems : [])
 }
 
 export default function UmesHandlersPage() {
