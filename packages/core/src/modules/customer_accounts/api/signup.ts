@@ -19,13 +19,9 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
-
-function resolveBaseUrl(req: Request): string {
-  return getAppBaseUrl(req)
-}
 
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
@@ -67,12 +63,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'tenantId and organizationId are required' }, { status: 400 })
   }
 
+  let baseUrl: string
+  try {
+    baseUrl = getSecurityEmailBaseUrl(req.url)
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'customer_accounts.signup',
+      configMessage: 'Signup email is not configured',
+    })
+    if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
+    throw error
+  }
+
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const { translate } = await resolveTranslations()
-  const baseUrl = resolveBaseUrl(req)
 
   const orgRow = await findOrganizationInTenant(em, organizationId, tenantId)
   if (!orgRow) {
@@ -180,8 +187,9 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 202, description: 'Signup accepted', schema: signupAcceptedSchema },
   ],
   errors: [
-    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 400, description: 'Validation failed or invalid request origin', schema: errorSchema },
     { status: 429, description: 'Too many signup attempts', schema: rateLimitErrorSchema },
+    { status: 500, description: 'Signup email origin is not configured', schema: errorSchema },
   ],
 }
 
