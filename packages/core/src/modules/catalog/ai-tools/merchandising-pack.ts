@@ -37,8 +37,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   CatalogProduct,
@@ -115,27 +115,11 @@ async function queryProductsWithFilters(
 ): Promise<{ items: ReturnType<typeof toProductSummary>[]; total: number }> {
   const limit = input.limit ?? 50
   const offset = input.offset ?? 0
-  const where: Record<string, unknown> = {
-    tenantId,
-    deletedAt: null,
-  }
-  if (ctx.organizationId) where.organizationId = ctx.organizationId
-  if (input.active === true) where.isActive = true
-  if (input.q) {
-    const pattern = `%${escapeLikePattern(input.q)}%`
-    where.$or = [
-      { title: { $ilike: pattern } },
-      { subtitle: { $ilike: pattern } },
-      { sku: { $ilike: pattern } },
-      { handle: { $ilike: pattern } },
-    ]
-  }
-  if (restrictToIds && restrictToIds.length > 0) {
-    where.id = { $in: Array.from(new Set(restrictToIds)) }
-  }
 
-  // Category narrowing: resolve product IDs once, then intersect with the
-  // existing id filter so we never over-fetch.
+  let idRestriction: string[] | null = restrictToIds
+    ? Array.from(new Set(restrictToIds))
+    : null
+
   if (input.categoryId) {
     const assignments = await findWithDecryption<CatalogProductCategoryAssignment>(
       em,
@@ -152,17 +136,12 @@ async function queryProductsWithFilters(
       })
       .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
     if (!ids.length) return { items: [], total: 0 }
-    if (where.id && typeof where.id === 'object' && Array.isArray((where.id as any).$in)) {
-      const narrowed = ((where.id as any).$in as string[]).filter((id) => ids.includes(id))
-      if (!narrowed.length) return { items: [], total: 0 }
-      where.id = { $in: narrowed }
-    } else {
-      where.id = { $in: ids }
-    }
+    idRestriction = idRestriction
+      ? idRestriction.filter((id) => ids.includes(id))
+      : ids
+    if (!idRestriction.length) return { items: [], total: 0 }
   }
 
-  // Tag narrowing: resolve via assignments. The input accepts labels or slugs;
-  // we resolve both forms against `catalog_product_tags`.
   if (input.tags && input.tags.length > 0) {
     const tagWhere: Record<string, unknown> = {
       tenantId,
@@ -196,18 +175,12 @@ async function queryProductsWithFilters(
       })
       .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
     if (!scopedIds.length) return { items: [], total: 0 }
-    if (where.id && typeof where.id === 'object' && Array.isArray((where.id as any).$in)) {
-      const narrowed = ((where.id as any).$in as string[]).filter((id) => scopedIds.includes(id))
-      if (!narrowed.length) return { items: [], total: 0 }
-      where.id = { $in: narrowed }
-    } else {
-      where.id = { $in: scopedIds }
-    }
+    idRestriction = idRestriction
+      ? idRestriction.filter((id) => scopedIds.includes(id))
+      : scopedIds
+    if (!idRestriction.length) return { items: [], total: 0 }
   }
 
-  // Price bounds: if either is set, resolve matching product IDs from
-  // CatalogProductPrice rows and intersect. Numeric prices are stored as
-  // strings; cast for comparison via a post-filter (query path accepts a set).
   if (input.priceMin !== undefined || input.priceMax !== undefined) {
     const priceWhere: Record<string, unknown> = { tenantId }
     if (ctx.organizationId) priceWhere.organizationId = ctx.organizationId
@@ -235,48 +208,54 @@ async function queryProductsWithFilters(
       })
       .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
     if (!scopedIds.length) return { items: [], total: 0 }
-    if (where.id && typeof where.id === 'object' && Array.isArray((where.id as any).$in)) {
-      const narrowed = ((where.id as any).$in as string[]).filter((id) => scopedIds.includes(id))
-      if (!narrowed.length) return { items: [], total: 0 }
-      where.id = { $in: narrowed }
-    } else {
-      where.id = { $in: Array.from(new Set(scopedIds)) }
-    }
+    idRestriction = idRestriction
+      ? idRestriction.filter((id) => scopedIds.includes(id))
+      : Array.from(new Set(scopedIds))
+    if (!idRestriction.length) return { items: [], total: 0 }
   }
 
-  let [rows, total] = await Promise.all([
-    findWithDecryption<CatalogProduct>(
-      em,
-      CatalogProduct,
-      where as any,
-      { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-      buildScope(ctx, tenantId),
-    ),
-    em.count(CatalogProduct, where as any),
-  ])
-
-  // Encrypted-data fallback: ILIKE can't match encrypted fields.
-  if (total === 0 && input.q && !restrictToIds) {
-    const fallbackWhere: Record<string, unknown> = { tenantId, deletedAt: null }
-    if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
-    if (input.active === true) fallbackWhere.isActive = true
-    const allRows = await findWithDecryption<CatalogProduct>(
-      em, CatalogProduct, fallbackWhere as any,
-      { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
-      buildScope(ctx, tenantId),
-    )
-    const lowerQ = input.q.toLowerCase()
-    rows = allRows.filter((row) => {
-      const title = (row.title ?? '').toLowerCase()
-      const sku = (row.sku ?? '').toLowerCase()
-      const handle = (row.handle ?? '').toLowerCase()
-      return title.includes(lowerQ) || sku.includes(lowerQ) || handle.includes(lowerQ)
-    }).slice(0, limit)
-    total = rows.length
+  const filters: Record<string, unknown> = {}
+  if (input.active === true) filters.is_active = true
+  if (input.q) {
+    const pattern = `%${input.q}%`
+    filters.$or = [
+      { title: { $ilike: pattern } },
+      { subtitle: { $ilike: pattern } },
+      { sku: { $ilike: pattern } },
+      { handle: { $ilike: pattern } },
+    ]
+  }
+  if (idRestriction) {
+    filters.id = { $in: idRestriction }
   }
 
-  const tenantScoped = rows.filter((row) => row.tenantId === tenantId)
-  return { items: tenantScoped.map(toProductSummary), total }
+  const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+  const result: QueryResult = await qe.query('catalog:catalog_product', {
+    filters,
+    sort: [{ field: 'created_at', dir: SortDir.Desc }],
+    page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
+    tenantId,
+    organizationId: ctx.organizationId ?? undefined,
+  })
+
+  const productIds = result.items
+    .map((row: Record<string, unknown>) => row.id as string)
+    .filter((id): id is string => typeof id === 'string')
+  if (!productIds.length) return { items: [], total: result.total }
+
+  const products = await findWithDecryption<CatalogProduct>(
+    em,
+    CatalogProduct,
+    { tenantId, id: { $in: productIds }, deletedAt: null } as any,
+    undefined,
+    buildScope(ctx, tenantId),
+  )
+  const productById = new Map(products.map((p) => [p.id, p]))
+  const ordered = productIds
+    .map((id) => productById.get(id))
+    .filter((p): p is CatalogProduct => !!p)
+
+  return { items: ordered.map(toProductSummary), total: result.total }
 }
 
 const searchProductsTool: CatalogAiToolDefinition = {

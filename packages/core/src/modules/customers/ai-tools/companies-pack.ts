@@ -5,8 +5,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -53,20 +53,8 @@ const listCompaniesTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = {
-      tenantId,
-      kind: 'company',
-      deletedAt: null,
-    }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.q) {
-      const pattern = `%${escapeLikePattern(input.q)}%`
-      where.$or = [
-        { displayName: { $ilike: pattern } },
-        { primaryEmail: { $ilike: pattern } },
-        { description: { $ilike: pattern } },
-      ]
-    }
+
+    let idRestriction: string[] | null = null
     if (input.tags && input.tags.length > 0) {
       const assignments = await findWithDecryption<CustomerTagAssignment>(
         em,
@@ -85,41 +73,74 @@ const listCompaniesTool: CustomersAiToolDefinition = {
       if (!scopedIds.length) {
         return { items: [], total: 0, limit, offset }
       }
-      where.id = { $in: scopedIds }
+      idRestriction = scopedIds
     }
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CustomerEntity>(
+
+    const filters: Record<string, unknown> = {
+      kind: 'company',
+    }
+    if (input.q?.trim()) {
+      const pattern = `%${input.q.trim()}%`
+      filters.$or = [
+        { display_name: { $ilike: pattern } },
+        { primary_email: { $ilike: pattern } },
+        { description: { $ilike: pattern } },
+      ]
+    }
+    if (idRestriction) {
+      filters.id = { $in: idRestriction }
+    }
+
+    const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+    const result: QueryResult = await qe.query('customers:customer_entity', {
+      filters,
+      sort: [{ field: 'created_at', dir: SortDir.Desc }],
+      page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
+      tenantId,
+      organizationId: ctx.organizationId ?? undefined,
+    })
+
+    const entityIds = result.items
+      .map((row: Record<string, unknown>) => row.id as string)
+      .filter((id): id is string => typeof id === 'string')
+    const profileMap = new Map<string, CustomerCompanyProfile>()
+    if (entityIds.length > 0) {
+      const profiles = await findWithDecryption<CustomerCompanyProfile>(
         em,
-        CustomerEntity,
-        where as any,
-        { limit, offset, populate: ['companyProfile'] as any, orderBy: { createdAt: 'desc' } as any } as any,
+        CustomerCompanyProfile,
+        { tenantId, entity: { $in: entityIds } } as any,
+        undefined,
         buildScope(ctx, tenantId),
-      ),
-      em.count(CustomerEntity, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+      )
+      for (const profile of profiles) {
+        const entityRef = (profile as any).entity
+        const entityId = typeof entityRef === 'string' ? entityRef : entityRef?.id ?? null
+        if (entityId) profileMap.set(entityId, profile)
+      }
+    }
+
     return {
-      items: filtered.map((row) => {
-        const profile = (row as any).companyProfile as CustomerCompanyProfile | null | undefined
+      items: result.items.map((row: Record<string, unknown>) => {
+        const profile = profileMap.get(row.id as string)
         return {
           id: row.id,
-          displayName: row.displayName,
-          primaryEmail: row.primaryEmail ?? null,
-          primaryPhone: row.primaryPhone ?? null,
+          displayName: row.display_name ?? row.displayName,
+          primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
+          primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
           status: row.status ?? null,
-          lifecycleStage: row.lifecycleStage ?? null,
+          lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
           source: row.source ?? null,
-          ownerUserId: row.ownerUserId ?? null,
-          organizationId: row.organizationId ?? null,
-          tenantId: row.tenantId ?? null,
+          ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
           domain: profile?.domain ?? null,
           websiteUrl: profile?.websiteUrl ?? null,
           industry: profile?.industry ?? null,
           sizeBucket: profile?.sizeBucket ?? null,
-          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+          createdAt: row.created_at ?? row.createdAt ? new Date(String(row.created_at ?? row.createdAt)).toISOString() : null,
         }
       }),
-      total,
+      total: result.total,
       limit,
       offset,
     }

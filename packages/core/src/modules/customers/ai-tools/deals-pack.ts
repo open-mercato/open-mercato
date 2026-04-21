@@ -6,8 +6,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import {
@@ -60,24 +60,6 @@ const listDealsTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = {
-      tenantId,
-      deletedAt: null,
-    }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    // NOTE: ILIKE queries don't work on encrypted fields. When q is set,
-    // we first try ILIKE; if 0 results, fall back to in-memory filtering
-    // on decrypted data. The fallback is added after the main query below.
-    const searchQuery = input.q?.trim() || null
-    if (searchQuery) {
-      const pattern = `%${escapeLikePattern(searchQuery)}%`
-      where.$or = [
-        { title: { $ilike: pattern } },
-        { description: { $ilike: pattern } },
-      ]
-    }
-    if (input.pipelineStageId) where.pipelineStageId = input.pipelineStageId
-    if (input.status) where.status = input.status
 
     let dealIdRestriction: string[] | null = null
     if (input.personId) {
@@ -116,66 +98,52 @@ const listDealsTool: CustomersAiToolDefinition = {
         ? dealIdRestriction.filter((id) => ids.includes(id))
         : ids
     }
-    if (dealIdRestriction !== null) {
-      if (dealIdRestriction.length === 0) {
-        return { items: [], total: 0, limit, offset }
-      }
-      where.id = { $in: dealIdRestriction }
+    if (dealIdRestriction !== null && dealIdRestriction.length === 0) {
+      return { items: [], total: 0, limit, offset }
     }
 
-    let [rows, total] = await Promise.all([
-      findWithDecryption<CustomerDeal>(
-        em,
-        CustomerDeal,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CustomerDeal, where as any),
-    ])
-
-    // Encrypted-data fallback: ILIKE can't match encrypted fields. When the
-    // text query returned 0 results, re-fetch all records and filter in memory
-    // on the decrypted values. Practical for CRM-scale datasets (<10K).
-    if (total === 0 && searchQuery && !dealIdRestriction) {
-      const fallbackWhere: Record<string, unknown> = { tenantId, deletedAt: null }
-      if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
-      const allRows = await findWithDecryption<CustomerDeal>(
-        em,
-        CustomerDeal,
-        fallbackWhere as any,
-        { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      )
-      const lowerQ = searchQuery.toLowerCase()
-      rows = allRows.filter((row) => {
-        const title = (row.title ?? '').toLowerCase()
-        const desc = (row.description ?? '').toLowerCase()
-        return title.includes(lowerQ) || desc.includes(lowerQ)
-      }).slice(0, limit)
-      total = rows.length
+    const filters: Record<string, unknown> = {}
+    if (input.q?.trim()) {
+      const pattern = `%${input.q.trim()}%`
+      filters.$or = [
+        { title: { $ilike: pattern } },
+        { description: { $ilike: pattern } },
+      ]
+    }
+    if (input.pipelineStageId) filters.pipeline_stage_id = input.pipelineStageId
+    if (input.status) filters.status = input.status
+    if (dealIdRestriction) {
+      filters.id = { $in: dealIdRestriction }
     }
 
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+    const result: QueryResult = await qe.query('customers:customer_deal', {
+      filters,
+      sort: [{ field: 'created_at', dir: SortDir.Desc }],
+      page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
+      tenantId,
+      organizationId: ctx.organizationId ?? undefined,
+    })
+
     return {
-      items: filtered.map((row) => ({
+      items: result.items.map((row: Record<string, unknown>) => ({
         id: row.id,
         title: row.title,
         description: row.description ?? null,
         status: row.status ?? null,
-        pipelineId: row.pipelineId ?? null,
-        pipelineStageId: row.pipelineStageId ?? null,
-        valueAmount: row.valueAmount ?? null,
-        valueCurrency: row.valueCurrency ?? null,
+        pipelineId: row.pipeline_id ?? row.pipelineId ?? null,
+        pipelineStageId: row.pipeline_stage_id ?? row.pipelineStageId ?? null,
+        valueAmount: row.value_amount ?? row.valueAmount ?? null,
+        valueCurrency: row.value_currency ?? row.valueCurrency ?? null,
         probability: row.probability ?? null,
-        ownerUserId: row.ownerUserId ?? null,
-        expectedCloseAt: row.expectedCloseAt ? new Date(row.expectedCloseAt).toISOString() : null,
+        ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
+        expectedCloseAt: row.expected_close_at ?? row.expectedCloseAt ? new Date(String(row.expected_close_at ?? row.expectedCloseAt)).toISOString() : null,
         source: row.source ?? null,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+        organizationId: row.organization_id ?? row.organizationId ?? null,
+        tenantId: row.tenant_id ?? row.tenantId ?? null,
+        createdAt: row.created_at ?? row.createdAt ? new Date(String(row.created_at ?? row.createdAt)).toISOString() : null,
       })),
-      total,
+      total: result.total,
       limit,
       offset,
     }

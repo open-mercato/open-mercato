@@ -9,8 +9,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   CustomerEntity,
   CustomerPersonProfile,
@@ -60,22 +60,8 @@ const listPeopleTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = {
-      tenantId,
-      kind: 'person',
-      deletedAt: null,
-    }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const searchQuery = input.q?.trim() || null
-    if (searchQuery) {
-      const pattern = `%${escapeLikePattern(searchQuery)}%`
-      where.$or = [
-        { displayName: { $ilike: pattern } },
-        { primaryEmail: { $ilike: pattern } },
-        { primaryPhone: { $ilike: pattern } },
-        { description: { $ilike: pattern } },
-      ]
-    }
+
+    let idRestriction: string[] | null = null
     if (input.companyId) {
       const profiles = await findWithDecryption<CustomerPersonProfile>(
         em,
@@ -94,7 +80,7 @@ const listPeopleTool: CustomersAiToolDefinition = {
       if (!ids.length) {
         return { items: [], total: 0, limit, offset }
       }
-      where.id = { $in: ids }
+      idRestriction = ids
     }
     if (input.tags && input.tags.length > 0) {
       const assignments = await findWithDecryption<CustomerTagAssignment>(
@@ -114,57 +100,54 @@ const listPeopleTool: CustomersAiToolDefinition = {
       if (!scopedIds.length) {
         return { items: [], total: 0, limit, offset }
       }
-      where.id = where.id ? { $in: (where.id as any).$in.filter((id: string) => scopedIds.includes(id)) } : { $in: scopedIds }
-      if (Array.isArray((where.id as any).$in) && (where.id as any).$in.length === 0) {
+      idRestriction = idRestriction
+        ? idRestriction.filter((id) => scopedIds.includes(id))
+        : scopedIds
+      if (!idRestriction.length) {
         return { items: [], total: 0, limit, offset }
       }
     }
-    let [rows, total] = await Promise.all([
-      findWithDecryption<CustomerEntity>(
-        em,
-        CustomerEntity,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CustomerEntity, where as any),
-    ])
 
-    // Encrypted-data fallback: ILIKE can't match encrypted fields.
-    if (total === 0 && searchQuery) {
-      const fallbackWhere: Record<string, unknown> = { tenantId, kind: 'person', deletedAt: null }
-      if (ctx.organizationId) fallbackWhere.organizationId = ctx.organizationId
-      const allRows = await findWithDecryption<CustomerEntity>(
-        em, CustomerEntity, fallbackWhere as any,
-        { limit: 500, orderBy: { createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      )
-      const lowerQ = searchQuery.toLowerCase()
-      rows = allRows.filter((row) => {
-        const name = (row.displayName ?? '').toLowerCase()
-        const email = (row.primaryEmail ?? '').toLowerCase()
-        const phone = (row.primaryPhone ?? '').toLowerCase()
-        return name.includes(lowerQ) || email.includes(lowerQ) || phone.includes(lowerQ)
-      }).slice(0, limit)
-      total = rows.length
+    const filters: Record<string, unknown> = {
+      kind: 'person',
+    }
+    if (input.q?.trim()) {
+      const pattern = `%${input.q.trim()}%`
+      filters.$or = [
+        { display_name: { $ilike: pattern } },
+        { primary_email: { $ilike: pattern } },
+        { primary_phone: { $ilike: pattern } },
+        { description: { $ilike: pattern } },
+      ]
+    }
+    if (idRestriction) {
+      filters.id = { $in: idRestriction }
     }
 
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+    const result: QueryResult = await qe.query('customers:customer_entity', {
+      filters,
+      sort: [{ field: 'created_at', dir: SortDir.Desc }],
+      page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
+      tenantId,
+      organizationId: ctx.organizationId ?? undefined,
+    })
+
     return {
-      items: filtered.map((row) => ({
+      items: result.items.map((row: Record<string, unknown>) => ({
         id: row.id,
-        displayName: row.displayName,
-        primaryEmail: row.primaryEmail ?? null,
-        primaryPhone: row.primaryPhone ?? null,
+        displayName: row.display_name ?? row.displayName,
+        primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
+        primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
         status: row.status ?? null,
-        lifecycleStage: row.lifecycleStage ?? null,
+        lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
         source: row.source ?? null,
-        ownerUserId: row.ownerUserId ?? null,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+        ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
+        organizationId: row.organization_id ?? row.organizationId ?? null,
+        tenantId: row.tenant_id ?? row.tenantId ?? null,
+        createdAt: row.created_at ?? row.createdAt ? new Date(String(row.created_at ?? row.createdAt)).toISOString() : null,
       })),
-      total,
+      total: result.total,
       limit,
       offset,
     }
