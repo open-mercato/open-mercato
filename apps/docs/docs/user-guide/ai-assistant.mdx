@@ -1,0 +1,85 @@
+---
+title: AI Assistant
+description: Use the AI sheet on customer and product pages to explore data, draft content, and — with approval — apply curated changes.
+---
+
+# AI Assistant
+
+Open Mercato ships with AI-powered assistants you open directly from the admin pages you already use. Each assistant is scoped to one domain (customers, catalog) and knows only what its agent contract allows it to know. Every change the assistant proposes requires an explicit **Confirm** before it touches your data.
+
+:::tip When to use each assistant
+- **Account Assistant** — open on a person, company, or deal page when you need to explore the record and its linked history in plain English.
+- **Merchandising Assistant** — open on the products list when you want to draft descriptions, extract attributes, or stage bulk price and title updates.
+:::
+
+## Opening the AI sheet
+
+On any supported page you'll see a **Ask AI** button in the page header or toolbar. Click it to slide the AI sheet in from the right. The sheet carries the current page context automatically — there's no need to paste record ids.
+
+:::note Screenshot TODO
+Capture: `/backend/customers/people/<id>` — person detail page with the AI sheet slid in, one example question pre-typed.
+Save as: `apps/docs/static/img/ai-assistant/person-sheet.png`. Embed with `![alt](/img/ai-assistant/person-sheet.png)`.
+:::
+
+## The merchandising demo (D18)
+
+The **Merchandising Assistant** lives on the products list at `/backend/catalog/catalog/products`. Pick any set of rows with the row-checkbox column, click **Ask AI**, and the sheet opens primed with four canned prompts:
+
+1. **Draft descriptions** — generate customer-facing descriptions for every selected product.
+2. **Extract attributes** — scan the product title, description, and media to propose structured attribute values.
+3. **Title variants** — generate a handful of alternative titles for A/B testing or channel-specific wording.
+4. **Price adjustment suggestion** — compute a justified price delta per product based on the current price, cost, and category peers.
+
+:::note Screenshot TODO
+Capture: `/backend/catalog/catalog/products` — products list with three rows selected and the Merchandising Assistant sheet open on the canned-prompt picker.
+Save as: `apps/docs/static/img/ai-assistant/merchandising-canned-prompts.png`. Embed with `![alt](/img/ai-assistant/merchandising-canned-prompts.png)`.
+:::
+
+## The approval flow
+
+Any time the assistant wants to write something, it does **not** write directly. Instead it renders a **proposal card** with:
+
+- The tool it wants to run (for example, `catalog.update_product`).
+- A **field-by-field diff** of the current value vs the proposed value, per product.
+- A **[Confirm All]** button for the whole batch and an optional per-row reject toggle.
+
+Nothing is persisted until you press Confirm.
+
+:::note Screenshot TODO
+Capture: `/backend/catalog/catalog/products` — Merchandising Assistant sheet showing a proposal card with three products, each row expanded to show the field diff, Confirm All button visible.
+Save as: `apps/docs/static/img/ai-assistant/approval-confirm-all.png`. Embed with `![alt](/img/ai-assistant/approval-confirm-all.png)`.
+:::
+
+After you press Confirm:
+
+1. The system re-reads each target row to make sure no one else edited it in the meantime.
+2. Rows that changed under you are skipped and surfaced as "stale — please retry" in the result card.
+3. The remaining rows are updated inside a single database transaction.
+4. The products list refreshes in place — no page reload needed.
+
+:::note Screenshot TODO
+Capture: `/backend/catalog/catalog/products` — result card after a partial-success confirm, showing two succeeded rows and one stale-version row.
+Save as: `apps/docs/static/img/ai-assistant/approval-partial-success.png`. Embed with `![alt](/img/ai-assistant/approval-partial-success.png)`.
+:::
+
+## Read-only vs confirm-required
+
+Not every assistant can write. An assistant's operating envelope is printed in the sheet header:
+
+- **Read-only** (the default for the Account Assistant) — the assistant can explore and answer questions, but the **[Ask AI]** button will never propose a write. Questions that would require a write ("update this deal to stage X") are politely refused.
+- **Confirm required** — every write is staged as a proposal card with diff + Confirm.
+- **Destructive confirm required** — the same flow, scoped to destructive actions (deletes, bulk cascades). The card explicitly labels the destructive scope.
+
+Your administrator can tighten an assistant from `confirm-required` down to `read-only` at any time (see [AI Agents settings](/framework/ai-assistant/settings)). They cannot loosen it beyond what the shipped agent declares.
+
+## Tips
+
+- The assistant only sees records your user account can already see. It inherits your roles and permissions.
+- Proposals expire after **15 minutes** of inactivity by default. If a proposal expires before you confirm, just ask again — the context is preserved in the chat.
+- Attachments (product images, PDFs) are supported on agents that declare the right media types — drop them into the chat input to include them.
+- The sheet shows "thinking..." while the assistant runs; you can cancel with **Escape** at any time.
+
+## Related
+
+- Admin setup: [AI Agents settings](/framework/ai-assistant/settings)
+- Architecture: [AI Framework Overview](/framework/ai-assistant/overview)

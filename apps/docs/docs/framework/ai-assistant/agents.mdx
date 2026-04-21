@@ -1,0 +1,164 @@
+---
+title: AI Agents
+description: Declare typed AI agents, wire tool packs, and choose between chat and structured-output execution modes.
+---
+
+# AI Agents
+
+An **agent** is a module-owned contract the runtime uses to dispatch an LLM call with a deterministic tool surface, feature-gated access, and an explicit mutation posture. Agents live in each module's `ai-agents.ts` at the module root and are discovered by the generator.
+
+## Writing an `ai-agents.ts`
+
+```ts
+// packages/core/src/modules/customers/ai-agents.ts
+import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
+
+export const accountAssistant: AiAgentDefinition = {
+  id: 'customers.account_assistant',
+  moduleId: 'customers',
+  label: 'Account Assistant',
+  description: 'Read-only CRM explorer for people, companies, deals.',
+  systemPrompt: '...composed from PromptTemplate sections...',
+  allowedTools: [
+    'search.entities',
+    'attachments.download',
+    'meta.describe_agent',
+    'customers.get_person',
+    'customers.list_deals',
+    'customers.get_activities',
+  ],
+  readOnly: true,
+  mutationPolicy: 'read-only',
+  requiredFeatures: ['customers.view'],
+  acceptedMediaTypes: ['image', 'pdf'],
+  defaultModel: 'claude-haiku-4-5',
+  domain: 'customers',
+  keywords: ['crm', 'people', 'companies', 'deals'],
+}
+
+export default [accountAssistant]
+```
+
+After adding or editing `ai-agents.ts`, run:
+
+```bash
+yarn generate
+```
+
+The generator aggregates every module's agents into `apps/mercato/.mercato/generated/ai-agents.generated.ts`.
+
+## `AiAgentDefinition` fields
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `id` | yes | Must match `<moduleId>.<agent>` (lowercase, digits, underscores). |
+| `moduleId` | yes | Used for `<MODULE>_AI_MODEL` resolution and generator grouping. |
+| `label` / `description` | yes | Shown in the agent picker and playground. |
+| `systemPrompt` | yes | The composed system prompt the runtime feeds to the model. |
+| `allowedTools` | yes | Whitelist. Tools not listed here are never exposed — even when registered. |
+| `readOnly` | no (default `true`) | When `true`, every `isMutation: true` tool is filtered out BEFORE the model sees it. |
+| `mutationPolicy` | no | `read-only` \| `confirm-required` \| `destructive-confirm-required`. |
+| `requiredFeatures` | no | ACL features gated at the dispatcher route. |
+| `acceptedMediaTypes` | no | Subset of `image` \| `pdf` \| `file`. |
+| `executionMode` | no (default `chat`) | `chat` or `object`. See below. |
+| `output` | no | Structured-output schema when `executionMode === 'object'`. |
+| `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). |
+| `maxSteps` | no | Upper bound on AI SDK tool-use loops. |
+| `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
+| `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
+
+## Tool packs
+
+Tools are declared per module with `defineAiTool` and registered under a tool pack. Every tool advertises whether it mutates:
+
+```ts
+import { defineAiTool } from '@open-mercato/ai-assistant'
+import { z } from 'zod'
+
+export const getPerson = defineAiTool({
+  name: 'customers.get_person',
+  description: 'Return a single person by id with linked addresses and tags.',
+  isMutation: false,
+  requiredFeatures: ['customers.view'],
+  inputSchema: z.object({ personId: z.string().uuid() }),
+  async handler(args, ctx) {
+    const em = ctx.container.resolve('em')
+    // ... load, scope by tenant, return a serializable object
+    return { person: { /* ... */ } }
+  },
+})
+```
+
+### Shipped packs
+
+| Pack | Tools (examples) | When to use |
+|------|------------------|-------------|
+| `search.*` | `search.entities`, `search.customers` | Cross-entity fulltext/vector search |
+| `attachments.*` | `attachments.download`, `attachments.list` | Read attachment metadata and fetch blobs |
+| `meta.*` | `meta.describe_agent` | Self-description so the model can list its own capabilities |
+| `customers.*` | `customers.get_person`, `customers.list_deals`, `customers.update_deal_stage` | CRM read + a single curated mutation |
+| `catalog.*` | `catalog.list_products`, `catalog.update_product`, `catalog.bulk_update_products`, `catalog.apply_attribute_extraction`, `catalog.update_product_media_descriptions` | Merchandising demo tools (read + four D18 writes) |
+
+:::caution Mutation tools never bypass `readOnly`
+When `agent.readOnly === true` (the default), the runtime strips any tool with `isMutation: true` from the model's tool surface. To unlock writes you MUST set `readOnly: false` AND declare a non-`read-only` `mutationPolicy`. Operators can then further downgrade — but never escalate — via the tenant settings page.
+:::
+
+## Chat vs object execution mode
+
+| Mode | Helper | Output | When to use |
+|------|--------|--------|-------------|
+| `chat` (default) | `runAiAgentText` | Streamed text + UI parts | `<AiChat>` sheets, conversational assistants, multi-turn sessions |
+| `object` | `runAiAgentObject` | Validated JSON matching an `output.schema` | Single-shot structured extraction, batch background enrichment, headless callers |
+
+Object-mode agents declare a Zod `output.schema`:
+
+```ts
+import { z } from 'zod'
+
+export const attributeExtractor: AiAgentDefinition = {
+  id: 'catalog.attribute_extractor',
+  moduleId: 'catalog',
+  // ...
+  executionMode: 'object',
+  output: {
+    schemaName: 'CatalogAttributeExtraction',
+    schema: z.object({
+      productId: z.string().uuid(),
+      attributes: z.array(z.object({
+        key: z.string(),
+        value: z.string(),
+      })),
+    }),
+  },
+}
+```
+
+The runtime delegates to Vercel AI SDK's `generateObject` / `streamObject` and returns the parsed result.
+
+## End-to-end example
+
+```ts
+// 1. Define the agent
+// packages/core/src/modules/customers/ai-agents.ts
+export const accountAssistant: AiAgentDefinition = { /* as above */ }
+
+// 2. Define or whitelist the tools
+// packages/core/src/modules/customers/ai-tools/get-person.ts
+export const getPerson = defineAiTool({ /* as above */ })
+
+// 3. Embed the chat UI
+// packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx
+import { AiChat } from '@open-mercato/ui/ai'
+
+<AiChat
+  agent="customers.account_assistant"
+  pageContext={{ entityType: 'customers:person', recordId: params.id }}
+/>
+```
+
+## Where the runtime reads each field
+
+- `checkAgentPolicy` in `lib/agent-policy.ts` enforces `requiredFeatures`, tool whitelisting, `readOnly`/`mutationPolicy`, and `acceptedMediaTypes`.
+- `resolveAiAgentTools` in `lib/agent-tools.ts` filters the registered tool pack down to the agent's `allowedTools`.
+- `createModelFactory` in `lib/model-factory.ts` picks the LLM per the resolution order.
+- `runAiAgentText` / `runAiAgentObject` in `lib/agent-runtime.ts` compose the final request.

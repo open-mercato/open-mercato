@@ -1,0 +1,71 @@
+---
+title: AI Playground
+description: Interactive sandbox for exercising registered AI agents in chat and object modes.
+---
+
+# AI Playground
+
+The playground is the fastest way to exercise a registered agent end-to-end without wiring a host page. It supports both `chat` and `object` execution modes and ships a debug panel that mirrors the panels the Code Mode Command Palette exposes.
+
+Open at `/backend/config/ai-assistant/playground`. Requires the `ai_assistant.settings.manage` feature.
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/playground` — landing state with agent picker, empty chat, and the debug panel collapsed.
+Save as: `apps/docs/static/img/ai-assistant/playground-landing.png`. Embed with `![alt](/img/ai-assistant/playground-landing.png)`.
+:::
+
+## Agent picker
+
+Every agent aggregated into `ai-agents.generated.ts` shows up in the picker. The selection drives:
+
+- The target of `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` (chat mode).
+- The target of `POST /api/ai_assistant/ai/run-object?agent=<module>.<agent>` (object mode).
+- The system prompt, tool whitelist, and mutation policy displayed in the debug panel.
+
+## Chat mode
+
+When the picked agent declares `executionMode: 'chat'` (the default), the playground renders an `<AiChat>` instance with:
+
+- The four mutation-approval cards (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) pre-registered.
+- A stable per-session `conversationId` so idempotency dedupes repeated turns.
+- An inline attachment uploader when `agent.acceptedMediaTypes` is non-empty.
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/playground` — `customers.account_assistant` selected, one user turn + one assistant reply, debug panel expanded.
+Save as: `apps/docs/static/img/ai-assistant/playground-chat.png`. Embed with `![alt](/img/ai-assistant/playground-chat.png)`.
+:::
+
+## Object mode
+
+When the picked agent declares `executionMode: 'object'`, the playground swaps the chat for a JSON input editor and a result panel. The runtime validates the returned object against `agent.output.schema` and surfaces violations inline.
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/playground` — object-mode agent selected, input JSON filled, result JSON tree rendered.
+Save as: `apps/docs/static/img/ai-assistant/playground-object.png`. Embed with `![alt](/img/ai-assistant/playground-object.png)`.
+:::
+
+## Debug panel
+
+The panel shows the resolution the dispatcher used for the current session:
+
+- Chosen **model id** and **provider id** (from `createModelFactory.resolveModel`).
+- **Resolved tool list** — names, `isMutation` flags, and `requiredFeatures`.
+- **Prompt section map** — each section's source (`default` \| `override` \| `placeholder`).
+- **Tool call + tool result log** streamed live from the dispatcher.
+
+Use the panel to confirm that a newly-saved prompt override reached the runtime without restarting anything.
+
+## Shortcuts
+
+The playground reuses the shared `<AiChat>` shortcut set:
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd/Ctrl + Enter` | Send the current message (or submit the JSON in object mode) |
+| `Escape` | Abort the in-flight request |
+| `Shift + Enter` | Insert a newline inside the message |
+
+## When to use the playground vs `<AiChat>`
+
+- Use the **playground** for agent authoring, prompt-override iteration, and QA of tool whitelists.
+- Use **`<AiChat>`** embedded in a backend page for the real user flow — the playground does not pass a `pageContext`, so agents that depend on `resolvePageContext` see a blank hydration.

@@ -1,0 +1,104 @@
+---
+title: Agent Settings
+description: Tenant-scoped prompt overrides and mutation-policy overrides for registered AI agents at /backend/config/ai-assistant/agents.
+---
+
+# Agent Settings
+
+Operators tune registered AI agents from the **AI Agents** settings page without touching code. Two overrides are supported — additive prompt sections and non-escalating mutation-policy downgrades. Both live behind the `ai_assistant.settings.manage` feature.
+
+Navigate to **Settings → Module Configs → AI Agents** (`/backend/config/ai-assistant/agents`).
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/agents` — agent picker on the left, with `customers.account_assistant` selected and both override sections visible.
+Save as: `apps/docs/static/img/ai-assistant/settings-overview.png`. Embed with `![alt](/img/ai-assistant/settings-overview.png)`.
+:::
+
+## Prompt overrides
+
+Every `AiAgentDefinition` ships with a structured `PromptTemplate` broken into seven named sections. Overrides append (never replace) text into named sections.
+
+### Reserved section ids
+
+`PROMPT_SECTION_IDS` is the closed set the UI enforces (mirrored from the server's composer):
+
+- `role`
+- `scope`
+- `data`
+- `tools`
+- `attachments`
+- `mutationPolicy`
+- `responseStyle`
+- `overrides`
+
+Any key outside this set is rejected at save time with `code: 'reserved_key'`. Saving an unchanged payload is a no-op.
+
+### Versioning
+
+Every save creates a **new row** in `ai_agent_prompt_overrides` with `version = latest + 1`. Rows are never updated in place — the history survives so an operator can roll back by copy-pasting an earlier version. The composed system prompt always reads the `MAX(version)` row for the tenant + agent.
+
+### Merge rules
+
+The runtime's `composeSystemPromptWithOverride` appends override content to the matching base section. Overrides **cannot** replace a built-in section — this keeps the model's operating envelope (scope, tool list, mutation policy language) under code control.
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/agents` — Prompt Overrides tab open for `catalog.merchandising_assistant`, showing the seven section editors with one populated.
+Save as: `apps/docs/static/img/ai-assistant/settings-prompt-override.png`. Embed with `![alt](/img/ai-assistant/settings-prompt-override.png)`.
+:::
+
+## Mutation-policy overrides
+
+The code-declared `mutationPolicy` is the upper bound. The tenant override can **only downgrade** (tighten) the policy. Escalation is rejected at the route layer with 400 + `code: 'escalation_not_allowed'`.
+
+### Restrictiveness ranking
+
+The runtime uses `POLICY_RESTRICTIVENESS` in `lib/agent-policy.ts`:
+
+| Policy | Rank | Meaning |
+|--------|------|---------|
+| `read-only` | 0 | Most restrictive — blocks every mutation tool. |
+| `destructive-confirm-required` | 1 | Confirm required for destructive writes. |
+| `confirm-required` | 2 | Confirm required for all writes. |
+
+Effective policy = most restrictive of `{ code-declared, override }`. A corrupt override value (schema drift) is logged and silently falls back to the code-declared policy.
+
+### Escalation guard in the UI
+
+The settings UI computes the base rank from `agent.mutationPolicy` and disables every policy option whose rank exceeds the base. If an operator somehow submits an escalation (custom API caller, stale client), the route refuses and surfaces a toast.
+
+:::note Screenshot TODO
+Capture: `/backend/config/ai-assistant/agents` — Mutation Policy tab for `catalog.merchandising_assistant`, hovering the `confirm-required` option so the escalation tooltip is visible.
+Save as: `apps/docs/static/img/ai-assistant/settings-mutation-policy.png`. Embed with `![alt](/img/ai-assistant/settings-mutation-policy.png)`.
+:::
+
+### Non-versioned
+
+Unlike prompt overrides, the policy override is a single-value switch per `(tenantId, organizationId, agentId)`. Saving updates the row in place.
+
+## Feature gate
+
+Both the page and every API route in `/api/ai/agents/:agentId/*` require the `ai_assistant.settings.manage` feature:
+
+| Surface | Route | Required feature |
+|---------|-------|------------------|
+| Settings page | `/backend/config/ai-assistant/agents` | `ai_assistant.settings.manage` |
+| Prompt override read/write | `GET|PUT /api/ai/agents/:agentId/prompt-override` | `ai_assistant.settings.manage` |
+| Policy override read/write | `GET|PUT /api/ai/agents/:agentId/mutation-policy` | `ai_assistant.settings.manage` |
+
+Removing this feature from a role hides the page and returns 403 on the API. The runtime keeps working — it simply reads defaults and ignores missing override rows.
+
+## Operator workflow
+
+1. Open the settings page.
+2. Pick an agent in the left column.
+3. Edit a prompt section (for example, add a company-specific "respond in formal tone" rule under `responseStyle`).
+4. Save — the UI toasts the new version number.
+5. Optionally tighten the mutation policy (for example, flip `catalog.merchandising_assistant` from `confirm-required` to `destructive-confirm-required`).
+
+New chats pick up both changes on the next agent dispatch — no server restart, no cache flush.
+
+## MUST rules
+
+- MUST NOT hand-edit the `ai_agent_prompt_overrides` table to change an existing row. Always insert a new version.
+- MUST keep the override content additive. If a base section needs to change, ship it as a code update — not an override.
+- MUST leave `ai_assistant.settings.manage` unassigned for the `employee` role in default grants. The settings page controls the agent's safety envelope.

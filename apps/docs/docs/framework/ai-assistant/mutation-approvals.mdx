@@ -1,0 +1,155 @@
+---
+title: Mutation Approvals
+description: The AI framework's pending-action lifecycle — how every AI-driven write is staged, reviewed, and either confirmed, cancelled, or expired.
+---
+
+# Mutation Approvals
+
+The mutation approval gate is the load-bearing safety layer of the AI framework. **No AI-initiated write touches the database without an explicit user confirmation.** This page covers the full lifecycle: how a tool call becomes a pending action, how the user confirms it, how the runtime guards against stale data, and how downstream modules observe the outcome via three typed events.
+
+## Why a gate at all
+
+LLM-driven writes fail differently from scripted writes — prompt injection, hallucinated IDs, and partial hallucinated field values all happen. The gate ensures that:
+
+- The user sees a **diff of exactly what will change** before it happens.
+- A **stale-version recheck** runs on confirm so two concurrent sessions never clobber each other.
+- Every approved or rejected action emits a **typed event** that the DataTable (and any other listener) uses to refresh without another round-trip.
+
+## The lifecycle
+
+```
+                   ┌─────────────┐
+   AI tool call    │  pending    │  ── expires_at passes ──▶  expired
+   (isMutation) ──▶│             │        (TTL worker)
+                   └──┬──┬────┬──┘
+                      │  │    │
+               user   │  │    │  user
+            cancels   │  │    │  confirms
+                      ▼  │    ▼
+                 cancelled    executing
+                              │       │
+                        success│      │failure
+                              ▼       ▼
+                        confirmed   failed
+```
+
+Terminal states: `cancelled`, `expired`, `failed`, and `confirmed` (with `executionResult`).
+
+Every edge is enforced by `AI_PENDING_ACTION_ALLOWED_TRANSITIONS` in `lib/pending-action-types.ts`. Any other transition throws `AiPendingActionStateError`.
+
+## The `ai_pending_actions` table
+
+Created by migration `Migration20260419134235_ai_assistant`. Key columns:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | uuid | Primary key |
+| `tenant_id` / `organization_id` | uuid | Multi-tenant scope |
+| `agent_id` / `tool_name` | text | Which agent, which tool proposed the change |
+| `conversation_id` | text | Forwarded from `<AiChat>` so repeats within one chat collapse |
+| `target_entity_type` / `target_record_id` | text | Optional single-record target |
+| `normalized_input` | jsonb | Canonical tool args after schema parsing |
+| `field_diff` | jsonb | Array of `{ field, before, after }` for single-record diffs |
+| `records` | jsonb | Per-record diff array for batch mutations (authoritative when present) |
+| `failed_records` | jsonb | Surviving failures after a partial confirm |
+| `record_version` | text | Snapshot of the target row's version at prepare time |
+| `idempotency_key` | text | Unique per `(tenant_id, organization_id, key)` within the TTL window |
+| `status` | text | See state machine above |
+| `queue_mode` | text | `inline` (default) or `stack` |
+| `execution_result` | jsonb | Tool handler's return value on success |
+| `expires_at` | timestamptz | Derived from `AI_PENDING_ACTION_TTL_SECONDS` |
+| `resolved_at` / `resolved_by_user_id` | — | Populated on confirm/cancel |
+
+## `prepareMutation` — writing a pending row
+
+When the runtime intercepts an `isMutation: true` tool call, it calls `prepareMutation`:
+
+1. **Tenant scope check** — rejects calls without `tenantId`.
+2. **Effective policy** — `resolveEffectiveMutationPolicy(agent.mutationPolicy, override)` picks the most restrictive of code-declared vs tenant override.
+3. **Normalize input** — applies the tool's Zod schema.
+4. **Build diff** — the tool's `loadBeforeRecord` / `loadBeforeSingleRecord` callbacks populate `fieldDiff` or `records[]`. If the tool declares no resolver, the row gets a no-diff side-effects summary ("will proceed without a preview").
+5. **Persist** — inserts one row with `status = 'pending'` and an `idempotencyKey` built from `agent_id + tool_name + tenant + org + conversationId + hash(input)`. Double-submits within the TTL collapse onto the existing row.
+6. **Emit a UI part** — returns a `mutation-preview-card` `AiUiPart` the chat renders inline.
+
+## `runPendingActionRechecks` — stale-version guard
+
+Before the confirm handler mutates, `runPendingActionRechecks` re-reads each target record and compares its current version to `record_version` from the pending row. Rows that drifted are moved into `failed_records` and excluded from the batch. The user sees the mixed outcome in the `mutation-result-card`.
+
+## `executePendingActionConfirm`
+
+Fires from `POST /api/ai/actions/:id/confirm`. Happy path:
+
+1. Atomic status transition `pending → confirmed → executing`.
+2. Resolve the tool from the registry; refuse if its `requiredFeatures` are no longer satisfied.
+3. Run the recheck; partial stale batches write into `failed_records` and continue.
+4. Execute the tool handler in a DB transaction.
+5. On success → status `confirmed`, store `execution_result`.
+6. On failure → status `failed`.
+7. Emit `ai.action.confirmed` with the outcome.
+
+## `executePendingActionCancel`
+
+Fires from `POST /api/ai/actions/:id/cancel`. Atomic `pending → cancelled`, writes the optional `reason`, emits `ai.action.cancelled`. If the row already expired under the user, the cancel helper short-circuits and emits `ai.action.expired` instead (covers the race where the TTL worker and the user race each other).
+
+## TTL cleanup worker
+
+The `ai_assistant:pending-action-cleanup` worker runs every 5 minutes (system-scope interval registered by `setup.ts`). It scans every tenant for `status = 'pending' AND expires_at < now()` and transitions each row to `expired` under the same state-machine guard. Race-safe: any row that concurrently moved to `confirmed` or `cancelled` throws `AiPendingActionStateError` from the repo and is skipped without emitting.
+
+Run manually (useful when debugging):
+
+```bash
+yarn mercato ai_assistant run-pending-action-cleanup
+```
+
+## Events
+
+All three events use `category: 'system'` and `entity: 'ai_pending_action'`. Event IDs are **FROZEN** per the backward-compatibility contract.
+
+| Event ID | When | Payload key fields |
+|----------|------|--------------------|
+| `ai.action.confirmed` | After a successful (or partial-stale) confirm | `pendingActionId`, `agentId`, `toolName`, `status`, `tenantId`, `organizationId`, `userId`, `resolvedByUserId`, `resolvedAt`, `executionResult`, `failedRecords?` |
+| `ai.action.cancelled` | After user cancel | Same shape plus optional `reason` |
+| `ai.action.expired` | After TTL cleanup or cancel-race-short-circuit | Same shape with `resolvedByUserId: null`, plus `expiresAt` and `expiredAt` timestamps |
+
+## DOM event bridge wiring
+
+The three events are `category: 'system'` by default — if you want them on the browser, bridge them through `clientBroadcast: true` in the consuming module's `events.ts` and listen with `useAppEvent`.
+
+The D18 demo does not listen directly for these three events — it listens for the downstream domain events (`catalog.product.updated`) that the tool handlers emit once the transaction commits, which lets any DataTable that already subscribes to `<entity>.updated` refresh with zero extra wiring.
+
+## Approval cards
+
+| Component ID | File | Rendered when |
+|--------------|------|---------------|
+| `mutation-preview-card` | `packages/ui/src/ai/parts/MutationPreviewCard.tsx` | `prepareMutation` returns; shows tool name, agent id, target, diff summary |
+| `field-diff-card` | `packages/ui/src/ai/parts/FieldDiffCard.tsx` | Nested inside the preview for per-field before/after |
+| `confirmation-card` | `packages/ui/src/ai/parts/ConfirmationCard.tsx` | The single-button confirm/cancel UI |
+| `mutation-result-card` | `packages/ui/src/ai/parts/MutationResultCard.tsx` | After the confirm route returns; renders success + `failedRecords` mixed outcomes |
+
+The canonical registry lives in `approval-cards-map.ts`:
+
+```ts
+import { AI_MUTATION_APPROVAL_CARDS } from '@open-mercato/ui/ai/parts'
+
+<AiChat
+  agent="catalog.merchandising_assistant"
+  registry={{ ...defaultAiUiPartRegistry, ...AI_MUTATION_APPROVAL_CARDS }}
+/>
+```
+
+## HTTP routes
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/ai/actions/:id` | GET | Reconnect/polling endpoint — returns the current pending-action state for UI rehydration. Requires `ai_assistant.view`. |
+| `/api/ai/actions/:id/confirm` | POST | Run the confirm handler, emit `ai.action.confirmed` (or `ai.action.failed` on exception). |
+| `/api/ai/actions/:id/cancel` | POST | Atomic cancel, emit `ai.action.cancelled` (or `ai.action.expired` on TTL race). |
+
+Each route enforces tenant scope and refuses to operate on rows from other tenants or organizations.
+
+## MUST rules
+
+- MUST declare `isMutation: true` on any tool that writes. The runtime gate trusts this flag.
+- MUST NOT emit `ai.action.*` events from anywhere except the confirm/cancel helpers and the cleanup worker. The ids are FROZEN and the consumers assume exactly-one emission per terminal transition.
+- MUST keep payloads additive. New fields are fine; renamed or removed fields break every downstream subscriber.
+- MUST write rechecks as idempotent read-then-compare — never mutate inside a recheck.

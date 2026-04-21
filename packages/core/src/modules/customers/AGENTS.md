@@ -83,3 +83,16 @@ Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFiel
 ## Module Files Checklist — All MUST Be Present
 
 `acl.ts`, `ce.ts`, `di.ts`, `events.ts`, `index.ts`, `notifications.ts`, `search.ts`, `setup.ts`, `analytics.ts`, `vector.ts`
+
+## AI Agents in This Module
+
+This module is the reference implementation for the AI framework. Copy `ai-agents.ts` + `ai-tools.ts` when adding AI agents to other modules. See `/framework/ai-assistant/agents` for the full guide.
+
+| Agent ID | Mode | Policy | Purpose |
+|----------|------|--------|---------|
+| `customers.account_assistant` | chat | read-only (mutation-capable via per-tenant override that unlocks `customers.update_deal_stage`; see `packages/core/src/modules/customers/ai-agents.ts` for the whitelist and prompt) | Operator-facing assistant that explores people, companies, deals, activities, tasks, addresses, tags, and settings through the customers tool pack. |
+| `customers.update_deal_stage` | tool (mutation) | `destructive-confirm-required` — goes through `prepareMutation` + the approval card | Moves a deal between stages / flips status between open, won, lost. Declared via `defineAiTool` in `ai-tools.ts` and exposed only when the tenant mutation-policy override promotes the agent above read-only. |
+
+`<AiChat agent="customers.account_assistant" />` is injected in two places (both live in `widgets/injection/`):
+- People list: `data-table:customers.people.list:header` via the `ai-assistant-trigger` widget.
+- Deal detail: `detail:customers.deal:header` via the `ai-deal-detail-trigger` widget.

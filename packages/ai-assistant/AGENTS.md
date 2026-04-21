@@ -77,6 +77,66 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 5. Send: "find his related companies"
 6. Verify: `willContinue: true` and the AI references Taylor correctly
 
+### How to Add a New AI Agent
+
+Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
+
+1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
+2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `domain`, `dataCapabilities`.
+3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
+4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
+5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
+6. Run `yarn generate` so the agent shows up in the registry. Smoke-test via `/backend/config/ai-assistant/playground` (see `/framework/ai-assistant/playground`), then embed `<AiChat agent="<module>.<agent>" />` in the page where you want the operator UI.
+
+### How to Add an AI Tool Pack
+
+Typed tools live under `<module>/ai-tools/` and register via `defineAiTool`. Tool packs are exposed to agents through the agent's `allowedTools` array.
+
+```typescript
+import { defineAiTool } from '@open-mercato/ai-assistant'
+import { z } from 'zod'
+
+const listPeopleTool = defineAiTool({
+  name: 'customers.list_people',
+  description: 'Search customer people records by name, email, or tag.',
+  inputSchema: z.object({
+    query: z.string().optional(),
+    limit: z.number().int().min(1).max(100).default(20),
+  }),
+  requiredFeatures: ['customers.people.view'],
+  isMutation: false,
+  async handler(input, ctx) {
+    // ctx.container, ctx.tenantId, ctx.organizationId, ctx.userId, ctx.userFeatures, ctx.isSuperAdmin
+    return { records: [] }
+  },
+})
+```
+
+MUST rules:
+- MUST set `requiredFeatures` for any tool that reads or writes tenant data. The wildcard-aware ACL matcher is applied before the handler runs.
+- MUST use Zod for `inputSchema` — never raw JSON Schema.
+- MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides.
+- MUST route every mutation tool through `prepareMutation(...)` (see the Mutation Approvals guide at `/framework/ai-assistant/mutation-approvals`). Writing directly inside the handler bypasses the approval gate — the runtime fails closed and refuses to return a result to the operator.
+- MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.
+
+Run `yarn generate` after adding/changing tool definitions so the typed tool registry picks them up.
+
+### How to Configure AI Providers
+
+The unified AI runtime picks the first configured provider from `llmProviderRegistry`. Configure providers via env variables:
+
+| Variable | Provider | Default model |
+|----------|----------|---------------|
+| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-sonnet-4-20250514` |
+| `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-1.5-pro-latest` |
+
+At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+
+Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased from the agent's `moduleId`): for example, `CATALOG_AI_MODEL=claude-opus-4-20250514`, `INBOX_OPS_AI_MODEL=gpt-4o`.
+
+All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
+
 ## Architecture Constraints
 
 When modifying this stack, follow these constraints:
