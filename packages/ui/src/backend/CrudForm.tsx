@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
-import remarkGfm from 'remark-gfm'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
@@ -3207,14 +3206,42 @@ const MDEditor = dynamic(async () => {
   const mod = await import('@uiw/react-md-editor')
   return mod.default
 }, { ssr: false }) as React.ComponentType<UiWMDEditorProps>
+
+type MarkdownPreviewOptions = NonNullable<UiWMDEditorProps['previewOptions']>
+
+let markdownPreviewOptionsPromise: Promise<MarkdownPreviewOptions> | null = null
+
+async function loadMarkdownPreviewOptions(): Promise<MarkdownPreviewOptions> {
+  if (!markdownPreviewOptionsPromise) {
+    markdownPreviewOptionsPromise = import('remark-gfm')
+      .then((mod) => ({ remarkPlugins: [mod.default ?? mod] } as MarkdownPreviewOptions))
+      .catch(() => ({} as MarkdownPreviewOptions))
+  }
+  return markdownPreviewOptionsPromise
+}
+
+const EMPTY_PREVIEW_OPTIONS: MarkdownPreviewOptions = {}
+
 const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [local, setLocal] = React.useState<string>(value)
+  const [previewOptions, setPreviewOptions] = React.useState<MarkdownPreviewOptions>(EMPTY_PREVIEW_OPTIONS)
   const typingRef = React.useRef(false)
 
   React.useEffect(() => {
     if (!typingRef.current) setLocal(value)
   }, [value])
+
+  React.useEffect(() => {
+    let mounted = true
+    void loadMarkdownPreviewOptions().then((resolved) => {
+      if (!mounted) return
+      setPreviewOptions(resolved)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const handleChange = React.useCallback((v?: string) => {
     typingRef.current = true
@@ -3237,7 +3264,7 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
         value={local}
         height={220}
         onChange={handleChange}
-        previewOptions={{ remarkPlugins: [remarkGfm] }}
+        previewOptions={previewOptions}
       />
     </div>
   )
