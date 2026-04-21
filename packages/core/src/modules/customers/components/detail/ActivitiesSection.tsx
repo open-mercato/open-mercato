@@ -270,7 +270,7 @@ export function ActivitiesSection({
   }, [activities])
 
   return (
-    <div className="rounded-[18px] border border-border/70 bg-card p-5">
+    <div className="rounded-2xl border border-border/70 bg-card p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Clock className="size-4 text-muted-foreground" />

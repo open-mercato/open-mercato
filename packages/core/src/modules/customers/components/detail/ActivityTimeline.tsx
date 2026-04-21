@@ -98,7 +98,7 @@ function TimelineEntry({
         </div>
 
         {/* Column 2: Type icon */}
-        <div className="flex size-10 items-center justify-center rounded-[10px] bg-muted shrink-0">
+        <div className="flex size-10 items-center justify-center rounded-lg bg-muted shrink-0">
           {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : null}
         </div>
 

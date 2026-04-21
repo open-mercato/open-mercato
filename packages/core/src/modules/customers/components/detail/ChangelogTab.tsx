@@ -603,7 +603,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
               size="sm"
               onClick={handleNewer}
               disabled={!hasNewer || loading}
-              className="h-8 rounded-[10px] px-3 text-xs"
+              className="h-8 rounded-lg px-3 text-xs"
             >
               <ArrowLeft className="mr-1.5 size-3.5" />
               {previousPageLabel}
@@ -614,7 +614,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
               size="sm"
               onClick={handleOlder}
               disabled={!hasOlder || loading}
-              className="h-8 rounded-[10px] px-3 text-xs"
+              className="h-8 rounded-lg px-3 text-xs"
             >
               {nextPageLabel}
               <ArrowRight className="ml-1.5 size-3.5" />

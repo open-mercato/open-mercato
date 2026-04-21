@@ -249,22 +249,22 @@ export function createCompanyLinkAdapter(
     const meta = (option.meta ?? {}) as { industry?: string | null; domain?: string | null }
     return (
       <>
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-muted/80 text-muted-foreground">
-          <Building2 className="size-[16px]" />
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted/80 text-muted-foreground">
+          <Building2 className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold text-foreground">
+            <span className="truncate text-sm font-semibold text-foreground">
               {option.label}
             </span>
             {meta.industry ? (
-              <span className="inline-flex items-center rounded-[4px] bg-muted px-1.5 py-[2px] text-[10px] font-semibold text-muted-foreground">
+              <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                 {meta.industry}
               </span>
             ) : null}
           </div>
           {meta.domain ? (
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{meta.domain}</div>
+            <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta.domain}</div>
           ) : null}
         </div>
         <span
@@ -272,7 +272,7 @@ export function createCompanyLinkAdapter(
           aria-checked={ctx.selected}
           aria-label={`Select ${option.label}`}
           className={cn(
-            'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border',
+            'inline-flex size-5 shrink-0 items-center justify-center rounded-full border',
             ctx.selected
               ? 'border-foreground bg-foreground text-background'
               : 'border-border bg-background',
@@ -298,15 +298,15 @@ export function createCompanyLinkAdapter(
     const websiteUrl = details?.websiteUrl ?? null
     const people = details?.recentPeople ?? []
     return (
-      <div className="flex flex-col gap-[14px] rounded-[12px] border border-border/70 bg-card p-[18px]">
+      <div className="flex flex-col gap-3.5 rounded-xl border border-border/70 bg-card p-4">
         <div className="flex items-center gap-3">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-[10px] bg-muted/80 text-muted-foreground">
-            <Building2 className="size-[22px]" />
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted/80 text-muted-foreground">
+            <Building2 className="size-5" />
           </span>
           <div className="min-w-0">
-            <div className="truncate text-[16px] font-bold text-foreground">{option.label}</div>
+            <div className="truncate text-base font-bold text-foreground">{option.label}</div>
             {industry ? (
-              <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{industry}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">{industry}</div>
             ) : null}
           </div>
         </div>
@@ -314,12 +314,12 @@ export function createCompanyLinkAdapter(
         {domain || websiteUrl ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Web
             </div>
             {websiteUrl ? (
-              <div className="flex items-center gap-2.5 text-[12px] text-foreground">
-                <Globe className="size-[14px] text-muted-foreground" />
+              <div className="flex items-center gap-2.5 text-xs text-foreground">
+                <Globe className="size-3.5 text-muted-foreground" />
                 <a
                   href={websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`}
                   target="_blank"
@@ -330,8 +330,8 @@ export function createCompanyLinkAdapter(
                 </a>
               </div>
             ) : domain ? (
-              <div className="flex items-center gap-2.5 text-[12px] text-foreground">
-                <Globe className="size-[14px] text-muted-foreground" />
+              <div className="flex items-center gap-2.5 text-xs text-foreground">
+                <Globe className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{domain}</span>
               </div>
             ) : null}
@@ -341,19 +341,19 @@ export function createCompanyLinkAdapter(
         {people.length > 0 ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               People ({details?.peopleCount ?? people.length})
             </div>
             <div className="flex flex-col gap-1.5">
               {people.map((person) => (
                 <div
                   key={person.id || person.name}
-                  className="flex items-center gap-2 rounded-[8px] bg-muted/60 px-2.5 py-1.5"
+                  className="flex items-center gap-2 rounded-md bg-muted/60 px-2.5 py-1.5"
                 >
-                  <Users className="size-[13px] text-muted-foreground" />
-                  <span className="text-[12px] font-semibold text-foreground">{person.name}</span>
+                  <Users className="size-3 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-foreground">{person.name}</span>
                   {person.role ? (
-                    <span className="ml-auto inline-flex items-center rounded-[4px] border border-border px-1.5 py-[2px] text-[10px] font-semibold text-muted-foreground">
+                    <span className="ml-auto inline-flex items-center rounded-sm border border-border px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                       {person.role}
                     </span>
                   ) : null}
@@ -366,8 +366,8 @@ export function createCompanyLinkAdapter(
         {details?.lastContactAt ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <CalendarDays className="size-[13px]" />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <CalendarDays className="size-3" />
               Last contact {formatRelative(details.lastContactAt)}
             </div>
           </>
@@ -386,7 +386,7 @@ export function createCompanyLinkAdapter(
     selectedEmptyHint: options.selectedEmptyHint,
     confirmButtonLabel: options.confirmButtonLabel,
     defaultAvatarIcon: options.defaultAvatarIcon,
-    headerIcon: options.headerIcon ?? <Link2 className="size-[18px]" />,
+    headerIcon: options.headerIcon ?? <Link2 className="size-5" />,
     filters,
     renderRow,
     renderPreview,

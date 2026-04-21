@@ -42,8 +42,8 @@ const createLabelRequestSchema = labelCreateSchema.extend({
 })
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const { translate } = await resolveTranslations()
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
     const actorUserId = resolveLabelActorUserId(auth)
@@ -143,7 +143,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/labels.GET]', err)
-    return NextResponse.json({ error: 'Failed to load labels' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.labels_load_failed', 'Failed to load labels') }, { status: 500 })
   }
 }
 

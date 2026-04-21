@@ -67,7 +67,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
   const linkedDate = React.useMemo(() => formatDate(person.linkedAt ?? person.createdAt), [person.createdAt, person.linkedAt])
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[10px] border bg-card p-4">
+    <div className="min-w-0 overflow-hidden rounded-lg border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">

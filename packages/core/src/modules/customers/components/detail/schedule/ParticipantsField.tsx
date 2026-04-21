@@ -78,8 +78,8 @@ function ParticipantSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-status-success-border bg-status-success-bg px-[10px] py-[6px] text-xs font-semibold text-foreground">
-          <Users className="size-[13px]" />
+        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-status-success-border bg-status-success-bg px-2.5 py-1.5 text-xs font-semibold text-foreground">
+          <Users className="size-3" />
           {t('customers.schedule.addParticipant', 'Add participant')}
         </Button>
       </PopoverTrigger>
@@ -188,18 +188,18 @@ export function ParticipantsField({
 
   return (
     <div>
-      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
         {t('customers.schedule.participants', 'Participants')}
       </label>
-      <div className="mt-[10px] flex flex-wrap content-center items-center gap-[8px] rounded-[10px] border border-border bg-background px-[12px] py-[10px]">
+      <div className="mt-2.5 flex flex-wrap content-center items-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
         {participants.map((p) => (
-          <div key={p.userId} className="inline-flex items-center gap-[6px] rounded-[999px] border border-border bg-muted px-[10px] py-[6px]">
-            <span className={cn('inline-flex size-[20px] items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
+          <div key={p.userId} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5">
+            <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
               {p.name.charAt(0).toUpperCase()}
             </span>
             <span className="text-xs text-foreground">{p.name}</span>
             <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(p.userId)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
-              <X className="size-[12px]" />
+              <X className="size-3" />
             </IconButton>
           </div>
         ))}
@@ -218,7 +218,7 @@ export function ParticipantsField({
 
       {/* Guest permissions -- shown when participants exist */}
       {participants.length > 0 && (
-        <div className="mt-[12px] flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
+        <div className="mt-3 flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
           <span className="font-medium text-muted-foreground">{t('customers.schedule.guestPermissions', 'Guest permissions:')}</span>
           <label className="flex items-center gap-1.5 cursor-pointer">
             <input type="checkbox" checked={guestPermissions.canInviteOthers} onChange={(e) => setGuestPermissions((p) => ({ ...p, canInviteOthers: e.target.checked }))} className="rounded" />
@@ -242,11 +242,11 @@ export function ParticipantsField({
         const declined = participants.filter((p) => p.status === 'declined').length
         if (accepted === 0 && pending === 0 && declined === 0) return null
         return (
-          <div className="mt-[8px] flex items-center gap-[12px] text-xs">
+          <div className="mt-2 flex items-center gap-3 text-xs">
             <span className="text-muted-foreground">{t('customers.schedule.rsvp.label', 'Responses:')}</span>
-            {accepted > 0 && <span className="flex items-center gap-[4px] font-medium text-status-success-text"><CheckCircle2 className="size-[14px]" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
-            {pending > 0 && <span className="flex items-center gap-[4px] font-medium text-status-warning-text"><Clock className="size-[14px]" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
-            {declined > 0 && <span className="flex items-center gap-[4px] font-medium text-status-error-text"><XCircle className="size-[14px]" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
+            {accepted > 0 && <span className="flex items-center gap-1 font-medium text-status-success-text"><CheckCircle2 className="size-3.5" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
+            {pending > 0 && <span className="flex items-center gap-1 font-medium text-status-warning-text"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
+            {declined > 0 && <span className="flex items-center gap-1 font-medium text-status-error-text"><XCircle className="size-3.5" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
           </div>
         )
       })()}

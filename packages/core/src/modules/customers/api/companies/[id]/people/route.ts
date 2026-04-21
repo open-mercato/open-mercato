@@ -200,7 +200,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       return NextResponse.json(error.body, { status: error.status })
     }
     console.error('[customers.companies.people.GET]', error)
-    return NextResponse.json({ error: 'Failed to load linked people' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.company_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }
 }
 

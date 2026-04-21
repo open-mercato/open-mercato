@@ -49,7 +49,7 @@ function StatCard({
   value: string
 }) {
   return (
-    <div className="rounded-[18px] border bg-background px-4 py-4">
+    <div className="rounded-2xl border bg-background px-4 py-4">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         {icon}
         {label}
@@ -76,9 +76,9 @@ export function DealLostSummaryDialog({
         <VisuallyHidden>
           <DialogTitle>{t('customers.deals.detail.lost.popupTitle', 'Not this round')}</DialogTitle>
         </VisuallyHidden>
-        <div className="overflow-hidden rounded-[28px] bg-card">
+        <div className="overflow-hidden rounded-2xl bg-card">
           <div className="px-6 pb-5 pt-6">
-            <div className="flex h-[200px] items-center justify-center rounded-[18px] bg-muted/30 text-foreground">
+            <div className="flex h-[200px] items-center justify-center rounded-2xl bg-muted/30 text-foreground">
               <CircleOff className="size-24" strokeWidth={1.5} />
             </div>
           </div>
@@ -93,7 +93,7 @@ export function DealLostSummaryDialog({
               </p>
             </div>
 
-            <div className="rounded-[14px] border bg-muted/20 px-4 py-4">
+            <div className="rounded-xl border bg-muted/20 px-4 py-4">
               <p className="text-overline font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {dealTitle}
               </p>
@@ -126,7 +126,7 @@ export function DealLostSummaryDialog({
             </div>
 
             {lossNotes ? (
-              <div className="rounded-[14px] bg-primary/15 px-4 py-4 text-left">
+              <div className="rounded-xl bg-primary/15 px-4 py-4 text-left">
                 <div className="text-overline font-bold uppercase tracking-[0.16em] text-foreground">
                   {t('customers.deals.detail.lost.nextHeading', "What's next")}
                 </div>

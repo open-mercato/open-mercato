@@ -62,9 +62,9 @@ async function canAccessAssignableStaff(
 }
 
 export async function GET(request: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
-    const { translate } = await resolveTranslations()
     const { container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
 
     if (!selectedOrganizationId) {
@@ -217,10 +217,10 @@ export async function GET(request: Request) {
       return NextResponse.json(error.body, { status: error.status })
     }
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Validation failed' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed') }, { status: 400 })
     }
     console.error('customers.assignable-staff.get failed', error)
-    return NextResponse.json({ error: 'Failed to load assignable staff' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.assignable_staff_load_failed', 'Failed to load assignable staff') }, { status: 500 })
   }
 }
 

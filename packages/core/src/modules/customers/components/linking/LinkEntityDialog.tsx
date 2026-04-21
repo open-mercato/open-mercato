@@ -181,14 +181,14 @@ function SelectionIndicator({ checked, disabled, label }: SelectionIndicatorProp
       aria-disabled={disabled || undefined}
       aria-label={label}
       className={cn(
-        'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border transition-colors',
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
         checked
           ? 'border-foreground bg-foreground text-background'
           : 'border-border bg-background',
         disabled && 'opacity-50',
       )}
     >
-      {checked ? <Check className="size-[12px]" strokeWidth={2.5} /> : null}
+      {checked ? <Check className="size-3" strokeWidth={2.5} /> : null}
     </span>
   )
 }
@@ -539,16 +539,16 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         >
           <DialogHeader className="flex flex-row items-center gap-3 space-y-0 border-b border-border/70 bg-card px-6 py-5">
             {adapter.headerIcon ? (
-              <div className="flex size-[22px] shrink-0 items-center justify-center text-foreground">
+              <div className="flex size-6 shrink-0 items-center justify-center text-foreground">
                 {adapter.headerIcon}
               </div>
             ) : null}
             <div className="min-w-0 flex-1">
-              <DialogTitle className="text-[18px] font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 {adapter.dialogTitle}
               </DialogTitle>
               {adapter.dialogSubtitle ? (
-                <DialogDescription className="mt-0.5 text-[13px] text-muted-foreground">
+                <DialogDescription className="mt-0.5 text-sm text-muted-foreground">
                   {adapter.dialogSubtitle}
                 </DialogDescription>
               ) : null}
@@ -558,17 +558,17 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             <div className="flex min-h-0 flex-col gap-3 border-b border-border/70 bg-card p-4 lg:w-[480px] lg:shrink-0 lg:border-b-0 lg:border-r">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-[14px] -translate-y-1/2 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={adapter.searchPlaceholder}
-                  className="h-10 rounded-[6px] pl-9 pr-20 text-[13px]"
+                  className="h-10 rounded-md pl-9 pr-20 text-sm"
                   autoFocus
                   aria-label={adapter.searchPlaceholder}
                 />
                 {searchTotal !== null && !searchLoading ? (
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                     {t('customers.linking.resultsCount', '{{count}} results', {
                       count: String(searchTotal),
                     })}
@@ -586,7 +586,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                         type="button"
                         onClick={() => setActiveFilter(filter.id)}
                         className={cn(
-                          'inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold transition-colors',
+                          'inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition-colors',
                           isActive
                             ? 'bg-foreground text-background'
                             : 'bg-muted/70 text-muted-foreground hover:bg-muted',
@@ -603,7 +603,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                         {typeof filter.count === 'number' ? (
                           <span
                             className={cn(
-                              'inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-[10px]',
+                              'inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-xs',
                               isActive
                                 ? 'bg-background/20 text-background'
                                 : 'bg-background text-muted-foreground',
@@ -619,19 +619,19 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
               ) : null}
 
               {adapter.sectionLabel ? (
-                <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                <div className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
                   {adapter.sectionLabel}
                 </div>
               ) : null}
 
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
                 {searchLoading && displayedResults.length === 0 ? (
-                  <div className="flex items-center gap-2 rounded-[10px] border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" />
                     {t('customers.linking.searching', 'Searching…')}
                   </div>
                 ) : displayedResults.length === 0 ? (
-                  <div className="rounded-[10px] border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
                     {adapter.searchEmptyHint}
                   </div>
                 ) : (
@@ -656,7 +656,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                           }
                         }}
                         className={cn(
-                          'group flex cursor-pointer items-center gap-3 rounded-[10px] border px-3.5 py-3 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/40',
+                          'group flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/40',
                           checked
                             ? 'border-border bg-muted/50'
                             : 'border-border/70 bg-card hover:bg-muted/30',
@@ -682,29 +682,29 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                   <button
                     type="button"
                     onClick={() => setNestedOpen(true)}
-                    className="mt-2 flex items-center gap-3 rounded-[10px] border border-dashed border-border px-4 py-3.5 text-left transition-colors hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    className="mt-2 flex items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3.5 text-left transition-colors hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring/40"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <Plus className="size-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold text-foreground">
+                      <span className="block truncate text-sm font-semibold text-foreground">
                         {adapter.addNew.title}
                       </span>
                       {adapter.addNew.subtitle ? (
-                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {adapter.addNew.subtitle}
                         </span>
                       ) : null}
                     </span>
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-[6px] bg-foreground text-background">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
                       <Plus className="size-3.5" />
                     </span>
                   </button>
                 ) : null}
 
                 {searchTotalPages > 1 ? (
-                  <div className="flex items-center justify-between pt-2 text-[11px] text-muted-foreground">
+                  <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
                     <span aria-live="polite">
                       {t('customers.linking.pagination.pageOf', 'Page {{page}} of {{total}}', {
                         page: String(Math.min(searchPage, searchTotalPages)),
@@ -716,7 +716,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 rounded-[8px] px-2.5 text-[11px]"
+                        className="h-8 rounded-md px-2.5 text-xs"
                         disabled={searchLoading || searchPage <= 1}
                         onClick={() => setSearchPage((current) => Math.max(1, current - 1))}
                       >
@@ -726,7 +726,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 rounded-[8px] px-2.5 text-[11px]"
+                        className="h-8 rounded-md px-2.5 text-xs"
                         disabled={searchLoading || searchPage >= searchTotalPages}
                         onClick={() =>
                           setSearchPage((current) => Math.min(searchTotalPages, current + 1))
@@ -741,8 +741,8 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto bg-muted/20 p-5">
-              <div className="rounded-[12px] border border-border/70 bg-card p-[18px]">
-                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <div className="mb-3 text-overline font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('customers.linking.selected.label', 'Selected')}
                 </div>
                 {selectedOptions.length > 0 ? (
@@ -753,7 +753,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                         <div
                           key={option.id}
                           className={cn(
-                            'flex items-center gap-3 rounded-[10px] border px-3 py-2.5 transition-colors',
+                            'flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors',
                             focusedId === option.id
                               ? 'border-border bg-muted/50'
                               : 'border-border/70 bg-card',
@@ -786,7 +786,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                               type="button"
                               size="sm"
                               variant={isPrimary ? 'default' : 'outline'}
-                              className="h-7 rounded-full px-3 text-[11px]"
+                              className="h-7 rounded-full px-3 text-xs"
                               onClick={() => handleSetPrimary(option.id)}
                               disabled={isPrimary}
                             >
@@ -800,12 +800,12 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-[10px] border border-dashed border-border/70 px-4 py-4 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border/70 px-4 py-4 text-sm text-muted-foreground">
                     {adapter.selectedEmptyHint}
                   </div>
                 )}
                 {primarySupported && selectedOptions.length > 0 ? (
-                  <div className="mt-3 text-[11px] text-muted-foreground">
+                  <div className="mt-3 text-xs text-muted-foreground">
                     {t(
                       'customers.linking.primary.help',
                       'Choose which linked company should remain primary.',
@@ -814,7 +814,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                 ) : null}
               </div>
 
-              <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+              <div className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
                 {t('customers.linking.preview.label', 'Preview')}
               </div>
 
@@ -823,7 +823,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                   {adapter.renderPreview ? (
                     adapter.renderPreview(focusedOption, details[focusedOption.id])
                   ) : (
-                    <div className="rounded-[12px] border border-border/70 bg-card p-[18px]">
+                    <div className="rounded-lg border border-border/70 bg-card p-4">
                       <div className="flex items-center gap-3">
                         <Avatar
                           label={focusedOption.label}
@@ -845,15 +845,15 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                     </div>
                   )}
                   {detailsLoadingId === focusedOption.id && adapter.fetchDetails ? (
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="size-3.5 animate-spin" />
                       {t('customers.linking.preview.loading', 'Loading details…')}
                     </div>
                   ) : null}
 
                   {adapter.renderLinkSettings ? (
-                    <div className="rounded-[12px] border border-border/70 bg-card p-[18px]">
-                      <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                    <div className="rounded-lg border border-border/70 bg-card p-4">
+                      <div className="mb-3 text-overline font-semibold uppercase tracking-wider text-muted-foreground">
                         {t('customers.linking.settings.label', 'Link settings')}
                       </div>
                       {adapter.renderLinkSettings(linkSettings, setLinkSettings, focusedOption)}
@@ -861,7 +861,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                   ) : null}
                 </>
               ) : (
-                <div className="flex flex-1 flex-col items-center justify-center rounded-[12px] border border-dashed border-border/70 bg-card/40 p-6 text-center text-sm text-muted-foreground">
+                <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border/70 bg-card/40 p-6 text-center text-sm text-muted-foreground">
                   <Link2 className="mb-2 size-5 opacity-60" />
                   {t(
                     'customers.linking.preview.empty',
@@ -873,14 +873,14 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
           </div>
 
           <DialogFooter className="flex flex-row items-center justify-between border-t border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:justify-between">
-            <div className="text-[12px] text-muted-foreground">{selectedCountLabel}</div>
+            <div className="text-xs text-muted-foreground">{selectedCountLabel}</div>
             <div className="flex items-center gap-3">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => handleDialogOpenChange(false)}
                 disabled={saving}
-                className="h-9 rounded-[8px] px-4"
+                className="h-9 rounded-md px-4"
               >
                 {t('customers.linking.actions.cancel', 'Cancel')}
               </Button>
@@ -890,7 +890,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                   void handleSave()
                 }}
                 disabled={saving || !hasChanges}
-                className="h-9 rounded-[8px] bg-foreground px-5 text-background hover:bg-foreground/90"
+                className="h-9 rounded-md bg-foreground px-5 text-background hover:bg-foreground/90"
               >
                 {saving ? (
                   <>

@@ -379,6 +379,6 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/people/[id]/companies/enriched] GET failed', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

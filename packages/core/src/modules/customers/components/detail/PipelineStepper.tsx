@@ -113,7 +113,7 @@ export function PipelineStepper({
 
   return (
     <div
-      className="rounded-[10px] border border-border bg-card px-5 py-[14px] sm:px-6"
+      className="rounded-lg border border-border bg-card px-5 py-3.5 sm:px-6"
       role="progressbar"
       aria-label={progressLabel}
       aria-valuemin={0}
@@ -141,7 +141,7 @@ export function PipelineStepper({
       <div className="space-y-4 sm:hidden">
         {compactStage ? (
           <div
-            className="rounded-[10px] border border-border bg-muted/20 px-4 py-4"
+            className="rounded-lg border border-border bg-muted/20 px-4 py-4"
             aria-current={!renderClosedProgress && compactStage.id === currentVisibleStage?.id ? 'step' : undefined}
           >
             <div className="flex items-center gap-3">
@@ -186,7 +186,7 @@ export function PipelineStepper({
           return (
             <div
               key={stage.id}
-              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[8px]"
+              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2"
               aria-current={isCurrent ? 'step' : undefined}
             >
               <div className="flex w-full items-center" aria-hidden="true">
@@ -198,14 +198,14 @@ export function PipelineStepper({
                 />
                 <div
                   className={cn(
-                    'mx-0 flex size-[36px] items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
+                    'mx-0 flex size-9 items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
                     isCurrent && 'border-foreground bg-background font-bold text-foreground',
                     isCompleted && !isCurrent && 'border-status-success-icon bg-status-success-icon text-white',
                     isFuture && 'border-border bg-background font-medium text-muted-foreground',
                   )}
                 >
                   {isCompleted ? (
-                    <Check className="size-[18px] stroke-[2.5]" />
+                    <Check className="size-4 stroke-[2.5]" />
                   ) : (
                     <span>{index + 1}</span>
                   )}
@@ -217,7 +217,7 @@ export function PipelineStepper({
                   )}
                 />
               </div>
-              <div className="flex max-w-[12rem] flex-col items-center gap-[2px] text-center">
+              <div className="flex max-w-[12rem] flex-col items-center gap-0.5 text-center">
                 <div
                   className={cn(
                     'text-xs leading-[1.2]',

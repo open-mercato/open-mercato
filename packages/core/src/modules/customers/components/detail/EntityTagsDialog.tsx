@@ -329,7 +329,7 @@ function TagChip({
       size="sm"
       onClick={onClick}
       className={cn(
-        'inline-flex h-auto items-center gap-[5px] rounded-full border px-[10px] py-[6px] transition-colors',
+        'inline-flex h-auto items-center gap-1 rounded-full border px-2.5 py-1.5 transition-colors',
         active
           ? activeColorStyle
             ? 'font-semibold hover:opacity-90'
@@ -340,12 +340,12 @@ function TagChip({
     >
       {showColorDot && color ? (
         <span
-          className="inline-block size-[7px] shrink-0 rounded-full"
+          className="inline-block size-2 shrink-0 rounded-full"
           style={{ backgroundColor: color }}
         />
       ) : null}
       <span className="text-xs">{label}</span>
-      {active ? <X className="size-[10px] shrink-0" /> : null}
+      {active ? <X className="size-2.5 shrink-0" /> : null}
     </Button>
   )
 }
@@ -1088,39 +1088,39 @@ export function EntityTagsDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col overflow-hidden border-border bg-background p-0 shadow-[0px_16px_40px_0px_rgba(0,0,0,0.14)] sm:max-w-[760px] sm:rounded-[16px] [&>[data-dialog-close]]:hidden"
+        className="flex max-h-[85vh] flex-col overflow-hidden border-border bg-background p-0 shadow-[0px_16px_40px_0px_rgba(0,0,0,0.14)] sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
         aria-describedby={undefined}
       >
         <VisuallyHidden>
           <DialogTitle>{t('customers.personTags.title', 'Edit tags')}</DialogTitle>
         </VisuallyHidden>
 
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-[20px] py-[16px]">
-          <div className="flex items-center gap-[8px]">
-            <Tag className="size-[16px] text-foreground" />
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Tag className="size-4 text-foreground" />
             <span className="text-sm font-bold text-foreground">
               {t('customers.personTags.title', 'Edit tags')}
             </span>
           </div>
-          <div className="flex items-center gap-[8px]">
+          <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto gap-[8px] rounded-[12px] px-[14px] py-[8px] text-sm font-medium"
+              className="h-auto gap-2 rounded-lg px-3.5 py-2 text-sm font-medium"
               onClick={() => setManageTagsOpen(true)}
             >
-              <SlidersHorizontal className="size-[14px]" />
+              <SlidersHorizontal className="size-3.5" />
               {t('customers.personTags.settingsButton', 'Tag settings')}
             </Button>
             <IconButton
               type="button"
               variant="outline"
               size="xs"
-              className="size-[28px] rounded-[5px] border-border bg-background"
+              className="size-7 rounded-sm border-border bg-background"
               onClick={onClose}
             >
-              <X className="size-[14px]" />
+              <X className="size-3.5" />
             </IconButton>
           </div>
         </div>
@@ -1131,7 +1131,7 @@ export function EntityTagsDialog({
               {t('customers.personTags.loading', 'Loading...')}
             </div>
           ) : (
-            <div className="flex h-full flex-col gap-4 px-[20px] py-[16px] md:flex-row">
+            <div className="flex h-full flex-col gap-4 px-5 py-4 md:flex-row">
               <div className="flex gap-2 overflow-x-auto pb-1 md:w-[220px] md:shrink-0 md:flex-col md:overflow-x-visible md:pb-0">
                 {categories.map((category) => {
                   const count = selectedValues[category.kind]?.size ?? 0
@@ -1143,7 +1143,7 @@ export function EntityTagsDialog({
                       variant={isActive ? 'secondary' : 'ghost'}
                       size="sm"
                       className={cn(
-                        'h-auto min-w-[140px] justify-between rounded-[10px] px-3 py-2 text-left md:w-full',
+                        'h-auto min-w-[140px] justify-between rounded-lg px-3 py-2 text-left md:w-full',
                         isActive ? 'border border-border bg-muted text-foreground' : 'border border-transparent text-muted-foreground',
                       )}
                       onClick={() => setActiveCategoryKind(category.kind)}
@@ -1159,10 +1159,10 @@ export function EntityTagsDialog({
                 })}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-[14px] border border-border bg-card">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">
                 {activeCategory ? (
                   <div className="flex min-h-full flex-col">
-                    <div className="border-b border-border px-[18px] py-[16px]">
+                    <div className="border-b border-border px-4 py-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1">
                           <h3 className="text-sm font-semibold text-foreground">
@@ -1180,9 +1180,9 @@ export function EntityTagsDialog({
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-4 overflow-y-auto px-[18px] py-[16px]">
-                      <div className="flex items-center gap-[8px] rounded-[10px] border border-input bg-background px-[12px] py-[9px]">
-                        <Search className="size-[14px] shrink-0 text-muted-foreground" />
+                    <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+                      <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2">
+                        <Search className="size-3.5 shrink-0 text-muted-foreground" />
                         <input
                           type="text"
                           value={searchValue}
@@ -1198,7 +1198,7 @@ export function EntityTagsDialog({
 
                       {filteredEntries.length > 0 ? (
                         <div className="space-y-3">
-                          <div className="flex flex-wrap gap-x-[6px] gap-y-[8px]">
+                          <div className="flex flex-wrap gap-x-1.5 gap-y-2">
                             {filteredEntries.map((entry) => (
                               <TagChip
                                 key={`${activeCategory.kind}:${entry.value}`}
@@ -1226,7 +1226,7 @@ export function EntityTagsDialog({
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="rounded-[10px] px-3 text-xs"
+                              className="rounded-lg px-3 text-xs"
                               onClick={() => setActiveCategoryPage((current) => current + 1)}
                             >
                               {t('customers.activities.loadMore', 'Load more')}
@@ -1234,11 +1234,11 @@ export function EntityTagsDialog({
                           ) : null}
                         </div>
                       ) : activeCategoryLoading ? (
-                        <div className="rounded-[12px] border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                        <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
                           {t('customers.personTags.loading', 'Loading...')}
                         </div>
                       ) : (
-                        <div className="rounded-[12px] border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                        <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
                           {searchValue.trim().length > 0
                             ? t('customers.personTags.emptySearchResults', 'No options match the current search.')
                             : activeCategory.source === 'dictionary'
@@ -1250,7 +1250,7 @@ export function EntityTagsDialog({
                       {activeCategory.supportsCreate ? (
                         <div>
                           {newEntryInputByKind[activeCategory.kind] !== null ? (
-                            <div className="inline-flex items-center rounded-full border border-dashed border-status-success-border bg-status-success-bg/70 px-[10px] py-[4px]">
+                            <div className="inline-flex items-center rounded-full border border-dashed border-status-success-border bg-status-success-bg/70 px-2.5 py-1">
                               <input
                                 type="text"
                                 autoFocus
@@ -1308,9 +1308,9 @@ export function EntityTagsDialog({
                                   [activeCategory.kind]: '',
                                 }))
                               }
-                              className="inline-flex h-auto items-center gap-[4px] rounded-full border border-dashed border-status-success-border bg-transparent px-[10px] py-[6px] font-semibold text-status-success-text hover:bg-status-success-bg disabled:opacity-60"
+                              className="inline-flex h-auto items-center gap-1 rounded-full border border-dashed border-status-success-border bg-transparent px-2.5 py-1.5 font-semibold text-status-success-text hover:bg-status-success-bg disabled:opacity-60"
                             >
-                              <Plus className="size-[10px]" />
+                              <Plus className="size-2.5" />
                               <span className="text-xs">
                                 {activeCategory.kind === 'tags'
                                   ? t('customers.personTags.newTag', 'New tag')
@@ -1332,16 +1332,16 @@ export function EntityTagsDialog({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-border bg-muted/20 px-[20px] py-[14px]">
+        <div className="flex shrink-0 items-center justify-between border-t border-border bg-muted/20 px-5 py-3.5">
           <span className="text-xs text-muted-foreground">
             {t('customers.personTags.activeCount', '{{count}} selected', { count: activeCount })}
           </span>
-          <div className="flex items-center gap-[24px]">
+          <div className="flex items-center gap-6">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
-              className="rounded-[8px] border-border bg-background px-[16px] py-[9px] text-sm font-semibold text-foreground"
+              className="rounded-md border-border bg-background px-4 py-2 text-sm font-semibold text-foreground"
             >
               {t('customers.personTags.cancel', 'Cancel')}
             </Button>
@@ -1349,9 +1349,9 @@ export function EntityTagsDialog({
               type="button"
               onClick={() => { void handleSave() }}
               disabled={saving || !hasChanges}
-              className="rounded-[8px] bg-foreground px-[18px] py-[9px] text-sm font-semibold text-background hover:bg-foreground/90"
+              className="rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:bg-foreground/90"
             >
-              <Check className="mr-[8px] size-[14px]" />
+              <Check className="mr-2 size-3.5" />
               {saving
                 ? t('customers.personTags.saving', 'Saving...')
                 : t('customers.personTags.save', 'Save')}

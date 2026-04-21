@@ -57,7 +57,7 @@ function FilterPopover({ allLabel, options, values, triggerLabel, onChange }: Fi
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 justify-between gap-2 rounded-[10px] px-3 text-xs">
+        <Button type="button" variant="outline" size="sm" className="h-8 justify-between gap-2 rounded-lg px-3 text-xs">
           <span className="truncate">{triggerLabel}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
@@ -165,7 +165,7 @@ export function ChangelogFilters({
           <select
             value={dateRange}
             onChange={(event) => onDateRangeChange(event.target.value as '7d' | '30d' | '90d')}
-            className="h-8 min-w-32 appearance-none rounded-[10px] border bg-background pl-3 pr-8 text-xs text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+            className="h-8 min-w-32 appearance-none rounded-lg border bg-background pl-3 pr-8 text-xs text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
           >
             <option value="7d">{t('customers.changelog.last7days', 'Last 7 days')}</option>
             <option value="30d">{t('customers.changelog.last30days', 'Last 30 days')}</option>
@@ -180,7 +180,7 @@ export function ChangelogFilters({
           size="sm"
           onClick={onExport}
           disabled={exportDisabled}
-          className="h-8 rounded-[10px] px-3 text-xs"
+          className="h-8 rounded-lg px-3 text-xs"
         >
           <Download className="mr-1.5 size-3.5" />
           {t('customers.changelog.exportCsv', 'Export CSV')}

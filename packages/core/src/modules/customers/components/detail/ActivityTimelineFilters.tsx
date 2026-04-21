@@ -115,7 +115,7 @@ export function ActivityTimelineFilters({
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 rounded-[8px] px-2.5 text-xs text-muted-foreground"
+            className="h-7 rounded-md px-2.5 text-xs text-muted-foreground"
           >
             <SlidersHorizontal className="size-2.5" />
             {t('customers.people.detail.activities.moreFilters', 'More')}

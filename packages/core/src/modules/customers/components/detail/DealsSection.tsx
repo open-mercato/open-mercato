@@ -978,7 +978,7 @@ export function DealsSection({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 rounded-[10px] px-3 text-xs"
+                      className="h-8 rounded-lg px-3 text-xs"
                       onClick={(event) => {
                         event.preventDefault()
                         void handleUnlink(deal)

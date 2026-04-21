@@ -23,12 +23,12 @@ export function LocationField({
   if (!isVisible(activityType, 'location')) return null
 
   return (
-    <div className="flex flex-col gap-[6px]">
-      <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
+    <div className="flex flex-col gap-1.5">
+      <label className="text-overline font-semibold text-muted-foreground tracking-wider">
         {getFieldLabel(activityType, 'location', t, 'customers.schedule.location', 'Location')}
       </label>
-      <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
-        <MapPin className="size-[14px] text-muted-foreground shrink-0" />
+      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
+        <MapPin className="size-3.5 text-muted-foreground shrink-0" />
         <input
           type="text"
           value={location}

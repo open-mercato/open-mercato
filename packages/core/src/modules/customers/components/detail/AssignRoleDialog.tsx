@@ -286,7 +286,7 @@ export function AssignRoleDialog({
 
   const previewCard =
     selectedUser && selectedRole ? (
-      <div className="rounded-[12px] border border-border/70 bg-muted/30 px-4 py-4">
+      <div className="rounded-lg border border-border/70 bg-muted/30 px-4 py-4">
         <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {t('customers.roles.dialog.preview', 'Assignment preview')}
         </p>
@@ -369,7 +369,7 @@ export function AssignRoleDialog({
           <div className="space-y-5 px-6 py-5">
             {step === 1 ? (
               <div className="space-y-4">
-                <div className="rounded-[12px] bg-muted/30 px-4 py-4">
+                <div className="rounded-lg bg-muted/30 px-4 py-4">
                   <p
                     id="assign-role-dialog-type-label"
                     className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground"
@@ -381,7 +381,7 @@ export function AssignRoleDialog({
                       aria-labelledby="assign-role-dialog-type-label"
                       value={selectedRoleType}
                       onChange={(event) => setSelectedRoleType(event.target.value)}
-                      className="h-10 w-full rounded-[10px] border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                      className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                     >
                       <option value="">
                         {t('customers.roles.selectRoleType', 'Select role type...')}
@@ -395,7 +395,7 @@ export function AssignRoleDialog({
                     {selectedRole ? (
                       <Badge
                         variant="outline"
-                        className="rounded-[6px] px-2 py-1 text-xs"
+                        className="rounded-md px-2 py-1 text-xs"
                       >
                         {t('customers.roles.dialog.sourceBadge.dictionary', 'Dictionary')}
                       </Badge>
@@ -404,7 +404,7 @@ export function AssignRoleDialog({
                 </div>
 
                 {!availableRoleTypes.length ? (
-                  <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-6 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border/80 px-4 py-6 text-sm text-muted-foreground">
                     {t(
                       'customers.roles.dialog.noAvailableRoles',
                       'All available role types are already assigned.',
@@ -416,7 +416,7 @@ export function AssignRoleDialog({
 
             {step === 2 ? (
               <div className="space-y-4">
-                <div className="rounded-[12px] bg-muted/30 px-4 py-4">
+                <div className="rounded-lg bg-muted/30 px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -428,7 +428,7 @@ export function AssignRoleDialog({
                         </span>
                         <Badge
                           variant="outline"
-                          className="rounded-[6px] px-2 py-1 text-xs"
+                          className="rounded-md px-2 py-1 text-xs"
                         >
                           {t('customers.roles.dialog.sourceBadge.dictionary', 'Dictionary')}
                         </Badge>
@@ -458,7 +458,7 @@ export function AssignRoleDialog({
                         'customers.roles.dialog.searchPlaceholder',
                         'Search by name, e-mail or team...',
                       )}
-                      className="h-10 rounded-[10px] border-border/80 pl-9 shadow-none"
+                      className="h-10 rounded-md border-border/80 pl-9 shadow-none"
                     />
                   </div>
                 </div>
@@ -473,7 +473,7 @@ export function AssignRoleDialog({
                         variant={isActive ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => setActiveTeam(teamFilter.id)}
-                        className="h-7 rounded-[8px] px-2.5 text-xs"
+                        className="h-7 rounded-md px-2.5 text-xs"
                       >
                         {teamFilter.label}
                         <span className="rounded-full bg-background/80 px-1 text-xs text-muted-foreground">
@@ -489,15 +489,15 @@ export function AssignRoleDialog({
                     <p className="text-xs text-muted-foreground">{visibleCountLabel}</p>
                   ) : null}
                   {loading ? (
-                    <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
                       {t('customers.roles.loading', 'Loading...')}
                     </div>
                   ) : loadError ? (
-                    <div className="rounded-[12px] border border-dashed border-status-error-border bg-status-error-bg/70 px-4 py-8 text-center text-sm text-status-error-text">
+                    <div className="rounded-lg border border-dashed border-status-error-border bg-status-error-bg/70 px-4 py-8 text-center text-sm text-status-error-text">
                       {loadError}
                     </div>
                   ) : filteredUsers.length === 0 ? (
-                    <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
                       {t(
                         'customers.roles.dialog.noResults',
                         'No matching team members found.',
@@ -513,7 +513,7 @@ export function AssignRoleDialog({
                           type="button"
                           variant="ghost"
                           onClick={() => setSelectedUser(user)}
-                          className={`h-auto flex w-full items-center gap-3 rounded-[12px] border px-4 py-3 text-left transition-colors ${
+                          className={`h-auto flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
                             isSelected
                               ? 'border-foreground bg-background shadow-sm'
                               : 'border-border/70 bg-background hover:bg-accent/40'
@@ -530,7 +530,7 @@ export function AssignRoleDialog({
                               {user.teamName ? (
                                 <Badge
                                   variant="muted"
-                                  className="rounded-[6px] px-2 py-0.5 text-xs font-medium"
+                                  className="rounded-md px-2 py-0.5 text-xs font-medium"
                                 >
                                   {user.teamName}
                                 </Badge>

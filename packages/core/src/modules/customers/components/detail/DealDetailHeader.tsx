@@ -84,7 +84,7 @@ function HeaderChip({
   variant?: HeaderChipVariant
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[4px] bg-muted px-[8px] py-[4px] text-xs font-medium leading-none text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-sm bg-muted px-2 py-1 text-xs font-medium leading-none text-muted-foreground">
       {variant ? <span className={cn('size-2 rounded-full', headerChipDotVariantClasses[variant])} /> : null}
       {icon ? <span className="text-muted-foreground">{icon}</span> : null}
       {children}
@@ -129,7 +129,7 @@ function StageActionButton({
           variant="outline"
           size="sm"
           disabled={disabled || isSaving}
-          className="h-8 max-w-[13rem] rounded-[6px] px-3"
+          className="h-8 max-w-[13rem] rounded-md px-3"
         >
           <Workflow className="size-4" />
           <span className="truncate">
@@ -157,7 +157,7 @@ function StageActionButton({
                 variant="ghost"
                 size="sm"
                 disabled={disabled || isSaving || isCurrent}
-                className="h-auto w-full justify-between rounded-[6px] px-3 py-2 text-left"
+                className="h-auto w-full justify-between rounded-md px-3 py-2 text-left"
                 onClick={() => {
                   setOpen(false)
                   if (!isCurrent) {
@@ -231,7 +231,7 @@ export function DealDetailHeader({
   return (
     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
       <div className="flex min-w-0 gap-5">
-        <div className="flex size-16 shrink-0 items-center justify-center rounded-[10px] border border-border bg-muted text-muted-foreground">
+        <div className="flex size-16 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
           <FileText className="size-7" />
         </div>
         <div className="min-w-0 space-y-3">
@@ -239,7 +239,7 @@ export function DealDetailHeader({
             <h1 className="min-w-0 truncate text-2xl font-bold leading-tight text-foreground md:text-2xl">
               {deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
             </h1>
-            <span className="rounded-[3px] bg-muted px-[8px] py-[3px] text-overline font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+            <span className="rounded-sm bg-muted px-2 py-1 text-overline font-semibold uppercase tracking-[0.04em] text-muted-foreground">
               {t('customers.deals.detail.badge.deal', 'Deal')}
             </span>
           </div>
@@ -312,7 +312,7 @@ export function DealDetailHeader({
           size="sm"
           type="button"
           aria-label={t('customers.deals.detail.actions.delete', 'Delete')}
-          className="h-8 w-8 rounded-[6px]"
+          className="h-8 w-8 rounded-md"
           onClick={() => {
             void onDelete()
           }}
@@ -324,7 +324,7 @@ export function DealDetailHeader({
           size="sm"
           onClick={onSave}
           disabled={!isDirty || isSaving}
-          className="h-8 rounded-[6px] px-3"
+          className="h-8 rounded-md px-3"
         >
           <Save className="size-4" />
           {t('customers.deals.detail.actions.save', 'Save')}

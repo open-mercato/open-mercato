@@ -8,6 +8,14 @@
 
 ---
 
+## Revision History
+
+| Version | Date | Summary |
+|---------|------|---------|
+| 1.0 | 2026-04-06 | Initial spec: collapsible CrudForm groups, zone collapse, inline activity composer, roles, pipeline stepper, closure flow, WCAG 2.1 AA. |
+| 1.1 | 2026-04-12 | Added Enhancements 6–8 during implementation: dashboard widgets, AI action chips, per-user labels, dictionary kind settings, person-company roles UI, decision-makers footer, mini week calendar, entity-scoped tag dialogs, activity log tab, changelog tab. |
+| 1.2 | 2026-04-19 | Addressed CR 5 feedback: DS token migration across CRM detail screens, unit tests for persistence hooks, i18n wrapping in new API error responses, `findWithDecryption` on attachments route, minor a11y/log-level/docs cleanups. |
+
 ## TLDR
 
 **Key Points:**

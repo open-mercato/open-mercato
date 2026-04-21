@@ -126,7 +126,7 @@ function ColorBadge({
   return (
     <Badge
       variant="outline"
-      className="rounded-[4px] gap-1.5 text-xs font-medium"
+      className="rounded-sm gap-1.5 text-xs font-medium"
       style={colorStyle}
     >
       {icon ? renderDictionaryIcon(icon, 'size-2.5') : fallbackIcon ?? null}
@@ -151,7 +151,7 @@ function StatusDotBadge({
   return (
     <Badge
       variant="outline"
-      className="rounded-[4px] gap-1.5 text-xs font-medium"
+      className="rounded-sm gap-1.5 text-xs font-medium"
       style={colorStyle}
     >
       <span
@@ -180,7 +180,7 @@ function BillingRow({
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5 min-h-[22px]">
-      <Icon className="size-[11px] shrink-0 text-muted-foreground" />
+      <Icon className="size-3 shrink-0 text-muted-foreground" />
       <span className="text-xs text-muted-foreground font-medium shrink-0">{label}:</span>
       {showDottedLine && <div className="mx-1 hidden flex-1 border-b border-dotted border-border/50 sm:block" />}
       <span className="min-w-0 break-words text-xs font-medium text-foreground">{value}</span>
@@ -193,7 +193,7 @@ function BillingRow({
           onClick={() => copyToClipboard(value, t)}
           aria-label={t('customers.companies.detail.copy', 'Copy')}
         >
-          <Copy className="size-[10px]" />
+          <Copy className="size-2.5" />
         </IconButton>
       )}
     </div>
@@ -225,18 +225,18 @@ export function CompanyCard({
       : null
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[18px] border border-border/60 bg-card">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-border/60 bg-card">
       {/* Header */}
-      <div className="flex flex-col gap-3 px-[22px] py-5 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-[14px] bg-muted">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted">
             <Building2 className="size-5 text-muted-foreground" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="break-words text-base font-bold">{data.displayName}</span>
               {data.isPrimary && (
-                <Badge variant="default" className="rounded-[4px] px-1.5 py-0 text-overline font-bold uppercase tracking-wider">
+                <Badge variant="default" className="rounded-sm px-1.5 py-0 text-overline font-bold uppercase tracking-wider">
                   PRIMARY
                 </Badge>
               )}
@@ -259,17 +259,17 @@ export function CompanyCard({
       <div className="border-t border-border/60" />
 
       {/* Body */}
-      <div className="px-[22px] py-[18px] space-y-4">
+      <div className="px-5 py-4 space-y-4">
         {/* Info badges */}
         <div className="flex flex-wrap gap-1.5">
           {data.profile?.industry && (
-            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
+            <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium">
               <TagIcon className="size-2.5" />
               {data.profile.industry}
             </Badge>
           )}
           {data.profile?.sizeBucket && (
-            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
+            <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium">
               <Users className="size-2.5" />
               {data.profile.sizeBucket} {t('customers.companies.detail.employees', 'employees')}
             </Badge>
@@ -368,7 +368,7 @@ export function CompanyCard({
         {hasBillingSection && (
           <>
             <div className="border-t border-border/60" />
-            <div className="rounded-[12px] bg-muted/40 border border-border/40 px-[14px] py-[12px] space-y-1.5">
+            <div className="rounded-lg bg-muted/40 border border-border/40 px-3.5 py-3 space-y-1.5">
               {data.profile?.legalName && (
                 <BillingRow icon={FileText} label={t('customers.companies.detail.billing.name', 'Name')} value={data.profile.legalName} t={t} />
               )}

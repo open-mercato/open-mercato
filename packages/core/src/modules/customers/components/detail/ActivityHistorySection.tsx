@@ -345,7 +345,7 @@ export function ActivityHistorySection({
               onChange={(event) => {
                 setDateRange(event.target.value as '7d' | '30d' | '90d')
               }}
-              className="h-8 rounded-[10px] border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
             >
               <option value="7d">{t('customers.changelog.last7days', 'Last 7 days')}</option>
               <option value="30d">{t('customers.changelog.last30days', 'Last 30 days')}</option>
@@ -357,7 +357,7 @@ export function ActivityHistorySection({
               onChange={(event) => {
                 setSortMode(event.target.value as 'recent' | 'title-asc' | 'title-desc')
               }}
-              className="h-8 rounded-[10px] border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
             >
               <option value="recent">{t('customers.activityLog.sort.recent', 'Sort: newest')}</option>
               <option value="title-asc">{t('customers.activityLog.sort.titleAsc', 'Sort: Name A-Z')}</option>

@@ -277,7 +277,7 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
       { id: 'open', label: 'Open' },
       { id: 'win', label: 'Won' },
       { id: 'loose', label: 'Lost' },
-      { id: 'orphan', label: 'Orphan', dotColor: '#eb9426' },
+      { id: 'orphan', label: 'Orphan', dotColor: '#eb9426' /* TODO(ds-review): #eb9426 — requires LinkEntityDialog to support semantic token classNames */ },
     ],
     defaultId: 'all',
     clientFilter: (option: LinkEntityOption, filterId: string) => {
@@ -366,27 +366,27 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
     const formattedValue = formatValue(meta.valueAmount ?? null, meta.valueCurrency ?? null)
     return (
       <>
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-muted/80 text-muted-foreground">
-          <Briefcase className="size-[16px]" />
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted/80 text-muted-foreground">
+          <Briefcase className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold text-foreground">
+            <span className="truncate text-sm font-semibold text-foreground">
               {option.label}
             </span>
             {meta.code ? (
-              <span className="inline-flex items-center rounded-[4px] bg-muted px-1.5 py-[2px] text-[10px] font-semibold uppercase text-muted-foreground">
+              <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase text-muted-foreground">
                 {meta.code}
               </span>
             ) : null}
             {meta.isOrphan ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#fff2e0] px-2 py-[2px] text-[11px] font-semibold text-[#eb9426]">
-                <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-[#eb9426]" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-warning-bg px-2 py-0.5 text-xs font-semibold text-status-warning-text">
+                <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-status-warning-icon" />
                 no company
               </span>
             ) : null}
           </div>
-          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {formattedValue ? (
               <span className="font-semibold text-foreground">{formattedValue}</span>
             ) : null}
@@ -415,7 +415,7 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
           aria-checked={ctx.selected}
           aria-label={`Select ${option.label}`}
           className={cn(
-            'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border',
+            'inline-flex size-5 shrink-0 items-center justify-center rounded-full border',
             ctx.selected
               ? 'border-foreground bg-foreground text-background'
               : 'border-border bg-background',
@@ -456,10 +456,10 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
     const formattedValue = derived.value ? formatValue(derived.value.amount, derived.value.currency) : null
     const createdRel = derived.createdAt ? `Created ${formatRelative(derived.createdAt)}` : null
     return (
-      <div className="flex flex-col gap-[14px] rounded-[12px] border border-border/70 bg-card p-[18px]">
+      <div className="flex flex-col gap-3.5 rounded-xl border border-border/70 bg-card p-4">
         <div>
-          <div className="text-[16px] font-bold text-foreground">{derived.title}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="text-base font-bold text-foreground">{derived.title}</div>
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             {derived.code ? <span>{derived.code}</span> : null}
             {derived.code && createdRel ? <span>·</span> : null}
             {createdRel ? <span>{createdRel}</span> : null}
@@ -467,13 +467,13 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
         </div>
 
         {isOrphan ? (
-          <div className="flex items-start gap-2 rounded-[8px] bg-[#fff2e0] px-3 py-2.5">
-            <AlertTriangle className="mt-[2px] size-[14px] text-[#eb9426]" />
+          <div className="flex items-start gap-2 rounded-md bg-status-warning-bg px-3 py-2.5">
+            <AlertTriangle className="mt-0.5 size-3.5 text-status-warning-icon" />
             <div className="min-w-0">
-              <div className="text-[12px] font-semibold text-[#eb9426]">
+              <div className="text-xs font-semibold text-status-warning-text">
                 {options.orphanWarningTitle}
               </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">
+              <div className="mt-0.5 text-xs text-muted-foreground">
                 {options.orphanWarningMessage}
               </div>
             </div>
@@ -482,19 +482,19 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
 
         {formattedValue ? (
           <div className="flex items-baseline gap-3">
-            <div className="text-[22px] font-bold text-foreground">{formattedValue}</div>
-            <div className="text-[11px] text-muted-foreground">potential value</div>
+            <div className="text-2xl font-bold text-foreground">{formattedValue}</div>
+            <div className="text-xs text-muted-foreground">potential value</div>
           </div>
         ) : null}
 
         {derived.stage ? (
           <>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Stage
             </div>
             <div className="flex items-center gap-1.5">
               <span className="inline-block size-2 rounded-full bg-foreground" />
-              <span className="text-[12px] font-semibold text-foreground">{derived.stage}</span>
+              <span className="text-xs font-semibold text-foreground">{derived.stage}</span>
             </div>
           </>
         ) : null}
@@ -502,17 +502,17 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
         {derived.nextStep ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Next step
             </div>
             <div className="flex items-start gap-2">
-              <CalendarDays className="mt-[2px] size-[13px] text-muted-foreground" />
+              <CalendarDays className="mt-0.5 size-3 text-muted-foreground" />
               <div className="min-w-0">
-                <div className="truncate text-[12px] font-semibold text-foreground">
+                <div className="truncate text-xs font-semibold text-foreground">
                   {derived.nextStep.title}
                 </div>
                 {derived.nextStep.assignee ? (
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  <div className="mt-0.5 text-xs text-muted-foreground">
                     Assigned: {derived.nextStep.assignee}
                   </div>
                 ) : null}
@@ -524,19 +524,19 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
         {derived.keyPeople && derived.keyPeople.length > 0 ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Key people ({derived.keyPeople.length})
             </div>
             <div className="flex flex-col gap-1.5">
               {derived.keyPeople.map((person) => (
                 <div
                   key={person.id || person.name}
-                  className="flex items-center gap-2 rounded-[8px] bg-muted/60 px-2.5 py-1.5"
+                  className="flex items-center gap-2 rounded-md bg-muted/60 px-2.5 py-1.5"
                 >
                   <Avatar label={person.name} variant="monochrome" size="sm" />
-                  <span className="text-[12px] font-semibold text-foreground">{person.name}</span>
+                  <span className="text-xs font-semibold text-foreground">{person.name}</span>
                   {person.role ? (
-                    <span className="ml-auto inline-flex items-center rounded-[4px] border border-border px-1.5 py-[2px] text-[10px] font-semibold text-muted-foreground">
+                    <span className="ml-auto inline-flex items-center rounded-sm border border-border px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                       {person.role}
                     </span>
                   ) : null}
@@ -565,7 +565,7 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
     selectedEmptyHint: options.selectedEmptyHint,
     confirmButtonLabel: options.confirmButtonLabel,
     defaultAvatarIcon: options.defaultAvatarIcon,
-    headerIcon: options.headerIcon ?? <Link2 className="size-[18px]" />,
+    headerIcon: options.headerIcon ?? <Link2 className="size-5" />,
     filters,
     renderRow,
     renderPreview,

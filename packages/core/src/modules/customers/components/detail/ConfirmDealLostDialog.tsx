@@ -90,10 +90,10 @@ export function ConfirmDealLostDialog({
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-[560px]" onKeyDown={handleKeyDown}>
-        <div className="overflow-hidden rounded-[12px] bg-card">
-          <DialogHeader className="border-b border-border/70 px-7 py-[22px]">
+        <div className="overflow-hidden rounded-lg bg-card">
+          <DialogHeader className="border-b border-border/70 px-7 py-5">
             <div className="flex items-start gap-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[8px] bg-destructive/10 text-destructive">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
                 <AlertTriangle className="size-5" />
               </div>
               <div className="min-w-0">
@@ -110,7 +110,7 @@ export function ConfirmDealLostDialog({
           </DialogHeader>
 
           <div className="space-y-6 px-7 py-6">
-            <Alert variant="warning" className="rounded-[6px]">
+            <Alert variant="warning" className="rounded-md">
               <AlertTriangle className="size-4" />
               <AlertTitle>
                 {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
@@ -130,7 +130,7 @@ export function ConfirmDealLostDialog({
                   type="button"
                   variant="outline"
                   onClick={() => setReasonListOpen((current) => !current)}
-                  className="h-auto flex w-full items-center justify-between rounded-[6px] border-2 border-foreground bg-background px-4 py-3 text-left"
+                  className="h-auto flex w-full items-center justify-between rounded-md border-2 border-foreground bg-background px-4 py-3 text-left"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-foreground">
@@ -144,7 +144,7 @@ export function ConfirmDealLostDialog({
                 </Button>
 
                 {reasonListOpen ? (
-                  <div className="overflow-hidden rounded-[6px] border border-border/80 bg-background">
+                  <div className="overflow-hidden rounded-md border border-border/80 bg-background">
                     {lossReasons.map((reason, index) => {
                       const isSelected = reason.id === lossReasonId
                       return (
@@ -190,7 +190,7 @@ export function ConfirmDealLostDialog({
                 onChange={(event) => setLossNotes(event.target.value)}
                 placeholder={t('customers.deals.detail.lost.notesPlaceholder', 'Additional context about the loss...')}
                 rows={4}
-                className="min-h-[88px] rounded-[6px] border-border/80 px-4 py-3 shadow-none"
+                className="min-h-[88px] rounded-md border-border/80 px-4 py-3 shadow-none"
               />
             </div>
           </div>

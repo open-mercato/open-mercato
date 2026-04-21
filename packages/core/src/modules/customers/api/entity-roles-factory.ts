@@ -126,7 +126,7 @@ async function ensureFeatureOnOrganization(
   try {
     rbac = container.resolve('rbacService') as RbacService | undefined
   } catch (err) {
-    console.warn('[customers.entity-roles-factory] rbacService resolve failed', err)
+    console.error('[customers.entity-roles-factory] rbacService resolve failed', err)
     rbac = undefined
   }
   if (!rbac) {

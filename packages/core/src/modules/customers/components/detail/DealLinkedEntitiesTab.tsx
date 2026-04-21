@@ -74,7 +74,7 @@ function Pagination({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 rounded-[10px] px-3 text-xs"
+          className="h-8 rounded-lg px-3 text-xs"
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page <= 1}
         >
@@ -85,7 +85,7 @@ function Pagination({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 rounded-[10px] px-3 text-xs"
+          className="h-8 rounded-lg px-3 text-xs"
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={page >= totalPages}
         >
@@ -253,7 +253,7 @@ export function DealLinkedEntitiesTab({
   return (
     <>
       <div className="space-y-5">
-        <div className="flex flex-col gap-3 rounded-[16px] border border-border/70 bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="text-sm font-semibold text-foreground">{manageLabel}</div>
             <div className="text-sm text-muted-foreground">
@@ -282,7 +282,7 @@ export function DealLinkedEntitiesTab({
               type="button"
               variant="outline"
               size="sm"
-              className="h-9 rounded-[10px] px-3"
+              className="h-9 rounded-lg px-3"
               onClick={() => setDialogOpen(true)}
               disabled={disabled || savePending}
             >
@@ -298,7 +298,7 @@ export function DealLinkedEntitiesTab({
               <Link
                 key={item.id}
                 href={hrefBuilder(item.id)}
-                className="flex items-start gap-3 rounded-[18px] border border-border/70 bg-card px-4 py-4 transition-colors hover:bg-accent"
+                className="flex items-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 transition-colors hover:bg-accent"
               >
                 <div className="mt-0.5 rounded-full bg-muted p-2 text-muted-foreground">
                   {icon}
@@ -320,11 +320,11 @@ export function DealLinkedEntitiesTab({
             />
           </div>
         ) : remoteLinkedLoading ? (
-          <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border bg-muted/20 px-5 py-5 text-sm text-muted-foreground">
             {t('customers.deals.detail.linkedEntities.loading', 'Loading linked records…')}
           </div>
         ) : (
-          <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border bg-muted/20 px-5 py-5 text-sm text-muted-foreground">
             {pageSearch.trim().length
               ? t(
                   'customers.deals.detail.linkedEntities.noSearchMatches',

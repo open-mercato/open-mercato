@@ -285,20 +285,20 @@ export function ScheduleActivityDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
       {ConfirmDialogElement}
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[680px] sm:rounded-[16px] [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[680px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
         <VisuallyHidden>
           <DialogTitle>{editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}</DialogTitle>
         </VisuallyHidden>
 
         {/* Header */}
-        <div className="flex shrink-0 items-start justify-between gap-[12px] border-b border-border bg-background px-[24px] py-[20px]">
-          <div className="flex flex-col gap-[6px]">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-background px-6 py-5">
+          <div className="flex flex-col gap-1.5">
             <h2 className="text-lg font-bold leading-tight text-foreground">
               {editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}
             </h2>
             {entityName && (
-              <div className="flex items-center gap-[6px]">
-                <span className="inline-block size-[14px] rounded-full bg-status-success-icon shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block size-3.5 rounded-full bg-status-success-icon shrink-0" />
                 <span className="text-xs text-muted-foreground">
                   {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
                   {companyName && ` · ${companyName}`}
@@ -306,18 +306,18 @@ export function ScheduleActivityDialog({
               </div>
             )}
           </div>
-          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-[36px] shrink-0 items-center justify-center rounded-[8px] border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
-            <X className="size-[16px] text-muted-foreground" />
+          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
+            <X className="size-4 text-muted-foreground" />
           </IconButton>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-[18px] bg-background p-[24px]">
+        <div className="flex flex-col gap-4 bg-background p-6">
 
         {/* Conflict warning */}
         {state.conflict && (
-          <Alert variant="warning" className="rounded-[12px]">
-            <AlertTriangle className="size-[18px]" />
+          <Alert variant="warning" className="rounded-lg">
+            <AlertTriangle className="size-5" />
             <AlertTitle>
               {t('customers.schedule.conflict.title', 'Calendar conflict')}
             </AlertTitle>
@@ -326,7 +326,7 @@ export function ScheduleActivityDialog({
         )}
 
         {/* Type tabs */}
-        <div className="flex gap-[2px] rounded-[10px] border border-border bg-muted p-[4px]">
+        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-1">
           {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => {
             const isActive = state.activityType === type
             return (
@@ -337,13 +337,13 @@ export function ScheduleActivityDialog({
                 size="sm"
                 onClick={() => state.setActivityType(type)}
                 className={cn(
-                  'h-auto flex items-center gap-[8px] rounded-[8px] px-[14px] py-[9px] text-sm transition-colors',
+                  'h-auto flex items-center gap-2 rounded-md px-3.5 py-2 text-sm transition-colors',
                   isActive
                     ? 'bg-background font-semibold text-foreground shadow-sm'
                     : 'bg-transparent font-normal text-muted-foreground',
                 )}
               >
-                <Icon className="size-[14px]" />
+                <Icon className="size-3.5" />
                 {t(labelKey, fallback)}
               </Button>
             )
@@ -351,8 +351,8 @@ export function ScheduleActivityDialog({
         </div>
 
         {/* Title */}
-        <div className="flex flex-col gap-[6px]">
-          <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
           </label>
           <input
@@ -360,7 +360,7 @@ export function ScheduleActivityDialog({
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={t('customers.schedule.titlePlaceholder', 'Activity title...')}
-            className="w-full rounded-[8px] border border-border bg-background px-[12px] py-[10px] text-sm text-foreground outline-none focus:border-foreground"
+            className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-foreground"
             autoFocus
           />
         </div>
@@ -418,7 +418,7 @@ export function ScheduleActivityDialog({
 
         {/* Description */}
         <div>
-          <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
             {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
           <div className="mt-[8px]">
@@ -446,12 +446,12 @@ export function ScheduleActivityDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex shrink-0 items-center justify-end gap-[10px] border-t border-border bg-muted/50 px-[24px] py-[18px]">
-          <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-[10px] border border-input bg-background px-[20px] py-[11px] text-sm font-semibold text-foreground">
+        <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-border bg-muted/50 px-6 py-4">
+          <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-md border border-input bg-background px-5 py-3 text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-[8px] rounded-[10px] bg-primary px-[22px] py-[11px] text-sm font-semibold text-primary-foreground disabled:opacity-50">
-            <Calendar className="size-[14px]" />
+          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+            <Calendar className="size-3.5" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')
               : editData

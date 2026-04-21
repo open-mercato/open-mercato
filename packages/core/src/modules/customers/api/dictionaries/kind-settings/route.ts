@@ -6,6 +6,7 @@ import { resolveDictionaryRouteContext } from '../context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -43,6 +44,7 @@ function isMissingKindSettingsTable(error: unknown): boolean {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const query = querySchema.parse({
@@ -81,7 +83,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/dictionaries/kind-settings.GET]', err)
-    return NextResponse.json({ error: 'Failed to load kind settings' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.kind_settings_load_failed', 'Failed to load kind settings') }, { status: 500 })
   }
 }
 
@@ -93,10 +95,11 @@ const patchSchema = z.object({
 })
 
 export async function PATCH(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const context = await resolveDictionaryRouteContext(req)
     if (!context.organizationId) {
-      throw new CrudHttpError(400, { error: 'Organization context is required' })
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
     const payload = patchSchema.parse(await readJsonSafe(req, {}))
     const guardUserId = resolveAuthActorId(context.auth!)

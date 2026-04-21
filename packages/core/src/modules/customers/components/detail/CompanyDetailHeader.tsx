@@ -37,7 +37,7 @@ function CompanyDictionaryBadge({ value, map }: { value: string; map: CustomerDi
     ? { color, borderColor: color, backgroundColor: `${color}1A` }
     : undefined
   return (
-    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium" style={colorStyle}>
+    <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium" style={colorStyle}>
       {icon ? renderDictionaryIcon(icon, 'size-2.5') : null}
       {label}
     </Badge>
@@ -99,7 +99,7 @@ export function CompanyDetailHeader({
       {/* Top row: avatar + company info + account manager + actions */}
       <div className="flex flex-col gap-4 px-6 pt-6 pb-3 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
-        <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-muted">
+        <div className="flex size-18 shrink-0 items-center justify-center rounded-full bg-muted">
           <Building2 className="size-7 text-muted-foreground" />
         </div>
 
@@ -163,7 +163,7 @@ export function CompanyDetailHeader({
                 <Badge
                   key={tag.id}
                   variant="outline"
-                  className="rounded-[4px] gap-1.5 text-xs font-medium"
+                  className="rounded-sm gap-1.5 text-xs font-medium"
                   style={colorStyle}
                 >
                   {tag.label}
@@ -171,7 +171,7 @@ export function CompanyDetailHeader({
               )
             })}
             {hiddenCustomTagsCount > 0 ? (
-              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
+              <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium">
                 +{hiddenCustomTagsCount} {t('customers.companies.detail.header.more', 'more')}
               </Badge>
             ) : null}
@@ -179,7 +179,7 @@ export function CompanyDetailHeader({
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto rounded-[4px] px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="h-auto rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
               <Pencil className="mr-1 size-3" />

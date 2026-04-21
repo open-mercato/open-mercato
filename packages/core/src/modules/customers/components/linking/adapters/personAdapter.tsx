@@ -310,17 +310,17 @@ export function createPersonLinkAdapter(
         <Avatar label={option.label} variant="monochrome" size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="truncate text-[13px] font-semibold text-foreground">
+            <span className="truncate text-sm font-semibold text-foreground">
               {option.label}
             </span>
             {rolePill ? (
-              <span className="inline-flex items-center rounded-[4px] bg-muted px-1.5 py-[2px] text-[10px] font-semibold text-muted-foreground">
+              <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                 {rolePill}
               </span>
             ) : null}
           </div>
           {option.subtitle ? (
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            <div className="mt-0.5 truncate text-xs text-muted-foreground">
               {option.subtitle}
             </div>
           ) : null}
@@ -330,7 +330,7 @@ export function createPersonLinkAdapter(
           aria-checked={ctx.selected}
           aria-label={`Select ${option.label}`}
           className={cn(
-            'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border',
+            'inline-flex size-5 shrink-0 items-center justify-center rounded-full border',
             ctx.selected
               ? 'border-foreground bg-foreground text-background'
               : 'border-border bg-background',
@@ -357,13 +357,13 @@ export function createPersonLinkAdapter(
     const activity = details?.recentActivity ?? null
     const subtitle = option.subtitle ?? meta.jobTitle ?? null
     return (
-      <div className="flex flex-col gap-[14px] rounded-[12px] border border-border/70 bg-card p-[18px]">
+      <div className="flex flex-col gap-3.5 rounded-xl border border-border/70 bg-card p-4">
         <div className="flex items-center gap-3">
           <Avatar label={option.label} variant="monochrome" size="lg" />
           <div className="min-w-0">
-            <div className="truncate text-[16px] font-bold text-foreground">{option.label}</div>
+            <div className="truncate text-base font-bold text-foreground">{option.label}</div>
             {subtitle ? (
-              <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</div>
             ) : null}
           </div>
         </div>
@@ -371,18 +371,18 @@ export function createPersonLinkAdapter(
         {email || phone ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Contact
             </div>
             {email ? (
-              <div className="flex items-center gap-2.5 text-[12px] text-foreground">
-                <Mail className="size-[14px] text-muted-foreground" />
+              <div className="flex items-center gap-2.5 text-xs text-foreground">
+                <Mail className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{email}</span>
               </div>
             ) : null}
             {phone ? (
-              <div className="flex items-center gap-2.5 text-[12px] text-foreground">
-                <Phone className="size-[14px] text-muted-foreground" />
+              <div className="flex items-center gap-2.5 text-xs text-foreground">
+                <Phone className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{phone}</span>
               </div>
             ) : null}
@@ -392,19 +392,19 @@ export function createPersonLinkAdapter(
         {companies.length > 0 ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Linked companies ({companies.length})
             </div>
             <div className="flex flex-col gap-1.5">
               {companies.map((company) => (
                 <div
                   key={company.id}
-                  className="flex items-center gap-2 rounded-[8px] bg-muted/70 px-2.5 py-1.5 text-[12px] font-semibold text-foreground"
+                  className="flex items-center gap-2 rounded-md bg-muted/70 px-2.5 py-1.5 text-xs font-semibold text-foreground"
                 >
-                  <Building2 className="size-[13px] text-muted-foreground" />
+                  <Building2 className="size-3 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{company.name}</span>
                   {company.isPrimary ? (
-                    <span className="inline-flex items-center rounded-full bg-[#c7eb54] px-2 py-[2px] text-[10px] font-bold text-[#101828]">
+                    <span className="inline-flex items-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
                       PRIMARY
                     </span>
                   ) : null}
@@ -417,20 +417,20 @@ export function createPersonLinkAdapter(
         {activity ? (
           <>
             <div className="h-px w-full bg-border/70" />
-            <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+            <div className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
               Recent activity
             </div>
             <div className="flex items-start gap-2">
-              <CalendarDays className="mt-[2px] size-[13px] text-muted-foreground" />
+              <CalendarDays className="mt-0.5 size-3 text-muted-foreground" />
               <div className="min-w-0">
-                <div className="truncate text-[12px] font-semibold text-foreground">
+                <div className="truncate text-xs font-semibold text-foreground">
                   {activity.title}
                   {activity.occurredAt ? (
                     <span className="text-muted-foreground"> · {formatRelative(activity.occurredAt)}</span>
                   ) : null}
                 </div>
                 {activity.summary ? (
-                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
                     {activity.summary}
                   </div>
                 ) : null}
@@ -452,11 +452,11 @@ export function createPersonLinkAdapter(
           <div className="flex flex-col gap-3">
             {roleOptions.length > 0 ? (
               <label className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-semibold text-muted-foreground">Role at company</span>
+                <span className="text-xs font-semibold text-muted-foreground">Role at company</span>
                 <select
                   value={currentRole}
                   onChange={(event) => onChange({ ...settings, role: event.target.value || null })}
-                  className="h-9 rounded-[6px] border border-border bg-card px-3 text-[13px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
+                  className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
                 >
                   <option value="">—</option>
                   {roleOptions.map((role) => (
@@ -472,13 +472,13 @@ export function createPersonLinkAdapter(
                 type="checkbox"
                 checked={Boolean(settings.isPrimary)}
                 onChange={(event) => onChange({ ...settings, isPrimary: event.target.checked })}
-                className="mt-[3px] size-4 shrink-0 rounded-[4px] border border-border accent-foreground"
+                className="mt-0.5 size-4 shrink-0 rounded-sm border border-border accent-foreground"
               />
               <span className="min-w-0">
-                <span className="block text-[12px] font-semibold text-foreground">
+                <span className="block text-xs font-semibold text-foreground">
                   Set as PRIMARY contact
                 </span>
-                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                <span className="mt-0.5 block text-xs text-muted-foreground">
                   Will appear at the top of company contacts
                 </span>
               </span>
@@ -498,7 +498,7 @@ export function createPersonLinkAdapter(
     selectedEmptyHint: options.selectedEmptyHint,
     confirmButtonLabel: options.confirmButtonLabel,
     defaultAvatarIcon: options.defaultAvatarIcon,
-    headerIcon: options.headerIcon ?? <Link2 className="size-[18px]" />,
+    headerIcon: options.headerIcon ?? <Link2 className="size-5" />,
     filters,
     renderRow,
     renderPreview,

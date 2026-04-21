@@ -41,7 +41,7 @@ export function resolveLegacyTab(tab: string | null | undefined): DealTabId {
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
-    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-xs font-semibold leading-none text-muted-foreground">
+    <span className="ml-1.5 rounded-sm bg-muted px-1.5 py-px text-xs font-semibold leading-none text-muted-foreground">
       {count > 999 ? '999+' : count}
     </span>
   )
@@ -49,7 +49,7 @@ function CountBadge({ count }: { count: number }) {
 
 function NewBadge() {
   return (
-    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-xs font-semibold leading-none text-muted-foreground">
+    <span className="ml-1.5 rounded-sm bg-muted px-1.5 py-px text-xs font-semibold leading-none text-muted-foreground">
       NEW
     </span>
   )

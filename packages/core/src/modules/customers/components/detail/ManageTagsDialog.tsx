@@ -353,21 +353,21 @@ function SortableEntryRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-[10px] rounded-[6px] border border-border bg-card px-[10px] py-[8px]"
+      className="flex items-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2"
     >
       {/* Grip handle */}
       <div
         aria-label={t('customers.tags.manage.dragHandle', 'Drag to reorder')}
         title={t('customers.tags.manage.dragHandle', 'Drag to reorder')}
-        className="flex size-[18px] shrink-0 cursor-grab items-center justify-center text-muted-foreground/70"
+        className="flex size-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground/70"
         {...attributes}
         {...listeners}
       >
-        <GripVertical className="size-[14px]" />
+        <GripVertical className="size-3.5" />
       </div>
 
       {/* Arrow reorder buttons — additive alternative to drag */}
-      <div className="flex shrink-0 flex-col gap-[2px]">
+      <div className="flex shrink-0 flex-col gap-0.5">
         <IconButton
           type="button"
           variant="ghost"
@@ -393,16 +393,16 @@ function SortableEntryRow({
       </div>
 
       {/* Label + default indicator */}
-      <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <input
           type="text"
           value={entry.label}
           onChange={(e) => onLabelChange(e.target.value)}
-          className="w-full rounded-[5px] border border-input bg-background px-[12px] py-[7px] text-sm font-medium text-foreground outline-none focus:border-foreground"
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground outline-none focus:border-foreground"
         />
         {isDefault && (
-          <div className="flex items-center gap-[5px]">
-            <Check className="size-[10px] text-status-success-icon" />
+          <div className="flex items-center gap-1.5">
+            <Check className="size-2.5 text-status-success-icon" />
             <span className="text-xs text-muted-foreground">
               {t('customers.tags.manage.defaultEntry', 'default when creating new records')}
             </span>
@@ -416,15 +416,15 @@ function SortableEntryRow({
           type="text"
           value={entry.value}
           onChange={(e) => onValueChange(slugifyLabel(e.target.value))}
-          className="w-full rounded-[5px] bg-muted px-[10px] py-[7px] text-xs font-medium text-muted-foreground outline-none"
+          className="w-full rounded-md bg-muted px-2.5 py-2 text-xs font-medium text-muted-foreground outline-none"
         />
       </div>
 
       {/* Color picker */}
-      <div className="flex w-[80px] shrink-0 items-center gap-[6px] rounded-[5px] border border-input px-[8px] py-[6px]">
-        <label className="relative size-[16px] shrink-0 cursor-pointer">
+      <div className="flex w-[80px] shrink-0 items-center gap-1.5 rounded-md border border-input px-2 py-1.5">
+        <label className="relative size-4 shrink-0 cursor-pointer">
           <span
-            className="block size-full rounded-[3px]"
+            className="block size-full rounded-sm"
             style={{ backgroundColor: normalizeColor(entry.color) }}
           />
           <input
@@ -444,11 +444,11 @@ function SortableEntryRow({
         type="button"
         variant="ghost"
         size="sm"
-        className="size-[32px] shrink-0 text-muted-foreground hover:text-destructive"
+        className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
         onClick={onDelete}
         aria-label={t('customers.tags.manage.delete', 'Delete')}
       >
-        <Trash2 className="size-[14px]" />
+        <Trash2 className="size-3.5" />
       </IconButton>
     </div>
   )
@@ -956,7 +956,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
       }}
     >
       <DialogContent
-        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-[0px_20px_48px_0px_rgba(0,0,0,0.18)] sm:max-w-[820px] sm:rounded-[12px] [&>[data-dialog-close]]:hidden"
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-[0px_20px_48px_0px_rgba(0,0,0,0.18)] sm:max-w-[820px] sm:rounded-lg [&>[data-dialog-close]]:hidden"
         aria-describedby={undefined}
       >
         <VisuallyHidden>
@@ -964,8 +964,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         </VisuallyHidden>
 
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between pb-[10px] pl-[24px] pr-[20px] pt-[16px]">
-          <div className="flex flex-col gap-[3px]">
+        <div className="flex shrink-0 items-center justify-between pb-2.5 pl-6 pr-5 pt-4">
+          <div className="flex flex-col gap-1">
             <h2 className="text-base font-bold leading-tight text-foreground">
               {t('customers.tags.manage.title', 'Manage tags')}
             </h2>
@@ -976,44 +976,44 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-[8px]">
+          <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto gap-[6px] rounded-[8px] px-[12px] py-[7px] text-xs font-semibold"
+              className="h-auto gap-1.5 rounded-md px-3 py-2 text-xs font-semibold"
               onClick={() => {
                 setCreateCategoryOpen((current) => !current)
                 setNewCategoryName('')
                 setNewCategorySelectionMode('multi')
               }}
             >
-              <Plus className="size-[13px]" />
+              <Plus className="size-3.5" />
               {t('customers.tags.manage.addCategory', 'New category')}
             </Button>
             <IconButton
               type="button"
               variant="outline"
               size="sm"
-              className="size-[28px] shrink-0 rounded-[6px] border-border"
+              className="size-7 shrink-0 rounded-md border-border"
               onClick={onClose}
               aria-label={t('customers.tags.manage.closeDialog', 'Close')}
             >
-              <X className="size-[13px]" />
+              <X className="size-3.5" />
             </IconButton>
           </div>
         </div>
         <div className="h-px shrink-0 bg-border" />
 
         {loading ? (
-          <div className="px-[28px] py-12 text-center text-sm text-muted-foreground">
+          <div className="px-7 py-12 text-center text-sm text-muted-foreground">
             {t('customers.tags.manage.loading', 'Loading...')}
           </div>
         ) : (
           <>
             {createCategoryOpen ? (
-              <div className="flex shrink-0 flex-wrap items-center gap-[10px] border-b border-border px-[24px] py-[12px]">
-                <div className="min-w-[220px] flex-1 rounded-[8px] border border-input bg-background px-[12px] py-[8px]">
+              <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-border px-6 py-3">
+                <div className="min-w-[220px] flex-1 rounded-md border border-input bg-background px-3 py-2">
                   <input
                     type="text"
                     value={newCategoryName}
@@ -1028,12 +1028,12 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   />
                 </div>
-                <div className="flex items-center gap-[4px] rounded-[8px] border border-border bg-muted/60 p-[4px]">
+                <div className="flex items-center gap-1 rounded-md border border-border bg-muted/60 p-1">
                   <Button
                     type="button"
                     variant={newCategorySelectionMode === 'single' ? 'secondary' : 'ghost'}
                     size="sm"
-                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-xs"
+                    className="h-auto rounded-md px-2.5 py-1.5 text-xs"
                     onClick={() => setNewCategorySelectionMode('single')}
                   >
                     {t('customers.tags.manage.categoryMode.single', 'Single')}
@@ -1042,7 +1042,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant={newCategorySelectionMode === 'multi' ? 'secondary' : 'ghost'}
                     size="sm"
-                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-xs"
+                    className="h-auto rounded-md px-2.5 py-1.5 text-xs"
                     onClick={() => setNewCategorySelectionMode('multi')}
                   >
                     {t('customers.tags.manage.categoryMode.multi', 'Multi')}
@@ -1051,7 +1051,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 <Button
                   type="button"
                   size="sm"
-                  className="h-auto rounded-[8px] px-[12px] py-[7px] text-xs font-semibold"
+                  className="h-auto rounded-md px-3 py-2 text-xs font-semibold"
                   onClick={() => {
                     void handleCreateCategory()
                   }}
@@ -1065,23 +1065,23 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             ) : null}
 
             {/* Tab bar */}
-            <div className="flex shrink-0 items-center gap-[8px] border-b border-border px-[16px] py-[6px]">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-1.5">
               <IconButton
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="size-[30px] shrink-0 rounded-full"
+                className="size-8 shrink-0 rounded-full"
                 onClick={() => scrollCategoryRail('left')}
                 disabled={!canScrollLeft}
                 aria-label={t('customers.tags.manage.scrollLeft', 'Scroll categories left')}
               >
-                <ChevronsLeft className="size-[14px]" />
+                <ChevronsLeft className="size-3.5" />
               </IconButton>
               <div
                 ref={categoryRailRef}
                 className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
-                <div className="flex items-end gap-[2px]">
+                <div className="flex items-end gap-0.5">
                   {translatedCategories.map((category) => {
                     const Icon = category.icon
                     const isActive = category.kind === activeTab
@@ -1096,19 +1096,19 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                           setActiveTab(category.kind)
                           setSearchValue('')
                         }}
-                        className={`flex h-auto shrink-0 items-center gap-[5px] rounded-none border-b-2 px-[10px] py-[8px] hover:bg-transparent ${
+                        className={`flex h-auto shrink-0 items-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 hover:bg-transparent ${
                           isActive
                             ? '-mb-px border-foreground text-foreground'
                             : '-mb-px border-transparent text-muted-foreground'
                         }`}
                       >
-                        <Icon className="size-[13px]" />
+                        <Icon className="size-3.5" />
                         <span
                           className={`whitespace-nowrap text-xs ${isActive ? 'font-semibold' : 'font-medium'}`}
                         >
                           {category.shortLabel}
                         </span>
-                        <span className="rounded-[3px] bg-muted px-[4px] py-px text-overline font-semibold text-foreground">
+                        <span className="rounded-sm bg-muted px-1 py-px text-overline font-semibold text-foreground">
                           {count}
                         </span>
                       </Button>
@@ -1120,30 +1120,30 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="size-[30px] shrink-0 rounded-full"
+                className="size-8 shrink-0 rounded-full"
                 onClick={() => scrollCategoryRail('right')}
                 disabled={!canScrollRight}
                 aria-label={t('customers.tags.manage.scrollRight', 'Scroll categories right')}
               >
-                <ChevronsRight className="size-[14px]" />
+                <ChevronsRight className="size-3.5" />
               </IconButton>
             </div>
 
             {/* Content */}
-            <div className="flex min-h-0 flex-1 flex-col gap-[12px] overflow-y-auto px-[24px] py-[14px]">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-3.5">
               {activeMeta ? (
                 <>
                   {/* Category header + search */}
                   <div className="flex items-center justify-between">
-                    <div className="flex flex-col gap-[3px]">
-                      <div className="flex items-center gap-[6px]">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5">
                         <span className="text-sm font-bold text-foreground">
                           {activeMeta.shortLabel}
                         </span>
                         {(activeMeta.badges ?? []).map((badge) => (
                           <span
                             key={badge}
-                            className={`rounded-[3px] px-[7px] py-[2px] text-overline font-bold ${
+                            className={`rounded-sm px-2 py-0.5 text-overline font-bold ${
                               badge === 'required'
                                 ? 'bg-status-warning-bg text-status-warning-text'
                                 : 'bg-muted text-muted-foreground'
@@ -1155,27 +1155,27 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                           </span>
                         ))}
                       </div>
-                      <div className="flex items-center gap-[6px]">
-                        <Info className="size-[12px] shrink-0 text-muted-foreground" />
+                      <div className="flex items-center gap-1.5">
+                        <Info className="size-3 shrink-0 text-muted-foreground" />
                         <span className="text-xs text-muted-foreground">
                           {activeMeta.description}
                         </span>
                       </div>
                     </div>
                     <div className="relative w-[220px] shrink-0">
-                      <Search className="absolute left-[12px] top-1/2 size-[13px] -translate-y-1/2 text-muted-foreground/70" />
+                      <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
                       <input
                         type="text"
                         value={searchValue}
                         onChange={(e) => setSearchValue(e.target.value)}
                         placeholder={t('customers.tags.manage.search', 'Search values...')}
-                        className="w-full rounded-[6px] border border-input bg-background py-[8px] pl-[36px] pr-[12px] text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
+                        className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
                       />
                     </div>
                   </div>
 
                   {/* Column headers */}
-                  <div className="flex items-center gap-[12px] px-[12px] py-[6px]">
+                  <div className="flex items-center gap-3 px-3 py-1.5">
                     <div className="w-[18px] shrink-0" />
                     <div className="min-w-0 flex-1">
                       <span className="text-overline font-bold uppercase text-muted-foreground">
@@ -1196,7 +1196,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   </div>
 
                   {/* Entry rows */}
-                  <div className="flex flex-col gap-[8px]">
+                  <div className="flex flex-col gap-2">
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -1259,16 +1259,16 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant="ghost"
                     onClick={handleAddEntry}
-                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-background p-[12px] text-xs font-semibold text-foreground hover:bg-muted"
+                    className="flex h-auto w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background p-3 text-xs font-semibold text-foreground hover:bg-muted"
                   >
-                    <Plus className="size-[14px]" />
+                    <Plus className="size-3.5" />
                     {t('customers.tags.manage.addValue', 'Add new value')}
                   </Button>
 
                   {/* Info note */}
-                  <div className="flex items-start gap-[10px] rounded-[6px] bg-muted px-[14px] py-[12px]">
-                    <Info className="mt-0.5 size-[14px] shrink-0 text-muted-foreground" />
-                    <div className="flex flex-1 flex-col gap-[3px]">
+                  <div className="flex items-start gap-2.5 rounded-md bg-muted px-3.5 py-3">
+                    <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="flex flex-1 flex-col gap-1">
                       <span className="text-xs font-semibold text-foreground">
                         {activeMeta.noteTitle}
                       </span>
@@ -1289,9 +1289,9 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             <div className="h-px shrink-0 bg-border" />
 
             {/* Footer */}
-            <div className="flex shrink-0 items-center justify-between px-[24px] py-[12px]">
-              <div className="flex items-center gap-[6px]">
-                <Info className="size-[12px] shrink-0 text-muted-foreground" />
+            <div className="flex shrink-0 items-center justify-between px-6 py-3">
+              <div className="flex items-center gap-1.5">
+                <Info className="size-3 shrink-0 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">
                   {t(
                     'customers.tags.manage.tenantNotice',
@@ -1299,12 +1299,12 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   )}
                 </span>
               </div>
-              <div className="flex items-center gap-[10px]">
+              <div className="flex items-center gap-2.5">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={onClose}
-                  className="rounded-[6px] border-border px-[16px] py-[10px] text-sm font-semibold text-foreground"
+                  className="rounded-md border-border px-4 py-2.5 text-sm font-semibold text-foreground"
                 >
                   {t('customers.tags.manage.close', 'Cancel')}
                 </Button>
@@ -1314,9 +1314,9 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     void handleSave()
                   }}
                   disabled={saving || !hasChanges}
-                  className="rounded-[6px] bg-foreground px-[16px] py-[10px] text-sm font-semibold text-background hover:bg-foreground/90"
+                  className="rounded-md bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
                 >
-                  <Save className="mr-[8px] size-[15px]" />
+                  <Save className="mr-2 size-4" />
                   {saving
                     ? t('customers.tags.manage.saving', 'Saving...')
                     : t('customers.tags.manage.save', 'Save changes')}

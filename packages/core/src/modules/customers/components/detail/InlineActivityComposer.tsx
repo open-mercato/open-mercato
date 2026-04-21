@@ -157,7 +157,7 @@ export function InlineActivityComposer({
   }, [handleSave])
 
   return (
-    <div className="rounded-[18px] border border-border/70 bg-card p-5" onKeyDown={handleKeyDown}>
+    <div className="rounded-2xl border border-border/70 bg-card p-5" onKeyDown={handleKeyDown}>
       {/* Header: title + save button */}
       <div className="mb-4 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">

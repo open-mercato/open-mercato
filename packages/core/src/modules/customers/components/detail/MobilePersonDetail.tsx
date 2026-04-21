@@ -86,7 +86,7 @@ export function MobilePersonDetail({
           'customers.people.mobile.zoneSwitcher.ariaLabel',
           'Zone selector',
         )}
-        className="grid grid-cols-2 gap-1 rounded-[12px] border border-border/70 bg-muted/20 p-1"
+        className="grid grid-cols-2 gap-1 rounded-lg border border-border/70 bg-muted/20 p-1"
         onKeyDown={handleKeyDown}
       >
         {ZONES.map((entry) => {
@@ -100,7 +100,7 @@ export function MobilePersonDetail({
               aria-controls={`mobile-person-zone-${entry.id}`}
               variant={isActive ? 'default' : 'ghost'}
               className={cn(
-                'h-11 rounded-[10px] text-sm font-semibold',
+                'h-11 rounded-lg text-sm font-semibold',
                 isActive ? '' : 'text-muted-foreground',
               )}
               onClick={() => handleZoneChange(entry.id)}

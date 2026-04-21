@@ -130,7 +130,7 @@ function EntityLinkSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-border bg-background px-[10px] py-[6px] text-xs text-muted-foreground">
+        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
           <span className="text-sm">+</span>
           {t('customers.schedule.addLink', 'Add link')}
         </Button>
@@ -244,24 +244,24 @@ export function LinkedEntitiesField({
 
   return (
     <div>
-      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
         {t('customers.schedule.linkedEntities', 'Linked entities')}
       </label>
-      <div className="mt-[10px] flex flex-wrap content-center items-center gap-[8px]">
+      <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">
         {linkedEntities.map((entity) => (
           <div
             key={entity.id}
             className={cn(
-              'inline-flex items-center gap-[6px] rounded-[999px] border px-[10px] py-[6px] text-xs',
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs',
               entity.type === 'deal'
                 ? 'border-status-success-border bg-status-success-bg font-semibold text-foreground'
                 : 'border-border bg-muted text-foreground',
             )}
           >
-            {entity.type === 'company' ? <Building2 className="size-[13px]" /> : entity.type === 'deal' ? <Briefcase className="size-[13px]" /> : <FileText className="size-[13px]" />}
+            {entity.type === 'company' ? <Building2 className="size-3" /> : entity.type === 'deal' ? <Briefcase className="size-3" /> : <FileText className="size-3" />}
             {entity.label}
             <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
-              <X className="size-[10px]" />
+              <X className="size-2.5" />
             </IconButton>
           </div>
         ))}

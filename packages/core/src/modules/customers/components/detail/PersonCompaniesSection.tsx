@@ -312,7 +312,7 @@ export function PersonCompaniesSection({
   return (
     <>
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-[18px] border border-border/70 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="text-sm font-semibold text-foreground">
               {t('customers.people.detail.companies.manageTitle', 'Manage linked companies')}
@@ -370,12 +370,12 @@ export function PersonCompaniesSection({
             {[1, 2].map((idx) => (
               <div
                 key={idx}
-                className="h-[320px] animate-pulse rounded-[18px] border border-border/60 bg-muted/30"
+                className="h-[320px] animate-pulse rounded-2xl border border-border/60 bg-muted/30"
               />
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-[18px] border border-dashed border-border/60 px-6 py-12 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-border/60 px-6 py-12 text-center text-sm text-muted-foreground">
             {search.trim().length
               ? t(
                   'customers.people.detail.companies.noSearchResults',

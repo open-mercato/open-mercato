@@ -1,3 +1,19 @@
+# Release Notes - Open Mercato v0.4.4
+
+**Date:** 2026-04-21
+
+## Non-Breaking Changes
+
+### CRM detail screens revamp
+
+New detail pages for people, companies, and deals introduce collapsible and sortable CrudForm groups with per-user persistence (zone collapse + group order), an inline activity composer, and richer activity timeline filtering. Entity roles, per-user labels, and person-company links become first-class: new CRUD APIs, two new RBAC features (`customers.roles.view`, `customers.roles.manage`) seeded in `setup.ts`, and four UMES injection spots (`sales.*`). `NotesSection` now paginates and `actionLog` projections backfill historical changelog entries so the timeline is consistent for pre-existing records.
+
+**Impact**: Significant UX lift for sales/CRM workflows. All API/event/spot additions are additive — prior integrations continue to work unchanged.
+
+**Compatibility**: Strictly additive. No removed exports, no renamed events, no dropped columns in any migration `up()`. Existing CRM integrations continue to work.
+
+---
+
 # Release Notes - Open Mercato v0.4.3
 
 **Date:** April 11, 2026

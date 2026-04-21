@@ -1223,6 +1223,8 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       })
     }
   }
+  // Uses raw em.find/em.findOne — entities queried here have no encrypted fields as of this commit.
+  // Migrate to findOneWithDecryption / findWithDecryption when any of them gain an @Encrypted column.
   // Custom tags (free-pool labels)
   for (const entry of CUSTOM_TAG_SEED_DEFAULTS) {
     const slug = entry.value

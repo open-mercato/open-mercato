@@ -41,6 +41,12 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 import { GET, PATCH, metadata } from '../route'
 import { resolveDictionaryRouteContext } from '../../context'
 

@@ -38,6 +38,7 @@ import {
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -193,27 +194,32 @@ export async function GET(req: Request) {
   const { entityId, recordId, page, pageSize } = parsedQuery.data
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (auth.orgId) filter.organizationId = auth.orgId
-  const orderBy = { createdAt: 'desc' } as any
+  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
   const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
   const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
   const pageOffset = usePaging ? (Math.min(currentPage!, totalPages!) - 1) * currentPageSize! : undefined
-  const items = await em.find(
+  const items = await findWithDecryption(
+    em,
     Attachment,
     filter,
     {
       orderBy,
       ...(usePaging
         ? {
-            limit: currentPageSize,
+            limit: currentPageSize!,
             offset: pageOffset,
           }
         : {}),
+    },
+    {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
     },
   )
   return NextResponse.json({

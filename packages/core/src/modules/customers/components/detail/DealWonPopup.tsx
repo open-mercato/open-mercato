@@ -63,7 +63,7 @@ function StatCard({
   value: string
 }) {
   return (
-    <div className="rounded-[18px] border bg-background px-4 py-4">
+    <div className="rounded-2xl border bg-background px-4 py-4">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         {icon}
         {label}
@@ -89,9 +89,10 @@ export function DealWonPopup({
         <VisuallyHidden>
           <DialogTitle>{t('customers.deals.detail.won.title', 'Closed successfully')}</DialogTitle>
         </VisuallyHidden>
-        <div className="overflow-hidden rounded-[28px] bg-card">
+        <div className="overflow-hidden rounded-2xl bg-card">
           <div className="px-6 pb-5 pt-6">
-            <div className="flex h-[200px] items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,rgba(141,150,244,0.5),rgba(198,203,254,0.95))] text-slate-900">
+            {/* TODO(ds-review): decorative gradient — consider defining a named gradient token if reused */}
+            <div className="flex h-[200px] items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(141,150,244,0.5),rgba(198,203,254,0.95))] text-foreground">
               <Trophy className="size-24" strokeWidth={1.5} />
             </div>
           </div>
@@ -106,7 +107,7 @@ export function DealWonPopup({
               </p>
             </div>
 
-            <div className="rounded-[14px] border bg-muted/20 px-4 py-4">
+            <div className="rounded-xl border bg-muted/20 px-4 py-4">
               <p className="text-overline font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {dealTitle}
               </p>
@@ -136,7 +137,7 @@ export function DealWonPopup({
               />
             </div>
 
-            <div className="rounded-[18px] border bg-muted/30 px-4 py-4">
+            <div className="rounded-2xl border bg-muted/30 px-4 py-4">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 {t('customers.deals.detail.won.pipeline', 'Pipeline')}
               </div>

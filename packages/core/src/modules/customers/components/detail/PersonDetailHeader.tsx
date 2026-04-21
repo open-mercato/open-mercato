@@ -50,7 +50,7 @@ function DictionaryBadge({ value, map, categoryIcon, className }: { value: strin
     <Badge
       variant="outline"
       className={cn(
-        'rounded-[4px] gap-1.5 text-xs font-medium',
+        'rounded-sm gap-1.5 text-xs font-medium',
         className,
       )}
       style={colorStyle}
@@ -67,7 +67,7 @@ function TagBadge({ tag }: { tag: TagSummary }) {
     ? { color: tag.color, borderColor: tag.color, backgroundColor: `${tag.color}1A` }
     : undefined
   return (
-    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium" style={colorStyle}>
+    <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium" style={colorStyle}>
       {tag.label}
     </Badge>
   )
@@ -121,7 +121,7 @@ export function PersonDetailHeader({
     <div className="rounded-lg border bg-card px-6 py-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
-        <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-muted text-xl font-bold text-muted-foreground">
+        <div className="flex size-18 shrink-0 items-center justify-center rounded-full bg-muted text-xl font-bold text-muted-foreground">
           {getInitials(displayName)}
         </div>
 
@@ -130,7 +130,7 @@ export function PersonDetailHeader({
           <div className="flex items-center gap-2">
             <h1 className="truncate text-2xl font-bold text-foreground">{displayName}</h1>
             {data.isPrimary && (
-              <span className="shrink-0 rounded-[3px] bg-status-warning-bg px-1.5 py-0.5 text-overline font-bold text-status-warning-text">
+              <span className="shrink-0 rounded-sm bg-status-warning-bg px-1.5 py-0.5 text-overline font-bold text-status-warning-text">
                 {t('customers.people.detail.header.primary', 'PRIMARY')}
               </span>
             )}
@@ -178,23 +178,23 @@ export function PersonDetailHeader({
                   key={company.id}
                   href={`/backend/customers/companies-v2/${company.id}`}
                   className={cn(
-                    'inline-flex items-center gap-[5px] rounded-[4px] border px-2 py-[3px] text-xs font-semibold transition-colors hover:bg-status-info-bg',
+                    'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-semibold transition-colors hover:bg-status-info-bg',
                     company.isPrimary
                       ? 'border-status-info-border bg-status-info-bg text-status-info-text'
                       : 'border-border bg-background text-foreground',
                   )}
                 >
-                  <Building2 className="size-[11px]" />
+                  <Building2 className="size-3" />
                   {company.displayName}
                   {company.isPrimary ? (
-                    <span className="rounded-[2px] bg-status-info-icon px-1 py-px text-overline font-bold text-white">
+                    <span className="rounded-sm bg-status-info-icon px-1 py-px text-overline font-bold text-white">
                       {t('customers.people.detail.header.primary', 'PRIMARY')}
                     </span>
                   ) : null}
                 </Link>
               ))}
               {hiddenCompaniesCount > 0 ? (
-                <Badge variant="outline" className="rounded-[4px] text-xs font-semibold">
+                <Badge variant="outline" className="rounded-sm text-xs font-semibold">
                   +{hiddenCompaniesCount} {t('customers.people.detail.header.more', 'more')}
                 </Badge>
               ) : null}
@@ -223,7 +223,7 @@ export function PersonDetailHeader({
               <TagBadge key={tag.id ?? tag.label} tag={tag} />
             ))}
             {hiddenTagsCount > 0 ? (
-              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
+              <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium">
                 +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
               </Badge>
             ) : null}
@@ -232,7 +232,7 @@ export function PersonDetailHeader({
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto rounded-[4px] px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="h-auto rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
               <Pencil className="mr-1 size-3" />
