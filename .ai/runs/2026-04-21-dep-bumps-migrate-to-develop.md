@@ -102,20 +102,20 @@ summary comment.
 
 ### Phase 1: Branch and plan commit
 
-- [ ] 1.1 Create `feat/dep-bumps-migrate-to-develop` from `origin/develop`
-- [ ] 1.2 Commit this execution plan as the first commit on the branch
-- [ ] 1.3 Push the branch to `origin` so follow-up runs can resume
+- [x] 1.1 Create `feat/dep-bumps-migrate-to-develop` from `origin/develop` — 913bea678
+- [x] 1.2 Commit this execution plan as the first commit on the branch — 913bea678
+- [x] 1.3 Push the branch to `origin` so follow-up runs can resume — 913bea678
 
 ### Phase 2: Apply version bumps to package.json files
 
-- [ ] 2.1 Apply PR #1620 (minor/patch) version bumps to all affected `package.json` files
-- [ ] 2.2 Apply PR #1621 (major) version bumps on top, letting majors supersede where they overlap
-- [ ] 2.3 Preserve develop-only additions (scripts, `@napi-rs/canvas`, `pdfjs-dist`, resolutions) and never regress a develop-higher version
+- [x] 2.1 Apply PR #1620 (minor/patch) version bumps to all affected `package.json` files — c333401fd
+- [x] 2.2 Apply PR #1621 (major) version bumps on top, letting majors supersede where they overlap — c333401fd
+- [x] 2.3 Preserve develop-only additions (scripts, `@napi-rs/canvas`, `pdfjs-dist`, resolutions) and never regress a develop-higher version — c333401fd
 
 ### Phase 3: Regenerate yarn.lock and install
 
-- [ ] 3.1 Delete `yarn.lock` and run `yarn install`
-- [ ] 3.2 Commit the regenerated lockfile plus the `package.json` changes
+- [x] 3.1 Delete `yarn.lock` and run `yarn install` — c333401fd
+- [x] 3.2 Commit the regenerated lockfile plus the `package.json` changes — c333401fd
 
 ### Phase 4: Validation gate
 
