@@ -163,6 +163,14 @@ summary comment.
 - [x] 7.6 `yarn test` — 50/51 ui test suites pass, 267/269 tests. 2 pre-existing failures in `CustomDataSection.test.tsx` reproduce on base commit `c9c053959` — **not a PR regression**
 - [x] 7.7 `yarn build:app` — **FAIL** on `/_global-error` prerender (`TypeError: Cannot read properties of null (reading 'useContext')`). Verified pre-existing on base `c9c053959` (fails with a different but related error). Not a regression introduced by the resume.
 
+## Phase 8 (resume): Resolve merge conflicts against develop
+
+- [x] 8.1 Merge `origin/develop` (c4a75a4d3) into the PR branch — b1e1dfeb8
+- [x] 8.2 Resolve `packages/ui/src/backend/markdown/MarkdownContent.tsx` — combine develop's `React.lazy` + `Suspense` wrapper with this branch's `<div className>` wrapper (react-markdown v10 dropped the `className` prop) — b1e1dfeb8
+- [x] 8.3 Resolve `packages/core/src/modules/planner/backend/planner/availability-rulesets/page.tsx` — accept develop's `markdownToPlainText` helper for the Name subtext column (develop removed the in-table react-markdown rendering entirely) — b1e1dfeb8
+- [x] 8.4 Resolve `packages/core/src/modules/resources/backend/resources/resource-types/page.tsx` — accept develop's `markdownToPlainText` helper for both the Name subtext and Description columns — b1e1dfeb8
+- [x] 8.5 Re-run validation gate: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` all green; `yarn test` still shows the same 2 pre-existing `CustomDataSection.test.tsx` failures; `yarn build:app` still fails with the pre-existing React null-context prerender issue (now surfacing on `/page` as well as `/_global-error`, same root cause on develop).
+
 ## Changelog
 
 - 2026-04-21 — Plan created.
@@ -178,3 +186,15 @@ summary comment.
   generate, i18n×2, typecheck. `yarn test` has 2 pre-existing failures reproduced on
   base. `yarn build:app` fails with a pre-existing `/_global-error` prerender issue
   that also reproduces on base develop — documented in PR body; not a regression.
+- 2026-04-21 — Resumed via `auto-continue-pr 1625 fix the conflicts`. Merged
+  `origin/develop` (c4a75a4d3) into the PR branch and resolved three content
+  conflicts in `MarkdownContent.tsx`, `planner/availability-rulesets/page.tsx`,
+  and `resources/resource-types/page.tsx`. All three conflicts were between
+  develop's lazy-loading / plain-text approach (from PR #1408) and this branch's
+  react-markdown v10 `className` fix: kept develop's behavior in the pages (no
+  in-table markdown rendering) and combined the two approaches in
+  `MarkdownContent.tsx` (keep `React.lazy` + `Suspense` from develop, wrap
+  `<ReactMarkdown>` in `<div className>` to satisfy v10's removed `className`
+  prop). Validation gate re-run: build:packages, generate, i18n×2, typecheck
+  all green; `yarn test` and `yarn build:app` failures are unchanged and
+  pre-existing on develop (not introduced by this merge).
