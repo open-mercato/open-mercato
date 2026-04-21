@@ -32,9 +32,9 @@ export function MarkdownContent({
 
   return (
     <React.Suspense fallback={<div className={className}>{body}</div>}>
-      <ReactMarkdown className={className} remarkPlugins={plugins}>
-        {body}
-      </ReactMarkdown>
+      <div className={className}>
+        <ReactMarkdown remarkPlugins={plugins}>{body}</ReactMarkdown>
+      </div>
     </React.Suspense>
   )
 }
