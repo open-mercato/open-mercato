@@ -28,6 +28,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: any, entity: any, where: any, options?: any) => em.find(entity, where, options),
+  findOneWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findOne(entity, where, options),
+  findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
+}))
+
 import { GET } from '@open-mercato/core/modules/customer_accounts/api/portal/users'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'

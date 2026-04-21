@@ -9,6 +9,7 @@ import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {}
 
@@ -75,10 +76,13 @@ export async function GET(req: Request) {
 
   let userIds: string[] | null = null
   if (roleId) {
-    const roleLinks = await em.find(CustomerUserRole, {
-      role: roleId as any,
-      deletedAt: null,
-    })
+    const roleLinks = await findWithDecryption(
+      em,
+      CustomerUserRole,
+      { role: roleId as any, deletedAt: null } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     userIds = roleLinks.map((link) => (link.user as any)?.id || (link.user as unknown as string))
     if (userIds.length === 0) {
       return NextResponse.json({
@@ -93,18 +97,27 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [users, total] = await em.findAndCount(CustomerUser, where as any, {
-    orderBy: { createdAt: 'DESC' },
-    limit: pageSize,
-    offset,
-  })
+  const [users, total] = await findAndCountWithDecryption(
+    em,
+    CustomerUser,
+    where as any,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: pageSize,
+      offset,
+    },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
 
   const pageUserIds = users.map((user) => user.id)
   const userRoleLinks = pageUserIds.length > 0
-    ? await em.find(CustomerUserRole, {
-        user: { $in: pageUserIds } as any,
-        deletedAt: null,
-      }, { populate: ['role'] })
+    ? await findWithDecryption(
+        em,
+        CustomerUserRole,
+        { user: { $in: pageUserIds } as any, deletedAt: null } as any,
+        { populate: ['role'] },
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
     : []
 
   const rolesByUserId = new Map<string, Array<{ id: string; name: string; slug: string }>>()
@@ -189,11 +202,17 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const validRoles = await em.find(CustomerRole, {
-      id: { $in: parsed.data.roleIds } as any,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-    })
+    const validRoles = await findWithDecryption(
+      em,
+      CustomerRole,
+      {
+        id: { $in: parsed.data.roleIds } as any,
+        tenantId: auth.tenantId,
+        deletedAt: null,
+      } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     for (const role of validRoles) {
       const userRole = em.create(CustomerUserRole, {
         user,

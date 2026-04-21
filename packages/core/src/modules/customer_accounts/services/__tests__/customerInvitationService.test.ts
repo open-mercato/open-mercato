@@ -20,6 +20,12 @@ jest.mock('bcryptjs', () => ({
   hash: jest.fn(async (value: string) => `hashed-${value}`),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: any, entity: any, where: any, options?: any) => em.find(entity, where, options),
+  findOneWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findOne(entity, where, options),
+  findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
+}))
+
 describe('CustomerInvitationService.acceptInvitation — role lookup batching', () => {
   const roleIds = [
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

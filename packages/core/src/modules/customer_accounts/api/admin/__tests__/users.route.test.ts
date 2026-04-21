@@ -46,6 +46,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: any, entity: any, where: any, options?: any) => em.find(entity, where, options),
+  findOneWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findOne(entity, where, options),
+  findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
+}))
+
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: jest.fn(async () => undefined),
 }))

@@ -5,6 +5,7 @@ import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercat
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -34,22 +35,31 @@ export async function GET(req: Request) {
   const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '25')))
   const offset = (page - 1) * pageSize
 
-  const [users, total] = await em.findAndCount(CustomerUser, {
-    customerEntityId: auth.customerEntityId,
-    tenantId: auth.tenantId,
-    deletedAt: null,
-  }, {
-    orderBy: { createdAt: 'DESC' },
-    limit: pageSize,
-    offset,
-  })
+  const [users, total] = await findAndCountWithDecryption(
+    em,
+    CustomerUser,
+    {
+      customerEntityId: auth.customerEntityId,
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    } as any,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: pageSize,
+      offset,
+    },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
 
   const pageUserIds = users.map((user) => user.id)
   const userRoleLinks = pageUserIds.length > 0
-    ? await em.find(CustomerUserRole, {
-        user: { $in: pageUserIds } as any,
-        deletedAt: null,
-      }, { populate: ['role'] })
+    ? await findWithDecryption(
+        em,
+        CustomerUserRole,
+        { user: { $in: pageUserIds } as any, deletedAt: null } as any,
+        { populate: ['role'] },
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
     : []
 
   const rolesByUserId = new Map<string, Array<{ id: string; name: string; slug: string }>>()
