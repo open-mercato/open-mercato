@@ -16,7 +16,12 @@ describe('heavy libraries are lazy-loaded', () => {
   it('MarkdownContent does not statically import react-markdown', () => {
     const source = read('packages/ui/src/backend/markdown/MarkdownContent.tsx')
     expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]react-markdown['"]/m)
-    expect(source).toMatch(/next\/dynamic/)
+    expect(source).toMatch(/import\(['"]react-markdown['"]\)/)
+  })
+
+  it('MarkdownContent avoids next/dynamic so CLI/Node bootstrap can import it', () => {
+    const source = read('packages/ui/src/backend/markdown/MarkdownContent.tsx')
+    expect(source).not.toMatch(/next\/dynamic/)
   })
 
   it('CrudForm does not statically import remark-gfm', () => {

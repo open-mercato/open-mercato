@@ -1,14 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { useMarkdownRemarkPlugins } from './useMarkdownRemarkPlugins'
 
-const ReactMarkdown = dynamic(() => import('react-markdown'), {
-  ssr: false,
-  loading: () => null,
-})
+const ReactMarkdown = React.lazy(() => import('react-markdown'))
 
 export type MarkdownContentProps = {
   body: string
@@ -35,8 +31,10 @@ export function MarkdownContent({
   }
 
   return (
-    <ReactMarkdown className={className} remarkPlugins={plugins}>
-      {body}
-    </ReactMarkdown>
+    <React.Suspense fallback={<div className={className}>{body}</div>}>
+      <ReactMarkdown className={className} remarkPlugins={plugins}>
+        {body}
+      </ReactMarkdown>
+    </React.Suspense>
   )
 }
