@@ -339,6 +339,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [t],
   )
 
+  const dealInjectionContext = React.useMemo(
+    () => ({
+      dealId: data?.deal?.id ?? null,
+      recordId: data?.deal?.id ?? null,
+      stage: data?.deal?.status ?? null,
+      pipelineStageId: data?.deal?.pipelineStageId ?? null,
+    }),
+    [data?.deal?.id, data?.deal?.status, data?.deal?.pipelineStageId],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -400,16 +410,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       : t('customers.deals.detail.companiesSummaryMany', undefined, { count: data.companies.length })
 
   const viewer = data.viewer ?? null
-
-  const dealInjectionContext = React.useMemo(
-    () => ({
-      dealId: data.deal.id,
-      recordId: data.deal.id,
-      stage: data.deal.status ?? null,
-      pipelineStageId: data.deal.pipelineStageId ?? null,
-    }),
-    [data.deal.id, data.deal.status, data.deal.pipelineStageId],
-  )
 
   return (
     <Page>
