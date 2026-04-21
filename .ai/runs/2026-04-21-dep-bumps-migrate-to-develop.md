@@ -171,6 +171,13 @@ summary comment.
 - [x] 8.4 Resolve `packages/core/src/modules/resources/backend/resources/resource-types/page.tsx` — accept develop's `markdownToPlainText` helper for both the Name subtext and Description columns — b1e1dfeb8
 - [x] 8.5 Re-run validation gate: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` all green; `yarn test` still shows the same 2 pre-existing `CustomDataSection.test.tsx` failures; `yarn build:app` still fails with the pre-existing React null-context prerender issue (now surfacing on `/page` as well as `/_global-error`, same root cause on develop).
 
+## Phase 9 (resume): Fix CI `docker-build` regression
+
+- [x] 9.1 Diagnose `docker-build` failure on PR 1625 — Docusaurus 3.10 build crashes inside `apps/docs/Dockerfile` because regenerated `yarn.lock` resolved `webpack` to `5.106.2`, which strict-validates `ProgressPlugin` schema, while `webpackbar@6.0.1` (Docusaurus dep) still forwards `name`/`color`/`reporters`/`reporter` to the parent constructor → schema rejection — 91b4e78cb
+- [x] 9.2 Pin `webpack` to `5.104.1` (the version `develop` already uses) via `resolutions` in root `package.json` so all webpack consumers fall back below the strict-schema regression — 91b4e78cb
+- [x] 9.3 Regenerate `yarn.lock` (`yarn install --mode update-lockfile`) and verify the lock now resolves `webpack@npm:5.104.1` — 91b4e78cb
+- [x] 9.4 Verify the fix locally: `yarn workspaces focus open-mercato-docs` + `yarn build` in `apps/docs` succeeds, plus full `docker build -f apps/docs/Dockerfile .` reproduces the green CI build — 91b4e78cb
+
 ## Changelog
 
 - 2026-04-21 — Plan created.
