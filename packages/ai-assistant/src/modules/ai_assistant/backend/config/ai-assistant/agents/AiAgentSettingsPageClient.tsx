@@ -36,6 +36,7 @@ import {
   TooltipTrigger,
 } from '@open-mercato/ui/primitives/tooltip'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAiShortcuts } from '@open-mercato/ui/ai'
 
 // Step 4.6: the <select>-based agent picker is deliberately duplicated between the
@@ -102,15 +103,13 @@ const mediaTypeIconMap: Record<string, React.ElementType> = {
 }
 
 async function fetchAgents(): Promise<AgentsResponse> {
-  const res = await fetch('/api/ai_assistant/ai/agents', {
-    method: 'GET',
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || `Failed to load agents (${res.status})`)
-  }
-  return (await res.json()) as AgentsResponse
+  const { result, status } = await apiCallOrThrow<AgentsResponse>(
+    '/api/ai_assistant/ai/agents',
+    { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load agents' },
+  )
+  if (!result) throw new Error(`Failed to load agents (${status})`)
+  return result
 }
 
 type OverrideVersion = {
@@ -131,15 +130,13 @@ type OverrideResponse = {
 }
 
 async function fetchOverride(agentId: string): Promise<OverrideResponse> {
-  const res = await fetch(
+  const { result, status } = await apiCallOrThrow<OverrideResponse>(
     `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/prompt-override`,
     { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load prompt override' },
   )
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || `Failed to load prompt override (${res.status})`)
-  }
-  return (await res.json()) as OverrideResponse
+  if (!result) throw new Error(`Failed to load prompt override (${status})`)
+  return result
 }
 
 type MutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
@@ -176,15 +173,13 @@ type MutationPolicyResponse = {
 }
 
 async function fetchMutationPolicy(agentId: string): Promise<MutationPolicyResponse> {
-  const res = await fetch(
+  const { result, status } = await apiCallOrThrow<MutationPolicyResponse>(
     `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/mutation-policy`,
     { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load mutation policy' },
   )
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || `Failed to load mutation policy (${res.status})`)
-  }
-  return (await res.json()) as MutationPolicyResponse
+  if (!result) throw new Error(`Failed to load mutation policy (${status})`)
+  return result
 }
 
 function SettingsLoading({ message }: { message: string }) {
@@ -450,7 +445,13 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
     setIsSaving(true)
     setState({ kind: 'idle' })
     try {
-      const res = await fetch(
+      const { ok, status, result } = await apiCall<{
+        ok?: boolean
+        error?: string
+        code?: string
+        codeDeclared?: MutationPolicy
+        requested?: MutationPolicy
+      }>(
         `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
         {
           method: 'POST',
@@ -459,14 +460,8 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           body: JSON.stringify({ mutationPolicy: selected }),
         },
       )
-      const payload = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        error?: string
-        code?: string
-        codeDeclared?: MutationPolicy
-        requested?: MutationPolicy
-      }
-      if (!res.ok) {
+      const payload = result ?? {}
+      if (!ok) {
         const message =
           payload.code === 'escalation_not_allowed'
             ? (payload.error ??
@@ -475,7 +470,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
                   'Cannot upgrade beyond the agent\'s declared policy — this is a code-level change.',
                 ))
             : (payload.error ??
-                `Failed to save mutation policy (${res.status}).`)
+                `Failed to save mutation policy (${status}).`)
         setState({ kind: 'error', message })
         return
       }
@@ -504,21 +499,21 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
     setIsClearing(true)
     setState({ kind: 'idle' })
     try {
-      const res = await fetch(
+      const { ok, status, result } = await apiCall<{
+        ok?: boolean
+        error?: string
+      }>(
         `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
         {
           method: 'DELETE',
           credentials: 'include',
         },
       )
-      const payload = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        error?: string
-      }
-      if (!res.ok) {
+      const payload = result ?? {}
+      if (!ok) {
         setState({
           kind: 'error',
-          message: payload.error ?? `Failed to clear override (${res.status}).`,
+          message: payload.error ?? `Failed to clear override (${status}).`,
         })
         return
       }
@@ -906,7 +901,16 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
     setIsSaving(true)
     setSaveState({ kind: 'idle' })
     try {
-      const res = await fetch(
+      const { ok, status, result } = await apiCall<{
+        ok?: boolean
+        pending?: boolean
+        version?: number
+        updatedAt?: string
+        message?: string
+        error?: string
+        code?: string
+        reservedKeys?: string[]
+      }>(
         `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/prompt-override`,
         {
           method: 'POST',
@@ -919,24 +923,15 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           }),
         },
       )
-      const payload = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        pending?: boolean
-        version?: number
-        updatedAt?: string
-        message?: string
-        error?: string
-        code?: string
-        reservedKeys?: string[]
-      }
-      if (!res.ok) {
+      const payload = result ?? {}
+      if (!ok) {
         const message =
           payload.code === 'reserved_key'
             ? t(
                 'ai_assistant.agents.override.errors.reservedKey',
                 'Prompt overrides cannot modify policy fields (mutationPolicy, readOnly, allowedTools, acceptedMediaTypes). Remove those sections and retry.',
               )
-            : (payload.error ?? `Failed to save overrides (${res.status}).`)
+            : (payload.error ?? `Failed to save overrides (${status}).`)
         setSaveState({ kind: 'error', message })
         return
       }

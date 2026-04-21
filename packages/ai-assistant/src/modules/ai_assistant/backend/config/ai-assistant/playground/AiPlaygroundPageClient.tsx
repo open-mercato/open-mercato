@@ -12,6 +12,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { AiChat, createAiUiPartRegistry, useAiShortcuts } from '@open-mercato/ui/ai'
 import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
 
@@ -58,15 +59,13 @@ type RunObjectError = {
 }
 
 async function fetchAgents(): Promise<AgentsResponse> {
-  const res = await fetch('/api/ai_assistant/ai/agents', {
-    method: 'GET',
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || `Failed to load agents (${res.status})`)
-  }
-  return (await res.json()) as AgentsResponse
+  const { result, status } = await apiCallOrThrow<AgentsResponse>(
+    '/api/ai_assistant/ai/agents',
+    { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load agents' },
+  )
+  if (!result) throw new Error(`Failed to load agents (${status})`)
+  return result
 }
 
 function PlaygroundLoading({ message }: { message: string }) {
@@ -281,19 +280,21 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
     setResult(null)
     setError(null)
     try {
-      const res = await fetch('/api/ai_assistant/ai/run-object', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as RunObjectError
+      const { ok, status, result } = await apiCall<RunObjectResponse | RunObjectError>(
+        '/api/ai_assistant/ai/run-object',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        },
+      )
+      if (!ok) {
+        const payload = (result as RunObjectError | null) ?? { error: `HTTP ${status}` }
         setError(payload)
         return
       }
-      const payload = (await res.json()) as RunObjectResponse
-      setResult(payload)
+      setResult((result as RunObjectResponse | null) ?? { object: null })
     } catch (err) {
       setError({
         error: err instanceof Error ? err.message : String(err),
