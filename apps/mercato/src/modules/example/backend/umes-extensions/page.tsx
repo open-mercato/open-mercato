@@ -232,7 +232,7 @@ export default function UmesExtensionsPage() {
 
   return (
     <Page>
-      <PageBody className="space-y-4">
+      <PageBody className="space-y-4" data-component-handle={ComponentReplacementHandles.page('/backend/umes-extensions')}>
         <div>
           <h1 className="text-xl font-semibold">{t('example.umes.extensions.title', 'UMES Phase E-H Extensions')}</h1>
           <p className="text-sm text-muted-foreground">
