@@ -15,7 +15,7 @@ import {
   type AiUiPartComponentId,
   type AiUiPartRegistry,
 } from './ui-part-registry'
-import { useAiChat, type AiChatMessage } from './useAiChat'
+import { useAiChat, type AiChatMessage, type AiChatMessageFile } from './useAiChat'
 import { useAiShortcuts } from './useAiShortcuts'
 
 /**
@@ -163,6 +163,28 @@ function MessageRow({ message }: { message: AiChatMessage }) {
       </div>
       <div className="flex-1 space-y-1">
         <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        {message.files && message.files.length > 0 ? (
+          <div className="flex flex-wrap gap-2 py-1">
+            {message.files.map((file, i) =>
+              file.previewUrl ? (
+                <img
+                  key={i}
+                  src={file.previewUrl}
+                  alt={file.name}
+                  className="max-h-32 max-w-[200px] rounded-md border border-border object-cover"
+                />
+              ) : (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
+                >
+                  <Paperclip className="size-3" aria-hidden />
+                  {file.name}
+                </span>
+              ),
+            )}
+          </div>
+        ) : null}
         <div className="whitespace-pre-wrap text-sm">{message.content}</div>
       </div>
     </div>
@@ -379,8 +401,14 @@ export function AiChat({
   const handleSendMessage = React.useCallback(
     (text: string) => {
       if (!text.trim() || isBusy) return
+      const filesToAttach = pendingFiles.map((file) => ({
+        name: file.name,
+        type: file.type,
+        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      }))
       setInput('')
-      void chat.sendMessage(text)
+      setPendingFiles([])
+      void chat.sendMessage(text, filesToAttach.length > 0 ? filesToAttach : undefined)
     },
     [chat, isBusy],
   )

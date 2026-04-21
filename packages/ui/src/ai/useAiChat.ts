@@ -10,10 +10,17 @@ import { apiFetch } from '../backend/utils/api'
  * dispatcher route (`POST /api/ai_assistant/ai/chat`) accepts exactly this
  * shape for `messages`.
  */
+export interface AiChatMessageFile {
+  name: string
+  type: string
+  previewUrl?: string
+}
+
 export interface AiChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  files?: AiChatMessageFile[]
 }
 
 export interface UseAiChatInput {
@@ -53,7 +60,7 @@ export interface UseAiChatResult {
    * given mount (Phase 3 WS-D contract with `prepareMutation`).
    */
   conversationId: string
-  sendMessage: (input: string) => Promise<void>
+  sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -187,7 +194,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   }, [cancel])
 
   const sendMessage = React.useCallback(
-    async (textInput: string) => {
+    async (textInput: string, files?: AiChatMessageFile[]) => {
       const trimmed = textInput.trim()
       if (!trimmed) return
       if (abortRef.current) {
@@ -199,6 +206,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         id: makeMessageId(),
         role: 'user',
         content: trimmed,
+        files: files && files.length > 0 ? files : undefined,
       }
       const assistantMessage: AiChatMessage = {
         id: makeMessageId(),
