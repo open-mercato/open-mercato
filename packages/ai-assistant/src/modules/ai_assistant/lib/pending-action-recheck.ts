@@ -17,6 +17,7 @@
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import type { AiPendingAction } from '../data/entities'
@@ -213,7 +214,6 @@ export async function checkAttachmentScope(
       message: 'Attachment scope check requires an EntityManager.',
     }
   }
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (await findWithDecryption<any>(
     em,
