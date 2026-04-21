@@ -92,9 +92,9 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
-    "@mikro-orm/core": "^7.0.11",
-    "@mikro-orm/migrations": "^7.0.11",
-    "@mikro-orm/postgresql": "^7.0.11",
+    "@mikro-orm/core": "^6.6.10",
+    "@mikro-orm/migrations": "^6.6.10",
+    "@mikro-orm/postgresql": "^6.6.10",
     "@napi-rs/canvas": "^0.1.78",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -107,7 +107,7 @@
     "@uiw/react-md-editor": "^4.1.0",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.168",
-    "awilix": "^13.0.3",
+    "awilix": "^12.0.5",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -153,7 +153,7 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.21.0",
     "turbo": "^2.9.6",
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   },
   "resolutions": {
     "@hono/node-server": "1.19.14",

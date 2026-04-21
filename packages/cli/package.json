@@ -55,9 +55,9 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.0.11",
-    "@mikro-orm/migrations": "^7.0.11",
-    "@mikro-orm/postgresql": "^7.0.11",
+    "@mikro-orm/core": "^6.6.10",
+    "@mikro-orm/migrations": "^6.6.10",
+    "@mikro-orm/postgresql": "^6.6.10",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "pg": "8.20.0",
@@ -65,7 +65,7 @@
     "testcontainers": "^11.14.0",
     "ts-morph": "^25.0.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*"
