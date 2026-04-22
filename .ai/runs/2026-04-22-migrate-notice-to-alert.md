@@ -124,52 +124,52 @@ Land this plan on a fresh task branch so `auto-continue-pr` can resume.
 
 ### Phase 3: Portal + auth + audit logs
 
-- [ ] 3.1 Migrate portal/page.tsx
-- [ ] 3.2 Migrate portal/login/page.tsx
-- [ ] 3.3 Migrate portal/signup/page.tsx
-- [ ] 3.4 Migrate portal/verify/page.tsx
-- [ ] 3.5 Migrate auth/frontend/login.tsx
-- [ ] 3.6 Migrate audit_logs/AuditLogsActions.tsx
+- [x] 3.1 Migrate portal/page.tsx — 78a9b6e22
+- [x] 3.2 Migrate portal/login/page.tsx — 78a9b6e22
+- [x] 3.3 Migrate portal/signup/page.tsx — 78a9b6e22
+- [x] 3.4 Migrate portal/verify/page.tsx — 78a9b6e22
+- [x] 3.5 Migrate auth/frontend/login.tsx — 78a9b6e22
+- [x] 3.6 Migrate audit_logs/AuditLogsActions.tsx — 78a9b6e22
 
 ### Phase 4: data_sync
 
-- [ ] 4.1 Migrate data_sync/backend/data-sync/page.tsx
-- [ ] 4.2 Migrate data_sync/components/IntegrationScheduleTab.tsx
+- [x] 4.1 Migrate data_sync/backend/data-sync/page.tsx — ffc5650ae
+- [x] 4.2 Migrate data_sync/components/IntegrationScheduleTab.tsx — ffc5650ae
 
 ### Phase 5: webhooks
 
-- [ ] 5.1 Migrate WebhookSecretPanel.tsx
-- [ ] 5.2 Migrate webhook-form-config.tsx
-- [ ] 5.3 Migrate webhooks/backend/webhooks/page.tsx
-- [ ] 5.4 Migrate webhooks/backend/webhooks/[id]/page.tsx
+- [x] 5.1 Migrate WebhookSecretPanel.tsx — 05a31a206
+- [x] 5.2 Migrate webhook-form-config.tsx — 05a31a206
+- [x] 5.3 Migrate webhooks/backend/webhooks/page.tsx — 05a31a206
+- [x] 5.4 Migrate webhooks/backend/webhooks/[id]/page.tsx — 05a31a206
 
 ### Phase 6: Enterprise modules
 
-- [ ] 6.1 Migrate MfaEnrollmentNotice.tsx
-- [ ] 6.2 Migrate record_locks widget.client.tsx
-- [ ] 6.3 Migrate record_locks/backend/settings/record-locks/page.tsx
+- [x] 6.1 Migrate MfaEnrollmentNotice.tsx — 5cfca9ff7
+- [x] 6.2 Migrate record_locks widget.client.tsx — 5cfca9ff7
+- [x] 6.3 Migrate record_locks/backend/settings/record-locks/page.tsx — 5cfca9ff7
 
 ### Phase 7: Checkout + sync-akeneo
 
-- [ ] 7.1 Migrate CustomerFieldsEditor.tsx
-- [ ] 7.2 Migrate LinkTemplateForm.tsx
-- [ ] 7.3 Migrate LogoUploadField.tsx
-- [ ] 7.4 Migrate GatewaySettingsFields.tsx
-- [ ] 7.5 Migrate PayPage.tsx
-- [ ] 7.6 Migrate sync-akeneo widget.client.tsx
+- [x] 7.1 Migrate CustomerFieldsEditor.tsx — 5d3ea805c
+- [x] 7.2 Migrate LinkTemplateForm.tsx — 5d3ea805c
+- [x] 7.3 Migrate LogoUploadField.tsx — 5d3ea805c
+- [x] 7.4 Migrate GatewaySettingsFields.tsx — 5d3ea805c
+- [x] 7.5 Migrate PayPage.tsx — covered by 2.1 (uses ErrorNotice)
+- [x] 7.6 Migrate sync-akeneo widget.client.tsx — 5d3ea805c
 
 ### Phase 8: Remaining core modules
 
-- [ ] 8.1 Migrate entities/user/[entityId]/page.tsx
-- [ ] 8.2 Migrate feature_toggles FeatureToggleOverrideCard.tsx
-- [ ] 8.3 Migrate customers/deals/pipeline/page.tsx
+- [x] 8.1 Migrate entities/user/[entityId]/page.tsx — covered by 2.1 (uses ErrorNotice)
+- [x] 8.2 Migrate feature_toggles FeatureToggleOverrideCard.tsx — covered by 2.1 (uses ErrorNotice)
+- [x] 8.3 Migrate customers/deals/pipeline/page.tsx — covered by 2.1 (uses ErrorNotice)
 
 ### Phase 9: Tests and validation
 
-- [ ] 9.1 Add ErrorNotice unit test
-- [ ] 9.2 Add MfaEnrollmentNotice unit test
-- [ ] 9.3 Add guard-rail repo-scan test
-- [ ] 9.4 Run full validation gate
+- [x] 9.1 Add ErrorNotice unit test — dbad86e04
+- [x] 9.2 Add MfaEnrollmentNotice unit test — dbad86e04
+- [x] 9.3 Add guard-rail repo-scan test — dbad86e04
+- [x] 9.4 Run full validation gate — typecheck/i18n-sync/build:app/build:packages pass; `yarn test` surfaces 1 pre-existing unrelated failure in `@open-mercato/cli` (integration.test.ts build-cache fingerprint) and 2 pre-existing `sales.shipments.*` i18n gaps — neither touched by this PR
 
 ### Phase 10: PR + auto-review
 
