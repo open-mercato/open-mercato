@@ -113,14 +113,14 @@ Land this plan on a fresh task branch so `auto-continue-pr` can resume.
 
 ### Phase 1: Plan on branch
 
-- [ ] 1.1 Draft and commit `.ai/runs/2026-04-22-migrate-notice-to-alert.md`
+- [x] 1.1 Draft and commit `.ai/runs/2026-04-22-migrate-notice-to-alert.md` — 2b958ecfc
 
 ### Phase 2: UI package internals
 
-- [ ] 2.1 Rewrite `ErrorNotice` to render `Alert` directly
-- [ ] 2.2 Migrate `VersionHistoryPanel.tsx`
-- [ ] 2.3 Migrate `FieldDefinitionsManager.tsx`
-- [ ] 2.4 Migrate `DashboardScreen.tsx`
+- [x] 2.1 Rewrite `ErrorNotice` to render `Alert` directly — 868a124f5
+- [x] 2.2 Migrate `VersionHistoryPanel.tsx` — 868a124f5
+- [x] 2.3 Migrate `FieldDefinitionsManager.tsx` — covered by 2.1 (uses ErrorNotice)
+- [x] 2.4 Migrate `DashboardScreen.tsx` — covered by 2.1 (uses ErrorNotice)
 
 ### Phase 3: Portal + auth + audit logs
 
