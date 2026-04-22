@@ -151,11 +151,15 @@ async function openBackendSession(
   seed: string,
 ): Promise<void> {
   const streamRequest = page.waitForRequest(
-    (candidate) => candidate.url().includes('/api/events/stream'),
+    (candidate) => (
+      candidate.url().includes('/api/events/stream')
+        && candidate.resourceType() === 'eventsource'
+    ),
     { timeout: 10_000 },
-  ).catch(() => null)
+  )
   await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
   await streamRequest
+  await page.waitForTimeout(250)
   await installEventCollector(page)
   await waitForBridgeReady(page, request, token, organizationId, seed)
 }
