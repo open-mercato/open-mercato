@@ -143,39 +143,39 @@ Post a comment per label per PR workflow. Then run the `auto-review-pr` skill ag
 
 ### Phase 1: Fix broken route template (blog/[id]/route.ts)
 
-- [ ] 1.1 Replace individual exports with `metadata` object
+- [x] 1.1 Replace individual exports with `metadata` object — 033b5f46b
 - [ ] 1.2 Verify openApi + handlers still compile (typecheck targeted)
 
 ### Phase 2: Audit standalone route.ts templates
 
-- [ ] 2.1 Confirm every `route.ts` under create-app/template exports `metadata`
-- [ ] 2.2 Fix any stragglers found
+- [x] 2.1 Confirm every `route.ts` under create-app/template exports `metadata` — all other files compliant
+- [x] 2.2 Fix any stragglers found — only blog/[id] needed the fix (covered in Phase 1)
 
 ### Phase 3: Update standalone AGENTS.md for metadata rule + auto-skills
 
-- [ ] 3.1 Add "Route files MUST export metadata" rule with example
-- [ ] 3.2 Add Agent Automation / Auto-Skills section to Task Router
-- [ ] 3.3 Mirror in agentic/shared AGENTS.md.template
+- [x] 3.1 Add "Route files MUST export metadata" rule with example — e60515ac0
+- [x] 3.2 Add Agent Automation / Auto-Skills section to Task Router — e60515ac0
+- [x] 3.3 Mirror in agentic/shared AGENTS.md.template — e60515ac0
 
 ### Phase 4: Port auto-* skills into create-app agentic shared ai/skills
 
-- [ ] 4.1 Copy auto-create-pr SKILL.md + standalone adaptation
-- [ ] 4.2 Copy auto-continue-pr SKILL.md + standalone adaptation
-- [ ] 4.3 Copy auto-review-pr SKILL.md + standalone adaptation
-- [ ] 4.4 Copy auto-fix-github SKILL.md + standalone adaptation
-- [ ] 4.5 Add standalone-specific README / label-setup snippet
+- [x] 4.1 Copy auto-create-pr SKILL.md + standalone adaptation — STANDALONE.md added
+- [x] 4.2 Copy auto-continue-pr SKILL.md + standalone adaptation
+- [x] 4.3 Copy auto-review-pr SKILL.md + standalone adaptation
+- [x] 4.4 Copy auto-fix-github SKILL.md + standalone adaptation
+- [x] 4.5 Add standalone-specific README / label-setup snippet — inside STANDALONE.md
 
 ### Phase 5: Surface auto-skills in CLI post-install + README
 
-- [ ] 5.1 Emit post-scaffold banner enumerating the four skills
-- [ ] 5.2 Mirror the info block in template README / top-level AGENTS.md
+- [x] 5.1 Emit post-scaffold banner enumerating the five skills — fd37d52b4
+- [x] 5.2 Mirror the info block in template AGENTS.md — e60515ac0 / 1740997e4
 
 ### Phase 6: Confirm copy manifest wiring
 
-- [ ] 6.1 Trace packages/create-app/src/setup manifest
-- [ ] 6.2 Adjust manifest if new auto-* skill dirs are not copied
+- [x] 6.1 Trace packages/create-app/src/setup manifest — 6cec00253
+- [x] 6.2 Adjust manifest so auto-* + trim-unused-modules ship — 6cec00253 / 1740997e4
 
-### Phase 7: Fix yarn dev module-reload
+### Phase 7: Fix yarn dev module-reload (DEFERRED — /auto-continue-pr)
 
 - [ ] 7.1 Broaden `generate watch` tracked paths (include src/modules recursive, .mercato/generated sentinel)
 - [ ] 7.2 Touch sentinel after regeneration to force Next HMR
@@ -183,23 +183,41 @@ Post a comment per label per PR workflow. Then run the `auto-review-pr` skill ag
 
 ### Phase 8: yarn dev auto-migrate option + single-shot migration guidance
 
-- [ ] 8.1 Add OM_DEV_AUTO_MIGRATE gate + pre-dev db:migrate step (monorepo)
-- [ ] 8.2 Mirror for standalone dev runtime
-- [ ] 8.3 Add friendly conflict-warning formatter
-- [ ] 8.4 Add "Single-shot migrations" rule to root AGENTS.md
-- [ ] 8.5 Add rule to standalone template AGENTS.md + agentic template
+- [ ] 8.1 Add OM_DEV_AUTO_MIGRATE gate + pre-dev db:migrate step (monorepo) — DEFERRED
+- [ ] 8.2 Mirror for standalone dev runtime — DEFERRED
+- [ ] 8.3 Add friendly conflict-warning formatter — DEFERRED
+- [x] 8.4 Add "Single-shot migrations" rule to standalone AGENTS.md — e60515ac0
+- [x] 8.5 Add rule to standalone template AGENTS.md + agentic template — e60515ac0
 
-### Phase 9: Validation gate
+### Phase 9: ACL grant rule + apply CLI (NEW scope)
 
-- [ ] 9.1 yarn generate — zero metadata warnings
-- [ ] 9.2 Targeted typecheck + unit tests pass
-- [ ] 9.3 yarn build:packages passes
+- [x] 9.1 Standalone AGENTS.md rule: new features auto-granted to admin/superadmin — 1740997e4
+- [x] 9.2 Agentic shared AGENTS.md.template mirror — 1740997e4
+- [ ] 9.3 Implement `yarn mercato acl apply --all-tenants` CLI — DEFERRED
+- [ ] 9.4 Ensure defaultRoleFeatures is seeded on tenant creation (verify existing behavior) — DEFERRED
 
-### Phase 10: Open PR + labels + auto-review autofix
+### Phase 10: Strict Design System enforcement in AGENTS.md (NEW scope)
 
-- [ ] 10.1 Push branch + open PR against develop
-- [ ] 10.2 Apply pipeline labels with rationale comments
-- [ ] 10.3 Run auto-review-pr autofix pass
+- [x] 10.1 Standalone template AGENTS.md: strict DS section with quick-reference table — 1740997e4
+- [x] 10.2 Agentic shared AGENTS.md.template mirror as CRITICAL rule 9 — 1740997e4
+
+### Phase 11: trim-unused-modules skill (NEW scope)
+
+- [x] 11.1 Create SKILL.md — 1740997e4
+- [x] 11.2 Add to Task Router in both AGENTS.md surfaces — 1740997e4
+- [x] 11.3 Enumerate in src/setup/tools/shared.ts copy manifest — 1740997e4
+
+### Phase 12: Validation gate (DEFERRED — /auto-continue-pr)
+
+- [ ] 12.1 yarn generate — zero metadata warnings
+- [ ] 12.2 Targeted typecheck + unit tests pass
+- [ ] 12.3 yarn build:packages passes
+
+### Phase 13: Open PR + labels + auto-review autofix
+
+- [ ] 13.1 Push branch + open PR against develop (in-progress)
+- [ ] 13.2 Apply pipeline labels with rationale comments
+- [ ] 13.3 Run auto-review-pr autofix pass — DEFERRED
 
 ## Changelog
 
