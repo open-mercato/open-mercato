@@ -2,6 +2,7 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const CUSTOMER_JWT_AUDIENCE = 'customer'
 const CUSTOMER_JWT_TTL_SECONDS = 60 * 60 * 8
@@ -31,7 +32,7 @@ export class CustomerSessionService {
     const days = Number(process.env.CUSTOMER_SESSION_TTL_DAYS || DEFAULT_SESSION_TTL_DAYS)
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
 
-    await this.enforceSessionCap(user.id)
+    await this.enforceSessionCap(user.id, user.tenantId, user.organizationId)
 
     const session = this.em.create(CustomerUserSession, {
       user,
@@ -109,9 +110,14 @@ export class CustomerSessionService {
     await this.em.nativeUpdate(CustomerUserSession, { id: sessionId }, { deletedAt: new Date() })
   }
 
-  private async enforceSessionCap(userId: string): Promise<void> {
+  private async enforceSessionCap(
+    userId: string,
+    tenantId: string,
+    organizationId: string,
+  ): Promise<void> {
     const cap = resolveMaxSessionsPerUser()
-    const existing = await this.em.find(
+    const existing = await findWithDecryption(
+      this.em,
       CustomerUserSession,
       {
         user: userId as any,
@@ -119,6 +125,7 @@ export class CustomerSessionService {
         expiresAt: { $gt: new Date() },
       },
       { orderBy: { createdAt: 'asc' } },
+      { tenantId, organizationId },
     )
     const toRevoke = existing.length - (cap - 1)
     if (toRevoke <= 0) return

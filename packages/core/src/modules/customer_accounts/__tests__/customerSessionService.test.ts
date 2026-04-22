@@ -85,12 +85,16 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
 
   it('does not revoke when the user has fewer than the default cap of 5', async () => {
     const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { CustomerUserSession } = await import('../data/entities')
     const { localEm, findMock, persistAndFlushMock } = buildService(['s1', 's2', 's3', 's4'])
 
     const service = new CustomerSessionService(localEm)
     await service.createSession(user, ['portal.view'])
 
     expect(findMock).toHaveBeenCalledTimes(1)
+    const [findEntity, findFilter] = findMock.mock.calls[0]
+    expect(findEntity).toBe(CustomerUserSession)
+    expect(findFilter).toMatchObject({ user: userId, deletedAt: null })
     expect(nativeUpdateMock).not.toHaveBeenCalled()
     expect(persistAndFlushMock).toHaveBeenCalledTimes(1)
   })
