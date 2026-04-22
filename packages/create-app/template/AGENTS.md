@@ -101,6 +101,7 @@ yarn reinstall
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI. |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI. |
 | `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI. |
+| `OM_DEV_AUTO_MIGRATE` | `1` | When set to `1` (default), `yarn dev` runs `yarn db:migrate` once at startup before Next.js boots. Set to `0` to disable. See "Single-shot Database Migrations" below. |
 
 ## Infrastructure
 
@@ -146,6 +147,70 @@ Custom modules go in `src/modules/`. Each module can define:
 
 Add new modules to `src/modules.ts` with `from: '@app'`.
 Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
+
+### API Route Files MUST Export `metadata`
+
+Every `src/modules/<module>/api/**/route.ts` file that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth requirements. Omitting it triggers the generator warning:
+
+```
+[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: <file>
+```
+
+…and the generated registry falls back to "authentication required" for every method, which hides misconfigurations rather than surfacing them. Always be explicit.
+
+Correct shape — per-method, with `requireAuth` and optional `requireFeatures`:
+
+```ts
+// src/modules/<module>/api/<path>/route.ts
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['mymodule.view'] },
+  POST: { requireAuth: true, requireFeatures: ['mymodule.manage'] },
+}
+
+export async function GET(request: Request) { /* ... */ }
+export async function POST(request: Request) { /* ... */ }
+```
+
+Public (unauthenticated) endpoints must opt out explicitly:
+
+```ts
+export const metadata = {
+  GET: { requireAuth: false },
+}
+```
+
+Legacy top-level `export const requireAuth` / `export const requireFeatures` exports are NOT recognized by the registry generator — migrate any stragglers to the `metadata` object shape above.
+
+### Single-shot Database Migrations
+
+`yarn dev` auto-applies pending migrations at startup by default (see `OM_DEV_AUTO_MIGRATE` in the environment variables table). That means once a migration file has been committed to `src/modules/<module>/migrations/` and picked up by the dev server, it has likely already been applied to your local database.
+
+Practical consequences:
+
+- Prefer writing migration files in **one shot** — generate them with `yarn db:generate`, review, commit, move on.
+- Editing an already-applied migration is risky: the next `yarn dev` / `yarn db:migrate` will skip the file (it is already marked applied), so your edits will not land in the database. If iteration is truly unavoidable:
+  1. Set `OM_DEV_AUTO_MIGRATE=0` in `.env.local` to stop auto-apply.
+  2. Roll back the migration (`yarn db:migrate --down` or reset the dev DB).
+  3. Edit the migration file.
+  4. Re-apply (`yarn db:migrate`) and commit.
+- Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
+
+## Agent Automation / Auto-Skills
+
+This project ships four auto-* Claude Code skills under `.ai/skills/` that let you delegate whole units of work to an autonomous agent. They work inside your own repository (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts).
+
+| Skill | When to use | Invocation |
+|-------|-------------|------------|
+| `auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/auto-create-pr <task description>"` |
+| `auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/auto-continue-pr <PR#>"` |
+| `auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/auto-review-pr <PR#>"` |
+| `auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/auto-fix-github <issue#>"` |
+
+Notes:
+
+- The skills probe `gh repo view --json defaultBranchRef` for your repo's default branch; no assumption that it's `main` or `develop`.
+- Pipeline labels (`review`, `qa`, `merge-queue`, etc.) are opt-in — the skills detect which labels exist in your repo via `gh label list` and skip gracefully when they're missing. If you want the full workflow, the skill README in each skill folder has a `gh label create` snippet you can paste in once.
+- The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
 

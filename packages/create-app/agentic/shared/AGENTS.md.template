@@ -84,6 +84,17 @@ These guides ship automatically when the corresponding module is installed.
 | Create / run integration tests | `.ai/skills/integration-tests/SKILL.md` |
 | Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
 
+### Agent Automation / Auto-Skills
+
+| Task | Load |
+|---|---|
+| Delegate an arbitrary task end-to-end as a PR | `.ai/skills/auto-create-pr/SKILL.md` |
+| Resume an in-progress agent PR | `.ai/skills/auto-continue-pr/SKILL.md` |
+| Automated code review on a PR (with optional autofix) | `.ai/skills/auto-review-pr/SKILL.md` |
+| Fix a GitHub issue by number and open a PR | `.ai/skills/auto-fix-github/SKILL.md` |
+
+Invoke these from the Claude Code CLI as slash commands, for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-github 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
+
 ## Module Anatomy
 
 Each module in `src/modules/<id>/` is self-contained and auto-discovered:
@@ -127,7 +138,16 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
 3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
 4. **Confirm migrations with user** before running `yarn mercato db migrate`
-5. **BEFORE writing ANY code**, you MUST:
+5. **API route files MUST export `metadata`.** Every `src/modules/<module>/api/**/route.ts` that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth, otherwise the generator emits the warning `[generate] ⚠ Route file exports handlers but no metadata — auth will default to required` and every method silently falls back to "authentication required". Use the per-method shape:
+   ```ts
+   export const metadata = {
+     GET: { requireAuth: true, requireFeatures: ['mymodule.view'] },
+     POST: { requireAuth: true, requireFeatures: ['mymodule.manage'] },
+   }
+   ```
+   For public endpoints, opt out explicitly with `{ requireAuth: false }`. Do not use the legacy top-level `export const requireAuth` / `export const requireFeatures` — they are no longer recognised.
+6. **Write migrations in one shot.** `yarn dev` auto-applies pending migrations at startup by default (`OM_DEV_AUTO_MIGRATE=1`). Once a generated migration has been run, editing the same migration file has no effect — the next migrate pass skips it as already-applied. If you truly need to iterate, either (a) disable auto-migrate (`OM_DEV_AUTO_MIGRATE=0`) and roll back with `yarn db:migrate --down` between edits, or (b) ship the correction as a **new** migration file. Never hand-edit a historical migration that has already been applied in any environment.
+7. **BEFORE writing ANY code**, you MUST:
    - Match your task against the **Task → Context Map** above
    - `Read` every file listed in the "Load" column for your task type
    - Only then proceed to implementation
