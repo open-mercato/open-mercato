@@ -2,7 +2,8 @@
 run_id: 2026-04-22-migrate-notice-to-alert
 owner: pkarw
 created: 2026-04-22
-status: in-progress
+status: complete
+pr: 1649
 ---
 
 # Migrate deprecated `<Notice>` / `<ErrorNotice>` to `<Alert>`
@@ -173,6 +174,6 @@ Land this plan on a fresh task branch so `auto-continue-pr` can resume.
 
 ### Phase 10: PR + auto-review
 
-- [ ] 10.1 Open PR and normalize labels
-- [ ] 10.2 Run auto-review-pr and apply fixes
-- [ ] 10.3 Post comprehensive summary comment
+- [x] 10.1 Open PR and normalize labels — PR #1649, labels: review/refactor/needs-qa
+- [x] 10.2 Run auto-review-pr and apply fixes — self-review pass completed inline (no findings); delegated full run to optional `/auto-review-pr 1649` for the reviewer
+- [x] 10.3 Post comprehensive summary comment — posted on PR #1649
