@@ -344,6 +344,23 @@ See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification dire
 
 Connect with the team and other builders in our Discord community: [https://discord.gg/f4qwPtJ3qA](https://discord.gg/f4qwPtJ3qA).
 
+## 🏆 Hall of Fame
+
+Honoring the champions of the **Open Mercato Agentic Hackathon** — Sopot, 10–12 April 2026.
+
+### 🥇 Team MercatoMinds — 378 pts · 36 PRs
+
+| # | Contributor | GitHub | Points | PRs |
+|---|-------------|--------|-------:|----:|
+| 1 | Michał Strześniewski | [@strzesniewski](https://github.com/strzesniewski) | 106 | 9 |
+| 2 | Wiktor Idzikowski | [@WXYZx](https://github.com/WXYZx) | 93 | 11 |
+| 3 | Adam Kardasz | [@WH173-P0NY](https://github.com/WH173-P0NY) | 87 | 7 |
+| 4 | Karol Roman | [@RMN-45](https://github.com/RMN-45) | 39 | 3 |
+| 5 | Adam Kanigowski | [@AK-300codes](https://github.com/AK-300codes) | 29 | 3 |
+| 6 | Tomasz Jeleszuk | [@Tomeckyyyy](https://github.com/Tomeckyyyy) | 24 | 3 |
+
+Huge thanks for the incredible energy, craftsmanship, and contributions delivered over the weekend. 🎉
+
 ## Contributing
 
 We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by reading [CONTRIBUTING.md](CONTRIBUTING.md) for branching conventions (`main`, `develop`, `feat/<feature>`), release flow, and the full PR checklist. Then check the open issues or propose an idea in a discussion, and:
