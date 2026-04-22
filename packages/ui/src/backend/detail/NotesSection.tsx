@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
@@ -17,8 +16,11 @@ import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 
 export type SectionAction = {
   label: React.ReactNode
@@ -82,17 +84,6 @@ export type NotesDataAdapter<C = unknown> = {
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
 type RenderColorFn = (color: string, className?: string) => React.ReactNode
-
-type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
-
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
-
-const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -1286,12 +1277,12 @@ function NotesSectionImpl<C = unknown>({
                     onClick={() => setContentEditor({ id: note.id, value: note.body })}
                     onKeyDown={(event) => handleContentKeyDown(event, note)}
                   >
-                    <MarkdownPreviewComponent
+                    <MarkdownPreview
                       remarkPlugins={markdownPlugins}
                       className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
                     >
                       {note.body}
-                    </MarkdownPreviewComponent>
+                    </MarkdownPreview>
                   </div>
                 )}
               </div>

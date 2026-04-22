@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write  # required for npm provenance attestation
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     # Only allow releases from main branch
     if: github.ref == 'refs/heads/main'
+    # Requires approval from the 'production' environment — prevents a single
+    # compromised account from publishing unilaterally. Configure reviewers at:
+    # Settings → Environments → production → Required reviewers
+    environment: production
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

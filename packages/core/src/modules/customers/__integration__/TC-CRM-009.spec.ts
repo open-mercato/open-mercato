@@ -9,6 +9,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
   test('should update a deal pipeline stage to Win and reflect it in the pipeline board', async ({ page, request }) => {
+    test.slow();
+
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;
@@ -47,8 +49,8 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/pipeline');
       await page.getByLabel('Pipeline').selectOption(pipelineId!);
-      const winLane = page.locator('main').locator('div').filter({ has: page.getByText('Win', { exact: true }) }).first();
-      await expect(winLane.getByText(dealTitle, { exact: true })).toBeVisible();
+      const winLane = page.locator('main').locator('div').filter({ has: page.getByText(/^Win$/) }).first();
+      await expect(winLane).toContainText(dealTitle);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

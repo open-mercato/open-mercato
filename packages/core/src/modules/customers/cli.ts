@@ -1645,10 +1645,21 @@ async function seedCustomerExamples(
     }
   }
 
+  // Load default pipeline and build a value→stageId lookup so deals appear in the pipeline view
+  const defaultPipeline = await em.findOne(CustomerPipeline, { tenantId, organizationId, isDefault: true })
+  const pipelineStages = defaultPipeline
+    ? await em.find(CustomerPipelineStage, { pipelineId: defaultPipeline.id }, { orderBy: { order: 'ASC' } })
+    : []
+  const stageValueToId = new Map<string, string>()
+  for (let i = 0; i < pipelineStages.length && i < PIPELINE_STAGE_DEFAULTS.length; i++) {
+    stageValueToId.set(PIPELINE_STAGE_DEFAULTS[i].value, pipelineStages[i].id)
+  }
+
   for (const company of CUSTOMER_EXAMPLES) {
     const companyEntity = companyEntities.get(company.slug)
     if (!companyEntity) continue
     for (const dealInfo of company.deals ?? []) {
+      const resolvedStageId = dealInfo.pipelineStage ? stageValueToId.get(dealInfo.pipelineStage) ?? null : null
       const deal = em.create(CustomerDeal, {
         organizationId,
         tenantId,
@@ -1656,6 +1667,8 @@ async function seedCustomerExamples(
         description: dealInfo.description ?? null,
         status: dealInfo.status,
         pipelineStage: dealInfo.pipelineStage ?? null,
+        pipelineId: resolvedStageId ? defaultPipeline!.id : null,
+        pipelineStageId: resolvedStageId,
         valueAmount: toAmount(dealInfo.valueAmount),
         valueCurrency:
           dealInfo.valueCurrency ?? (typeof dealInfo.valueAmount === 'number' ? 'USD' : null),
