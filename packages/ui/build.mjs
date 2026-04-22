@@ -161,63 +161,44 @@ if (entryPoints.length === 0) {
 
 console.log(`Found ${entryPoints.length} entry points`)
 
-function resolveRelativeJsSpecifier(fileDir, specifier) {
-  if (
-    !specifier.startsWith('.') ||
-    specifier.endsWith('.js') ||
-    specifier.endsWith('.json') ||
-    specifier.endsWith('.ts') ||
-    specifier.includes('${')
-  ) {
-    return specifier
-  }
-
-  const resolvedPath = join(fileDir, specifier)
-  if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-    return `${specifier}/index.js`
-  }
-
-  return `${specifier}.js`
-}
-
-function resolveNodeEsmPackageSpecifier(specifier) {
-  if (
-    !specifier.startsWith('next/') ||
-    specifier.endsWith('.js') ||
-    specifier.endsWith('.json') ||
-    specifier.includes('?')
-  ) {
-    return specifier
-  }
-
-  return `${specifier}.js`
-}
-
-async function rewriteRelativeJsSpecifiers() {
-  const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
-
-  for (const file of outputFiles) {
-    const fileDir = dirname(file)
-    let content = readFileSync(file, 'utf-8')
-
-    content = content.replace(
-      /\bfrom\s+["'](\.{1,2}\/[^"']+)["']/g,
-      (match, specifier) => `from "${resolveRelativeJsSpecifier(fileDir, specifier)}"`,
-    )
-    content = content.replace(
-      /import\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g,
-      (match, specifier) => `import("${resolveRelativeJsSpecifier(fileDir, specifier)}")`,
-    )
-    content = content.replace(
-      /\bfrom\s+["'](next\/[^"']+)["']/g,
-      (match, specifier) => `from "${resolveNodeEsmPackageSpecifier(specifier)}"`,
-    )
-    content = content.replace(
-      /import\s*\(\s*["'](next\/[^"']+)["']\s*\)/g,
-      (match, specifier) => `import("${resolveNodeEsmPackageSpecifier(specifier)}")`,
-    )
-
-    writeFileSync(file, content)
+// Plugin to add .js extension to relative imports
+const addJsExtension = {
+  name: 'add-js-extension',
+  setup(build) {
+    build.onEnd(async (result) => {
+      if (result.errors.length > 0) return
+      const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
+      for (const file of outputFiles) {
+        const fileDir = dirname(file)
+        let content = readFileSync(file, 'utf-8')
+        // Add .js to relative imports that don't have an extension
+        content = content.replace(
+          /from\s+["'](\.[^"']+)["']/g,
+          (match, path) => {
+            if (path.endsWith('.js') || path.endsWith('.json')) return match
+            // Check if it's a directory with index.js
+            const resolvedPath = join(fileDir, path)
+            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
+              return `from "${path}/index.js"`
+            }
+            return `from "${path}.js"`
+          }
+        )
+        content = content.replace(
+          /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+          (match, path) => {
+            if (path.endsWith('.js') || path.endsWith('.json')) return match
+            // Check if it's a directory with index.js
+            const resolvedPath = join(fileDir, path)
+            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
+              return `import("${path}/index.js")`
+            }
+            return `import("${path}.js")`
+          }
+        )
+        writeFileSync(file, content)
+      }
+    })
   }
 }
 
@@ -229,8 +210,7 @@ await esbuild.build({
   target: 'node18',
   sourcemap: true,
   jsx: 'automatic',
+  plugins: [addJsExtension],
 })
-
-await rewriteRelativeJsSpecifiers()
 
 console.log('ui built successfully')

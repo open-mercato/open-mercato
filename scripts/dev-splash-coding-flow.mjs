@@ -303,11 +303,10 @@ function writeJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload))
 }
 
-// Reject any string that would smuggle control characters or NUL bytes through
-// the shell-launching codepath. This is the canonical sanitizer for paths and
-// shell argument values used by the splash coding flow; CodeQL recognizes the
-// explicit reject as a safe boundary.
-const SHELL_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f`$"'&|;<>()[\]{}*!?~\r\n]/
+// Reject control characters and shell metacharacters that could alter command
+// semantics. Quotes are allowed here because these values are passed through
+// `spawn` argument arrays instead of shell interpolation.
+const SHELL_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f`$&|;<>()[\]{}*!?~]/
 
 export function isShellSafePathString(value) {
   return typeof value === 'string'

@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
