@@ -37,9 +37,9 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
   resolveOptionalEventBus: jest.fn(() => null),
 }))
 
-const mockEmitInboxOpsEvent = jest.fn()
-jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
-  emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
+const mockEmitSourceSubmissionRequested = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-submission-request', () => ({
+  emitSourceSubmissionRequested: (...args: unknown[]) => mockEmitSourceSubmissionRequested(...args),
 }))
 
 function makeRequest() {
@@ -53,7 +53,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
-    mockEmitInboxOpsEvent.mockResolvedValue(undefined)
+    mockEmitSourceSubmissionRequested.mockResolvedValue(undefined)
     mockGetAuth.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -102,7 +102,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     expect(payload.error).toContain('Cannot reprocess')
     expect(email.status).toBe('failed')
     expect(email.processingError).toBe('previous error')
-    expect(mockEmitInboxOpsEvent).not.toHaveBeenCalled()
+    expect(mockEmitSourceSubmissionRequested).not.toHaveBeenCalled()
   })
 
   it('supersedes active proposals and requeues email for processing', async () => {
@@ -180,15 +180,43 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     expect(email.status).toBe('received')
     expect(email.processingError).toBeNull()
 
-    expect(mockEmitInboxOpsEvent).toHaveBeenNthCalledWith(
-      1,
-      'inbox_ops.email.reprocessed',
-      expect.objectContaining({ emailId: 'email-1' }),
+    expect(mockEmitSourceSubmissionRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptor: expect.objectContaining({
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: 'email-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+        legacyInboxEmailId: 'email-1',
+      }),
     )
-    expect(mockEmitInboxOpsEvent).toHaveBeenNthCalledWith(
-      2,
-      'inbox_ops.email.received',
-      expect.objectContaining({ emailId: 'email-1' }),
-    )
+  })
+
+  it('returns 500 and restores retryable state when enqueue fails', async () => {
+    const email = {
+      id: 'email-1',
+      status: 'failed',
+      processingError: 'previous error',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      forwardedByAddress: 'ops@example.com',
+      subject: 'Order request',
+    } as unknown as InboxEmail
+
+    mockFindOneWithDecryption.mockResolvedValueOnce(email)
+    mockFindWithDecryption
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    mockEmitSourceSubmissionRequested.mockRejectedValueOnce(new Error('queue unavailable'))
+
+    const response = await POST(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(payload.error).toBe('Failed to enqueue source submission')
+    expect(email.status).toBe('failed')
+    expect(email.processingError).toBe('Failed to enqueue source submission')
+    expect(mockEm.flush).toHaveBeenCalledTimes(2)
   })
 })

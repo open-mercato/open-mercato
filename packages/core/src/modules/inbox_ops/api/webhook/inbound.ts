@@ -11,7 +11,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
-import { emitInboxOpsEvent } from '../../events'
+import { emitSourceSubmissionRequested } from '../../lib/source-submission-request'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -19,6 +19,7 @@ export const metadata = {
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024 // 2MB
 const REPLAY_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
+const SOURCE_SUBMISSION_ENQUEUE_ERROR = 'Failed to enqueue source submission'
 
 function verifyHmacSignature(
   payload: string,
@@ -166,6 +167,26 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
   return { ok: false, response: NextResponse.json({ error: 'Missing signature headers' }, { status: 400 }) }
 }
 
+async function enqueueLegacyEmailSourceSubmission(args: {
+  email: Pick<InboxEmail, 'id' | 'tenantId' | 'organizationId' | 'updatedAt'>
+  fallbackScope: { tenantId: string; organizationId: string }
+}) {
+  const sourceVersion = args.email.updatedAt instanceof Date
+    ? args.email.updatedAt.toISOString()
+    : new Date().toISOString()
+
+  await emitSourceSubmissionRequested({
+    descriptor: {
+      sourceEntityType: 'inbox_ops:inbox_email',
+      sourceEntityId: args.email.id,
+      ...(sourceVersion ? { sourceVersion } : {}),
+      tenantId: args.email.tenantId || args.fallbackScope.tenantId,
+      organizationId: args.email.organizationId || args.fallbackScope.organizationId,
+    },
+    legacyInboxEmailId: args.email.id,
+  })
+}
+
 export async function POST(req: Request) {
   const hasCustomSecret = Boolean(process.env.INBOX_OPS_WEBHOOK_SECRET)
   const hasResendSecret = Boolean(process.env.RESEND_WEBHOOK_SIGNING_SECRET)
@@ -271,17 +292,21 @@ export async function POST(req: Request) {
 
   const parsed = parseInboundEmail(emailInput)
 
-  const isDuplicate = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
-  if (isDuplicate) {
+  const duplicateEmail = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
+  if (duplicateEmail) {
     try {
-      await emitInboxOpsEvent('inbox_ops.email.deduplicated', {
-        tenantId: settings.tenantId,
-        organizationId: settings.organizationId,
-        toAddress,
+      await enqueueLegacyEmailSourceSubmission({
+        email: duplicateEmail,
+        fallbackScope: {
+          tenantId: settings.tenantId,
+          organizationId: settings.organizationId,
+        },
       })
     } catch (eventError) {
-      console.error('[inbox_ops:webhook] Failed to emit deduplicated event:', eventError)
+      console.error('[inbox_ops:webhook] Failed to enqueue duplicate source submission:', eventError)
+      return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
     }
+
     return NextResponse.json({ ok: true })
   }
 
@@ -312,17 +337,20 @@ export async function POST(req: Request) {
 
   em.persist(email)
   await em.flush()
-
   try {
-    await emitInboxOpsEvent('inbox_ops.email.received', {
-      emailId: email.id,
-      tenantId: settings.tenantId,
-      organizationId: settings.organizationId,
-      forwardedByAddress: parsed.from.email,
-      subject: parsed.subject,
+    await enqueueLegacyEmailSourceSubmission({
+      email,
+      fallbackScope: {
+        tenantId: settings.tenantId,
+        organizationId: settings.organizationId,
+      },
     })
   } catch (eventError) {
-    console.error('[inbox_ops:webhook] Failed to emit email.received event:', eventError)
+    console.error('[inbox_ops:webhook] Failed to enqueue source submission:', eventError)
+    email.status = 'failed'
+    email.processingError = SOURCE_SUBMISSION_ENQUEUE_ERROR
+    await em.flush()
+    return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })
@@ -349,7 +377,7 @@ async function checkDuplicate(
   settings: InboxSettings,
   messageId: string | null | undefined,
   contentHash: string | null | undefined,
-): Promise<boolean> {
+): Promise<InboxEmail | null> {
   const encScope = {
     tenantId: settings.tenantId,
     organizationId: settings.organizationId,
@@ -362,15 +390,15 @@ async function checkDuplicate(
 
   if (messageId) {
     const byMessageId = await findOneWithDecryption(em, InboxEmail, { ...whereBase, messageId }, undefined, encScope)
-    if (byMessageId) return true
+    if (byMessageId) return byMessageId
   }
 
   if (contentHash) {
     const byHash = await findOneWithDecryption(em, InboxEmail, { ...whereBase, contentHash }, undefined, encScope)
-    if (byHash) return true
+    if (byHash) return byHash
   }
 
-  return false
+  return null
 }
 
 export const openApi: OpenApiRouteDoc = {

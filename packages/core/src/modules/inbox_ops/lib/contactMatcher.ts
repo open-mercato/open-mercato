@@ -11,7 +11,7 @@ export interface MatchedContact {
 }
 
 export interface ContactMatchResult {
-  participant: ExtractedParticipant
+  participant: ExtractedParticipant & { email: string }
   match: MatchedContact | null
 }
 

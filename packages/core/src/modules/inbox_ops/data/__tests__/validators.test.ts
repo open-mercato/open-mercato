@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import { z } from 'zod'
 import {
   orderPayloadSchema,
   updateOrderPayloadSchema,
@@ -421,12 +422,21 @@ describe('extractionOutputSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('validates participant role enum', () => {
+  it('accepts open-vocabulary participant roles', () => {
     const result = extractionOutputSchema.safeParse({
       ...validOutput,
-      participants: [{ name: 'Test', email: 'test@test.com', role: 'invalid_role' }],
+      participants: [{ name: 'Test', email: 'test@test.com', role: 'procurement_coordinator' }],
     })
-    expect(result.success).toBe(false)
+    expect(result.success).toBe(true)
+  })
+
+  it('does not emit provider-incompatible regex patterns in the JSON schema', () => {
+    const jsonSchema = z.toJSONSchema(extractionOutputSchema)
+    const participantEmail = ((jsonSchema.properties as Record<string, unknown>).participants as {
+      items?: { properties?: Record<string, { pattern?: string }> }
+    }).items?.properties?.email
+
+    expect(participantEmail?.pattern).toBeUndefined()
   })
 })
 

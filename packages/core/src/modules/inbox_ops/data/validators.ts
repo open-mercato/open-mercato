@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  inboxOpsSourceDescriptorSchema,
+  inboxOpsSourcePromptHintsSchema,
+  normalizedInboxOpsInputSchema,
+} from '@open-mercato/shared/modules/inbox-ops-sources'
 
 const uuid = () => z.string().uuid()
 const coerceNumericString = z.preprocess(
@@ -174,9 +179,11 @@ export const categorizeProposalSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const extractedParticipantSchema = z.object({
-  name: z.string(),
-  email: z.string(),
-  role: z.enum(['buyer', 'seller', 'logistics', 'finance', 'other']),
+  name: z.string().trim().min(1).max(300),
+  identifier: z.string().trim().min(1).max(320).optional(),
+  email: z.string().trim().max(320).optional(),
+  phoneNumber: z.string().trim().min(1).max(50).optional(),
+  role: z.string().trim().min(1).max(200).optional(),
 })
 
 export const extractedActionSchema = z.object({
@@ -233,6 +240,18 @@ export const extractionOutputSchema = z.object({
   possiblyIncomplete: z.boolean().optional(),
 })
 
+export const inboxSourceSubmissionStatusEnum = z.enum([
+  'received',
+  'processing',
+  'processed',
+  'failed',
+  'deferred',
+])
+
+export const inboxOpsSourceDescriptorValidator = inboxOpsSourceDescriptorSchema
+export const normalizedInboxOpsInputValidator = normalizedInboxOpsInputSchema
+export const inboxOpsSourcePromptHintsValidator = inboxOpsSourcePromptHintsSchema
+
 export type ExtractionOutput = z.infer<typeof extractionOutputSchema>
 export type OrderPayload = z.infer<typeof orderPayloadSchema>
 export type UpdateOrderPayload = z.infer<typeof updateOrderPayloadSchema>
@@ -242,6 +261,7 @@ export type CreateProductPayload = z.infer<typeof createProductPayloadSchema>
 export type LinkContactPayload = z.infer<typeof linkContactPayloadSchema>
 export type LogActivityPayload = z.infer<typeof logActivityPayloadSchema>
 export type DraftReplyPayload = z.infer<typeof draftReplyPayloadSchema>
+export type InboxSourceSubmissionStatus = z.infer<typeof inboxSourceSubmissionStatusEnum>
 
 // ---------------------------------------------------------------------------
 // Translation / Settings Schemas

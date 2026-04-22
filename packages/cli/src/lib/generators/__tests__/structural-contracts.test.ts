@@ -207,6 +207,7 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'notifications.handlers.ts'), `export const notificationHandlers = [\n  { type: 'orders.order.created', handler: async (n: any) => {} },\n]\nexport default notificationHandlers\n`)
   touchFile(pkgModulePath('orders', 'translations.ts'), `export const translatableFields = {\n  'orders:sales_order': ['status_label', 'notes'],\n  'orders:order_item': ['product_name'],\n}\nexport default translatableFields\n`)
   touchFile(pkgModulePath('orders', 'inbox-actions.ts'), `export const inboxActions = [\n  { type: 'orders.approve', id: 'orders.approve-order', label: 'Approve Order', icon: 'check', description: 'Approve pending', async execute(a: any) { return { ok: true } } },\n]\nexport default inboxActions\n`)
+  touchFile(pkgModulePath('orders', 'inbox-ops-sources.ts'), `export const inboxOpsSourceAdapters = [\n  {\n    sourceEntityType: 'orders:message',\n    async loadSource(args: any) { return args },\n    async buildInput(args: any) {\n      return {\n        sourceEntityType: 'orders:message',\n        sourceEntityId: args.sourceEntityId,\n        body: 'hello',\n        bodyFormat: 'text',\n        participants: [],\n        capabilities: {\n          canDraftReply: false,\n          canUseTimelineContext: false,\n        },\n      }\n    },\n  },\n]\n\nexport default inboxOpsSourceAdapters\n`)
   touchFile(pkgModulePath('orders', 'analytics.ts'), `export const analyticsConfig = {\n  entities: [{ entityId: 'orders:sales_order', requiredFeatures: ['orders.view'], entityConfig: { tableName: 'sales_orders', dateField: 'created_at' }, fieldMappings: { id: { dbColumn: 'id', type: 'uuid' } } }],\n}\nexport default analyticsConfig\n`)
   touchFile(pkgModulePath('orders', 'ai-tools.ts'), `export const aiTools = [\n  { name: 'list_orders', description: 'List recent orders', inputSchema: {}, requiredFeatures: ['orders.view'] },\n]\nexport default aiTools\n`)
   touchFile(pkgModulePath('orders', 'frontend', 'middleware.ts'), `export const middleware = [\n  { id: 'orders.auth-check', pattern: '/orders/**', handler: async (req: any) => req },\n]\nexport default middleware\n`)
@@ -882,6 +883,38 @@ describe('inbox-actions.generated.ts', () => {
   it('has orders module entry with actions property', () => {
     expectModuleIds(content, ['orders'])
     expect(content).toContain('actions:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// inbox-ops-sources.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('inbox-ops-sources.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('inbox-ops-sources.generated.ts')
+  })
+
+  it('exports entries, flattened arrays, and lookup helpers', () => {
+    expectExports(content, [
+      'inboxOpsSourceConfigEntries',
+      'inboxOpsSourceAdapters',
+      'getInboxOpsSourceAdapter',
+    ])
+  })
+
+  it('has orders module entry with adapters property', () => {
+    expectModuleIds(content, ['orders'])
+    expect(content).toContain('adapters:')
+  })
+
+  it('imports source adapter types', () => {
+    expect(hasTypeImport(content, 'InboxOpsSourceAdapter', '@open-mercato/shared/modules/inbox-ops-sources')).toBe(true)
   })
 })
 

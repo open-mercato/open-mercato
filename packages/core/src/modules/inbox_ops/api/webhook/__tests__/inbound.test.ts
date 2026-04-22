@@ -42,6 +42,11 @@ jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
   emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
 }))
 
+const mockEmitSourceSubmissionRequested = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-submission-request', () => ({
+  emitSourceSubmissionRequested: (...args: unknown[]) => mockEmitSourceSubmissionRequested(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter', () => ({
   checkRateLimit: jest.fn(() => ({ allowed: true })),
 }))
@@ -96,6 +101,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
+    mockEmitSourceSubmissionRequested.mockResolvedValue(undefined)
     mockEm.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({
       id: 'email-1',
       ...data,
@@ -217,6 +223,17 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     )
     expect(mockEm.persist).toHaveBeenCalled()
     expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockEmitSourceSubmissionRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptor: expect.objectContaining({
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: 'email-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+        legacyInboxEmailId: 'email-1',
+      }),
+    )
     expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
       'inbox_ops.email.received',
       expect.objectContaining({

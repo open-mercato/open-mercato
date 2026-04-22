@@ -3,7 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
-import { emitInboxOpsEvent } from '../../../../events'
+import { emitSourceSubmissionRequested } from '../../../../lib/source-submission-request'
 import {
   resolveRequestContext,
   extractPathSegment,
@@ -13,6 +13,8 @@ import {
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
 }
+
+const SOURCE_SUBMISSION_ENQUEUE_ERROR = 'Failed to enqueue source submission'
 
 class ReprocessConflictError extends Error {}
 
@@ -53,22 +55,27 @@ export async function POST(req: Request) {
     email.status = 'received'
     email.processingError = null
     await ctx.em.flush()
+    const sourceVersion = email.updatedAt instanceof Date
+      ? email.updatedAt.toISOString()
+      : new Date().toISOString()
 
     try {
-      await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
-        emailId: email.id,
-        tenantId: email.tenantId,
-        organizationId: email.organizationId,
-      })
-      await emitInboxOpsEvent('inbox_ops.email.received', {
-        emailId: email.id,
-        tenantId: email.tenantId,
-        organizationId: email.organizationId,
-        forwardedByAddress: email.forwardedByAddress,
-        subject: email.subject,
+      await emitSourceSubmissionRequested({
+        descriptor: {
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: email.id,
+          sourceVersion,
+          tenantId: email.tenantId,
+          organizationId: email.organizationId,
+        },
+        legacyInboxEmailId: email.id,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:email:reprocess] Failed to emit events:', eventError)
+      console.error('[inbox_ops:email:reprocess] Failed to enqueue source submission:', eventError)
+      email.status = 'failed'
+      email.processingError = SOURCE_SUBMISSION_ENQUEUE_ERROR
+      await ctx.em.flush()
+      return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, ...retiredCounts })

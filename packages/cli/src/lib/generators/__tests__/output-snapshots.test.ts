@@ -335,6 +335,33 @@ export default inboxActions
 `,
   )
 
+  // -- Inbox Ops sources --
+  touchFile(
+    pkgModulePath('orders', 'inbox-ops-sources.ts'),
+    `export const inboxOpsSourceAdapters = [
+  {
+    sourceEntityType: 'orders:message',
+    async loadSource(args: any) { return args },
+    async buildInput(args: any) {
+      return {
+        sourceEntityType: 'orders:message',
+        sourceEntityId: args.sourceEntityId,
+        body: 'hello',
+        bodyFormat: 'text',
+        participants: [],
+        capabilities: {
+          canDraftReply: false,
+          canUseTimelineContext: false,
+        },
+      }
+    },
+  },
+]
+
+export default inboxOpsSourceAdapters
+`,
+  )
+
   // -- Analytics --
   touchFile(
     pkgModulePath('orders', 'analytics.ts'),
@@ -667,6 +694,7 @@ describe('generator output compatibility', () => {
     'frontend-routes.generated.ts',
     'guards.generated.ts',
     'inbox-actions.generated.ts',
+    'inbox-ops-sources.generated.ts',
     'injection-tables.generated.ts',
     'injection-widgets.generated.ts',
     'interceptors.generated.ts',

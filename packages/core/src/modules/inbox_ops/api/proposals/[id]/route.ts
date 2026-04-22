@@ -34,24 +34,34 @@ export async function GET(req: Request) {
         { orderBy: { createdAt: 'ASC' } },
         ctx.scope,
       ),
-      findOneWithDecryption(
-        ctx.em,
-        InboxEmail,
-        {
-          id: proposal.inboxEmailId,
-          organizationId: ctx.organizationId,
-          tenantId: ctx.tenantId,
-          deletedAt: null,
-        },
-        undefined,
-        ctx.scope,
-      ),
+      proposal.inboxEmailId
+        ? findOneWithDecryption(
+            ctx.em,
+            InboxEmail,
+            {
+              id: proposal.inboxEmailId,
+              organizationId: ctx.organizationId,
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+            },
+            undefined,
+            ctx.scope,
+          )
+        : Promise.resolve(null),
     ])
 
     return NextResponse.json({
       proposal: {
         ...proposal,
-        actions,
+        source: {
+          sourceSubmissionId: proposal.sourceSubmissionId ?? null,
+          sourceEntityType: proposal.sourceEntityType ?? null,
+          sourceEntityId: proposal.sourceEntityId ?? null,
+          sourceArtifactId: proposal.sourceArtifactId ?? null,
+          sourceVersion: proposal.sourceVersion ?? null,
+          sourceSnapshot: proposal.sourceSnapshot ?? null,
+        },
+        legacyInboxEmailId: proposal.inboxEmailId ?? null,
       },
       actions,
       discrepancies,

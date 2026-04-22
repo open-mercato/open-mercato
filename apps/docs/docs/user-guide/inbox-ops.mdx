@@ -7,6 +7,10 @@ description: Set up the email-to-ERP agent to automatically extract orders, quot
 
 Set up the email-to-ERP agent so your team can forward customer email threads and have Open Mercato automatically extract orders, quotes, contacts, and reply drafts.
 
+:::info For module developers
+Email forwarding is the built-in source, but Inbox Ops is now source-oriented internally. Other modules can submit their own records into the same proposal pipeline through source adapters and the `inbox_ops.source_submission.requested` event. See [Framework Reference: Inbox Ops](/framework/modules/inbox-ops).
+:::
+
 ## How It Works
 
 1. Your employees email customers from their normal email accounts

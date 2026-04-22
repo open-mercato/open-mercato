@@ -6,6 +6,16 @@ export type ProposalDetail = {
   confidence: string
   status: string
   category?: string | null
+  inboxEmailId?: string | null
+  legacyInboxEmailId?: string | null
+  source?: {
+    sourceSubmissionId?: string | null
+    sourceEntityType?: string | null
+    sourceEntityId?: string | null
+    sourceArtifactId?: string | null
+    sourceVersion?: string | null
+    sourceSnapshot?: Record<string, unknown> | null
+  } | null
   participants: ExtractedParticipant[]
   possiblyIncomplete: boolean
   llmModel?: string

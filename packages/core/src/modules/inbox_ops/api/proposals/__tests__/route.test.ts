@@ -15,6 +15,11 @@ jest.mock('@open-mercato/shared/lib/db/escapeLikePattern', () => ({
   escapeLikePattern: (value: string) => value.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&'),
 }))
 
+const mockGetInboxOpsSourceAdapter = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-registry', () => ({
+  getInboxOpsSourceAdapter: (...args: unknown[]) => mockGetInboxOpsSourceAdapter(...args),
+}))
+
 const authResult = {
   sub: 'user-1',
   tenantId: 'tenant-1',
@@ -53,6 +58,7 @@ describe('GET /api/inbox_ops/proposals', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockFindWithDecryption.mockResolvedValue([])
+    mockGetInboxOpsSourceAdapter.mockResolvedValue(undefined)
   })
 
   it('returns paginated proposal list', async () => {
@@ -60,6 +66,7 @@ describe('GET /api/inbox_ops/proposals', () => {
       {
         id: 'proposal-1',
         inboxEmailId: 'email-1',
+        sourceEntityType: 'inbox_ops:inbox_email',
         summary: 'Order for widgets',
         status: 'pending',
         createdAt: new Date('2026-02-18'),
@@ -86,7 +93,45 @@ describe('GET /api/inbox_ops/proposals', () => {
     expect(payload.total).toBe(1)
     expect(payload.items[0].emailSubject).toBe('Order request')
     expect(payload.items[0].emailFrom).toBe('John Doe')
+    expect(payload.items[0].sourceKind).toBe('email')
+    expect(payload.items[0].sourceLabel).toBe('Email')
+    expect(payload.items[0].sourceIcon).toBe('mail')
     expect(payload.items[0].actionCount).toBe(0)
+  })
+
+  it('derives source presentation for non-email proposals', async () => {
+    const proposals = [
+      {
+        id: 'proposal-2',
+        inboxEmailId: null,
+        sourceEntityType: 'custom_provider:voice_note',
+        sourceSnapshot: {
+          sourceKind: 'phone call',
+        },
+        summary: 'Call summary',
+        status: 'pending',
+        createdAt: new Date('2026-02-19'),
+      },
+    ]
+    mockFindAndCountWithDecryption.mockResolvedValueOnce([proposals, 1])
+    mockGetInboxOpsSourceAdapter.mockResolvedValueOnce({
+      sourceEntityType: 'custom_provider:voice_note',
+      displayKind: 'call',
+      displayIcon: 'phone',
+    })
+    mockFindWithDecryption
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.items[0].sourceKind).toBe('call')
+    expect(payload.items[0].sourceLabel).toBe('Call')
+    expect(payload.items[0].sourceIcon).toBe('phone')
+    expect(payload.items[0].sourceHint).toBe('Phone Call')
   })
 
   it('filters by status when provided', async () => {

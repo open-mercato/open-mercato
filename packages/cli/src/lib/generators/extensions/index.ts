@@ -8,6 +8,7 @@ import { createEnrichersExtension } from './enrichers'
 import { createEventsExtension } from './events'
 import { createGuardsExtension } from './guards'
 import { createInboxActionsExtension } from './inbox-actions'
+import { createInboxOpsSourcesExtension } from './inbox-ops-sources'
 import { createInjectionWidgetsExtension } from './injection-widgets'
 import { createInterceptorsExtension } from './interceptors'
 import { createMessagesExtension } from './messages'
@@ -29,6 +30,7 @@ export function loadGeneratorExtensions(): GeneratorExtension[] {
     createInterceptorsExtension(),
     createComponentOverridesExtension(),
     createInboxActionsExtension(),
+    createInboxOpsSourcesExtension(),
     createGuardsExtension(),
     createCommandInterceptorsExtension(),
     createPageMiddlewareExtension(),
