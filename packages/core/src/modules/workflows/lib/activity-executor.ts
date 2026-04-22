@@ -788,10 +788,13 @@ export async function executeCallApi(
   //   SECURITY.md changelog entry for this fix.
   //
   //   The resolution strategy is:
-  //     1. Use the workflow instance's `createdBy` user (whoever manually
-  //        started the instance), when available.
-  //     2. Fall back to the workflow definition's `createdBy` (author) when
-  //        the instance was started by an event trigger with no user.
+  //     1. Use the workflow instance's `metadata.initiatedBy` user (whoever
+  //        manually started the instance), when available. Only this user's
+  //        current active roles are used — we never fall back to the author
+  //        when the initiator is known, because that would escalate the
+  //        initiator's privileges.
+  //     2. Fall back to the workflow definition's `createdBy` (author) only
+  //        when the instance was started by an event trigger with no user.
   //     3. If no traceable principal exists, the activity refuses to run —
   //        there is no "system" fallback that bypasses RBAC.
   const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
@@ -885,38 +888,28 @@ export type CallApiInstanceLike = {
   tenantId: string
   organizationId: string
   definitionId: string
+  metadata?: { initiatedBy?: string | null } | null
 }
 
-export async function resolveCallApiRoleIds(
+async function resolveActiveRoleIdsForUser(
   em: any,
-  instance: CallApiInstanceLike
+  userId: string,
+  scope: { tenantId: string; organizationId: string },
 ): Promise<string[]> {
-  if (!instance.definitionId) return []
-
   const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
   const { User, UserRole, Role } = await import('../../auth/data/entities')
-  const { WorkflowDefinition } = await import('../data/entities')
 
-  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
-
-  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
-    id: instance.definitionId,
-    tenantId: instance.tenantId,
-  }, {}, scope)
-  const authorUserId = definition?.createdBy
-  if (!authorUserId) return []
-
-  const author = await findOneWithDecryption(em, User, {
-    id: authorUserId,
-    tenantId: instance.tenantId,
+  const user = await findOneWithDecryption(em, User, {
+    id: userId,
+    tenantId: scope.tenantId,
     deletedAt: null,
   }, {}, scope)
-  if (!author) return []
+  if (!user) return []
 
   const userRoles = await findWithDecryption(
     em,
     UserRole,
-    { user: author.id, deletedAt: null },
+    { user: user.id, deletedAt: null },
     { populate: ['role'] },
     scope,
   )
@@ -928,10 +921,45 @@ export async function resolveCallApiRoleIds(
 
   const scopedRoles = await findWithDecryption(em, Role, {
     id: { $in: roleIds },
-    tenantId: instance.tenantId,
+    tenantId: scope.tenantId,
     deletedAt: null,
   }, {}, scope)
   return scopedRoles.map((r: any) => r.id as string)
+}
+
+export async function resolveCallApiRoleIds(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string[]> {
+  if (!instance.definitionId) return []
+
+  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+
+  // 1. Prefer the triggering user (whoever manually started this instance).
+  //    WorkflowInstance.metadata.initiatedBy is the canonical record of that
+  //    principal for user-started instances; use their current role set so
+  //    CALL_API never exceeds the initiator's permissions. Refuse if the
+  //    initiator has no active scoped roles — do not fall back to the
+  //    definition author, which would escalate the initiator's privileges.
+  const initiatorUserId = instance.metadata?.initiatedBy ?? null
+  if (initiatorUserId) {
+    return resolveActiveRoleIdsForUser(em, initiatorUserId, scope)
+  }
+
+  // 2. Event-triggered instance with no human initiator: fall back to the
+  //    definition author. Soft-deleted definitions must not mint keys.
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  const authorUserId = definition?.createdBy
+  if (!authorUserId) return []
+
+  return resolveActiveRoleIdsForUser(em, authorUserId, scope)
 }
 
 /**
