@@ -29,15 +29,6 @@ Calls with prospects, leads, and customers contain the highest-signal insights a
 
 Without an ingestion layer, a sales team either: (a) copy-pastes transcripts into notes (high friction, almost never happens), (b) asks the meeting tool to "sync to CRM" via a brittle Zapier flow that only covers one provider, or (c) loses the insight entirely.
 
-The feature must:
-
-1. **Automate ingestion** — transcripts land in the CRM without a user having to remember to push them.
-2. **Route by email** — a CRM user should see every call they or a CRM contact was on, on the right Person / Company / Deal, without manually choosing where to attach it.
-3. **Handle many-to-many** — one call with three CRM contacts should appear on all three timelines, without duplicate records.
-4. **Handle missing contacts** — if a participant is not yet in CRM, the call is still ingested (held in an unmatched inbox; promoted when the contact is added).
-5. **Be provider-agnostic** — community packages can add tldv, Meet, Fireflies, Loom, Otter, Gong, Meetily without changes to core.
-6. **Not rebuild what providers already do** — OM ingests finished transcripts. OM does not run speech-to-text.
-
 ---
 
 ## Overview
@@ -325,6 +316,27 @@ For consumers that keep using `GET /api/customers/interactions`, an API intercep
 Query cost: one indexed lookup on `customer_interaction_participants(organization_id, tenant_id, customer_entity_id)` plus a (bounded) join on `customer_people` / `customer_companies` / `customer_deals` for the company/deal subject kinds.
 
 The Person / Company / Deal timeline widgets are updated to call (a) or (b); the choice is per widget but (a) is preferred for new code.
+
+---
+
+## User Stories / Use Cases
+
+- **Sales rep** wants **every call to land automatically on the right Person / Company / Deal timelines** so that **follow-up context is never lost to copy-paste friction**.
+- **Sales manager** wants **a call attended by three CRM contacts to appear on all three timelines without duplicating records** so that **the full history of every contact is preserved without data sprawl**.
+- **Sales rep (reviewer)** wants **zero-match transcripts to queue in an inbox and be claimable manually** so that **no call silently disappears when a participant is missing from CRM**.
+- **Ops / BD lead** wants **a new contact added to CRM to retroactively surface their past calls** so that **historical context arrives as soon as the relationship is formalized**.
+- **Platform integrator** wants **to ship a new transcription provider as its own npm package without forking core** so that **tldv, Meet, Fireflies, Loom, Otter, Gong, Meetily can be added by the community**.
+- **Ops admin** wants **OM to never run speech-to-text** so that **the platform has no audio storage cost, no transcription billing, and no STT-quality debt**.
+- **Security / compliance officer** wants **transcript content encrypted at rest and readable only by users with `customers.call_transcripts.view`** so that **regulated PII in call bodies never leaks via the global attachments library or the search index**.
+
+These stories map directly to sections below:
+- "automatic ingestion" → §Proposed Solution.3 (webhook + polling) + §API Contracts (`POST /api/customers/call-transcripts/ingest`).
+- "three timelines without duplication" → `CustomerInteractionParticipant` junction + §API Contracts (`GET /api/customers/interactions/timeline`).
+- "zero-match inbox" → `CustomerUnmatchedTranscript` staging + §UI & UX (`/backend/customers/unmatched-transcripts`) + the notify-unmatched subscriber.
+- "retroactive matching" → `subscribers/backfill-participant-match.ts`.
+- "provider-agnostic" → shared `CallTranscriptProvider<TCredentials>` contract + sub-specs for Zoom + tl;dv.
+- "never STT" → contract has `fetchTranscript` only; no `transcribe(audio)` method.
+- "ACL-gated transcript read" → dedicated `GET /api/customers/interactions/:id/transcript` route + encryption map on `attachments:attachment.content`.
 
 ---
 
@@ -1249,33 +1261,78 @@ This spec ships independently; the AI stack layers on top when its own implement
 
 ---
 
-## Final Compliance Report (template — filled at PR time)
+## Final Compliance Report — 2026-04-22
 
-*To be completed by the implementation PR; copy/paste this block into the PR description.*
+### AGENTS.md Files Reviewed
 
-- [ ] All entities named singular, snake_case tables plural snake_case.
-- [ ] All cross-module references use FK IDs; no cross-module ORM relationships.
-- [ ] All writes go through the Command pattern with undo implemented.
-- [ ] All routes export `openApi`.
-- [ ] All inputs validated with zod; types derived via `z.infer`.
-- [ ] `findWithDecryption` / `findOneWithDecryption` used for encrypted rows.
-- [ ] Tenant scoping applied to every query.
-- [ ] All user-facing strings go through `useT` / `resolveTranslations`.
-- [ ] All dialogs honor Cmd/Ctrl+Enter and Escape.
-- [ ] DS rules respected — semantic color tokens only, no arbitrary text sizes.
-- [ ] No `requireRoles` — declarative `requireFeatures` only.
-- [ ] ACL defaults declared in `setup.ts` `defaultRoleFeatures`.
-- [ ] Events declared via `createModuleEvents` with `as const`.
-- [ ] Custom fields declared in `ce.ts` (not `data/fields.ts`).
-- [ ] Encryption maps updated.
-- [ ] `yarn generate` run; generated files committed.
-- [ ] `yarn db:generate` run; migration committed and inspected.
-- [ ] `yarn mercato configs cache structural --all-tenants` run if nav/structural changed.
-- [ ] Integration tests pass (`yarn test:integration`).
-- [ ] Build green (`yarn build`), lint green (`yarn lint`), typecheck green.
-- [ ] No `any` types introduced.
-- [ ] Release notes updated.
-- [ ] Spec changelog updated; spec moved to `.ai/specs/implemented/` post-deploy.
+- `AGENTS.md` (root)
+- `packages/core/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `packages/core/src/modules/customers/AGENTS.md`
+- `packages/core/src/modules/integrations/AGENTS.md`
+- `packages/search/AGENTS.md`
+- `packages/webhooks/AGENTS.md`
+- `packages/events/AGENTS.md`
+- `packages/cache/AGENTS.md`
+- `packages/queue/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root AGENTS.md | Entities singular, tables plural snake_case | Compliant | `CustomerInteractionParticipant` → `customer_interaction_participants`; `CustomerUnmatchedTranscript` → `customer_unmatched_transcripts`. |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | All cross-module references use FK IDs (`customer_entity_id`, `interaction_id`, attachment `record_id`). |
+| root AGENTS.md | Filter by `organization_id` on every tenant-scoped query | Compliant | Every new entity carries `organization_id` + `tenant_id`; routing algorithm, retroactive subscriber, and read routes all scope explicitly. |
+| root AGENTS.md | DI (Awilix) — no direct `new` | Compliant | Providers registered via `callTranscriptProviders` DI token; commands and services resolved from the container. |
+| root AGENTS.md | Event IDs `module.entity.action`, singular entity, past tense | Compliant | `customers.call_transcript.ingested`, `.unmatched`, `.reingested`, `customers.interaction_participant.matched`. |
+| root AGENTS.md | `requireFeatures` (declarative), never `requireRoles` | Compliant | All new routes and pages use `requireFeatures`. |
+| root AGENTS.md | No hardcoded user-facing strings (i18n only) | Compliant | Parent owns `customers.call_transcripts.*` + `customers.unmatched_transcripts.*` keys; `customers/translations.ts` created. |
+| root AGENTS.md | Cmd/Ctrl+Enter + Escape on every dialog | Compliant | Claim dialog and provider connect dialogs honor both shortcuts. |
+| root AGENTS.md | DS rules — semantic tokens only, no arbitrary text sizes | Compliant | `<StatusBadge>`, `<Alert>`, `<EmptyState>`, `<LoadingMessage>` from `@open-mercato/ui`. |
+| root AGENTS.md | Integration tests live alongside the feature, self-contained | Compliant | `packages/core/src/modules/customers/__integration__/` + each provider's `__integration__/`. |
+| root AGENTS.md | Generated files committed after `yarn generate` + `yarn db:generate` | Verify at PR time | Runtime gate — spec declares the files and commands to run. |
+| packages/core/AGENTS.md | Auto-discovered routes at `api/<method>/<path>.ts` | Compliant | `api/POST/customers/call-transcripts/ingest.ts`, `api/POST/webhooks/transcription/<vendor>.ts`, `api/GET/customers/interactions/[id]/transcript.ts`, timeline route. |
+| packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | Every new route listed in §API Contracts with `openApi` asserted. |
+| packages/core/AGENTS.md | CRUD write operations via Command pattern with undo | Compliant | 4 commands declared (`ingest`, `resolve_unmatched`, `reingest`, `manually_link`); undo behavior documented per command. |
+| packages/core/AGENTS.md | `withAtomicFlush` for multi-phase mutations | Compliant | Routing algorithm wraps all 6 writes in one `withAtomicFlush` with `transaction: true` per SPEC-018. |
+| packages/core/AGENTS.md | ACL features in `acl.ts` + defaults in `setup.ts` | Compliant | 3 features declared (`customers.call_transcripts.view|manage`, `customers.unmatched_transcripts.resolve`); defaults seeded. |
+| packages/core/AGENTS.md | Encryption maps updated when storing regulated fields | Compliant | New `attachments/encryption.ts` + extended `customers/encryption.ts` for participants (with `email_hash` / `phone_hash`). |
+| packages/core/AGENTS.md | `findWithDecryption` / `findOneWithDecryption` for encrypted rows | Compliant | Read-path discipline documented in §Encryption; search helper not needed in v1 (transcript body not indexed). |
+| packages/core/AGENTS.md | Custom fields declared in `ce.ts` | Compliant | 6 new CFs on `customer_interaction` declared in §Data Models. |
+| packages/core/AGENTS.md | Events via `createModuleEvents` with `as const` | Compliant | 5 new events added to `customers/events.ts`. |
+| packages/shared/AGENTS.md | No `any` / `unknown` in shared types | Compliant | `CallTranscriptProvider<TCredentials>` is generic; `providerMetadata: Record<string, JsonValue>` with recursive `JsonValue` + `jsonValueSchema` / `providerMetadataSchema` zod exports. |
+| packages/shared/AGENTS.md | Narrow, typed interfaces | Compliant | Shared contract exports only the provider interface + result/summary/ctx types. |
+| packages/search/AGENTS.md | Sensitive fields in `fieldPolicy.excluded` or `hashOnly` | Compliant | Transcript body NOT indexed (v1 scope). `customers:customer_interaction` config indexes only `title` + `source`. |
+| packages/search/AGENTS.md | `checksumSource` in every `buildSource` return | Compliant | Declared in §Search configuration. |
+| packages/search/AGENTS.md | `formatResult` for token strategy | Compliant | Declared in §Search configuration. |
+| packages/core/src/modules/integrations/AGENTS.md | Provider packages use auto-discovered routes, not `registerWebhookHandler` | Compliant | Transcription adapters use `api/POST/webhooks/transcription/<vendor>.ts`; parent §Proposed Solution.2 documents the convention. |
+| packages/core/src/modules/integrations/AGENTS.md | `integration.ts` per provider with `hub` value | Compliant | New `call_transcripts` hub introduced; each sub-spec declares `integration.ts` against it. |
+| packages/core/src/modules/integrations/AGENTS.md | Tenant-scoped credential vault | Compliant | Zoom stores tenant-scoped credentials in the vault. tl;dv (per-user) owns its own encrypted credentials table and stores only a tenant enablement marker in the vault (documented in §Proposed Solution.1 and the tl;dv sub-spec). |
+| packages/webhooks/AGENTS.md | Signed webhook intake; raw body preserved for HMAC | Compliant | Each provider sub-spec documents signature scheme + raw-body discipline. |
+| packages/events/AGENTS.md | `clientBroadcast: true` only on UI-affecting events | Compliant | `customers.call_transcript.ingested` is broadcast; unmatched/reingested/matched are persistent but not broadcast. |
+| packages/cache/AGENTS.md | Tag-based invalidation on writes | Compliant | CRUD side effects on `customers:customer_interaction` fire cache aliases via `emitCrudSideEffects`. |
+| packages/queue/AGENTS.md | Idempotent workers, concurrency declared | Compliant | Polling workers per sub-spec declare concurrency-1 per scope, idempotency check against parent's query index. |
+| BACKWARD_COMPATIBILITY.md | All 13 contract surfaces — additive-only | Compliant | Full matrix in §Backward Compatibility. No renames, no drops, no breaking changes. |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | Pass | Ingest schema's `participants[]` matches junction CHECK constraint; timeline route returns the same shape as the list route. |
+| API contracts match UI/UX section | Pass | `<CallTranscriptCard>` fetches `/api/customers/interactions/:id/transcript`; timeline widget calls `/api/customers/interactions/timeline`; Unmatched inbox calls resolve route. |
+| Risks cover all write operations | Pass | Risks table covers ingest (replay idempotency), unmatched resolve, reingest, retroactive backfill, GDPR delete. |
+| Commands defined for all mutations | Pass | 4 commands (`ingest`, `resolve_unmatched`, `reingest`, `manually_link`); undo contracts documented for each. |
+| Cache strategy covers all read APIs | Pass | `emitCrudSideEffects` + `emitCrudUndoSideEffects` declared on every command. |
+| User stories map to API / data / UI sections | Pass | Explicit mapping in §User Stories / Use Cases. |
+| Specs internally consistent (parent ↔ sub-specs) | Pass | Cross-spec review 2026-04-22 closed all 6 findings; resolution tables in both `ANALYSIS-*.md`. |
+
+### Non-Compliant Items
+
+None at spec time.
+
+### Verdict
+
+**Fully compliant** — pre-implementation review passed. Runtime rows (generated files committed, migrations applied, integration tests green) are verified at implementation PR time per the standard workflow; they are not spec-level gates.
 
 ---
 
@@ -1316,3 +1373,7 @@ This spec ships independently; the AI stack layers on top when its own implement
   - **H1** — removed two review-meta blocks from the intro (*"Resolution summary (from Open Questions gate …)"* and *"## Architectural Review Response (2026-04-22)"* with its 7-row findings table). Both duplicated content already present in this Changelog in richer form. A new reader now goes metadata → TLDR → Overview, per the spec-writing template.
   - **H2** — simplified `Status` from `Draft — Proposed (revised after architectural review ANALYSIS-2026-04-21; all 7 findings addressed in-line)` to `Proposed`. Review history lives in the Changelog, not in the frontmatter.
   - Added an `Architectural reviews` row to the metadata table pointing at the two `ANALYSIS-*` files under `.ai/specs/analysis/` so readers who want the review audit trail can find it.
+- **2026-04-22** — Alignment pass against OM spec house style (surveyed `SPEC-045`, `SPEC-060`, `customers-lead-funnel`, `auto-implement-spec-skill`):
+  - Added `## User Stories / Use Cases` section between §Proposed Solution and §Architecture. Content is the same 6 functional requirements that previously lived inline under §Problem Statement ("The feature must:"), reframed as `**Role** wants **Action** so that **Benefit**` per the OM convention and extended to 7 stories including the compliance officer perspective. Added an explicit mapping from each story to the downstream section(s) that satisfy it.
+  - Dropped the "The feature must:" list from §Problem Statement — now pure narrative pain description, as the template specifies.
+  - Filled `## Final Compliance Report — 2026-04-22` (previously a template stub). AGENTS.md files reviewed, compliance matrix with ~30 rows, internal consistency check, verdict. Runtime-only rows (generated files, migrations, integration-test green) explicitly marked "verify at implementation PR time" rather than left unchecked.
