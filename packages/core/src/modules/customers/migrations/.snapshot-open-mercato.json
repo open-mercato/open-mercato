@@ -4045,7 +4045,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "'example:todo'",
+          "default": "'customers:interaction'",
           "comment": null,
           "enumItems": [],
           "mappedType": "text"

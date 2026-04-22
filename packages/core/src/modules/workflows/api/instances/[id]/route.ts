@@ -12,8 +12,10 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowInstance } from '../../../data/entities'
 import * as workflowExecutor from '../../../lib/workflow-executor'
+import { workflowInstanceResponseSchema } from '../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -47,11 +49,11 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
-    if (!tenantId || !organizationId) {
+    if (!tenantId) {
       return NextResponse.json(
-        { error: 'Missing tenant or organization context' },
+        { error: 'Missing tenant context' },
         { status: 400 }
       )
     }
@@ -59,7 +61,7 @@ export async function GET(
     const instance = await em.findOne(WorkflowInstance, {
       id: params.id,
       tenantId,
-      organizationId,
+      ...orgFilter.where,
     })
 
     if (!instance) {
@@ -93,7 +95,7 @@ export const openApi = {
           status: 200,
           description: 'Workflow instance details',
           schema: z.object({
-            data: z.any(),
+            data: workflowInstanceResponseSchema,
           }),
         },
         {

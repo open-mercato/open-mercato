@@ -61,6 +61,8 @@ export type ExecutionResult = z.infer<typeof executionResultSchema>
 // Uses runtime validation to check structure, nesting, and field paths
 function createConditionExpressionSchema(t?: TranslatorFn) {
   return z.any()
+    .optional()
+    .nullable()
     .superRefine((val, ctx) => {
       // Null/undefined is allowed (optional field)
       if (val === null || val === undefined) return
@@ -119,6 +121,36 @@ const dateOrNull = z.preprocess((value) => {
   return Number.isNaN(date.getTime()) ? null : date
 }, z.date().nullable())
 
+// Cross-field refine: effectiveTo must be later than effectiveFrom when both are provided.
+// Accepts Date objects, ISO strings, or null/undefined so it works on both the
+// preprocessed server schemas and the string-based client form schema.
+export const EFFECTIVE_DATE_RANGE_DEFAULT_MESSAGE =
+  'Effective To must be later than Effective From'
+
+function toDateOrNull(value: unknown): Date | null {
+  if (value === undefined || value === null || value === '') return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  const parsed = new Date(String(value))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+export function refineEffectiveDateRange(
+  data: { effectiveFrom?: unknown; effectiveTo?: unknown },
+  ctx: z.RefinementCtx,
+  message: string = EFFECTIVE_DATE_RANGE_DEFAULT_MESSAGE,
+): void {
+  const from = toDateOrNull(data.effectiveFrom)
+  const to = toDateOrNull(data.effectiveTo)
+  if (from === null || to === null) return
+  if (to.getTime() <= from.getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message,
+      path: ['effectiveTo'],
+    })
+  }
+}
+
 // BusinessRule base fields (without condition/action schemas)
 const businessRuleBaseFields = {
   ruleId: z.string().min(1).max(50),
@@ -139,37 +171,61 @@ const businessRuleBaseFields = {
 } as const
 
 // Static schemas (without i18n — used for OpenAPI docs and non-route contexts)
-export const createBusinessRuleSchema = z.object({
-  ...businessRuleBaseFields,
-  conditionExpression: conditionExpressionSchema,
-  successActions: actionsArraySchema,
-  failureActions: actionsArraySchema,
-})
+export const createBusinessRuleSchema = z
+  .object({
+    ...businessRuleBaseFields,
+    conditionExpression: conditionExpressionSchema.optional().nullable(),
+    successActions: actionsArraySchema,
+    failureActions: actionsArraySchema,
+  })
+  .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx))
 
-export type CreateBusinessRuleInput = z.infer<typeof createBusinessRuleSchema>
+export type CreateBusinessRuleInput = z.input<typeof createBusinessRuleSchema>
 
-export const updateBusinessRuleSchema = createBusinessRuleSchema.partial().extend({
-  id: uuid,
-})
+export const updateBusinessRuleSchema = z
+  .object({
+    ...businessRuleBaseFields,
+    conditionExpression: conditionExpressionSchema.optional().nullable(),
+    successActions: actionsArraySchema,
+    failureActions: actionsArraySchema,
+  })
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
+  .partial()
+  .extend({ id: uuid })
+  .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx))
 
-export type UpdateBusinessRuleInput = z.infer<typeof updateBusinessRuleSchema>
+export type UpdateBusinessRuleInput = z.input<typeof updateBusinessRuleSchema>
 
 // Factory functions for i18n-aware schemas (used in API routes with resolveTranslations)
 export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
   const conditionSchema = createConditionExpressionSchema(t)
   const actionsSchema = createActionsArraySchema(t)
-  return z.object({
-    ...businessRuleBaseFields,
-    conditionExpression: conditionSchema,
-    successActions: actionsSchema,
-    failureActions: actionsSchema,
-  })
+  const message = t('business_rules.rules.form.errors.effectiveToBeforeFrom')
+  return z
+    .object({
+      ...businessRuleBaseFields,
+      conditionExpression: conditionSchema.optional().nullable(),
+      successActions: actionsSchema,
+      failureActions: actionsSchema,
+    })
+    .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx, message))
 }
 
 export function createLocalizedUpdateBusinessRuleSchema(t: TranslatorFn) {
-  return createLocalizedBusinessRuleSchema(t).partial().extend({
-    id: uuid,
-  })
+  const conditionSchema = createConditionExpressionSchema(t)
+  const actionsSchema = createActionsArraySchema(t)
+  const message = t('business_rules.rules.form.errors.effectiveToBeforeFrom')
+  return z
+    .object({
+      ...businessRuleBaseFields,
+      conditionExpression: conditionSchema.optional().nullable(),
+      successActions: actionsSchema,
+      failureActions: actionsSchema,
+    })
+    .omit({ tenantId: true, organizationId: true, createdBy: true })
+    .partial()
+    .extend({ id: uuid })
+    .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx, message))
 }
 
 // Query/Filter Schema
@@ -234,9 +290,10 @@ export const createRuleSetSchema = z.object({
 export type CreateRuleSetInput = z.infer<typeof createRuleSetSchema>
 
 // RuleSet Update Schema
-export const updateRuleSetSchema = createRuleSetSchema.partial().extend({
-  id: uuid,
-})
+export const updateRuleSetSchema = createRuleSetSchema
+  .omit({ tenantId: true, organizationId: true, createdBy: true })
+  .partial()
+  .extend({ id: uuid })
 
 export type UpdateRuleSetInput = z.infer<typeof updateRuleSetSchema>
 

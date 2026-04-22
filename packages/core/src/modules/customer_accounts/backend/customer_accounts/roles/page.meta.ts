@@ -18,7 +18,7 @@ const shieldIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['customer_accounts.view'],
-  pageTitle: 'Roles',
+  pageTitle: 'Customer Roles',
   pageTitleKey: 'customer_accounts.nav.roles',
   pageGroup: 'Customer Portal',
   pageGroupKey: 'customer_accounts.settings.section',
@@ -26,6 +26,6 @@ export const metadata = {
   icon: shieldIcon,
   pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'Roles', labelKey: 'customer_accounts.nav.roles' },
+    { label: 'Customer Roles', labelKey: 'customer_accounts.nav.roles' },
   ],
 } as const

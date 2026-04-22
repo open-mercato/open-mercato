@@ -1,5 +1,8 @@
 name: Snapshot Release
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 on:
   push:
     branches: [develop]
@@ -9,6 +12,14 @@ on:
 permissions:
   contents: read
   pull-requests: write
+
+# Serialize snapshot runs per branch — queue rather than cancel.
+# cancel-in-progress: false is intentional: cancelling mid-publish would
+# leave some packages at the new version and others at the previous one,
+# making the npm registry inconsistent. Queuing is the safe behaviour.
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   snapshot:
@@ -20,6 +31,7 @@ jobs:
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
+      packages_json: ${{ steps.release.outputs.packages_json }}
     runs-on: ubuntu-latest
     # Skip PRs from forks (no access to secrets)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
@@ -70,11 +82,13 @@ jobs:
             --tag "${{ steps.channel.outputs.publish_tag }}"
 
           # Extract published version for downstream jobs
-          echo "version=$(jq -r '.version' packages/shared/package.json)" >> $GITHUB_OUTPUT
+          VERSION=$(jq -r '.version' packages/shared/package.json)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
           # Build packages list for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
-            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
+            jq -s --arg version "$VERSION" \
+              '[.[] | select(.private != true and .version == $version) | {name: .name, version: .version}]')
 
           echo "packages_json<<EOF" >> $GITHUB_OUTPUT
           echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
@@ -226,11 +240,9 @@ jobs:
       - name: Wait for npm registry propagation
         run: |
           VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
-          mapfile -t PACKAGES < <(
-            find packages -mindepth 2 -maxdepth 2 -name package.json -not -path "*/node_modules/*" -print | sort | \
-              while read -r manifest; do
-                jq -r 'select(.private != true) | .name' "$manifest"
-              done
+          mapfile -t PACKAGES < <(jq -r '.[].name' <<'EOF'
+          ${{ needs.snapshot.outputs.packages_json }}
+          EOF
           )
 
           echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
@@ -254,7 +266,7 @@ jobs:
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
-        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --registry https://registry.npmjs.org
+        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
@@ -262,13 +274,18 @@ jobs:
           cp .env.example .env
           cat >> .env << 'EOF'
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL=http://localhost:3001
+          NEXT_PUBLIC_APP_URL=http://localhost:3001
           JWT_SECRET=ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
           OM_TEST_MODE=1
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_DISABLE_EMAIL_DELIVERY=1
+          OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
+          MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
+          MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
@@ -280,13 +297,20 @@ jobs:
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
+        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
+        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
+        # on pull_request workflows, which forces immutable installs and fails
+        # with YN0028. Disable both for this scaffolded-app install only — the
+        # monorepo install above still runs with --immutable.
         env:
+          YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
         env:
+          YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
@@ -326,7 +350,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: standalone-integration-results
           path: |

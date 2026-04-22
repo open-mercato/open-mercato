@@ -11,6 +11,8 @@ import { OrganizationSelect } from '@open-mercato/core/modules/directory/compone
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
@@ -32,6 +34,7 @@ type LoadedUser = {
   organizationName: string | null
   roles: string[]
   roleIds: string[]
+  hasPassword: boolean
 }
 
 type UserApiItem = {
@@ -43,6 +46,7 @@ type UserApiItem = {
   organizationName?: string | null
   roles?: unknown
   roleIds?: unknown
+  hasPassword?: boolean
 }
 
 type UserListResponse = {
@@ -114,7 +118,33 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
+  const [resendingInvite, setResendingInvite] = React.useState(false)
+
+  const handleResendInvite = React.useCallback(async () => {
+    if (!id) return
+    setResendingInvite(true)
+    try {
+      const { ok, result } = await apiCall<{ ok?: boolean; warning?: string }>('/api/auth/users/resend-invite', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (ok) {
+        if (result?.warning === 'invite_email_failed') {
+          flash(tRef.current('auth.users.flash.inviteEmailFailed', 'Invite token created but the email could not be sent. Please check your email provider configuration.'), 'warning')
+        } else {
+          flash(tRef.current('auth.users.flash.inviteSent', 'Invitation email sent'), 'success')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to resend invite:', err)
+      flash(tRef.current('auth.users.form.errors.inviteResend', 'Failed to send invitation email'), 'error')
+    } finally {
+      setResendingInvite(false)
+    }
+  }, [id])
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
     () => formatPasswordRequirements(passwordPolicy, t),
@@ -145,6 +175,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
+          setActorResolved(true)
           if (!item) {
             setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
@@ -168,6 +199,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               organizationName: item.organizationName ? String(item.organizationName) : null,
               roles: roleNames,
               roleIds: roleIds.length > 0 ? roleIds : roleNames,
+              hasPassword: item.hasPassword !== false,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom: Record<string, unknown> = {}
@@ -182,6 +214,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         console.error('Failed to load user:', err)
         if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
+        if (!cancelled) setActorResolved(true)
       }
       if (!cancelled) setLoading(false)
       try {
@@ -212,22 +245,34 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return [{ id: selectedTenantId, name, isActive: true }]
   }, [initialUser, selectedTenantId])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
       return fetchRoleOptions(query, { tenantId: selectedTenantId })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
+  const userHasPassword = initialUser?.hasPassword !== false
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
       {
         id: 'password',
-        label: t('auth.users.form.field.password', 'Password'),
-        type: 'text',
-        description: passwordDescription,
+        label: userHasPassword
+          ? t('auth.users.form.field.newPassword', 'New Password')
+          : t('auth.users.form.field.setPassword', 'Set Password'),
+        type: 'password' as const,
+        description: [
+          userHasPassword
+            ? t('auth.users.form.field.passwordChangeHint', 'Leave blank to keep current password')
+            : t('auth.users.form.field.passwordInviteHint', 'Optionally set a password for this user (they were invited via email)'),
+          passwordDescription,
+        ].filter(Boolean).join('. '),
       },
     ]
     if (actorIsSuperAdmin) {
@@ -263,6 +308,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       id: 'organizationId',
       label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
+      required: true,
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : null
         return (
@@ -278,7 +324,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     })
     items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t])
+  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']
@@ -373,6 +419,18 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           loadingMessage={t('auth.users.form.loading', 'Loading user data...')}
           submitLabel={t('auth.users.form.action.save', 'Save')}
           cancelHref="/backend/users"
+          extraActions={id && !userHasPassword ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={resendingInvite}
+              onClick={handleResendInvite}
+            >
+              {resendingInvite
+                ? t('auth.users.form.action.resendingInvite', 'Sending...')
+                : t('auth.users.form.action.resendInvite', 'Resend Invite')}
+            </Button>
+          ) : undefined}
           successRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.updated', 'User saved'))}&type=success`}
           onSubmit={async (values) => {
             if (!id) return

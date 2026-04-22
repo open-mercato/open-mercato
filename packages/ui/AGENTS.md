@@ -118,12 +118,13 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
-- When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md))
-- For form/detail page headers and footers, use `FormHeader` and `FormFooter` from `@open-mercato/ui/backend/forms`. `FormHeader` supports two modes: `edit` (compact, used automatically by CrudForm) and `detail` (large title with entity type label, status badge, Actions dropdown). Delete/Cancel/Save are always standalone buttons; additional context actions (Convert, Send, etc.) go into the `menuActions` array rendered as an "Actions" dropdown. See [SPEC-016](.ai/specs/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
+- When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md))
+- For form/detail page headers and footers, use `FormHeader` and `FormFooter` from `@open-mercato/ui/backend/forms`. `FormHeader` supports two modes: `edit` (compact, used automatically by CrudForm) and `detail` (large title with entity type label, status badge, Actions dropdown). Delete/Cancel/Save are always standalone buttons; additional context actions (Convert, Send, etc.) go into the `menuActions` array rendered as an "Actions" dropdown. See [SPEC-016](.ai/specs/implemented/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
 
 ## DataTable Guidelines
 
 - Use `DataTable` as the default list view.
+- For wide list views where rightmost `rowActions` can scroll out of view, enable `stickyActionsColumn` on the host `DataTable`; keep it opt-in instead of making all actions columns sticky by default.
 - DataTable extension spots include: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters` (in addition to `:header`/`:footer`).
 - Populate `columns` with explicit renderers and set `meta.truncate`/`meta.maxWidth` where truncation is needed.
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
@@ -177,7 +178,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 
 - Prefer existing UI primitives and backend components from `@open-mercato/ui` before creating new ones.
 - For replacement-aware hosts, expose stable handle IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) so overrides are deterministic.
-- Reference @`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md` for the reusable component catalog and usage patterns.
+- Reference @`.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md` for the reusable component catalog and usage patterns.
 - For dialogs and forms, keep the interaction model consistent: `Cmd/Ctrl + Enter` to submit, `Escape` to cancel.
 - Favor composable, data-first helpers (custom field helpers, CRUD helpers, filter utilities) over bespoke logic.
 
@@ -248,18 +249,42 @@ function MyPage({ orgSlug }) {
 | `section:portal:sidebar` | Navigation sidebar |
 | `section:portal:user-menu` | User dropdown |
 
-### Declarative Customer Auth in Page Metadata
+### Portal Page Metadata (REQUIRED)
 
-Portal pages can declare `requireCustomerAuth: true` and `requireCustomerFeatures` in their page metadata:
+Every portal page (any page under `frontend/[orgSlug]/portal/...`) MUST ship a sibling `page.meta.ts`. The `(frontend)` catch-all server-side enforces `requireCustomerAuth` and `requireCustomerFeatures` from the route manifest, so omitting metadata silently disables access control on a page that should be guarded.
+
+Authoring checklist for each portal page:
+- Public pages (`login`, `signup`, `verify`, anonymous landing): set `navHidden: true`. Do not set `requireCustomerAuth`.
+- Authenticated pages: set `requireCustomerAuth: true`.
+- Pages that need feature gating: add `requireCustomerFeatures: ['portal.<feature>']`. Wildcard grants like `portal.*` are honored by the shared matcher.
+- Pages that should appear in the portal sidebar: add a `nav` block (label + group). Pages without `nav` are routable but not auto-listed (correct for detail/edit pages).
 
 ```typescript
 // frontend/[orgSlug]/portal/orders/page.meta.ts
-export const metadata = {
+import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+
+export const metadata: PageMetadata = {
   requireCustomerAuth: true,
   requireCustomerFeatures: ['portal.orders.view'],
-  navHidden: true,
+  titleKey: 'orders.nav.title',
+  title: 'Orders',
+  nav: {
+    label: 'Orders',
+    labelKey: 'orders.nav.title',
+    group: 'main', // 'main' | 'account'
+    order: 20,
+    icon: 'shopping-bag',
+  },
 }
+
+export default metadata
 ```
+
+The portal sidebar is built from these `nav` declarations by `/api/customer_accounts/portal/nav`, filtered by `CustomerRbacService` against the same `requireCustomerFeatures` that gates access. Granting the feature to a customer role is sufficient for the entry to appear — no separate menu-injection widget required.
+
+For external links or items without a backing portal page, keep using `usePortalInjectedMenuItems` widgets.
+
+Reference: see `packages/core/src/modules/portal/frontend/[orgSlug]/portal/{dashboard,profile,login,signup,verify}/page.meta.ts` for examples.
 
 ### Declarative Customer Role Features in setup.ts
 

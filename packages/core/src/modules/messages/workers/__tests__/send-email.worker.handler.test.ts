@@ -33,7 +33,8 @@ describe('messages send-email worker handler', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getMessageEmailAttachmentsMock.mockResolvedValue([])
-    findOneWithDecryptionMock.mockImplementation(async (_em, entity, where) => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: string }) => {
+      if (entity === Message) return baseMessage
       if (entity === User && where.id === 'sender-1') return { id: 'sender-1', name: 'Sender', email: 'sender@example.com' }
       if (entity === User && where.id === 'recipient-1') return { id: 'recipient-1', email: 'recipient@example.com' }
       return null
@@ -41,19 +42,13 @@ describe('messages send-email worker handler', () => {
   })
 
   function createWorkerContext(overrides: Partial<{
-    message: unknown
     recipient: unknown
     nativeUpdateResults: number[]
   }> = {}) {
     const nativeUpdateResults = [...(overrides.nativeUpdateResults ?? [1])]
 
     const emFork = {
-      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
-        if (entity === Message) {
-          if (overrides.message !== undefined) return overrides.message
-          return baseMessage
-        }
-
+      findOne: jest.fn(async (entity: unknown) => {
         if (entity === MessageRecipient) {
           if (overrides.recipient !== undefined) return overrides.recipient
           return {
@@ -63,7 +58,6 @@ describe('messages send-email worker handler', () => {
           }
         }
 
-        if (entity && where?.id) return null
         return null
       }),
       find: jest.fn(async () => []),
@@ -87,7 +81,8 @@ describe('messages send-email worker handler', () => {
   }
 
   it('skips when message does not exist', async () => {
-    const { ctx } = createWorkerContext({ message: null })
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    const { ctx } = createWorkerContext()
 
     await handle(
       {
@@ -126,8 +121,34 @@ describe('messages send-email worker handler', () => {
     expect(sendMessageEmailToExternalMock).not.toHaveBeenCalled()
   })
 
+  it('skips recipient delivery when emailSentAt is already set (idempotency guard)', async () => {
+    const { ctx } = createWorkerContext({
+      recipient: {
+        messageId: 'message-1',
+        recipientUserId: 'recipient-1',
+        emailSentAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    })
+
+    await handle(
+      {
+        payload: {
+          type: 'recipient',
+          messageId: 'message-1',
+          recipientUserId: 'recipient-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        },
+      } as never,
+      ctx as never,
+    )
+
+    expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
+  })
+
   it('releases claim when recipient has no email', async () => {
-    findOneWithDecryptionMock.mockImplementation(async (_em, entity, where) => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: string }) => {
+      if (entity === Message) return baseMessage
       if (entity === User && where.id === 'sender-1') return { id: 'sender-1', name: 'Sender', email: 'sender@example.com' }
       if (entity === User && where.id === 'recipient-1') return { id: 'recipient-1', email: null }
       return null

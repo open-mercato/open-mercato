@@ -24,6 +24,7 @@ import {
   CustomerTagAssignment,
 } from '../data/entities'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -181,15 +182,25 @@ const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
   entityType: E.customers.customer_person_profile,
 }
 
-const personCrudEvents: CrudEventsConfig = {
+const personCrudEvents: CrudEventsConfig<CustomerEntity> = {
   module: 'customers',
   entity: 'person',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
+    entityId: ctx.entity?.id ?? ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+function personEntityIndexEntry(entity: CustomerEntity): QueryIndexEventEntry {
+  return {
+    entityType: E.customers.customer_entity,
+    recordId: entity.id,
+    tenantId: entity.tenantId,
+    organizationId: entity.organizationId,
+  }
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -591,6 +602,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(entity)])
 
     return { entityId: entity.id, personId: profile.id }
   },
@@ -628,7 +640,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       organizationId: entity.organizationId,
       tenantId: entity.tenantId,
     }
-    await em.nativeDelete(CustomerTagAssignment, { entity })
+    await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
     if (profile) {
       await em.remove(profile).flush()
     }
@@ -643,6 +655,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexDeleteEvents(ctx, [personEntityIndexEntry(entity)])
   },
 }
 
@@ -769,6 +782,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(record)])
 
     return { entityId: record.id }
   },
@@ -895,11 +909,12 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await em.flush()
     }
 
+    const indexedEntity = await em.findOne(CustomerEntity, { id: before.entity.id })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
-      entity: await em.findOne(CustomerEntity, { id: before.entity.id }),
+      entity: indexedEntity,
       identifiers: {
         id: before.profile.id ?? before.entity.id,
         organizationId: before.entity.organizationId,
@@ -908,6 +923,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    if (indexedEntity) {
+      await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(indexedEntity)])
+    }
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
@@ -935,13 +953,17 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       ensureOrganizationScope(ctx, record.organizationId)
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       if (profile) em.remove(profile)
-      await em.nativeDelete(CustomerAddress, { entity: record })
-      await em.nativeDelete(CustomerComment, { entity: record })
-      await em.nativeDelete(CustomerActivity, { entity: record })
-      await em.nativeDelete(CustomerInteraction, { entity: record })
-      await em.nativeDelete(CustomerTodoLink, { entity: record })
-      await em.nativeDelete(CustomerTagAssignment, { entity: record })
+      await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
+      if (profile) {
+        await em.nativeDelete(CustomFieldValue, { entityId: PERSON_ENTITY_ID, recordId: profile.id })
+      }
+      await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
       em.remove(record)
       await em.flush()
 
@@ -1014,6 +1036,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         events: personCrudEvents,
       })
 
+      await emitQueryIndexDeleteEvents(ctx, [personEntityIndexEntry(record)])
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
       return { entityId: record.id }
@@ -1163,7 +1186,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerActivity, { entity })
+      await em.nativeDelete(CustomerActivity, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const activity of beforeActivities) {
         const restoredActivity = em.create(CustomerActivity, {
           id: activity.id,
@@ -1185,7 +1208,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerComment, { entity })
+      await em.nativeDelete(CustomerComment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const comment of before.comments) {
         const restoredComment = em.create(CustomerComment, {
           id: comment.id,
@@ -1205,7 +1228,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerAddress, { entity })
+      await em.nativeDelete(CustomerAddress, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const address of before.addresses) {
         const restoredAddress = em.create(CustomerAddress, {
           id: address.id,
@@ -1228,7 +1251,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerTodoLink, { entity })
+      await em.nativeDelete(CustomerTodoLink, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const todo of beforeTodos) {
         const restoredTodo = em.create(CustomerTodoLink, {
           id: todo.id,
@@ -1245,7 +1268,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.flush()
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await em.nativeDelete(CustomerInteraction, { entity })
+      await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const interaction of beforeInteractions) {
         const restoredInteraction = em.create(CustomerInteraction, {
           id: interaction.id,
@@ -1354,6 +1377,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       if (Object.keys(resetValues).length) {
         await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
+      await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, upsertEntries)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },

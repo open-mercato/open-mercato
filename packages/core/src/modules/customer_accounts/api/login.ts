@@ -16,7 +16,7 @@ import {
   customerLoginIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function POST(req: Request) {
   let body: unknown
@@ -68,6 +68,15 @@ export async function POST(req: Request) {
   if (!passwordValid) {
     await customerUserService.incrementFailedAttempts(user)
     void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(() => undefined)
+    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+  }
+
+  if (!user.emailVerifiedAt) {
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', {
+      email,
+      reason: 'email_not_verified',
+      tenantId,
+    }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 

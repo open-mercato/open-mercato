@@ -59,7 +59,7 @@ test.describe('TC-INT-003: Integration health check and logs APIs', () => {
     expect(healthResponse.status()).toBe(200)
     const healthBody = await readJson(healthResponse)
     expect(healthBody).toHaveProperty('status')
-    expect(['healthy', 'degraded', 'unhealthy', 'unknown']).toContain(healthBody.status)
+    expect(['healthy', 'degraded', 'unhealthy', 'unconfigured']).toContain(healthBody.status)
     expect(healthBody).toHaveProperty('checkedAt')
     expect(typeof healthBody.checkedAt).toBe('string')
   })

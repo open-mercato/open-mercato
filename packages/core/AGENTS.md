@@ -41,6 +41,32 @@ All module paths use `src/modules/<module>/` as shorthand.
 - Subscribers: `subscribers/*.ts` — export default handler + `metadata` with `{ event: string, persistent?: boolean, id?: string }`
 - Workers: `workers/*.ts` — export default handler + `metadata` with `{ queue: string, id?: string, concurrency?: number }`
 
+### Portal Pages (Frontend sub-convention)
+
+Customer portal pages live under the standard frontend tree with a required `[orgSlug]` segment:
+
+- `frontend/[orgSlug]/portal/<path>/page.tsx` → `/{orgSlug}/portal/<path>`
+- `[orgSlug]` MUST be the first segment — portal auth, tenant resolution, and the portal shell all assume this shape
+- Any third-party module can contribute portal pages this way; the `(frontend)` catch-all handles the route
+
+Portal pages MUST ship a sibling `page.meta.ts` (see [packages/ui/AGENTS.md → Portal Extension](../ui/AGENTS.md)). That file:
+- Declares `requireCustomerAuth` / `requireCustomerFeatures` — enforced server-side by the `(frontend)` catch-all via `CustomerRbacService`
+- Optionally declares a `nav` block — when present, the page is auto-listed in the portal sidebar by `/api/customer_accounts/portal/nav` (RBAC-filtered)
+
+Example:
+```typescript
+// frontend/[orgSlug]/portal/orders/page.meta.ts
+import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+
+export const metadata: PageMetadata = {
+  requireCustomerAuth: true,
+  requireCustomerFeatures: ['portal.orders.view'],
+  nav: { label: 'Orders', labelKey: 'orders.nav.title', group: 'main', order: 20 },
+}
+```
+
+Granting the feature to a customer role is sufficient for the entry to appear — no separate menu-injection widget is required. For pages without a sidebar entry (detail/create/edit), omit the `nav` block. For external links without a backing page, use `usePortalInjectedMenuItems` widgets instead.
+
 ### Page Metadata
 
 - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`
@@ -100,7 +126,7 @@ Follow the customers module API patterns (CRUD factory + query engine):
 
 Every module participating in tenant initialization must declare `setup.ts`. The generator auto-discovers these files.
 
-See [SPEC-013](../../.ai/specs/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
+See [SPEC-013](../../.ai/specs/implemented/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
 
 ```typescript
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
@@ -184,7 +210,7 @@ Event fields: `id` (required), `label` (required), `description`, `category` (`c
 
 MUST use `as const` — provides compile-time safety; undeclared events trigger TypeScript errors and runtime warnings.
 
-Run `npm run modules:prepare` after creating/modifying `events.ts` files.
+Run `yarn generate` after creating/modifying `events.ts` files.
 
 ## Translatable Fields
 
@@ -199,7 +225,7 @@ export const translatableFields: Record<string, string[]> = {
 
 When a module defines `translations.ts`, all its entity types automatically get the Translation Manager widget injected into their CrudForm edit pages.
 
-Run `npm run modules:prepare` after creating/modifying `translations.ts` files.
+Run `yarn generate` after creating/modifying `translations.ts` files.
 
 ### Event Subscribers
 
@@ -374,7 +400,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 - Do not hand-roll AES/KMS calls; rely on `TenantDataEncryptionService`
 - Query index: keep `entity_indexes.doc` encrypted at rest; use `decryptIndexDocCustomFields`, `decryptIndexDocForSearch`
 - Vector search: `result_title`/`result_subtitle`/`result_icon` encrypted at rest
-- When adding GDPR-relevant fields, update encryption defaults in `src/modules/entities/lib/encryptionDefaults.ts`
+- When adding GDPR-relevant fields, declare or update the module's `encryption.ts` `defaultEncryptionMaps` export
 
 ## Command Side Effects
 
@@ -463,7 +489,7 @@ Output to `apps/mercato/.mercato/generated/`. Never edit manually. Never import 
 | `ai-tools.generated.ts` | AI tool definitions |
 | `modules.cli.generated.ts` | CLI module registrations |
 
-Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+Run `yarn generate` or rely on `predev`/`prebuild`.
 
 ## Response Enrichers
 

@@ -102,6 +102,21 @@ Homebrew is available in all terminal sessions (bash, zsh). Install tools as nee
 | 12 GB Docker Desktop memory | Turbopack compilation + 14 package watchers + workers spike to ~8-10 GB during page compilation |
 | Always regenerate `.env` | New keys from `.env.example` appear automatically on rebuild; personal overrides live in `.env.local` |
 
+## Personal Overrides (Sibling Repos, Extra Mounts)
+
+`.devcontainer/docker-compose.local.yml` is a gitignored file for personal overrides. It's auto-created (empty) on first container build. Edit it to add your own bind mounts, env vars, or services without modifying tracked files.
+
+**Example — mount a sibling repo:**
+
+```yaml
+services:
+  workspace:
+    volumes:
+      - ../../my-other-repo:/workspace/.external/my-other-repo:cached
+```
+
+After editing, run **Dev Containers: Rebuild Container** to pick up the changes. The sibling repo will appear under `.external/` in the VS Code explorer. This directory is gitignored and invisible to monorepo tooling (turbo, eslint).
+
 ## Common Tasks
 
 | Task | Command |
@@ -134,6 +149,7 @@ When the project evolves, the Dev Container setup may need updates. Here's when 
 | `Dockerfile` | Base image (Debian-slim), system packages, Python/Ruby/Homebrew, Claude Code (native install), Yarn version |
 | `docker-compose.yml` | Service definitions, static named volumes, environment variables, health checks, networking |
 | `docker-compose.volumes.yml` | Auto-generated — named volumes for every `packages/*/dist` directory (gitignored) |
+| `docker-compose.local.yml` | Personal overrides — extra bind mounts, env vars, services (gitignored, auto-created if missing) |
 | `devcontainer.json` | VS Code integration — lifecycle commands, port forwarding, extensions, env forwarding |
 | `scripts/generate-compose-volumes.sh` | Scans `packages/*/` and generates `docker-compose.volumes.yml` |
 | `scripts/setup-env.sh` | `.env` generation — hostname rewrites, uncommented services, container-specific defaults |

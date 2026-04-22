@@ -56,6 +56,14 @@ type ApiVersion = {
   migrationGuide?: string
 }
 
+type IntegrationLogAnalytics = {
+  lastActivityAt: string | null
+  totalCount: number
+  errorCount: number
+  errorRate: number
+  dailyCounts: number[]
+}
+
 type IntegrationDetail = {
   integration: {
     id: string
@@ -80,8 +88,12 @@ type IntegrationDetail = {
     reauthRequired: boolean
     lastHealthStatus: string | null
     lastHealthCheckedAt: string | null
+    lastHealthLatencyMs: number | null
+    enabledAt: string | null
   }
   hasCredentials: boolean
+  healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
+  analytics: IntegrationLogAnalytics
 }
 
 type LogEntry = {
@@ -103,10 +115,11 @@ type IntegrationDetailPageProps = {
 }
 
 type HealthCheckResponse = {
-  status: 'healthy' | 'degraded' | 'unhealthy'
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   message: string | null
   details: Record<string, unknown> | null
   checkedAt: string
+  latencyMs: number | null
 }
 
 const LOG_LEVEL_STYLES: Record<string, string> = {
@@ -119,12 +132,39 @@ const HEALTH_STATUS_STYLES: Record<string, string> = {
   healthy: 'bg-green-100 text-green-800',
   degraded: 'bg-yellow-100 text-yellow-800',
   unhealthy: 'bg-red-100 text-red-800',
+  unconfigured: 'bg-zinc-100 text-zinc-700',
 }
 
 const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
   healthy: CheckCircle2,
   degraded: AlertTriangle,
   unhealthy: XCircle,
+  unconfigured: AlertTriangle,
+}
+
+function DetailLogSparkline({ counts, className }: { counts: number[]; className?: string }) {
+  const max = Math.max(1, ...counts)
+  const w = 120
+  const h = 36
+  const step = counts.length > 1 ? w / (counts.length - 1) : w
+  const points = counts.map((count, index) => {
+    const x = index * step
+    const y = h - (count / max) * (h - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg width={w} height={h} className={className} aria-hidden>
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={points}
+        className="text-muted-foreground/80"
+      />
+    </svg>
+  )
 }
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -494,7 +534,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         }, { fallback: null }),
       })
       if (call.ok) {
-        setDetail((prev) => prev ? { ...prev, state: { ...prev.state, isEnabled: enabled } } : prev)
+        setDetail((prev) => prev ? {
+          ...prev,
+          state: {
+            ...prev.state,
+            isEnabled: enabled,
+            enabledAt: enabled ? new Date().toISOString() : prev.state.enabledAt,
+          },
+        } : prev)
         flash(t('integrations.detail.stateUpdated'), 'success')
       } else {
         flash(t('integrations.detail.stateError'), 'error')
@@ -588,10 +635,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         setLatestHealthResult(result)
         setDetail((prev) => prev ? {
           ...prev,
+          healthStatus: result.status,
           state: {
             ...prev.state,
-            lastHealthStatus: result.status,
-            lastHealthCheckedAt: result.checkedAt,
+            lastHealthStatus: result.status === 'unconfigured' ? prev.state.lastHealthStatus : result.status,
+            lastHealthCheckedAt: result.status === 'unconfigured' ? prev.state.lastHealthCheckedAt : result.checkedAt,
+            lastHealthLatencyMs: result.latencyMs ?? prev.state.lastHealthLatencyMs,
           },
         } : prev)
         void refreshLogs()
@@ -692,23 +741,31 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? { ...healthDetailsSource, code: latestHealthLog.code }
     : healthDetailsSource
   const healthDetailEntries = Object.entries(healthDetails)
-  const healthStatusDescription = state?.lastHealthStatus
+  const resolvedIntegration = detail?.integration ?? null
+  const resolvedState = detail?.state ?? null
+  const displayHealthStatus =
+    latestHealthResult?.status ?? detail?.healthStatus ?? resolvedState?.lastHealthStatus ?? 'unconfigured'
+
+  const healthStatusDescription = displayHealthStatus && displayHealthStatus !== 'unconfigured'
     ? t(
-      `integrations.detail.health.meaning.${state.lastHealthStatus}`,
-      state.lastHealthStatus === 'healthy'
+      `integrations.detail.health.meaning.${displayHealthStatus}`,
+      displayHealthStatus === 'healthy'
         ? 'The provider responded successfully using the current credentials.'
-        : state.lastHealthStatus === 'degraded'
+        : displayHealthStatus === 'degraded'
           ? 'The provider responded, but reported warnings or limited functionality.'
           : integration?.id === 'gateway_stripe'
             ? 'Stripe rejected the last check. This usually means the secret key is invalid, missing required permissions, revoked, or Stripe was temporarily unavailable.'
             : 'The last check failed. This usually means invalid credentials, missing permissions, or a provider outage.',
     )
-    : null
+    : displayHealthStatus === 'unconfigured'
+      ? t(
+        'integrations.detail.health.meaning.unconfigured',
+        'Credentials or a health check are not configured, or the integration has not been probed yet.',
+      )
+      : null
 
-  const resolvedIntegration = detail?.integration ?? null
-  const resolvedState = detail?.state ?? null
   const CategoryIcon = resolvedIntegration?.category ? CATEGORY_ICONS[resolvedIntegration.category] : null
-  const HealthStatusIcon = resolvedState?.lastHealthStatus ? HEALTH_STATUS_ICONS[resolvedState.lastHealthStatus] : null
+  const HealthStatusIcon = HEALTH_STATUS_ICONS[displayHealthStatus] ?? null
   const prioritizedInjectedTabs = resolvedIntegration?.id === 'sync_akeneo'
     ? [...injectedTabs].sort((left, right) => {
       const leftPriority = isAkeneoSettingsTab(left) ? 1 : 0
@@ -803,6 +860,30 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             ) : null}
           </div>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t('integrations.detail.analytics.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>
+                {t('integrations.detail.analytics.totalEvents', { count: detail.analytics.totalCount })}
+              </p>
+              <p>
+                {t('integrations.detail.analytics.errorRate', {
+                  rate: `${Math.round(detail.analytics.errorRate * 1000) / 10}%`,
+                })}
+              </p>
+              <p>
+                {detail.analytics.lastActivityAt
+                  ? `${t('integrations.detail.analytics.lastActivity')}: ${new Date(detail.analytics.lastActivityAt).toLocaleString()}`
+                  : t('integrations.detail.analytics.never')}
+              </p>
+            </div>
+            <DetailLogSparkline counts={detail.analytics.dailyCounts} />
+          </CardContent>
+        </Card>
 
         <section className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-4">
@@ -1048,10 +1129,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 </CardHeader>
                 <CardContent className="space-y-3 px-5">
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3">
-                    {resolvedState.lastHealthStatus ? (
-                      <Badge className={`gap-1.5 ${HEALTH_STATUS_STYLES[resolvedState.lastHealthStatus] ?? ''}`}>
+                    {displayHealthStatus ? (
+                      <Badge className={`gap-1.5 ${HEALTH_STATUS_STYLES[displayHealthStatus] ?? ''}`}>
                         {HealthStatusIcon ? <HealthStatusIcon className="h-3.5 w-3.5" /> : null}
-                        {t(`integrations.detail.health.${resolvedState.lastHealthStatus}`)}
+                        {t(`integrations.detail.health.${displayHealthStatus}`)}
                       </Badge>
                     ) : (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">

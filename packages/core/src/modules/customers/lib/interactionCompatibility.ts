@@ -5,6 +5,7 @@ export const CUSTOMER_INTERACTION_TASK_SOURCE = 'customers:interaction'
 export const CUSTOMER_INTERACTION_TASK_TYPE = 'task'
 export const CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE = 'adapter:activity'
 export const CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE = 'adapter:todo'
+export const EXAMPLE_TODO_SOURCE = 'example:todo'
 
 export type InteractionRecord = InteractionSummary & {
   authorName?: string | null
@@ -48,6 +49,7 @@ export function mapInteractionRecordToActivitySummary(interaction: InteractionRe
 
 export function mapInteractionRecordToTodoSummary(interaction: InteractionRecord): TodoLinkSummary {
   const customValues: Record<string, unknown> = { ...(interaction.customValues ?? {}) }
+  const externalHref = resolveExampleIntegrationHref(interaction)
   if (interaction.priority !== undefined) customValues.priority = interaction.priority
   if (interaction.body !== undefined && customValues.description === undefined) {
     customValues.description = interaction.body ?? null
@@ -73,5 +75,19 @@ export function mapInteractionRecordToTodoSummary(interaction: InteractionRecord
     dueAt: interaction.scheduledAt ?? null,
     todoOrganizationId: null,
     customValues: Object.keys(customValues).length > 0 ? customValues : null,
+    externalHref,
   }
+}
+
+type IntegrationCarrier = {
+  _integrations?: {
+    example?: { href?: string | null; syncStatus?: string | null; [key: string]: unknown }
+    [key: string]: unknown
+  }
+}
+
+export function resolveExampleIntegrationHref(item: IntegrationCarrier): string | null {
+  const example = item._integrations?.example
+  if (!example || typeof example !== 'object') return null
+  return typeof example.href === 'string' && example.href.trim().length > 0 ? example.href : null
 }

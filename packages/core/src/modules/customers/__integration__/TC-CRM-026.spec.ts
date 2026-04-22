@@ -180,6 +180,8 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
   });
 
   test('should filter by status and interactionType', async ({ request }) => {
+    test.slow();
+
     let token: string | null = null;
     let companyId: string | null = null;
     const interactionIds: string[] = [];
@@ -189,17 +191,21 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
       companyId = await createCompanyFixture(request, token, `QA CRM026 Filter ${Date.now()}`);
 
       // Create a call (planned) and a meeting (planned, then complete it)
-      const callRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
-        token,
-        data: { entityId: companyId, interactionType: 'call', title: 'CRM-026 filter call', scheduledAt: '2026-08-01T10:00:00Z' },
-      });
+      const [callRes, meetingRes] = await Promise.all([
+        apiRequest(request, 'POST', '/api/customers/interactions', {
+          token,
+          data: { entityId: companyId, interactionType: 'call', title: 'CRM-026 filter call', scheduledAt: '2026-08-01T10:00:00Z' },
+        }),
+        apiRequest(request, 'POST', '/api/customers/interactions', {
+          token,
+          data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 filter meeting', scheduledAt: '2026-09-01T14:00:00Z' },
+        }),
+      ]);
+      expect(callRes.status()).toBe(201);
       const call = await readJsonSafe<JsonRecord>(callRes);
       if (typeof call?.id === 'string') interactionIds.push(call.id);
 
-      const meetingRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
-        token,
-        data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 filter meeting', scheduledAt: '2026-09-01T14:00:00Z' },
-      });
+      expect(meetingRes.status()).toBe(201);
       const meeting = await readJsonSafe<JsonRecord>(meetingRes);
       if (typeof meeting?.id === 'string') interactionIds.push(meeting.id);
 
@@ -210,14 +216,16 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
       });
 
       // Filter by status=planned
-      const plannedRes = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}&status=planned`, { token });
+      const [plannedRes, callsRes] = await Promise.all([
+        apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}&status=planned`, { token }),
+        apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}&interactionType=call`, { token }),
+      ]);
       const plannedItems = ((await readJsonSafe<JsonRecord>(plannedRes))?.items as JsonRecord[]) ?? [];
       expect(plannedItems.every((i) => i.status === 'planned')).toBeTruthy();
       expect(plannedItems.some((i) => i.id === call?.id)).toBeTruthy();
       expect(plannedItems.some((i) => i.id === meeting?.id)).toBeFalsy();
 
       // Filter by interactionType=call
-      const callsRes = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}&interactionType=call`, { token });
       const callItems = ((await readJsonSafe<JsonRecord>(callsRes))?.items as JsonRecord[]) ?? [];
       expect(callItems.every((i) => i.interactionType === 'call')).toBeTruthy();
     } finally {
@@ -292,4 +300,5 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
   });
+
 });

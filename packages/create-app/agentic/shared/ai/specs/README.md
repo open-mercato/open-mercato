@@ -16,8 +16,8 @@ it's almost certainly an app-level decision.
 
 ## Naming convention
 
-SPEC-{number}-{YYYY-MM-DD}-{slug}.md
-Example: SPEC-001-2026-03-01-inventory-module.md
+{YYYY-MM-DD}-{slug}.md
+Example: 2026-03-01-inventory-module.md
 
 ## Workflow
 

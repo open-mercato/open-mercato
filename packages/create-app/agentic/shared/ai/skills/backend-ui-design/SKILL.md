@@ -218,3 +218,11 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 - **Detail pages**: Header + Tabs/Sections + Related data
 - **Create/Edit**: Full-page CrudForm or Dialog with embedded CrudForm
 - **Settings**: Grouped sections with inline editing
+
+## Page Navigation Metadata
+
+Every backend page needs correct `page.meta.ts` for sidebar placement.
+See `.ai/skills/module-scaffold/references/navigation-patterns.md` for:
+- Complete field reference (`pageGroup`, `pageOrder`, `pageContext`, `navHidden`)
+- Settings page pattern (`pageContext: 'settings' as const` + `navHidden: true`)
+- Common anti-patterns (missing group, mismatched keys, broken icons)

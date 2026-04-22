@@ -17,6 +17,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
+import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
+import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import {
   DictionaryValue,
   renderDictionaryColor,
@@ -26,8 +28,12 @@ import {
 } from '../../../lib/dictionaries'
 import {
   useCustomFieldDefs,
-  filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import {
+  mapCustomFieldKindToFilterType,
+  normalizeCustomFieldFilterOptions,
+  supportsCustomFieldColumn,
+} from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
 
@@ -37,6 +43,13 @@ type CompanyRow = {
   description?: string | null
   email?: string | null
   phone?: string | null
+  legalName?: string | null
+  brandName?: string | null
+  domain?: string | null
+  websiteUrl?: string | null
+  industry?: string | null
+  sizeBucket?: string | null
+  annualRevenue?: string | null
   status?: string | null
   lifecycleStage?: string | null
   nextInteractionAt?: string | null
@@ -71,6 +84,18 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const description = typeof item.description === 'string' ? item.description : null
   const email = typeof item.primary_email === 'string' ? item.primary_email : null
   const phone = typeof item.primary_phone === 'string' ? item.primary_phone : null
+  const legalName = typeof item.legal_name === 'string' ? item.legal_name : null
+  const brandName = typeof item.brand_name === 'string' ? item.brand_name : null
+  const domain = typeof item.domain === 'string' ? item.domain : null
+  const websiteUrl = typeof item.website_url === 'string' ? item.website_url : null
+  const industry = typeof item.industry === 'string' ? item.industry : null
+  const sizeBucket = typeof item.size_bucket === 'string' ? item.size_bucket : null
+  const annualRevenue =
+    typeof item.annual_revenue === 'string'
+      ? item.annual_revenue
+      : typeof item.annual_revenue === 'number'
+        ? String(item.annual_revenue)
+        : null
   const status = typeof item.status === 'string' ? item.status : null
   const lifecycleStage = typeof item.lifecycle_stage === 'string' ? item.lifecycle_stage : null
   const nextInteractionAt = typeof item.next_interaction_at === 'string' ? item.next_interaction_at : null
@@ -91,6 +116,13 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     description,
     email,
     phone,
+    legalName,
+    brandName,
+    domain,
+    websiteUrl,
+    industry,
+    sizeBucket,
+    annualRevenue,
     status,
     lifecycleStage,
     nextInteractionAt,
@@ -107,11 +139,13 @@ export default function CustomersCompaniesPage() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<CompanyRow[]>([])
   const [page, setPage] = React.useState(1)
-  const [pageSize] = React.useState(20)
+  const [pageSize, setPageSize] = React.useState(20)
+  const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>({ logic: 'and', conditions: [] })
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
@@ -131,6 +165,10 @@ export default function CustomersCompaniesPage() {
   const queryClient = useQueryClient()
   const t = useT()
   const router = useRouter()
+  const handlePageSizeChange = React.useCallback((newSize: number) => {
+    setPageSize(newSize)
+    setPage(1)
+  }, [])
   const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
       const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
@@ -266,6 +304,7 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.tags'),
       type: 'tags',
       loadOptions: loadTagOptions,
+      formatValue: (value: string) => tagIdToLabel[value] ?? value,
     },
     {
       id: 'createdAt',
@@ -293,12 +332,16 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, t])
+  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, tagIdToLabel, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
+    if (sorting.length > 0) {
+      params.set('sort', sorting[0].id)
+      params.set('order', sorting[0].desc ? 'desc' : 'asc')
+    }
     if (search.trim()) params.set('search', search.trim())
     const status = filterValues.status
     if (typeof status === 'string' && status.trim()) params.set('status', status)
@@ -358,8 +401,12 @@ export default function CustomersCompaniesPage() {
         if (stringValue) params.set(key, stringValue)
       }
     })
+    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    for (const [key, val] of Object.entries(advancedParams)) {
+      params.set(key, val)
+    }
     return params.toString()
-  }, [filterValues, page, pageSize, search, tagIdToLabel, tagLabelToId])
+  }, [advancedFilterState, filterValues, page, pageSize, search, sorting, tagIdToLabel, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
@@ -439,6 +486,35 @@ export default function CustomersCompaniesPage() {
     }
   }, [confirm, handleRefresh, t])
 
+  const handleBulkDelete = React.useCallback(async (selectedRows: CompanyRow[]) => {
+    const confirmed = await confirm({
+      title: t('customers.companies.list.bulkDelete.title', 'Delete {count} companies?', { count: selectedRows.length }),
+      description: t('customers.companies.list.bulkDelete.description', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return false
+    let deletedCount = 0
+    for (const row of selectedRows) {
+      try {
+        await apiCallOrThrow(`/api/customers/companies?id=${encodeURIComponent(row.id)}`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        })
+        deletedCount++
+      } catch {}
+    }
+    if (deletedCount > 0) {
+      setRows((prev) => {
+        const deletedIds = new Set(selectedRows.map((r) => r.id))
+        return prev.filter((r) => !deletedIds.has(r.id))
+      })
+      setTotal((prev) => Math.max(0, prev - deletedCount))
+      flash(t('customers.companies.list.bulkDelete.success', '{count} companies deleted', { count: deletedCount }), 'success')
+      setReloadToken((prev) => prev + 1)
+    }
+    return deletedCount > 0
+  }, [confirm, t])
+
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
     Object.entries(values).forEach(([key, value]) => {
@@ -509,6 +585,7 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'name',
         header: t('customers.companies.list.columns.name'),
+        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name' },
         cell: ({ row }) => (
           <Link href={`/backend/customers/companies-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
@@ -518,21 +595,36 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'email',
         header: t('customers.companies.list.columns.email'),
+        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email' },
         cell: ({ row }) => row.original.email || noValue,
+      },
+      {
+        accessorKey: 'phone',
+        header: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
+        meta: { columnChooserGroup: 'Contact', hidden: true, filterKey: 'primary_phone' },
+        cell: ({ row }) => row.original.phone || noValue,
       },
       {
         accessorKey: 'status',
         header: t('customers.companies.list.columns.status'),
+        meta: { filterType: 'select' as const, filterOptions: dictionaryOptions.statuses, columnChooserGroup: 'Basic Info' },
         cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
       },
       {
         accessorKey: 'lifecycleStage',
         header: t('customers.companies.list.columns.lifecycleStage'),
+        meta: {
+          filterType: 'select' as const,
+          filterOptions: dictionaryOptions.lifecycleStages,
+          columnChooserGroup: 'Basic Info',
+          filterKey: 'lifecycle_stage',
+        },
         cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
       },
       {
         accessorKey: 'nextInteractionAt',
         header: t('customers.companies.list.columns.nextInteraction'),
+        meta: { columnChooserGroup: 'Dates', filterKey: 'next_interaction_at' },
         cell: ({ row }) =>
           row.original.nextInteractionAt
             ? (
@@ -560,15 +652,78 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'source',
         header: t('customers.companies.list.columns.source'),
+        meta: { filterType: 'select' as const, filterOptions: dictionaryOptions.sources, columnChooserGroup: 'Basic Info' },
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
+      },
+      {
+        accessorKey: 'legalName',
+        header: t('customers.companies.detail.fields.legalName', 'Legal name'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.legal_name' },
+        cell: ({ row }) => row.original.legalName || noValue,
+      },
+      {
+        accessorKey: 'brandName',
+        header: t('customers.companies.detail.fields.brandName', 'Brand name'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.brand_name' },
+        cell: ({ row }) => row.original.brandName || noValue,
+      },
+      {
+        accessorKey: 'domain',
+        header: t('customers.companies.detail.fields.domain', 'Domain'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.domain' },
+        cell: ({ row }) => row.original.domain || noValue,
+      },
+      {
+        accessorKey: 'websiteUrl',
+        header: t('customers.companies.detail.fields.website', 'Website'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.website_url' },
+        cell: ({ row }) => row.original.websiteUrl || noValue,
+      },
+      {
+        accessorKey: 'industry',
+        header: t('customers.companies.detail.fields.industry', 'Industry'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.industry' },
+        cell: ({ row }) => row.original.industry || noValue,
+      },
+      {
+        accessorKey: 'sizeBucket',
+        header: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
+        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.size_bucket' },
+        cell: ({ row }) => row.original.sizeBucket || noValue,
+      },
+      {
+        accessorKey: 'annualRevenue',
+        header: t('customers.companies.detail.highlights.annualRevenue', 'Annual revenue'),
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.annual_revenue',
+          filterType: 'number' as const,
+        },
+        cell: ({ row }) => row.original.annualRevenue || noValue,
+      },
+      {
+        accessorKey: 'description',
+        header: t('customers.companies.detail.fields.description', 'Description'),
+        meta: { columnChooserGroup: 'Notes', hidden: true, filterKey: 'description' },
+        cell: ({ row }) => row.original.description || noValue,
       },
     ]
 
-    const customColumns = filterCustomFieldDefs(customFieldDefs, 'list').map<ColumnDef<CompanyRow>>((def) => ({
-      accessorKey: `cf_${def.key}`,
-      header: def.label || def.key,
-      cell: ({ getValue }) => renderCustomFieldCell(getValue()),
-    }))
+    const customColumns = customFieldDefs
+      .filter((def) => supportsCustomFieldColumn(def))
+      .map<ColumnDef<CompanyRow>>((def) => ({
+        accessorKey: `cf_${def.key}`,
+        header: def.label || def.key,
+        meta: {
+          columnChooserGroup: def.group?.title ?? 'Custom Fields',
+          filterGroup: def.group?.title ?? 'Custom Fields',
+          filterType: mapCustomFieldKindToFilterType(def.kind),
+          filterOptions: normalizeCustomFieldFilterOptions(def.options),
+          hidden: def.listVisible === false,
+        },
+        cell: ({ getValue }) => renderCustomFieldCell(getValue()),
+      }))
 
     return [...baseColumns, ...customColumns]
   }, [customFieldDefs, dictionaryMaps, t])
@@ -577,6 +732,8 @@ export default function CustomersCompaniesPage() {
     <Page>
       <PageBody>
         <DataTable<CompanyRow>
+          stickyFirstColumn
+          stickyActionsColumn
           title={t('customers.companies.list.title')}
           refreshButton={{
             label: t('customers.companies.list.actions.refresh'),
@@ -590,6 +747,7 @@ export default function CustomersCompaniesPage() {
             </Button>
           )}
           columns={columns}
+          columnChooser={{ auto: true }}
           data={rows}
           exporter={exportConfig}
           searchValue={search}
@@ -602,6 +760,17 @@ export default function CustomersCompaniesPage() {
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
           perspective={{ tableId: 'customers.companies.list' }}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
+          bulkActions={[
+            {
+              id: 'delete',
+              label: t('customers.companies.list.actions.bulkDelete', 'Delete selected'),
+              destructive: true,
+              onExecute: handleBulkDelete,
+            },
+          ]}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -624,7 +793,15 @@ export default function CustomersCompaniesPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, cacheStatus }}
+          advancedFilter={{
+              auto: true,
+              value: advancedFilterState,
+              onChange: setAdvancedFilterState,
+              onApply: () => { setPage(1) },
+              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
+            }}
+          virtualized
+          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
         />
       </PageBody>

@@ -175,6 +175,8 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
       case 'integer': return Number.parseInt(String(v), 10)
       case 'float': return Number.parseFloat(String(v))
       case 'boolean': return parseBooleanToken(String(v)) === true
+      case 'date':
+      case 'datetime': return String(v)
       default: return String(v)
     }
   }

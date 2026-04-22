@@ -51,7 +51,7 @@ async function emitEmailDeliveryEvent(
     error?: string
     tenantId: string
     organizationId?: string | null
-  }
+  },
 ) {
   const eventBus = ctx.resolve<{ emit?: unknown } | null>('eventBus')
   if (!eventBus || typeof eventBus !== 'object' || typeof (eventBus as { emit?: unknown }).emit !== 'function') {
@@ -82,12 +82,18 @@ async function resolveMessageScope(
   em: EntityManager,
   payload: SendMessageEmailJob
 ) {
-  return await em.findOne(Message, {
-    id: payload.messageId,
-    tenantId: payload.tenantId,
-    organizationId: payload.organizationId ?? null,
-    deletedAt: null,
-  })
+  return await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: payload.messageId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null },
+  )
 }
 
 export async function claimRecipientDelivery(
@@ -216,6 +222,7 @@ export default async function handle(
         messageId: message.id,
         target: 'external',
         email: payload.email,
+        recipientUserId: message.senderUserId,
         tenantId: message.tenantId,
         organizationId: message.organizationId ?? null,
       })
@@ -232,6 +239,7 @@ export default async function handle(
         target: 'external',
         email: payload.email,
         error: errorMessage,
+        recipientUserId: message.senderUserId,
         tenantId: message.tenantId,
         organizationId: message.organizationId ?? null,
       })

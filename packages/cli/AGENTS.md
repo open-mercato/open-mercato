@@ -14,7 +14,7 @@ packages/cli/src/
 
 The CLI auto-discovers module files across all packages and `apps/mercato/src/modules/`. It scans for:
 
-- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `ce.ts`
+- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `encryption.ts`, `ce.ts`
 - `search.ts`, `events.ts`, `notifications.ts`, `ai-tools.ts`
 - `generators.ts` — module-level generator plugin declarations (see below)
 - `data/entities.ts`, `data/extensions.ts`
@@ -36,8 +36,9 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 
 ```bash
 yarn generate              # Run all generators
-npm run modules:prepare    # Same as generate (used in predev/prebuild)
 ```
+
+`yarn generate` now performs a best-effort post-step structural cache purge by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
 
 ## Database Migrations
 
@@ -102,3 +103,6 @@ Rules:
 ## Testing Generator Changes
 
 After modifying generator logic, run the generator and verify the output files in `apps/mercato/.mercato/generated/`. Check that all expected modules, entities, and registrations appear correctly.
+
+When `packages/create-app/agentic/` or standalone guide discovery changes, keep `packages/cli/src/lib/agentic-setup.ts` and `packages/cli/build.mjs` in sync so `yarn mercato agentic:init` matches newly scaffolded standalone apps.
+The standalone QA config contract is `.ai/qa/tests/playwright.config.ts`; keep that path aligned across `packages/create-app/agentic/shared/`, `packages/create-app/template/package.json.template`, and `packages/cli/src/lib/testing/integration.ts`.

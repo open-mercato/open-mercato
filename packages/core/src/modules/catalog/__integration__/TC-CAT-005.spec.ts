@@ -28,8 +28,8 @@ test.describe('TC-CAT-005: Create Product Variant', () => {
       await page.getByRole('button', { name: 'Create variant' }).last().click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}`));
-      await expect(page.getByText(variantName)).toBeVisible();
-      await expect(page.getByText(variantSku)).toBeVisible();
+      await expect(page.locator(`a[title="${variantName}"]`)).toBeAttached();
+      await expect(page.locator(`[title="${variantSku}"]`)).toBeAttached();
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }

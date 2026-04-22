@@ -6,6 +6,7 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 
 const BCRYPT_COST = 10
 
@@ -124,6 +125,7 @@ export async function deleteApiKey(
   if (!record) return
   record.deletedAt = new Date()
   await em.persistAndFlush(record)
+  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
   }
@@ -269,6 +271,7 @@ export async function deleteSessionApiKey(
 
   record.deletedAt = new Date()
   await em.persistAndFlush(record)
+  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
 }
 
 /**
@@ -283,28 +286,35 @@ export async function deleteSessionApiKey(
  * @param fn - Function to execute with the API key secret
  * @returns Result of the function
  */
+const ONETIME_KEY_MAX_TTL_MS = 5 * 60 * 1000
+
 export async function withOnetimeApiKey<T>(
   em: EntityManager,
   input: CreateApiKeyInput,
   fn: (secret: string) => Promise<T>
 ): Promise<T> {
+  const maxExpiresAt = new Date(Date.now() + ONETIME_KEY_MAX_TTL_MS)
+  const safeExpiresAt = input.expiresAt && input.expiresAt < maxExpiresAt
+    ? input.expiresAt
+    : maxExpiresAt
+
   const { record, secret } = await createApiKey(em, {
     ...input,
     name: input.name || '__onetime__',
     description: input.description || 'One-time API key',
+    expiresAt: safeExpiresAt,
   })
 
   try {
-    // Execute the function with the API key
     const result = await fn(secret)
     return result
   } finally {
-    // Always delete the API key, even if the function throws
     try {
-      await em.removeAndFlush(record)
+      record.deletedAt = new Date()
+      await em.persistAndFlush(record)
+      getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
     } catch (error) {
-      // Log but don't throw - we don't want cleanup errors to mask the original error
-      console.error('[withOnetimeApiKey] Failed to delete one-time API key:', error)
+      console.error('[withOnetimeApiKey] Failed to soft-delete one-time API key:', error)
     }
   }
 }

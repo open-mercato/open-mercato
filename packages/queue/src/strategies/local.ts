@@ -11,11 +11,16 @@ type LocalState = {
 
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
+  attemptCount?: number
 }
 
 /** Default polling interval in milliseconds */
 const DEFAULT_POLL_INTERVAL = 1000
 const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
+const DEFAULT_MAX_ATTEMPTS = 3
+const RETRY_BACKOFF_BASE_MS = 1000
+
+const fsp = fs.promises
 
 /**
  * Creates a file-based local queue.
@@ -28,6 +33,11 @@ const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
  * - Not suitable for production or multi-process environments
  * - No retry mechanism for failed jobs
+ *
+ * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
+ * block the Node.js event loop. A per-queue promise chain serializes
+ * read-modify-write sequences to preserve the atomicity guarantees the
+ * previous synchronous implementation relied on.
  *
  * @template T - The payload type for jobs
  * @param name - Queue name (used for directory naming)
@@ -53,14 +63,25 @@ export function createLocalQueue<T = unknown>(
   let isProcessing = false
   let activeHandler: JobHandler<T> | null = null
 
+  // Per-queue mutex. Serializes read-modify-write segments so async fs calls
+  // cannot interleave and clobber each other's writes.
+  let fileOpChain: Promise<unknown> = Promise.resolve()
+  function withFileLock<R>(fn: () => Promise<R>): Promise<R> {
+    const run = fileOpChain.then(() => fn(), () => fn())
+    fileOpChain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   // -------------------------------------------------------------------------
   // File Operations
   // -------------------------------------------------------------------------
 
-  function ensureDir(): void {
-    // Use atomic operations to handle race conditions
+  async function ensureDir(): Promise<void> {
     try {
-      fs.mkdirSync(queueDir, { recursive: true })
+      await fsp.mkdir(queueDir, { recursive: true })
     } catch (e: unknown) {
       const error = e as NodeJS.ErrnoException
       if (error.code !== 'EEXIST') throw error
@@ -68,7 +89,7 @@ export function createLocalQueue<T = unknown>(
 
     // Initialize queue file with exclusive create flag
     try {
-      fs.writeFileSync(queueFile, '[]', { encoding: 'utf8', flag: 'wx' })
+      await fsp.writeFile(queueFile, '[]', { encoding: 'utf8', flag: 'wx' })
     } catch (e: unknown) {
       const error = e as NodeJS.ErrnoException
       if (error.code !== 'EEXIST') throw error
@@ -76,26 +97,26 @@ export function createLocalQueue<T = unknown>(
 
     // Initialize state file with exclusive create flag
     try {
-      fs.writeFileSync(stateFile, '{}', { encoding: 'utf8', flag: 'wx' })
+      await fsp.writeFile(stateFile, '{}', { encoding: 'utf8', flag: 'wx' })
     } catch (e: unknown) {
       const error = e as NodeJS.ErrnoException
       if (error.code !== 'EEXIST') throw error
     }
   }
 
-  function backupCorruptedQueueFile(content: string): string {
+  async function backupCorruptedQueueFile(content: string): Promise<string> {
     const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.json`)
-    fs.writeFileSync(backupFile, content, 'utf8')
-    fs.writeFileSync(queueFile, '[]', 'utf8')
+    await fsp.writeFile(backupFile, content, 'utf8')
+    await fsp.writeFile(queueFile, '[]', 'utf8')
     return backupFile
   }
 
-  function readQueue(): StoredJob<T>[] {
-    ensureDir()
+  async function readQueue(): Promise<StoredJob<T>[]> {
+    await ensureDir()
     let content: string
 
     try {
-      content = fs.readFileSync(queueFile, 'utf8')
+      content = await fsp.readFile(queueFile, 'utf8')
     } catch (error: unknown) {
       const readError = error as NodeJS.ErrnoException
       if (readError.code === 'ENOENT') {
@@ -116,30 +137,30 @@ export function createLocalQueue<T = unknown>(
     } catch (error: unknown) {
       const parseError = error as Error
       console.error(`[queue:${name}] Failed to read queue file:`, parseError.message)
-      const backupFile = backupCorruptedQueueFile(content)
+      const backupFile = await backupCorruptedQueueFile(content)
       console.error(`[queue:${name}] Backed up corrupted queue file to ${backupFile} and recreated queue.json`)
       return []
     }
   }
 
-  function writeQueue(jobs: StoredJob<T>[]): void {
-    ensureDir()
-    fs.writeFileSync(queueFile, JSON.stringify(jobs, null, 2), 'utf8')
+  async function writeQueue(jobs: StoredJob<T>[]): Promise<void> {
+    await ensureDir()
+    await fsp.writeFile(queueFile, JSON.stringify(jobs, null, 2), 'utf8')
   }
 
-  function readState(): LocalState {
-    ensureDir()
+  async function readState(): Promise<LocalState> {
+    await ensureDir()
     try {
-      const content = fs.readFileSync(stateFile, 'utf8')
+      const content = await fsp.readFile(stateFile, 'utf8')
       return JSON.parse(content) as LocalState
     } catch {
       return {}
     }
   }
 
-  function writeState(state: LocalState): void {
-    ensureDir()
-    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8')
+  async function writeState(state: LocalState): Promise<void> {
+    await ensureDir()
+    await fsp.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf8')
   }
 
   function generateId(): string {
@@ -151,7 +172,6 @@ export function createLocalQueue<T = unknown>(
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
-    const jobs = readQueue()
     const availableAt = options?.delayMs && options.delayMs > 0
       ? new Date(Date.now() + options.delayMs).toISOString()
       : undefined
@@ -161,8 +181,11 @@ export function createLocalQueue<T = unknown>(
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
     }
-    jobs.push(job)
-    writeQueue(jobs)
+    await withFileLock(async () => {
+      const jobs = await readQueue()
+      jobs.push(job)
+      await writeQueue(jobs)
+    })
     return job.id
   }
 
@@ -173,20 +196,16 @@ export function createLocalQueue<T = unknown>(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
-    const state = readState()
-    const jobs = readQueue()
+    const { state, jobs } = await withFileLock(async () => {
+      const stateRead = await readState()
+      const jobsRead = await readQueue()
+      return { state: stateRead, jobs: jobsRead }
+    })
 
-    // Find jobs that haven't been processed yet
-    const lastProcessedIndex = state.lastProcessedId
-      ? jobs.findIndex((j) => j.id === state.lastProcessedId)
-      : -1
-
-    const pendingJobs = jobs
-      .slice(lastProcessedIndex + 1)
-      .filter((job) => {
-        if (!job.availableAt) return true
-        return new Date(job.availableAt).getTime() <= Date.now()
-      })
+    const pendingJobs = jobs.filter((job) => {
+      if (!job.availableAt) return true
+      return new Date(job.availableAt).getTime() <= Date.now()
+    })
     const jobsToProcess = options?.limit
       ? pendingJobs.slice(0, options.limit)
       : pendingJobs
@@ -194,41 +213,59 @@ export function createLocalQueue<T = unknown>(
     let processed = 0
     let failed = 0
     let lastJobId: string | undefined
-    const jobIdsToRemove = new Set<string>()
+    const completedJobIds = new Set<string>()
+    const deadJobIds = new Set<string>()
+    const retryUpdates = new Map<string, StoredJob<T>>()
 
     for (const job of jobsToProcess) {
+      const attemptNumber = (job.attemptCount ?? 0) + 1
       try {
         await Promise.resolve(
           handler(job, {
             jobId: job.id,
-            attemptNumber: 1,
+            attemptNumber,
             queueName: name,
           })
         )
         processed++
         lastJobId = job.id
-        jobIdsToRemove.add(job.id)
+        completedJobIds.add(job.id)
         console.log(`[queue:${name}] Job ${job.id} completed`)
       } catch (error) {
-        console.error(`[queue:${name}] Job ${job.id} failed:`, error)
+        console.error(`[queue:${name}] Job ${job.id} failed (attempt ${attemptNumber}/${DEFAULT_MAX_ATTEMPTS}):`, error)
         failed++
         lastJobId = job.id
-        jobIdsToRemove.add(job.id) // Remove failed jobs too (matching async strategy)
+        if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
+          console.error(`[queue:${name}] Job ${job.id} exhausted all ${DEFAULT_MAX_ATTEMPTS} attempts, moving to dead letter`)
+          deadJobIds.add(job.id)
+        } else {
+          const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
+          retryUpdates.set(job.id, {
+            ...job,
+            attemptCount: attemptNumber,
+            availableAt: new Date(Date.now() + backoffMs).toISOString(),
+          })
+        }
       }
     }
 
-    // Remove processed jobs from queue (matching async removeOnComplete behavior)
-    if (jobIdsToRemove.size > 0) {
-      const updatedJobs = jobs.filter((j) => !jobIdsToRemove.has(j.id))
-      writeQueue(updatedJobs)
+    const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
+    if (hasChanges) {
+      await withFileLock(async () => {
+        // Re-read so jobs enqueued during handler execution are preserved.
+        const currentJobs = await readQueue()
+        const updatedJobs = currentJobs
+          .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
+          .map((j) => retryUpdates.get(j.id) ?? j)
+        await writeQueue(updatedJobs)
 
-      // Update state with running counts
-      const newState: LocalState = {
-        lastProcessedId: lastJobId,
-        completedCount: (state.completedCount ?? 0) + processed,
-        failedCount: (state.failedCount ?? 0) + failed,
-      }
-      writeState(newState)
+        const newState: LocalState = {
+          lastProcessedId: lastJobId,
+          completedCount: (state.completedCount ?? 0) + processed,
+          failedCount: (state.failedCount ?? 0) + deadJobIds.size,
+        }
+        await writeState(newState)
+      })
     }
 
     return { processed, failed, lastJobId }
@@ -280,16 +317,18 @@ export function createLocalQueue<T = unknown>(
   }
 
   async function clear(): Promise<{ removed: number }> {
-    const jobs = readQueue()
-    const removed = jobs.length
-    writeQueue([])
-    // Reset state but preserve counts for historical tracking
-    const state = readState()
-    writeState({
-      completedCount: state.completedCount,
-      failedCount: state.failedCount,
+    return withFileLock(async () => {
+      const jobs = await readQueue()
+      const removed = jobs.length
+      await writeQueue([])
+      // Reset state but preserve counts for historical tracking
+      const state = await readState()
+      await writeState({
+        completedCount: state.completedCount,
+        failedCount: state.failedCount,
+      })
+      return { removed }
     })
-    return { removed }
   }
 
   async function close(): Promise<void> {
@@ -319,15 +358,17 @@ export function createLocalQueue<T = unknown>(
     completed: number
     failed: number
   }> {
-    const state = readState()
-    const jobs = readQueue()
+    return withFileLock(async () => {
+      const state = await readState()
+      const jobs = await readQueue()
 
-    return {
-      waiting: jobs.length, // All jobs in queue are waiting (processed ones are removed)
-      active: 0, // Local strategy doesn't track active jobs
-      completed: state.completedCount ?? 0,
-      failed: state.failedCount ?? 0,
-    }
+      return {
+        waiting: jobs.length, // All jobs in queue are waiting (processed ones are removed)
+        active: 0, // Local strategy doesn't track active jobs
+        completed: state.completedCount ?? 0,
+        failed: state.failedCount ?? 0,
+      }
+    })
   }
 
   return {

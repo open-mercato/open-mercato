@@ -35,6 +35,7 @@ services:
       - pkg_cli_dist:/app/packages/cli/dist
       - pkg_cache_dist:/app/packages/cache/dist
       - pkg_content_dist:/app/packages/content/dist
+      - pkg_checkout_dist:/app/packages/checkout/dist
       - pkg_events_dist:/app/packages/events/dist
       - pkg_onboarding_dist:/app/packages/onboarding/dist
       - pkg_queue_dist:/app/packages/queue/dist
@@ -44,9 +45,11 @@ services:
       - pkg_create_app_dist:/app/packages/create-app/dist
     ports:
       - "${APP_PORT:-3000}:3000"
+      - "${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
     environment:
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
+      OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
       REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
@@ -189,6 +192,8 @@ volumes:
     name: mercato-pkg-cache-dist-${DEPLOY_ENV:-local}
   pkg_content_dist:
     name: mercato-pkg-content-dist-${DEPLOY_ENV:-local}
+  pkg_checkout_dist:
+    name: mercato-pkg-checkout-dist-${DEPLOY_ENV:-local}
   pkg_events_dist:
     name: mercato-pkg-events-dist-${DEPLOY_ENV:-local}
   pkg_onboarding_dist:

@@ -1494,6 +1494,12 @@ export class SalesInvoiceLine {
   @Property({ name: 'kind', type: 'text', default: 'product' })
   kind: SalesLineKind = 'product'
 
+  @Property({ name: 'name', type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'sku', type: 'text', nullable: true })
+  sku?: string | null
+
   @Property({ name: 'description', type: 'text', nullable: true })
   description?: string | null
 
@@ -1575,6 +1581,9 @@ export class SalesCreditMemo {
   @Property({ name: 'status', type: 'text', nullable: true })
   status?: string | null
 
+  @Property({ name: 'reason', type: 'text', nullable: true })
+  reason?: string | null
+
   @Property({ name: 'issue_date', type: Date, nullable: true })
   issueDate?: Date | null
 
@@ -1642,6 +1651,12 @@ export class SalesCreditMemoLine {
 
   @Property({ name: 'line_number', type: 'integer', default: 0 })
   lineNumber: number = 0
+
+  @Property({ name: 'name', type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'sku', type: 'text', nullable: true })
+  sku?: string | null
 
   @Property({ name: 'description', type: 'text', nullable: true })
   description?: string | null

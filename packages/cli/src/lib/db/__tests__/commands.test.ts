@@ -2,6 +2,7 @@ import {
   sanitizeModuleId,
   validateTableName,
   makeConstraintDropsIdempotent,
+  getMigrationSnapshotName,
   dbGreenfield,
 } from '../commands'
 
@@ -128,6 +129,16 @@ describe('makeConstraintDropsIdempotent', () => {
     const result = makeConstraintDropsIdempotent(sql)
 
     expect(result).toBe(sql)
+  })
+})
+
+describe('getMigrationSnapshotName', () => {
+  it('keeps the historical fixed snapshot name', () => {
+    const snapshotName = getMigrationSnapshotName({
+      getRootDir: () => '/tmp/any-project',
+    })
+
+    expect(snapshotName).toBe('.snapshot-open-mercato')
   })
 })
 

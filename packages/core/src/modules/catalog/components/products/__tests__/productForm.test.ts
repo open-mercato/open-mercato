@@ -13,6 +13,8 @@ import {
   normalizePriceKindSummary,
   formatTaxRateLabel,
   buildOptionSchemaDefinition,
+  resolveVariantMediaFallback,
+  type VariantMediaFallbackInput,
   convertSchemaToProductOptions,
   buildVariantCombinations,
   isConfigurableProductType,
@@ -580,5 +582,62 @@ describe('productFormSchema SKU validation', () => {
       const paths = result.error.issues.map((issue) => issue.path.join('.'))
       expect(paths).toContain('sku')
     }
+  })
+})
+
+describe('resolveVariantMediaFallback', () => {
+  function variant(overrides: Partial<VariantMediaFallbackInput> = {}): VariantMediaFallbackInput {
+    return { isDefault: false, defaultMediaId: null, name: 'Variant', ...overrides }
+  }
+
+  it('returns null when no variants exist', () => {
+    expect(resolveVariantMediaFallback([])).toBeNull()
+  })
+
+  it('returns null when no variant has media', () => {
+    const variants = [
+      variant({ name: 'A', defaultMediaId: null }),
+      variant({ name: 'B', defaultMediaId: null }),
+    ]
+    expect(resolveVariantMediaFallback(variants)).toBeNull()
+  })
+
+  it('prefers the default variant when it has media', () => {
+    const variants = [
+      variant({ name: 'Regular', defaultMediaId: 'media-regular' }),
+      variant({ name: 'Default', isDefault: true, defaultMediaId: 'media-default' }),
+    ]
+    const result = resolveVariantMediaFallback(variants)
+    expect(result).toEqual({ defaultMediaId: 'media-default', variantName: 'Default' })
+  })
+
+  it('falls back to first variant with media when default variant has none', () => {
+    const variants = [
+      variant({ name: 'No Media', isDefault: true, defaultMediaId: null }),
+      variant({ name: 'Has Media', defaultMediaId: 'media-1' }),
+      variant({ name: 'Also Has Media', defaultMediaId: 'media-2' }),
+    ]
+    const result = resolveVariantMediaFallback(variants)
+    expect(result).toEqual({ defaultMediaId: 'media-1', variantName: 'Has Media' })
+  })
+
+  it('returns the only variant with media', () => {
+    const variants = [
+      variant({ name: 'No Media A' }),
+      variant({ name: 'No Media B' }),
+      variant({ name: 'Has Media', defaultMediaId: 'media-3' }),
+    ]
+    const result = resolveVariantMediaFallback(variants)
+    expect(result).toEqual({ defaultMediaId: 'media-3', variantName: 'Has Media' })
+  })
+
+  it('prefers default variant over earlier variant in list order', () => {
+    const variants = [
+      variant({ name: 'First', defaultMediaId: 'media-first' }),
+      variant({ name: 'Second', defaultMediaId: 'media-second' }),
+      variant({ name: 'Default Last', isDefault: true, defaultMediaId: 'media-default' }),
+    ]
+    const result = resolveVariantMediaFallback(variants)
+    expect(result).toEqual({ defaultMediaId: 'media-default', variantName: 'Default Last' })
   })
 })

@@ -4,6 +4,7 @@ import { readSecurityModuleConfig } from '../lib/security-config'
 
 type JwtClaims = {
   sub: string
+  sid?: string | null
   tenantId?: string | null
   orgId?: string | null
   email?: string | null
@@ -24,6 +25,7 @@ function readClaims(token: string): JwtClaims | null {
   if (!sub) return null
   return {
     sub,
+    sid: typeof payload.sid === 'string' ? payload.sid : null,
     tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : null,
     orgId: typeof payload.orgId === 'string' ? payload.orgId : null,
     email: typeof payload.email === 'string' ? payload.email : null,
@@ -70,6 +72,7 @@ export const interceptors: ApiInterceptor[] = [
         const pendingToken = signJwt(
           {
             sub: claims.sub,
+            sid: claims.sid ?? undefined,
             tenantId: claims.tenantId ?? null,
             orgId: claims.orgId ?? null,
             email: claims.email ?? null,
