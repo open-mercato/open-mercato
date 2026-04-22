@@ -383,6 +383,52 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
+    // When search tokens are available, equality filters on joined fields should stay exact
+    // (not use tokenized matching) and route through EXISTS subquery
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    // The join subquery that the parent whereExists wraps MUST still target customer_people
+    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsFilter).toBeTruthy()
+    expect(existsFilter[1]?._ops?.table).toBe('customer_people')
+  })
+
+  test('customFieldSources equality filters stay exact when search is disabled', async () => {
+    // This is the baseline row-set invariant: when the search-tokens table is
+    // absent (searchEnabled=false), $eq must route through the exact EXISTS
+    // subquery path, producing the pre-change `person_profile.id = 'profile-1'`
+    // filter — not the tokenized OR across search-tokens columns.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      customer_people: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_people', column_name: 'id' },
+        { table_name: 'customer_people', column_name: 'tenant_id' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(false)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      filters: {
+        'person_profile.id': { $eq: 'profile-1' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
     const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
     expect(baseCall).toBeTruthy()

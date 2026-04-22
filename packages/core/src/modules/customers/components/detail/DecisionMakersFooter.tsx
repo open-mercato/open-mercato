@@ -1,0 +1,56 @@
+'use client'
+
+import * as React from 'react'
+import { Lightbulb, Send } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
+
+interface DecisionMakersFooterProps {
+  names: string[]
+  suggestion?: string
+  onSendInvitation?: () => void
+}
+
+export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: DecisionMakersFooterProps) {
+  const t = useT()
+
+  if (names.length === 0) return null
+
+  const visibleNames = names.slice(0, 4)
+  const hiddenCount = Math.max(0, names.length - visibleNames.length)
+
+  return (
+    <div className="sticky bottom-0 flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <Lightbulb className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('customers.people.decisionMakers.label', 'Decision Makers')}
+          </p>
+          <p className="break-words text-sm font-medium">
+            {t('customers.people.decisionMakers.count', '{count} key people', { count: names.length })}:
+            {' '}{visibleNames.join(' \u00b7 ')}
+            {hiddenCount > 0 ? ` \u00b7 +${hiddenCount} ${t('customers.people.decisionMakers.more', 'more')}` : ''}
+          </p>
+          {suggestion && (
+            <p className="text-xs text-muted-foreground mt-0.5">{suggestion}</p>
+          )}
+        </div>
+      </div>
+      {onSendInvitation && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="w-full shrink-0 sm:w-auto">
+              <Button type="button" size="sm" disabled className="pointer-events-none w-full sm:w-auto">
+                <Send className="mr-1.5 size-3.5" />
+                {t('customers.people.decisionMakers.sendInvitation', 'Send invitation')}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{t('customers.ai.comingSoon', 'Coming soon')}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  )
+}

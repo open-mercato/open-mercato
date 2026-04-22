@@ -2,11 +2,14 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Link2, Pencil, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LinkEntityDialog } from '../linking/LinkEntityDialog'
+import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -30,7 +33,7 @@ type DealsScope =
   | { kind: 'person'; entityId: string }
   | { kind: 'company'; entityId: string }
 
-type GuardedMutationRunner = <T>(
+type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
@@ -120,10 +123,15 @@ function sanitizeCustomFieldEntries(
   return Array.from(map.values())
 }
 
-type NormalizedDeal = Omit<DealSummary, 'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields'> & {
+type NormalizedDeal = Omit<
+  DealSummary,
+  'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields' | 'personIds' | 'companyIds'
+> & {
   valueAmount: number | null
   probability: number | null
   expectedCloseAt: string | null
+  personIds: string[]
+  companyIds: string[]
   customValues: Record<string, unknown> | null
   customFields: DealCustomFieldEntry[]
 }
@@ -235,6 +243,18 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
         : deal.ownerUserId ?? null,
     source:
       typeof deal.source === 'string' && deal.source.trim().length ? deal.source : deal.source ?? null,
+    closureOutcome:
+      typeof deal.closureOutcome === 'string' && deal.closureOutcome.trim().length
+        ? deal.closureOutcome
+        : deal.closureOutcome ?? null,
+    lossReasonId:
+      typeof deal.lossReasonId === 'string' && deal.lossReasonId.trim().length
+        ? deal.lossReasonId
+        : deal.lossReasonId ?? null,
+    lossNotes:
+      typeof deal.lossNotes === 'string' && deal.lossNotes.trim().length
+        ? deal.lossNotes
+        : deal.lossNotes ?? null,
     createdAt: toIso(deal.createdAt ?? null),
     updatedAt: toIso(deal.updatedAt ?? null),
     personIds,
@@ -244,46 +264,6 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
     customValues,
     customFields,
   }
-}
-
-function buildInitialValues(deal: NormalizedDeal): Partial<DealFormBaseValues & Record<string, unknown>> {
-  const base: Partial<DealFormBaseValues & Record<string, unknown>> = {
-    title: deal.title,
-    status: deal.status ?? '',
-    pipelineStage: deal.pipelineStage ?? '',
-    valueAmount: (() => {
-      if (typeof deal.valueAmount === 'number') return deal.valueAmount
-      if (deal.valueAmount == null) return null
-      const parsed = Number(deal.valueAmount)
-      return Number.isFinite(parsed) ? parsed : null
-    })(),
-    valueCurrency: deal.valueCurrency ?? '',
-    probability: (() => {
-      if (typeof deal.probability === 'number') return deal.probability
-      if (deal.probability == null) return null
-      const parsed = Number(deal.probability)
-      return Number.isFinite(parsed) ? parsed : null
-    })(),
-    expectedCloseAt: deal.expectedCloseAt ?? null,
-    description: deal.description ?? '',
-    personIds: Array.isArray(deal.personIds) ? deal.personIds : [],
-    companyIds: Array.isArray(deal.companyIds) ? deal.companyIds : [],
-  }
-  if (deal.customValues) {
-    for (const [key, value] of Object.entries(deal.customValues)) {
-      base[`cf_${key}`] = value
-    }
-  }
-  if (Array.isArray(deal.customFields)) {
-    deal.customFields.forEach((entry) => {
-      if (!entry || typeof entry.key !== 'string') return
-      const fieldKey = `cf_${entry.key}`
-      if (base[fieldKey] === undefined) {
-        base[fieldKey] = entry.value ?? null
-      }
-    })
-  }
-  return base
 }
 
 function formatValueLabel(amount: number | null, currency: string | null, emptyLabel: string): string {
@@ -307,6 +287,7 @@ export type DealsSectionProps = {
   addActionLabel: string
   emptyLabel: string
   emptyState: TabEmptyStateConfig
+  onCountDelta?: (delta: number) => void
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   onDataRefresh?: () => Promise<void> | void
@@ -319,6 +300,7 @@ export function DealsSection({
   addActionLabel,
   emptyLabel,
   emptyState,
+  onCountDelta,
   onActionChange,
   onLoadingChange,
   onDataRefresh,
@@ -343,8 +325,6 @@ export function DealsSection({
   const pageRef = React.useRef(0)
   const hasMoreRef = React.useRef(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
-  const [editingDealId, setEditingDealId] = React.useState<string | null>(null)
   const [initialValues, setInitialValues] = React.useState<
     Partial<DealFormBaseValues & Record<string, unknown>> | undefined
   >(undefined)
@@ -460,6 +440,24 @@ export function DealsSection({
           typeof record.source === 'string' && record.source.trim().length
             ? record.source
             : null
+        const closureOutcome =
+          typeof record.closureOutcome === 'string' && record.closureOutcome.trim().length
+            ? record.closureOutcome
+            : typeof record.closure_outcome === 'string' && record.closure_outcome.trim().length
+              ? record.closure_outcome
+              : null
+        const lossReasonId =
+          typeof record.lossReasonId === 'string' && record.lossReasonId.trim().length
+            ? record.lossReasonId
+            : typeof record.loss_reason_id === 'string' && record.loss_reason_id.trim().length
+              ? record.loss_reason_id
+              : null
+        const lossNotes =
+          typeof record.lossNotes === 'string' && record.lossNotes.trim().length
+            ? record.lossNotes
+            : typeof record.loss_notes === 'string' && record.loss_notes.trim().length
+              ? record.loss_notes
+              : null
         const createdAt =
           typeof record.createdAt === 'string' && record.createdAt.trim().length
             ? record.createdAt
@@ -503,6 +501,9 @@ export function DealsSection({
           description,
           ownerUserId,
           source,
+          closureOutcome,
+          lossReasonId,
+          lossNotes,
           createdAt,
           updatedAt,
           personIds: personIds as string[] | undefined,
@@ -558,8 +559,6 @@ export function DealsSection({
 
   const openCreateDialog = React.useCallback(() => {
     if (!scope) return
-    setDialogMode('create')
-    setEditingDealId(null)
     setInitialValues({
       personIds: scope.kind === 'person' ? [scope.entityId] : [],
       companyIds: scope.kind === 'company' ? [scope.entityId] : [],
@@ -567,20 +566,141 @@ export function DealsSection({
     setDialogOpen(true)
   }, [scope])
 
-  const openEditDialog = React.useCallback(
-    (deal: NormalizedDeal) => {
-      setDialogMode('edit')
-      setEditingDealId(deal.id)
-      setInitialValues(buildInitialValues(deal))
-      setDialogOpen(true)
+  const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
+  const openLinkDialog = React.useCallback(() => {
+    if (!scope) return
+    setLinkDialogOpen(true)
+  }, [scope])
+
+  const existingDealIds = React.useMemo(() => deals.map((deal) => deal.id), [deals])
+
+  const dealLinkAdapter = React.useMemo(
+    () =>
+      createDealLinkAdapter({
+        dialogTitle: t('customers.linking.deal.dialogTitle', 'Link deal'),
+        dialogSubtitle: t(
+          'customers.linking.deal.dialogSubtitle',
+          'Link an existing deal to this record',
+        ),
+        sectionLabel: t('customers.linking.deal.sectionLabel', 'MATCHING DEALS'),
+        searchPlaceholder: t('customers.linking.deal.searchPlaceholder', 'Search all deals…'),
+        searchEmptyHint: t('customers.linking.deal.searchEmpty', 'No matching deals found.'),
+        selectedEmptyHint: t('customers.linking.deal.selectedEmpty', 'No deals selected.'),
+        confirmButtonLabel: t('customers.linking.deal.confirmButton', 'Link deal'),
+        orphanWarningTitle: t('customers.linking.deal.orphanWarningTitle', 'Deal without company'),
+        orphanWarningMessage: t(
+          'customers.linking.deal.orphanWarning',
+          'This deal has no other linked entities. If you unlink it later, it will become unreachable.',
+        ),
+        contextEntityId: scope?.entityId,
+      }),
+    [scope?.entityId, t],
+  )
+
+  const handleLinkConfirm = React.useCallback(
+    async ({
+      addedIds,
+      removedIds,
+    }: {
+      addedIds: string[]
+      removedIds: string[]
+    }) => {
+      if (!scope) return
+      if (!addedIds.length && !removedIds.length) return
+      pushLoading()
+      try {
+        for (const dealId of addedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person' && !currentPersonIds.includes(scope.entityId)
+              ? [...currentPersonIds, scope.entityId]
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company' && !currentCompanyIds.includes(scope.entityId)
+              ? [...currentCompanyIds, scope.entityId]
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.linkError',
+                    'Failed to link deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'linkDeal' },
+          )
+        }
+        for (const dealId of removedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person'
+              ? currentPersonIds.filter((id) => id !== scope.entityId)
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company'
+              ? currentCompanyIds.filter((id) => id !== scope.entityId)
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.unlinkError',
+                    'Failed to unlink deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'unlinkDeal' },
+          )
+        }
+        await loadDeals({ append: false })
+        await refreshParentData()
+        if (addedIds.length + removedIds.length > 0) {
+          onCountDelta?.(addedIds.length - removedIds.length)
+        }
+        flash(
+          addedIds.length > 0
+            ? t('customers.people.detail.deals.linkSuccess', 'Deal linked.')
+            : t('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'),
+          'success',
+        )
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : t('customers.people.detail.deals.linkError', 'Failed to link deal.')
+        flash(message, 'error')
+      } finally {
+        popLoading()
+      }
     },
-    [],
+    [loadDeals, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, t],
   )
 
   const closeDialog = React.useCallback(() => {
     setDialogOpen(false)
-    setDialogMode('create')
-    setEditingDealId(null)
     setInitialValues(undefined)
   }, [])
 
@@ -621,7 +741,10 @@ export function DealsSection({
             createCrud<{ id?: string }>('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
             }),
-          payload,
+          {
+            ...payload,
+            operation: 'createDeal',
+          },
         )
         const dealId =
           typeof result?.id === 'string' && result.id.trim().length ? result.id : generateTempId()
@@ -650,6 +773,7 @@ export function DealsSection({
             updatedAt: timestamp,
           })
           setDeals((prev) => [normalized, ...prev])
+          onCountDelta?.(1)
         }
         await refreshParentData()
         flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
@@ -658,156 +782,76 @@ export function DealsSection({
         popLoading()
       }
     },
-    [popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
+    [onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
-  const handleUpdate = React.useCallback(
-    async (dealId: string, { base, custom }: DealFormSubmitPayload) => {
-      if (!scope) {
-        throw new Error(translate('customers.people.detail.deals.error', 'Failed to save deal.'))
-      }
-      setPendingAction({ kind: 'update', id: dealId })
-      pushLoading()
-      try {
-        const personIds = mergeIds(base.personIds)
-        const companyIds = mergeIds(base.companyIds)
-
-        const payload: Record<string, unknown> = {
-          id: dealId,
-          title: base.title,
-          status: base.status ?? undefined,
-          pipelineStage: base.pipelineStage ?? undefined,
-          valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
-          valueCurrency: base.valueCurrency ?? undefined,
-          probability: typeof base.probability === 'number' ? base.probability : undefined,
-          expectedCloseAt: base.expectedCloseAt ?? undefined,
-          description: base.description ?? undefined,
-          personIds,
-          companyIds,
-        }
-        if (Object.keys(custom).length) payload.customFields = custom
-        await runWriteMutation(
-          () =>
-            updateCrud('customers/deals', payload, {
-              errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
-            }),
-          payload,
-        )
-        const hasCustomChanges = Object.keys(custom).length > 0
-        const customValuesForState = hasCustomChanges ? sanitizeCustomValues(custom) : null
-        const remainsInScope =
-          (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
-          (scope.kind !== 'company' || companyIds.includes(scope.entityId))
-        if (!remainsInScope) {
-          setDeals((prev) => prev.filter((deal) => deal.id !== dealId))
-        } else {
-          setDeals((prev) =>
-            prev.map((deal) =>
-              deal.id === dealId
-                ? normalizeDeal({
-                    ...deal,
-                    title: base.title,
-                    status: base.status ?? null,
-                    pipelineStage: base.pipelineStage ?? null,
-                    valueAmount: base.valueAmount ?? null,
-                    valueCurrency: base.valueCurrency ?? null,
-                    probability: base.probability ?? null,
-                    expectedCloseAt: base.expectedCloseAt ?? null,
-                    description: base.description ?? null,
-                    personIds,
-                    people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                    companyIds,
-                    companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                    customValues: hasCustomChanges ? customValuesForState : deal.customValues,
-                    customFields: hasCustomChanges
-                      ? customValuesForState
-                        ? deal.customFields
-                        : []
-                      : deal.customFields,
-                    updatedAt: new Date().toISOString(),
-                  })
-                : deal,
-            ),
-          )
-        }
-        await refreshParentData()
-        flash(translate('customers.people.detail.deals.updateSuccess', 'Deal updated.'), 'success')
-      } finally {
-        setPendingAction(null)
-        popLoading()
-      }
-    },
-    [popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
-  )
-
-  const handleRemove = React.useCallback(
+  const handleUnlink = React.useCallback(
     async (deal: NormalizedDeal) => {
       if (!scope) return
+
+      const nextPersonIds =
+        scope.kind === 'person'
+          ? deal.personIds.filter((id) => id !== scope.entityId)
+          : deal.personIds
+      const nextCompanyIds =
+        scope.kind === 'company'
+          ? deal.companyIds.filter((id) => id !== scope.entityId)
+          : deal.companyIds
+
       const confirmed = await confirm({
-        title: translate(
-          'customers.people.detail.deals.removeConfirm',
-          'Remove this deal from this record? The deal itself will not be deleted.',
+        title:
+          scope.kind === 'person'
+            ? translate('customers.people.detail.deals.unlinkConfirmPerson', 'Unlink this deal from this person?')
+            : translate('customers.people.detail.deals.unlinkConfirmCompany', 'Unlink this deal from this company?'),
+        description: translate(
+          'customers.people.detail.deals.unlinkDescription',
+          'The deal will remain available from its own detail page.',
         ),
-        variant: 'destructive',
+        confirmText: translate('customers.people.card.unlink', 'Unlink'),
+        cancelText: translate('customers.people.detail.deals.cancel', 'Cancel'),
       })
       if (!confirmed) return
-      const mutationPayload =
-        scope.kind === 'person'
-          ? {
-              id: deal.id,
-              personIds: (deal.personIds ?? []).filter((personId) => personId !== scope.entityId),
-            }
-          : {
-              id: deal.id,
-              companyIds: (deal.companyIds ?? []).filter((companyId) => companyId !== scope.entityId),
-            }
+
       setPendingAction({ kind: 'remove', id: deal.id })
       pushLoading()
       try {
+        const payload: Record<string, unknown> = {
+          id: deal.id,
+          personIds: nextPersonIds,
+          companyIds: nextCompanyIds,
+        }
         await runWriteMutation(
           () =>
-            updateCrud('customers/deals', mutationPayload, {
-              errorMessage: translate(
-                'customers.people.detail.deals.removeError',
-                'Failed to remove deal from this record.',
-              ),
+            updateCrud('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
             }),
-          mutationPayload,
+          {
+            ...payload,
+            operation: 'unlinkDeal',
+          },
         )
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))
+        onCountDelta?.(-1)
         await refreshParentData()
-        flash(
-          translate(
-            'customers.people.detail.deals.removeSuccess',
-            'Deal removed from this record.',
-          ),
-          'success',
-        )
-      } catch (err) {
+        flash(translate('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'), 'success')
+      } catch (error) {
         const message =
-          err instanceof Error
-            ? err.message
-            : translate(
-                'customers.people.detail.deals.removeError',
-                'Failed to remove deal from this record.',
-              )
+          error instanceof Error
+            ? error.message
+            : translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.')
         flash(message, 'error')
       } finally {
         setPendingAction(null)
         popLoading()
       }
     },
-    [confirm, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
+    [confirm, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
     async (payload: DealFormSubmitPayload) => {
       try {
-        if (dialogMode === 'edit' && editingDealId) {
-          await handleUpdate(editingDealId, payload)
-        } else {
-          await handleCreate(payload)
-        }
+        await handleCreate(payload)
         closeDialog()
       } catch (err) {
         const message =
@@ -817,7 +861,7 @@ export function DealsSection({
         flash(message, 'error')
       }
     },
-    [closeDialog, dialogMode, editingDealId, handleCreate, handleUpdate, translate],
+    [closeDialog, handleCreate, translate],
   )
 
   React.useEffect(() => {
@@ -836,9 +880,7 @@ export function DealsSection({
     }
   }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, scope])
 
-  const isFormPending =
-    pendingAction?.kind === 'create' ||
-    (pendingAction?.kind === 'update' && pendingAction.id === editingDealId)
+  const isFormPending = pendingAction?.kind === 'create'
 
   const sortedDeals = React.useMemo(() => {
     return [...deals].sort((a, b) => {
@@ -855,6 +897,28 @@ export function DealsSection({
           {loadError}
         </div>
       ) : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={openLinkDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Link2 className="mr-1.5 size-3.5" />
+          {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={openCreateDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Plus className="mr-1.5 size-3.5" />
+          {addActionLabel}
+        </Button>
+      </div>
       {isLoading && sortedDeals.length === 0 ? (
         <LoadingMessage
           label={t('customers.people.detail.deals.loading', 'Loading deals…')}
@@ -878,8 +942,7 @@ export function DealsSection({
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
-          const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
-          const isRemovePending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
+          const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
           const statusLabel =
             deal.status && statusDictionaryMap
               ? statusDictionaryMap[deal.status]?.label ?? deal.status
@@ -888,7 +951,12 @@ export function DealsSection({
             <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/80">
               <header className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-base font-semibold">{deal.title || emptyLabel}</h3>
+                  <Link
+                    href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                    className="text-base font-semibold text-foreground transition hover:text-primary hover:underline"
+                  >
+                    {deal.title || emptyLabel}
+                  </Link>
                   {deal.description ? (
                     <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
                   ) : null}
@@ -898,39 +966,28 @@ export function DealsSection({
                     {statusLabel}
                   </span>
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <IconButton asChild variant="ghost" size="sm" className="h-8 w-8">
+                      <Link
+                        href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                        aria-label={t('customers.people.detail.deals.edit', 'Open deal details')}
+                      >
+                        <Pencil className="size-4" />
+                      </Link>
+                    </IconButton>
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-3 text-xs"
                       onClick={(event) => {
                         event.preventDefault()
-                        openEditDialog(deal)
+                        void handleUnlink(deal)
                       }}
                       disabled={pendingAction !== null}
                     >
-                      {isUpdatePending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Pencil className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        handleRemove(deal)
-                      }}
-                      disabled={pendingAction !== null}
-                    >
-                      {isRemovePending ? (
-                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                        </span>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
+                      {isUnlinkPending
+                        ? t('customers.people.detail.deals.unlinking', 'Unlinking…')
+                        : t('customers.people.card.unlink', 'Unlink')}
                     </Button>
                   </div>
                 </div>
@@ -973,15 +1030,6 @@ export function DealsSection({
                 itemKeyPrefix={`deal-${deal.id}-field`}
                 className="mt-3"
               />
-              <div className="mt-3 text-xs">
-                <Link
-                  href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  <ArrowUpRightSquare className="h-3.5 w-3.5" aria-hidden />
-                  {t('customers.people.detail.deals.openDeal', 'Open deal')}
-                </Link>
-              </div>
             </article>
           )
             })}
@@ -1013,13 +1061,20 @@ export function DealsSection({
 
       <DealDialog
         open={dialogOpen}
-        mode={dialogMode}
+        mode="create"
         onOpenChange={handleDialogOpenChange}
         initialValues={initialValues}
         onSubmit={async (payload) => {
           await handleDialogSubmit(payload)
         }}
         isSubmitting={Boolean(isFormPending)}
+      />
+      <LinkEntityDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        adapter={dealLinkAdapter}
+        initialSelectedIds={existingDealIds}
+        onConfirm={handleLinkConfirm}
       />
       {ConfirmDialogElement}
     </div>

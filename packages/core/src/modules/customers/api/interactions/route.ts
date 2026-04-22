@@ -32,6 +32,7 @@ const interactionSortFieldSchema = z.enum([
   'status',
   'priority',
   'interactionType',
+  'title',
 ])
 
 const listSchema = z
@@ -42,9 +43,12 @@ const listSchema = z
     dealId: z.string().uuid().optional(),
     status: z.string().optional(),
     interactionType: z.string().optional(),
+    type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
+    search: z.string().trim().min(1).optional(),
     from: z.string().optional(),
     to: z.string().optional(),
+    pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -134,6 +138,17 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  duration_minutes: number | null
+  location: string | null
+  all_day: boolean | null
+  recurrence_rule: string | null
+  recurrence_end: Date | null
+  participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  reminder_minutes: number | null
+  visibility: string | null
+  linked_entities: Array<{ id: string; type: string; label: string }> | null
+  guest_permissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
+  pinned: boolean
   organization_id: string
   tenant_id: string
   created_at: Date
@@ -163,6 +178,7 @@ const interactionSortConfig = {
   status: { column: 'status', type: 'text' as const, defaultDir: 'asc' as const },
   priority: { column: 'priority', type: 'number' as const, defaultDir: 'desc' as const },
   interactionType: { column: 'interaction_type', type: 'text' as const, defaultDir: 'asc' as const },
+  title: { column: 'title', type: 'text' as const, defaultDir: 'asc' as const },
 } as const
 
 function toIsoString(value: unknown): string | null {
@@ -330,6 +346,17 @@ export async function GET(req: Request) {
         'appearance_icon',
         'appearance_color',
         'source',
+        'duration_minutes',
+        'location',
+        'all_day',
+        'recurrence_rule',
+        'recurrence_end',
+        'participants',
+        'reminder_minutes',
+        'visibility',
+        'linked_entities',
+        'guest_permissions',
+        'pinned',
         'organization_id',
         'tenant_id',
         'created_at',
@@ -347,9 +374,28 @@ export async function GET(req: Request) {
     if (query.dealId) rowsQuery = rowsQuery.where('deal_id', '=', query.dealId)
     if (query.status) rowsQuery = rowsQuery.where('status', '=', query.status)
     if (query.interactionType) rowsQuery = rowsQuery.where('interaction_type', '=', query.interactionType)
+    if (query.type) {
+      const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
+      if (types.length > 0) {
+        rowsQuery = rowsQuery.where('interaction_type', 'in', types)
+      }
+    }
+    if (query.pinned === 'true') {
+      rowsQuery = rowsQuery.where('pinned', '=', true)
+    } else if (query.pinned === 'false') {
+      rowsQuery = rowsQuery.where('pinned', '=', false)
+    }
     if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
-    if (query.from) rowsQuery = rowsQuery.where('scheduled_at', '>=', new Date(query.from))
-    if (query.to) rowsQuery = rowsQuery.where('scheduled_at', '<=', new Date(query.to))
+    if (query.search) {
+      const searchTerm = `%${query.search}%`
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
+    }
+    if (query.from) {
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
+    }
+    if (query.to) {
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
+    }
 
     if (cursor) {
       const op = sortDir === 'asc' ? '>' : '<'
@@ -430,6 +476,18 @@ export async function GET(req: Request) {
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
+      duration: row.duration_minutes ?? null,
+      durationMinutes: row.duration_minutes ?? null,
+      location: row.location ?? null,
+      allDay: row.all_day ?? null,
+      recurrenceRule: row.recurrence_rule ?? null,
+      recurrenceEnd: toIsoString(row.recurrence_end),
+      participants: row.participants ?? null,
+      reminderMinutes: row.reminder_minutes ?? null,
+      visibility: row.visibility ?? null,
+      linkedEntities: row.linked_entities ?? null,
+      guestPermissions: row.guest_permissions ?? null,
+      pinned: row.pinned ?? false,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
@@ -492,6 +550,37 @@ const interactionListItemSchema = z
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
+    duration: z.number().nullable().optional(),
+    durationMinutes: z.number().nullable().optional(),
+    location: z.string().nullable().optional(),
+    allDay: z.boolean().nullable().optional(),
+    recurrenceRule: z.string().nullable().optional(),
+    recurrenceEnd: z.string().nullable().optional(),
+    participants: z.array(
+      z.object({
+        userId: z.string().uuid(),
+        name: z.string().optional(),
+        email: z.string().optional(),
+        status: z.string().optional(),
+      }),
+    ).nullable().optional(),
+    reminderMinutes: z.number().nullable().optional(),
+    visibility: z.string().nullable().optional(),
+    linkedEntities: z.array(
+      z.object({
+        id: z.string().uuid(),
+        type: z.string(),
+        label: z.string(),
+      }),
+    ).nullable().optional(),
+    guestPermissions: z
+      .object({
+        canInviteOthers: z.boolean().optional(),
+        canModify: z.boolean().optional(),
+        canSeeList: z.boolean().optional(),
+      })
+      .nullable()
+      .optional(),
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     createdAt: z.string().nullable(),

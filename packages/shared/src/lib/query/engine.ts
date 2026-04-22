@@ -347,6 +347,15 @@ export class BasicQueryEngine implements QueryEngine {
       return this.applyColumnOp(builder, column, op, value)
     }
 
+    // `eq` is accepted alongside `like`/`ilike` so that filters against
+    // encrypted joined columns (whose ciphertext cannot be compared for
+    // equality in SQL) can still resolve via tokenized search. Routing
+    // only applies when `searchEnabled` is true AND the joined entity has
+    // search tokens installed (`searchAvailable`); for non-searchable or
+    // non-encrypted columns the caller still falls through to exact SQL
+    // equality via `applyFilterOp`. Note that token match is approximate —
+    // callers needing strict equality on encrypted fields should filter on
+    // the deterministic `*_hash` column instead.
     const applyJoinFilterOp = async (
       builder: AnyBuilder,
       filter: { column: string; op: string; value?: unknown },

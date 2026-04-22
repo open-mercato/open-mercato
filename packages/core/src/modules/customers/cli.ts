@@ -28,6 +28,7 @@ import {
   CustomerTodoLink,
   CustomerPipeline,
   CustomerPipelineStage,
+  CustomerTag,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 import { recomputeNextInteraction } from './lib/interactionProjection'
@@ -72,26 +73,33 @@ const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
 ]
 
 const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
-  { value: 'customer', label: 'Customer', color: '#16a34a', icon: 'lucide:handshake' },
-  { value: 'active', label: 'Active', color: '#2563eb', icon: 'lucide:user-check' },
-  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'lucide:target' },
-  { value: 'inactive', label: 'Inactive', color: '#6b7280', icon: 'lucide:archive' },
+  { value: 'active', label: 'Active', color: '#22c55e', icon: 'lucide:user-check' },
+  { value: 'inactive', label: 'Inactive', color: '#94a3b8', icon: 'lucide:pause-circle' },
+  { value: 'pending', label: 'Pending', color: '#f59e0b', icon: 'lucide:clock' },
+  { value: 'archived', label: 'Archived', color: '#64748b', icon: 'lucide:archive' },
 ]
 
 const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'lucide:sparkles' },
-  { value: 'evaluation', label: 'Evaluation', color: '#a855f7', icon: 'lucide:clipboard-list' },
+  { value: 'lead', label: 'Lead', color: '#3b82f6', icon: 'lucide:sparkles' },
+  { value: 'prospect', label: 'Prospect', color: '#8b5cf6', icon: 'lucide:eye' },
   { value: 'customer', label: 'Customer', color: '#22c55e', icon: 'lucide:handshake' },
-  { value: 'expansion', label: 'Expansion', color: '#0ea5e9', icon: 'lucide:trending-up' },
-  { value: 'churned', label: 'Churned', color: '#ef4444', icon: 'lucide:alert-circle' },
+  { value: 'subscriber', label: 'Subscriber', color: '#10b981', icon: 'lucide:bell' },
+  { value: 'churned', label: 'Churned', color: '#ef4444', icon: 'lucide:user-x' },
+  { value: 'other', label: 'Other', color: '#94a3b8', icon: 'lucide:circle' },
 ]
 
 const ENTITY_SOURCE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'partner_referral', label: 'Partner referral', color: '#6366f1', icon: 'lucide:handshake' },
+  { value: 'linkedin', label: 'LinkedIn', color: '#0a66c2', icon: 'lucide:linkedin' },
+  { value: 'email', label: 'Email', color: '#3b82f6', icon: 'lucide:mail' },
+  { value: 'web_form', label: 'Web form', color: '#22c55e', icon: 'lucide:globe' },
+  { value: 'referral', label: 'Referral', color: '#8b5cf6', icon: 'lucide:users' },
   { value: 'customer_referral', label: 'Customer referral', color: '#22c55e', icon: 'lucide:thumbs-up' },
-  { value: 'industry_event', label: 'Industry event', color: '#f97316', icon: 'lucide:calendar' },
-  { value: 'inbound_web', label: 'Inbound web', color: '#0ea5e9', icon: 'lucide:globe' },
-  { value: 'outbound_campaign', label: 'Outbound campaign', color: '#facc15', icon: 'lucide:megaphone' },
+  { value: 'partner_referral', label: 'Partner referral', color: '#3b82f6', icon: 'lucide:handshake' },
+  { value: 'event', label: 'Conference / Event', color: '#f59e0b', icon: 'lucide:calendar' },
+  { value: 'cold_outreach', label: 'Cold outreach', color: '#94a3b8', icon: 'lucide:phone' },
+  { value: 'facebook', label: 'Facebook', color: '#1877f2', icon: 'lucide:facebook' },
+  { value: 'typeform', label: 'Typeform', color: '#262627', icon: 'lucide:file-text' },
+  { value: 'other', label: 'Other', color: '#64748b', icon: 'lucide:circle' },
 ]
 
 const ADDRESS_TYPE_DEFAULTS: DictionaryDefault[] = [
@@ -133,6 +141,40 @@ const INDUSTRY_DEFAULTS: DictionaryDefault[] = [
   { value: 'Hospitality', label: 'Hospitality' },
   { value: 'Energy', label: 'Energy' },
   { value: 'Media', label: 'Media' },
+]
+
+const TEMPERATURE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'hot', label: 'Hot', color: '#ef4444', icon: 'lucide:flame' },
+  { value: 'high', label: 'High', color: '#f59e0b', icon: 'lucide:trending-up' },
+  { value: 'medium', label: 'Medium', color: '#8b5cf6', icon: 'lucide:sparkles' },
+  { value: 'low', label: 'Low', color: '#64748b', icon: 'lucide:clock' },
+  { value: 'cold', label: 'Cold', color: '#94a3b8', icon: 'lucide:snowflake' },
+]
+
+const CUSTOM_TAG_SEED_DEFAULTS = [
+  { value: 'architecture', label: 'architecture' },
+  { value: 'hospitality', label: 'hospitality' },
+  { value: 'retail', label: 'retail' },
+  { value: 'healthcare', label: 'healthcare' },
+  { value: 'tech', label: 'tech' },
+  { value: 'manufacturing', label: 'manufacturing' },
+  { value: 'decision-maker', label: 'decision-maker' },
+  { value: 'influencer', label: 'influencer' },
+  { value: 'end-user', label: 'end-user' },
+  { value: 'blocker', label: 'blocker' },
+  { value: 'vip', label: 'vip' },
+  { value: 'strategic-account', label: 'strategic-account' },
+  { value: 'reference-customer', label: 'reference-customer' },
+  { value: 'case-study-candidate', label: 'case-study-candidate' },
+]
+
+const PERSON_COMPANY_ROLE_DEFAULTS = [
+  { value: 'decision_maker', label: 'Decision maker', color: '#f59e0b', icon: 'lucide:crown' },
+  { value: 'influencer', label: 'Influencer', color: '#8b5cf6', icon: 'lucide:sparkles' },
+  { value: 'budget_holder', label: 'Budget holder', color: '#3b82f6', icon: 'lucide:wallet' },
+  { value: 'technical_evaluator', label: 'Technical evaluator', color: '#22c55e', icon: 'lucide:wrench' },
+  { value: 'primary_contact', label: 'Primary contact', color: '#0ea5e9', icon: 'lucide:star' },
+  { value: 'end_user', label: 'End user', color: '#64748b', icon: 'lucide:user' },
 ]
 
 const PRIORITY_CURRENCIES = ['EUR', 'USD', 'GBP', 'PLN']
@@ -1154,6 +1196,59 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+    })
+  }
+  for (const entry of TEMPERATURE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'temperature',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  // Renewal quarters: current year + 2 future years
+  const currentYear = new Date().getFullYear()
+  for (let year = currentYear; year <= currentYear + 2; year++) {
+    for (const q of [1, 2, 3, 4]) {
+      await ensureDictionaryEntry(em, {
+        tenantId,
+        organizationId,
+        kind: 'renewal_quarter',
+        value: `${year}_q${q}`,
+        label: `Q${q} ${year}`,
+        color: '#94a3b8',
+        icon: 'lucide:calendar',
+      })
+    }
+  }
+  // Uses raw em.find/em.findOne — entities queried here have no encrypted fields as of this commit.
+  // Migrate to findOneWithDecryption / findWithDecryption when any of them gain an @Encrypted column.
+  // Custom tags (free-pool labels)
+  for (const entry of CUSTOM_TAG_SEED_DEFAULTS) {
+    const slug = entry.value
+    const existing = await em.findOne(CustomerTag, {
+      tenantId,
+      organizationId,
+      slug,
+    })
+    if (!existing) {
+      em.persist(em.create(CustomerTag, {
+        tenantId,
+        organizationId,
+        slug,
+        label: entry.label,
+      }))
+    }
+  }
+  await em.flush()
+  for (const entry of PERSON_COMPANY_ROLE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId, organizationId,
+      kind: 'person_company_role',
+      value: entry.value, label: entry.label, color: entry.color, icon: entry.icon,
     })
   }
 }

@@ -286,6 +286,8 @@ async function ensureCanonicalActivityBridge(
   await commandBus.execute('customers.interactions.create', {
     input: {
       id: activity.id,
+      tenantId: activity.tenantId,
+      organizationId: activity.organizationId,
       entityId,
       interactionType: activity.activityType,
       title: activity.subject ?? null,
@@ -564,6 +566,8 @@ export async function POST(request: Request): Promise<Response> {
     const commandBus = container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute('customers.interactions.create', {
       input: {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId ?? auth.orgId,
         entityId: parsed.entityId,
         interactionType: parsed.activityType,
         title: parsed.subject ?? null,

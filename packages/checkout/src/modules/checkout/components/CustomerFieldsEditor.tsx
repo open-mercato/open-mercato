@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 
@@ -139,9 +139,11 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.customerFieldsEditor.notices.defaultFields')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.customerFieldsEditor.notices.defaultFields')}
+        </AlertDescription>
+      </Alert>
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
         <div className="hidden grid-cols-[1fr_1fr_1fr_180px_90px_110px] gap-3 border-b bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
@@ -326,9 +328,11 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Notice compact>
-              {t('checkout.customerFieldsEditor.notices.empty')}
-            </Notice>
+            <Alert variant="info">
+              <AlertDescription>
+                {t('checkout.customerFieldsEditor.notices.empty')}
+              </AlertDescription>
+            </Alert>
           </div>
         )}
       </div>

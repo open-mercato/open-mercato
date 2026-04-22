@@ -53,6 +53,11 @@ export function ConfirmDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
   const confirmButtonRef = React.useRef<HTMLButtonElement>(null);
+  // Unique IDs so multiple ConfirmDialog instances on the same page don't
+  // collide and make `aria-labelledby` resolve to the wrong dialog's title.
+  const reactId = React.useId();
+  const titleId = `confirm-dialog-title-${reactId}`;
+  const descriptionId = `confirm-dialog-description-${reactId}`;
 
   // Determine if we're in controlled mode (open prop provided) or declarative mode (trigger provided)
   const isControlled = controlledOpen !== undefined;
@@ -178,8 +183,8 @@ export function ConfirmDialog({
       <dialog
         ref={dialogRef}
         role="alertdialog"
-        aria-labelledby="confirm-dialog-title"
-        aria-describedby={text ? "confirm-dialog-description" : undefined}
+        aria-labelledby={titleId}
+        aria-describedby={text ? descriptionId : undefined}
         onClick={handleBackdropClick}
         className={cn(
           // Reset dialog defaults
@@ -222,7 +227,7 @@ export function ConfirmDialog({
 
           {/* Title */}
           <h2
-            id="confirm-dialog-title"
+            id={titleId}
             className={cn(
               "text-sm font-medium leading-snug tracking-tight pr-6",
               // Mobile: centered, Desktop: left-aligned
@@ -235,7 +240,7 @@ export function ConfirmDialog({
           {/* Description (optional) */}
           {text && (
             <p
-              id="confirm-dialog-description"
+              id={descriptionId}
               className="text-sm font-medium leading-snug text-muted-foreground"
             >
               {text}

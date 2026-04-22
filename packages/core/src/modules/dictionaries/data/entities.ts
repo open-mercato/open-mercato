@@ -1,4 +1,5 @@
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { OptionalProps } from '@mikro-orm/core'
 
 export type DictionaryManagerVisibility = 'default' | 'hidden'
 
@@ -46,6 +47,8 @@ export class Dictionary {
 @Index({ name: 'dictionary_entries_scope_idx', properties: ['dictionary', 'organizationId', 'tenantId'] })
 @Unique({ name: 'dictionary_entries_unique', properties: ['dictionary', 'organizationId', 'tenantId', 'normalizedValue'] })
 export class DictionaryEntry {
+  [OptionalProps]?: 'position' | 'isDefault' | 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -72,6 +75,12 @@ export class DictionaryEntry {
 
   @Property({ type: 'text', nullable: true })
   icon?: string | null
+
+  @Property({ type: 'int', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

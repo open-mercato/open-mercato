@@ -13,7 +13,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useWebhookFeatureAccess } from './useWebhookFeatureAccess'
 
 type Row = {
@@ -227,7 +227,10 @@ export default function WebhooksListPage() {
   return (
     <Page>
       <PageBody className="space-y-4">
-        <Notice title={t('webhooks.list.description')} message={t('webhooks.list.operatorTip')} />
+        <Alert variant="info">
+          <AlertTitle>{t('webhooks.list.description')}</AlertTitle>
+          <AlertDescription>{t('webhooks.list.operatorTip')}</AlertDescription>
+        </Alert>
         <DataTable
           title={t('webhooks.list.title')}
           actions={access.canManage ? (
