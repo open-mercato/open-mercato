@@ -23,10 +23,15 @@ export function AiAssistantShellIntegration({
 
   React.useEffect(() => {
     let cancelled = false
-    void import('@open-mercato/ai-assistant/frontend').then((module) => {
-      if (cancelled) return
-      setIntegrationComponent(() => module.AiAssistantIntegration)
-    })
+    void import('@open-mercato/ai-assistant/frontend')
+      .then((module) => {
+        if (cancelled) return
+        setIntegrationComponent(() => module.AiAssistantIntegration)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setIntegrationComponent(() => (props) => <>{props.children}</>)
+      })
     return () => {
       cancelled = true
     }
