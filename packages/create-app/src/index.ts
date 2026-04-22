@@ -239,6 +239,8 @@ function printTemplateNextSteps(appName: string): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
+  console.log(pc.dim('  # Make sure Yarn 4.1x is installed before running the setup command, and install all the deependencies with:'))
+  console.log(pc.cyan('  yarn'))
   console.log('')
   console.log(pc.green('Suggested quick start:'))
   console.log(pc.cyan('  yarn setup'))
