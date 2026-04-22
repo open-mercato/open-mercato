@@ -48,6 +48,8 @@ TODO: Fix that latter to have reference by the package names
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-foreground: var(--brand-violet-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -56,10 +58,51 @@ TODO: Fix that latter to have reference by the package names
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* ═══ Design System: Semantic Status Colors ═══ */
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-text: var(--status-error-text);
+  --color-status-error-border: var(--status-error-border);
+  --color-status-error-icon: var(--status-error-icon);
+
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-text: var(--status-success-text);
+  --color-status-success-border: var(--status-success-border);
+  --color-status-success-icon: var(--status-success-icon);
+
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-text: var(--status-warning-text);
+  --color-status-warning-border: var(--status-warning-border);
+  --color-status-warning-icon: var(--status-warning-icon);
+
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-text: var(--status-info-text);
+  --color-status-info-border: var(--status-info-border);
+  --color-status-info-icon: var(--status-info-icon);
+
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-neutral-text: var(--status-neutral-text);
+  --color-status-neutral-border: var(--status-neutral-border);
+  --color-status-neutral-icon: var(--status-neutral-icon);
+
+  /* ═══ Design System: Typography ═══ */
+  --font-size-overline: 0.6875rem;
+  --font-size-overline--line-height: 1rem;
+
+  /* ═══ Design System: Z-Index Scale ═══ */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-overlay: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+  --z-tooltip: 60;
 }
 
 :root {
   color-scheme: light;
+  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -69,6 +112,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --brand-violet: oklch(0.55 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -103,6 +148,37 @@ TODO: Fix that latter to have reference by the package names
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ═══ Design System: Semantic Status Tokens — Light Mode ═══ */
+  /* Error (hue ~25° — aligned with --destructive) */
+  --status-error-bg: oklch(0.965 0.015 25);
+  --status-error-text: oklch(0.365 0.120 25);
+  --status-error-border: oklch(0.830 0.060 25);
+  --status-error-icon: oklch(0.577 0.245 27.325);  /* = --destructive */
+
+  /* Success (hue ~160° — aligned with --chart-emerald) */
+  --status-success-bg: oklch(0.965 0.015 160);
+  --status-success-text: oklch(0.350 0.080 160);
+  --status-success-border: oklch(0.830 0.050 160);
+  --status-success-icon: oklch(0.596 0.145 163.225);  /* = --chart-emerald */
+
+  /* Warning (hue ~80° — aligned with --chart-amber) */
+  --status-warning-bg: oklch(0.970 0.020 80);
+  --status-warning-text: oklch(0.370 0.090 60);
+  --status-warning-border: oklch(0.830 0.070 80);
+  --status-warning-icon: oklch(0.700 0.160 70);
+
+  /* Info (hue ~260° — aligned with --chart-blue) */
+  --status-info-bg: oklch(0.965 0.015 260);
+  --status-info-text: oklch(0.370 0.100 260);
+  --status-info-border: oklch(0.830 0.060 260);
+  --status-info-icon: oklch(0.546 0.245 262.881);  /* = --chart-blue */
+
+  /* Neutral (achromatic — aligned with --muted) */
+  --status-neutral-bg: oklch(0.965 0 0);
+  --status-neutral-text: oklch(0.445 0 0);
+  --status-neutral-border: oklch(0.850 0 0);
+  --status-neutral-icon: oklch(0.556 0 0);  /* = --muted-foreground */
 }
 
 .dark {
@@ -115,6 +191,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
+  --brand-violet: oklch(0.65 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -149,6 +227,37 @@ TODO: Fix that latter to have reference by the package names
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* ═══ Design System: Semantic Status Tokens — Dark Mode ═══ */
+  /* Error */
+  --status-error-bg: oklch(0.220 0.025 25);
+  --status-error-text: oklch(0.850 0.090 25);
+  --status-error-border: oklch(0.400 0.060 25);
+  --status-error-icon: oklch(0.704 0.191 22.216);  /* = dark --destructive */
+
+  /* Success */
+  --status-success-bg: oklch(0.220 0.025 160);
+  --status-success-text: oklch(0.850 0.080 160);
+  --status-success-border: oklch(0.400 0.050 160);
+  --status-success-icon: oklch(0.696 0.170 162.480);  /* = dark --chart-emerald */
+
+  /* Warning */
+  --status-warning-bg: oklch(0.225 0.025 80);
+  --status-warning-text: oklch(0.870 0.080 80);
+  --status-warning-border: oklch(0.420 0.060 80);
+  --status-warning-icon: oklch(0.820 0.160 84.429);  /* = dark --chart-amber */
+
+  /* Info */
+  --status-info-bg: oklch(0.220 0.025 260);
+  --status-info-text: oklch(0.840 0.080 260);
+  --status-info-border: oklch(0.400 0.060 260);
+  --status-info-icon: oklch(0.623 0.214 259.815);  /* = dark --chart-blue */
+
+  /* Neutral */
+  --status-neutral-bg: oklch(0.230 0 0);
+  --status-neutral-text: oklch(0.750 0 0);
+  --status-neutral-border: oklch(0.380 0 0);
+  --status-neutral-icon: oklch(0.708 0 0);  /* = dark --muted-foreground */
 }
 
 @layer base {
@@ -329,4 +438,9 @@ TODO: Fix that latter to have reference by the package names
 /* Conic gradient for AI dot */
 .bg-gradient-conic {
   background: conic-gradient(from 0deg, var(--tw-gradient-stops));
+}
+
+/* Hide floating demo feedback button while the column chooser panel is open */
+body[data-column-chooser-open="true"] .om-demo-feedback-floating {
+  display: none !important;
 }

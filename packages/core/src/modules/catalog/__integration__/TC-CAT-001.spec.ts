@@ -28,8 +28,11 @@ test.describe('TC-CAT-001: Create New Product', () => {
     await expect(createProductButton).toBeEnabled();
     await createProductButton.click();
 
-    await expect(page).toHaveURL(/\/backend\/catalog\/products\/[^/?#]+$/i, { timeout: 10_000 });
+    await expect(page).toHaveURL(
+      /\/backend\/catalog\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      { timeout: 10_000 },
+    );
     const createdProductId = page.url().split('/').at(-1) ?? '';
-    expect(createdProductId.length > 0).toBe(true);
+    expect(createdProductId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 });

@@ -273,7 +273,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     labelKey: 'configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.label',
     descriptionKey: 'configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.description',
     docUrl: `${SYSTEM_STATUS_DOC_BASE}#force_query_index_on_partial_indexes`,
-    defaultValue: 'true',
+    defaultValue: 'false',
   },
   {
     key: 'ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM',

@@ -123,19 +123,21 @@ export class SsoService {
     await this.rbacService.invalidateUserCache(String(user.id))
 
     const roles = await this.authService.getUserRoles(user, tenantId || null)
-    const token = signJwt({
-      sub: String(user.id),
-      tenantId: tenantId || null,
-      orgId: user.organizationId ? String(user.organizationId) : null,
-      email: user.email,
-      roles,
-    })
 
     await this.authService.updateLastLoginAt(user)
 
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const session = await this.authService.createSession(user, sessionExpiresAt)
+    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt)
+
+    const token = signJwt({
+      sub: String(user.id),
+      sid: String(session.id),
+      tenantId: tenantId || null,
+      orgId: user.organizationId ? String(user.organizationId) : null,
+      email: user.email,
+      roles,
+    })
 
     void emitSsoEvent('sso.login.completed', {
       id: String(user.id),
@@ -145,7 +147,7 @@ export class SsoService {
 
     return {
       token,
-      sessionToken: session.token,
+      sessionToken: sessionRefreshToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
       tenantId: config.tenantId ?? null,

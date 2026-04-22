@@ -205,6 +205,92 @@ describe('Queue - local strategy', () => {
     await queue.close()
   })
 
+  test('failed jobs are retained in queue for retry', async () => {
+    const queue = createQueue<{ shouldFail: boolean }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ shouldFail: true })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    await queue.process((job) => {
+      if (job.payload.shouldFail) throw new Error('transient')
+    }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].attemptCount).toBe(1)
+    expect(remaining[0].availableAt).toBeDefined()
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('failed jobs are removed after max attempts', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Manually set attemptCount to simulate prior failures
+    const jobs = readJson(queuePath)
+    jobs[0].attemptCount = 2
+    jobs[0].availableAt = undefined
+    fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
+
+    await queue.process(() => { throw new Error('permanent') }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(0)
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('retry jobs include exponential backoff delay', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const beforeProcess = Date.now()
+
+    await queue.process(() => { throw new Error('fail') }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    const availableAt = new Date(remaining[0].availableAt).getTime()
+    expect(availableAt).toBeGreaterThanOrEqual(beforeProcess + 1000)
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('attempt number is passed correctly in job context', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+    const attempts: number[] = []
+
+    await queue.enqueue({ value: 1 })
+
+    // Set attemptCount to 1 to simulate a retry
+    const jobs = readJson(queuePath)
+    jobs[0].attemptCount = 1
+    jobs[0].availableAt = undefined
+    fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
+
+    await queue.process((_job, ctx) => {
+      attempts.push(ctx.attemptNumber)
+    }, { limit: 10 })
+
+    expect(attempts).toEqual([2])
+
+    await queue.close()
+  })
+
   test('job context contains correct information', async () => {
     const queue = createQueue<{ value: number }>('context-test', 'local')
     let capturedContext: any = null
@@ -220,6 +306,86 @@ describe('Queue - local strategy', () => {
     expect(capturedContext.jobId).toBe(jobId)
     expect(capturedContext.attemptNumber).toBe(1)
     expect(capturedContext.queueName).toBe('context-test')
+
+    await queue.close()
+  })
+
+  // Regression: queue operations MUST use async fs.promises.* so they do not
+  // block the Node.js event loop. See GitHub issue #1401.
+  test('queue operations do not call synchronous fs APIs on queue files', async () => {
+    const queueDir = path.join('.mercato', 'queue', 'sync-free')
+    const touchesQueue = (args: unknown[]) =>
+      args.some((arg) => typeof arg === 'string' && arg.includes(queueDir))
+
+    const syncCalls: string[] = []
+    const mkdirSpy = jest.spyOn(fs, 'mkdirSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`mkdirSync(${args[0]})`)
+      return undefined as any
+    })
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`readFileSync(${args[0]})`)
+      return '' as any
+    })
+    const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`writeFileSync(${args[0]})`)
+      return undefined as any
+    })
+
+    try {
+      const queue = createQueue<{ value: number }>('sync-free', 'local')
+
+      await queue.enqueue({ value: 1 })
+      await queue.enqueue({ value: 2 })
+      await queue.getJobCounts()
+      await queue.process((_job) => {}, { limit: 10 })
+      await queue.clear()
+      await queue.close()
+
+      expect(syncCalls).toEqual([])
+    } finally {
+      mkdirSpy.mockRestore()
+      readSpy.mockRestore()
+      writeSpy.mockRestore()
+    }
+  })
+
+  // Regression: serialize enqueue calls so async fs writes cannot clobber
+  // each other. Before the async conversion this was trivially safe because
+  // sync I/O executed atomically. With async fs a mutex is required.
+  test('concurrent enqueues do not lose jobs', async () => {
+    const queue = createQueue<{ value: number }>('concurrent-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'concurrent-queue', 'queue.json')
+
+    const enqueueCount = 50
+    await Promise.all(
+      Array.from({ length: enqueueCount }, (_, idx) => queue.enqueue({ value: idx })),
+    )
+
+    const stored = readJson(queuePath)
+    expect(stored).toHaveLength(enqueueCount)
+    const storedValues = stored.map((job: any) => job.payload.value).sort((a: number, b: number) => a - b)
+    expect(storedValues).toEqual(Array.from({ length: enqueueCount }, (_, idx) => idx))
+
+    await queue.close()
+  }, 15_000)
+
+  // Regression: jobs enqueued while a batch is running must survive the
+  // subsequent write that removes completed jobs. The pre-fix snapshot-only
+  // write would clobber them.
+  test('jobs enqueued during batch handler are preserved on final write', async () => {
+    const queue = createQueue<{ value: number; latecomer?: boolean }>('race-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'race-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    await queue.process(async () => {
+      // Mid-handler, enqueue a second job. It should survive the final write.
+      await queue.enqueue({ value: 2, latecomer: true })
+    }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].payload).toEqual({ value: 2, latecomer: true })
 
     await queue.close()
   })

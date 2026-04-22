@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition } from '../../../data/entities'
 import {
   updateWorkflowDefinitionInputSchema,
@@ -51,12 +52,12 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
     const definition = await em.findOne(WorkflowDefinition, {
       id: params.id,
       tenantId,
-      organizationId,
+      ...orgFilter.where,
       deletedAt: null,
     })
 
@@ -149,13 +150,28 @@ export async function PUT(
       )
     }
 
-    // Update fields
+    // Update fields. workflowId and version are intentionally ignored —
+    // they identify the row and bumping versions is handled elsewhere.
+    if (input.workflowName !== undefined) {
+      definition.workflowName = input.workflowName
+    }
+    if (input.description !== undefined) {
+      definition.description = input.description
+    }
     if (input.definition !== undefined) {
       definition.definition = input.definition
     }
-
+    if (input.metadata !== undefined) {
+      definition.metadata = input.metadata
+    }
     if (input.enabled !== undefined) {
       definition.enabled = input.enabled
+    }
+    if (input.effectiveFrom !== undefined) {
+      definition.effectiveFrom = input.effectiveFrom
+    }
+    if (input.effectiveTo !== undefined) {
+      definition.effectiveTo = input.effectiveTo
     }
 
     definition.updatedAt = new Date()

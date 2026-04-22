@@ -61,7 +61,7 @@ test.describe('TC-CRM-001: Company Creation', () => {
       if (await contactDialog.count()) {
         await contactDialog.getByRole('button', { name: 'Close' }).click().catch(() => {});
       }
-      const searchInput = page.getByRole('textbox', { name: /Search companies/i });
+      const searchInput = page.getByPlaceholder(/Search by name/i);
       await searchInput.fill(companyName);
       await page.waitForTimeout(1200);
       await expect

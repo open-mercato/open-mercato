@@ -1,15 +1,29 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions } from '../types'
-import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
-type ConnectionOptions = { host?: string; port?: number; password?: string; db?: number }
+type ConnectionOptions = {
+  url?: string
+  host?: string
+  port?: number
+  username?: string
+  password?: string
+  db?: number
+  tls?: Record<string, unknown>
+}
 
 interface BullQueueInterface<T> {
   add: (
     name: string,
     data: T,
-    opts?: { removeOnComplete?: boolean; removeOnFail?: number; delay?: number },
+    opts?: {
+      removeOnComplete?: boolean
+      removeOnFail?: number
+      delay?: number
+      attempts?: number
+      backoff?: { type: string; delay: number }
+    },
   ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
   close: () => Promise<void>
@@ -33,26 +47,27 @@ interface BullMQModule {
 /**
  * Resolves Redis connection options from various sources.
  *
- * BullMQ requires connection options as `{ host, port, password, db }` object.
- * It does NOT accept raw URL strings in `{ connection: string }` format.
+ * BullMQ expects an ioredis-compatible connection object. Preserve the full
+ * Redis URL under the `url` key so rediss://, username, database, and query
+ * params are not lost in translation.
  */
 function resolveConnection(options?: AsyncQueueOptions['connection']): ConnectionOptions {
-  // Priority: explicit options > shared env helper
   if (options?.url) {
-    return parseRedisUrl(options.url)
+    return { url: options.url }
   }
 
   if (options?.host) {
     return {
       host: options.host,
       port: options.port ?? 6379,
+      username: options.username,
       password: options.password,
+      db: options.db,
+      tls: options.tls,
     }
   }
 
-  // Delegate env var resolution to the shared helper
-  const url = getRedisUrl('QUEUE')
-  return parseRedisUrl(url)
+  return { url: getRedisUrlOrThrow('QUEUE') }
 }
 
 /**
@@ -119,7 +134,9 @@ export function createAsyncQueue<T = unknown>(
     const job = await queue.add(jobData.id, jobData, {
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
-      removeOnFail: 1000, // Keep last 1000 failed jobs
+      removeOnFail: 1000,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
     })
 
     return job.id ?? jobData.id

@@ -41,7 +41,7 @@ export default function CreateRuleSetPage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || t('business_rules.sets.errors.createFailed'))
+      throw new Error(error.error || error.message || t('business_rules.sets.errors.createFailed'))
     }
 
     const result = await response.json()

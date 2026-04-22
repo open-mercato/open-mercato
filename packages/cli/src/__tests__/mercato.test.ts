@@ -145,4 +145,314 @@ describe('db command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('does not load app CLI while dispatching built-in db commands', async () => {
+    const originalFunction = global.Function
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const dbGenerate = jest.fn().mockResolvedValue(undefined)
+
+    try {
+      ;(global as typeof globalThis & { Function: typeof Function }).Function = jest.fn(() => {
+        throw new Error('app cli import should not run for built-in db commands')
+      }) as unknown as typeof Function
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+    } finally {
+      ;(global as typeof globalThis & { Function: typeof Function }).Function = originalFunction
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
+
+  it('does not import the DI container module while dispatching built-in db commands', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    try {
+      jest.resetModules()
+      jest.doMock('@open-mercato/shared/lib/di/container', () => {
+        throw new Error('di container should stay lazy for built-in db commands')
+      })
+
+      const mercato = await import('../mercato')
+      const dbGenerate = jest.fn().mockResolvedValue(undefined)
+
+      mercato.registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await mercato.run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+    } finally {
+      jest.dontMock('@open-mercato/shared/lib/di/container')
+      jest.resetModules()
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
+
+  it('falls back to nested error messages when a command throws an aggregate error with an empty top-level message', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const cacheError = new AggregateError(
+      [Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
+      '',
+    )
+
+    registerCliModules([
+      {
+        id: 'configs',
+        cli: [{ command: 'cache', run: jest.fn().mockRejectedValue(cacheError) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'configs', 'cache', 'structural'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '💥 Failed: PostgreSQL at 127.0.0.1:5432/open_mercato is not reachable: it refused the connection. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry `yarn mercato configs cache`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('init command failure output', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/db')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  it('shows a targeted message when init cannot reach postgres', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const initError = new AggregateError(
+      [Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
+      'AggregateError',
+    )
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockRejectedValue(initError),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌ Initialization failed:',
+      'PostgreSQL at 127.0.0.1:5432/open_mercato is not reachable: it refused the connection. Start PostgreSQL or fix DATABASE_URL in .env, then retry `yarn initialize`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('shows a DNS-focused message when init cannot resolve postgres host', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.internal:5432/open_mercato'
+
+    const initError = new AggregateError(
+      [Object.assign(new Error('getaddrinfo ENOTFOUND db.internal'), { code: 'ENOTFOUND' })],
+      'AggregateError',
+    )
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockRejectedValue(initError),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌ Initialization failed:',
+      'PostgreSQL at db.internal:5432/open_mercato is not reachable: it could not be resolved. Start PostgreSQL or fix DATABASE_URL in .env, then retry `yarn initialize`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('generate post-step structural cache purge', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+  })
+
+  afterEach(() => {
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    jest.resetModules()
+  })
+
+  it('runs structural cache purge after successful generation when configs cache CLI is available', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
+    const generateModuleDi = jest.fn().mockResolvedValue(undefined)
+    const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateOpenApi = jest.fn().mockResolvedValue(undefined)
+    const cacheRun = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistry,
+      generateModuleRegistryApp,
+      generateModuleRegistryCli,
+      generateModuleEntities,
+      generateModuleDi,
+      generateModulePackageSources,
+      generateOpenApi,
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'cache', run: cacheRun }],
+          },
+        ],
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(generateEntityIds).toHaveBeenCalled()
+    expect(cacheRun).toHaveBeenCalledWith(['structural', '--all-tenants', '--quiet'])
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('keeps generation successful when the post-generate cache purge bootstrap fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
+    const generateModuleDi = jest.fn().mockResolvedValue(undefined)
+    const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateOpenApi = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistry,
+      generateModuleRegistryApp,
+      generateModuleRegistryCli,
+      generateModuleEntities,
+      generateModuleDi,
+      generateModulePackageSources,
+      generateOpenApi,
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockRejectedValue(new Error('generated cli bootstrap unavailable')),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(generateEntityIds).toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })

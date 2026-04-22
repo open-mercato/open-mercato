@@ -10,7 +10,7 @@ import {
   scheduleDeleteSchema,
   scheduleListQuerySchema,
 } from '../../data/validators.js'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildSchedulerJobsFilters } from './buildFilters.js'
 import {
   createSchedulerCrudOpenApi,
   createPagedListResponseSchema,
@@ -68,6 +68,7 @@ const crud = makeCrudRoute({
       lastRunAt: 'last_run_at',
       createdAt: 'created_at',
     },
+    omitAutomaticTenantOrgScope: true,
     transformItem: (item: Record<string, unknown>) => {
       if (!item) return item
       return {
@@ -94,40 +95,7 @@ const crud = makeCrudRoute({
         updatedAt: item.updated_at,
       }
     },
-    buildFilters: async (query, ctx) => {
-      const filters: Record<string, unknown> = {}
-
-      filters.organization_id = { $eq: ctx.auth?.orgId }
-
-      if (query.id) {
-        filters.id = { $eq: query.id }
-      }
-
-      if (query.search) {
-        filters.$or = [
-          { name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-          { description: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-        ]
-      }
-
-      if (query.scopeType) {
-        filters.scope_type = { $eq: query.scopeType }
-      }
-
-      if (query.isEnabled !== undefined) {
-        filters.is_enabled = { $eq: query.isEnabled }
-      }
-
-      if (query.sourceType) {
-        filters.source_type = { $eq: query.sourceType }
-      }
-
-      if (query.sourceModule) {
-        filters.source_module = { $eq: query.sourceModule }
-      }
-
-      return filters
-    },
+    buildFilters: buildSchedulerJobsFilters,
   },
   actions: {
     create: {

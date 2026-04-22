@@ -11,15 +11,57 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Installation",
+      link: { type: "doc", id: "installation/index" },
       items: [
-        "installation/prerequisites",
-        "installation/setup",
-        "installation/railway",
         {
-          type: "link",
-          label: "Standalone App (create-mercato-app)",
-          href: "/customization/standalone-app",
+          type: "category",
+          label: "🔧 Monorepo — Core Development",
+          link: { type: "doc", id: "installation/monorepo" },
+          items: [
+            {
+              type: "link",
+              label: "🍎 macOS",
+              href: "/installation/monorepo#macos",
+            },
+            {
+              type: "link",
+              label: "🐧 Linux",
+              href: "/installation/monorepo#linux",
+            },
+            {
+              type: "link",
+              label: "🪟 Windows",
+              href: "/installation/monorepo#windows",
+            },
+          ],
         },
+        {
+          type: "category",
+          label: "📦 Standalone App",
+          link: { type: "doc", id: "installation/standalone" },
+          items: [
+            {
+              type: "link",
+              label: "🍎 macOS",
+              href: "/installation/standalone#macos",
+            },
+            {
+              type: "link",
+              label: "🐧 Linux",
+              href: "/installation/standalone#linux",
+            },
+            {
+              type: "link",
+              label: "🪟 Windows",
+              href: "/installation/standalone#windows",
+            },
+          ],
+        },
+        "installation/wsl2",
+        "installation/docker",
+        "installation/vps",
+        "installation/devcontainer",
+        "installation/railway",
       ],
     },
     {
@@ -28,6 +70,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "user-guide/overview",
         "user-guide/login",
+        "user-guide/self-service-onboarding",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/feature-toggles",
@@ -39,6 +82,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
+        "user-guide/attachments",
         "user-guide/cache-management",
         "user-guide/taxes",
         "user-guide/search",
@@ -74,6 +118,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/integrations",
             "user-guide/webhooks",
             "user-guide/akeneo-pim",
+            "user-guide/checkout",
             "user-guide/stripe-payments",
             "user-guide/payment-transactions",
           ],
@@ -123,7 +168,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -250,6 +295,11 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Entities",
           items: ["cli/entities-install"],
+        },
+        {
+          type: "category",
+          label: "Configs Module",
+          items: ["cli/configs-cache"],
         },
         {
           type: "category",

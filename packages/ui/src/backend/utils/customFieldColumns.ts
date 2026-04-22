@@ -1,6 +1,52 @@
 import type { ColumnDef } from '@tanstack/react-table'
+import type { FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { CustomFieldDefDto, CustomFieldVisibility } from './customFieldDefs'
 import { isDefVisible } from './customFieldDefs'
+
+type RawCustomFieldOption = string | number | { value?: unknown; label?: unknown }
+
+export function supportsCustomFieldColumn(def: CustomFieldDefDto): boolean {
+  return def.kind !== 'attachment'
+}
+
+export function mapCustomFieldKindToFilterType(kind: string): FilterFieldType {
+  switch (kind) {
+    case 'boolean':
+      return 'boolean'
+    case 'integer':
+    case 'float':
+      return 'number'
+    case 'date':
+    case 'datetime':
+      return 'date'
+    case 'select':
+    case 'dictionary':
+    case 'currency':
+    case 'relation':
+      return 'select'
+    default:
+      return 'text'
+  }
+}
+
+export function normalizeCustomFieldFilterOptions(options?: RawCustomFieldOption[]): FilterOption[] {
+  if (!Array.isArray(options)) return []
+  return options.map((option) => {
+    if (option && typeof option === 'object' && 'value' in option) {
+      const rawValue = option.value
+      const rawLabel = option.label ?? rawValue
+      return {
+        value: String(rawValue),
+        label: typeof rawLabel === 'string' ? rawLabel : String(rawLabel),
+      }
+    }
+    const value = String(option)
+    return {
+      value,
+      label: value.charAt(0).toUpperCase() + value.slice(1),
+    }
+  })
+}
 
 // Filters and annotates columns with custom-field definitions:
 // - Drops cf_* columns when no definition exists or listVisible === false
@@ -14,6 +60,7 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
     const cfKey = key.slice(3)
     const def = byKey.get(cfKey)
     if (!def) return false
+    if (!supportsCustomFieldColumn(def)) return false
     if (!isDefVisible(def, mode)) return false
     const currentHeader = (c as any).header
     const fallbackHeader = typeof currentHeader === 'string' && currentHeader.trim().length ? currentHeader : key
@@ -54,7 +101,7 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
     .map((k) => k.slice(3)))
 
   const visibleSorted = defs
-    .filter((d) => isDefVisible(d, mode))
+    .filter((d) => supportsCustomFieldColumn(d) && isDefVisible(d, mode))
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
 
   const missing = visibleSorted.filter((d) => !existingCfKeys.has(d.key))

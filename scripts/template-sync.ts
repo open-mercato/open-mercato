@@ -30,6 +30,53 @@ const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
 const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts'] as const
+const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+    rel: 'scripts/dev.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash.html'),
+    rel: 'scripts/dev-splash.html',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-helpers.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-helpers.mjs'),
+    rel: 'scripts/dev-splash-helpers.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
+    rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-coding-flow.mjs'),
+    rel: 'scripts/dev-splash-coding-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    rel: 'scripts/dev-splash-git-repo-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-orchestration-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-orchestration-log-policy.mjs'),
+    rel: 'scripts/dev-orchestration-log-policy.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
+    rel: 'scripts/dev-runtime.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev-runtime-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
+    rel: 'scripts/dev-runtime-log-policy.mjs',
+  },
+] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
@@ -160,6 +207,30 @@ function computeDrift(): Drift[] {
       templateFile,
       rel,
     })
+  }
+
+  for (const mapping of EXPLICIT_TEMPLATE_FILE_MAPPINGS) {
+    if (!fs.existsSync(mapping.templateFile)) {
+      drifts.push({
+        kind: 'missing_in_template',
+        sourceFile: mapping.sourceFile,
+        templateFile: mapping.templateFile,
+        rel: mapping.rel,
+      })
+      continue
+    }
+
+    const source = fs.readFileSync(mapping.sourceFile)
+    const template = fs.readFileSync(mapping.templateFile)
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
+    if (!expectedTemplate.equals(template)) {
+      drifts.push({
+        kind: 'content_mismatch',
+        sourceFile: mapping.sourceFile,
+        templateFile: mapping.templateFile,
+        rel: mapping.rel,
+      })
+    }
   }
 
   return drifts
@@ -293,6 +364,16 @@ function applyFullSync(): number {
     updated++
   }
 
+  for (const mapping of EXPLICIT_TEMPLATE_FILE_MAPPINGS) {
+    const source = fs.readFileSync(mapping.sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
+    const current = fs.existsSync(mapping.templateFile) ? fs.readFileSync(mapping.templateFile) : null
+    if (current && current.equals(expectedTemplate)) continue
+    fs.mkdirSync(path.dirname(mapping.templateFile), { recursive: true })
+    fs.writeFileSync(mapping.templateFile, expectedTemplate)
+    updated++
+  }
+
   return updated
 }
 
@@ -342,7 +423,7 @@ async function main() {
     process.exit(2)
   }
 
-  console.log(cyan('[template-sync] Checking template parity for synced src folders, root files, and mirrored package dependencies...'))
+  console.log(cyan('[template-sync] Checking template parity for synced src folders, mirrored dev scripts/assets, root files, and package dependencies...'))
   const drifts = computeDrift()
   const packageDrifts = computePackageDrift()
   printDrift(drifts)

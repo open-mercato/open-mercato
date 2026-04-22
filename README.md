@@ -175,8 +175,91 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 
 ## Getting Started
 
+### ⚡ Quick start
 
-This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
+**You need:** [Node.js 24](https://nodejs.org/en/download) · [Git](https://git-scm.com/) · PostgreSQL + Redis (easiest via [Docker Desktop](https://www.docker.com/products/docker-desktop/))
+
+<details>
+<summary><strong>🔧 Monorepo</strong> — core development / full demo</summary>
+
+```bash
+# macOS / Linux
+brew install node@24   # or: nvm install 24 && nvm use 24
+corepack enable && corepack prepare yarn@4.12.0 --activate
+
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato && git checkout develop
+docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
+cp apps/mercato/.env.example apps/mercato/.env
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in apps/mercato/.env
+yarn dev:greenfield                   # installs, builds, seeds, starts the app
+```
+
+```powershell
+# Windows (PowerShell as Administrator — or use Git Bash / cmd)
+# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+corepack enable; corepack prepare yarn@4.12.0 --activate
+
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato; git checkout develop
+docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
+Copy-Item apps\mercato\.env.example apps\mercato\.env
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in apps\mercato\.env
+yarn dev:greenfield
+```
+
+Open **http://localhost:3000/backend** — credentials printed in the terminal.
+
+</details>
+
+<details>
+<summary><strong>📦 Standalone app</strong> — build on Open Mercato without touching the core</summary>
+
+```bash
+# macOS / Linux
+brew install node@24   # or: nvm install 24 && nvm use 24
+corepack enable && corepack prepare yarn@4.12.0 --activate
+
+npx create-mercato-app my-app
+cd my-app
+docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
+yarn setup                            # installs, seeds, starts the app
+```
+
+```powershell
+# Windows (PowerShell as Administrator — or use Git Bash / cmd)
+# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+corepack enable; corepack prepare yarn@4.12.0 --activate
+
+npx create-mercato-app my-app
+cd my-app
+docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
+yarn setup
+```
+
+Open **http://localhost:3000/backend** — credentials printed in the terminal.
+
+</details>
+
+---
+
+### Detailed guides (prerequisites, native services, troubleshooting)
+
+Each guide below is self-contained and covers all prerequisites, infrastructure setup (native services or Docker), and every command from zero to a running app.
+
+| | Guide |
+|---|---|
+| 🔧 **Monorepo** — contribute to the core or demo the full platform | [🍎 macOS](https://docs.openmercato.com/installation/monorepo#macos) · [🐧 Linux](https://docs.openmercato.com/installation/monorepo#linux) · [🪟 Windows](https://docs.openmercato.com/installation/monorepo#windows) |
+| 📦 **Standalone app** — build your product without modifying the core | [🍎 macOS](https://docs.openmercato.com/installation/standalone#macos) · [🐧 Linux](https://docs.openmercato.com/installation/standalone#linux) · [🪟 Windows](https://docs.openmercato.com/installation/standalone#windows) |
+| 🐧 **Windows with WSL2** — Ubuntu on Windows: memory config, Docker, GitHub CLI, native Postgres bridging | [WSL2 guide →](https://docs.openmercato.com/installation/wsl2) |
+| 🐳 **Docker dev** — full containerized dev with hot reload, no local toolchain | [All platforms →](https://docs.openmercato.com/installation/docker) |
+| 🚀 **VPS / production** — deploy a full stack to any Linux server | [Deploy guide →](https://docs.openmercato.com/installation/vps) |
+| 🛠️ **Dev Container** — zero-install VS Code environment | [Setup guide →](https://docs.openmercato.com/installation/devcontainer) |
+| ☁️ **Railway** — one-click cloud deployment | [Railway guide →](https://docs.openmercato.com/installation/railway) |
 
 <table>
   <tr>
@@ -186,116 +269,15 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
     </td>
     <td align="center">
       <strong>Building Standalone App on Linux/Mac</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App using Docker" width="400"/></a>
+      <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
     </td>
-  </tr>
-  <tr>
-    <td align="center" colspan="2">
-      <strong>Building Standalone App using 100% Docker (recommended for Windows)</strong><br/><br/>
-<a href="https://youtu.be/5mErdkgeZ0s"><img src="https://img.youtube.com/vi/5mErdkgeZ0s/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
+    <td align="center">
+      <strong>How to install Open Mercato on Windows</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=eX1SqfDPhkU"><img src="https://img.youtube.com/vi/eX1SqfDPhkU/maxresdefault.jpg" alt="How to Install" width="400"/></a>
     </td>
   </tr>
 </table>
 
-### Installation update
-**Node.js 24.x is required**
-  ```bash
-  # macOS (Homebrew)
-  brew install node@24
-
-  # Windows (Chocolatey)
-  choco install nodejs --version=24.x
-
-  # Or use nvm (any platform)
-  nvm install 24
-  nvm use 24
-  ```
-  
-**Windows:** Use [Docker Setup](#docker-setup) for native setup.
-
-### Quickstart: (Monorepo, core development / contributting)
-
-**Prerequisites:** Yarn 4+
-
-Quick single-line starter (ephemeral dev on a free port):
-
-```bash
-yarn dev:ephemeral
-```
-
-```bash
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato
-git checkout develop
-yarn install
-
-cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
-#At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
-
-yarn generate
-yarn initialize # or yarn reinstall
-yarn dev
-```
-
-After upgrading to a newer version, apply any new module migrations:
-
-```bash
-yarn db:migrate
-```
-
-Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
-
-For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
-
-```bash
-yarn dev:greenfield
-```
-
-For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
-
-```bash
-yarn dev:ephemeral
-```
-
-Navigate to `http://localhost:3000/backend` and sign in with the default credentials printed by `yarn initialize`.
-
-Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
-
-### Quickstart: app development without touching the Core
-
-The **recommended way to build on Open Mercato** without modifying the core is to create a standalone app. This gives you a self-contained project that pulls Open Mercato packages from npm — your own modules, overrides, and customizations live in your repo while core stays untouched and upgradeable.
-
-#### Create a standalone app
-
-```bash
-npx create-mercato-app my-store
-cd my-store
-yarn setup
-```
-
-Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
-
-#### Add custom modules
-
-Drop your own modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`. If you ask *Claude Code* or *Codex* they'll be more than happy to do so for you! But first: start with the [Spec Driven Development](#spec-driven-development).
-
-#### Eject core modules for deep customization
-
-When you need to change the internals of a core module (entities, business logic, UI), **eject** it. The `mercato eject` command copies the module source into your `src/modules/` directory and switches it to local, so you can modify it freely while all other modules keep receiving package updates.
-
-```bash
-# See which modules support ejection
-yarn mercato eject --list
-
-# Eject a module (e.g., currencies)
-yarn mercato eject currencies
-yarn mercato generate all
-yarn dev
-```
-
-Currently ejectable: `catalog`, `currencies`, `customers`, `perspectives`, `planner`, `resources`, `sales`, `staff`, `workflows`.
-
-Full guide: [docs.openmercato.com/customization/standalone-app](https://docs.openmercato.com/customization/standalone-app) · CLI reference: [docs.openmercato.com/cli/eject](https://docs.openmercato.com/cli/eject)
 
 ## Release Channels
 
@@ -312,129 +294,12 @@ npx create-mercato-app@develop my-app
 
 ## Docker Setup
 
-Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+Open Mercato ships two Docker Compose configurations — one for hot-reload development and one for production. Full step-by-step guides with environment variables, troubleshooting, and upgrade instructions:
 
-### Dev mode (hot reload)
-
-Run the entire stack with source code mounted from the host. File changes trigger automatic rebuilds — no local Node.js or Yarn required.
-
-```bash
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato
-git checkout develop
-docker compose -f docker-compose.fullapp.dev.yml up --build
-```
-
-**Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop and clone with `git config --global core.autocrlf input` to avoid line-ending issues.
-
-Once the dev stack is running, you can use the Docker wrapper scripts from the repo root instead of typing `docker compose exec` manually:
-
-```bash
-yarn docker:build:packages
-yarn docker:generate
-yarn docker:initialize
-yarn docker:initialize -- --reinstall
-yarn docker:db:migrate
-yarn docker:lint
-yarn docker:typecheck
-yarn docker:test
-yarn docker:install-skills
-yarn docker:dev -- --skip-rebuilt
-```
-
-### Production mode
-
-```bash
-docker compose -f docker-compose.fullapp.yml up --build
-```
-
-**Common operations:**
-
-- Start: `docker compose -f docker-compose.fullapp.yml up -d`
-- Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
-- Stop: `docker compose -f docker-compose.fullapp.yml down`
-- Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
-
-For runtime-oriented tasks on the fullapp stack, use the Docker wrappers as well:
-
-```bash
-yarn docker:db:migrate
-yarn docker:mercato auth:list-users
-```
-
-Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
-
-### Docker Environment Variables
-
-Before starting, you may want to configure the following environment variables. Create a `.env` file in the project root or export them in your shell:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JWT_SECRET` | For production | `JWT` | Secret key for JWT token signing. **Use a strong, unique value in production.** |
-| `POSTGRES_PASSWORD` | For production | `postgres` | PostgreSQL database password. **Use a strong password in production.** |
-| `POSTGRES_USER` | No | `postgres` | PostgreSQL database user |
-| `POSTGRES_DB` | No | `open-mercato` | PostgreSQL database name |
-| `POSTGRES_PORT` | No | `5432` | PostgreSQL exposed port |
-| `REDIS_PORT` | No | `6379` | Redis exposed port |
-| `MEILISEARCH_MASTER_KEY` | For production | `meilisearch-dev-key` | Meilisearch API key. **Use a strong key in production.** |
-| `MEILISEARCH_PORT` | No | `7700` | Meilisearch exposed port |
-| `OPENAI_API_KEY` | No | - | OpenAI API key (enables AI features) |
-| `ANTHROPIC_API_KEY` | No | - | Anthropic API key (for opencode service) |
-| `OPENCODE_PORT` | No | `4096` | Opencode service exposed port |
-
-Example `.env` file for production:
-
-```bash
-JWT_SECRET=your-strong-secret-key-here
-POSTGRES_PASSWORD=your-strong-db-password
-MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
-OPENAI_API_KEY=sk-...  # Optional, for AI features
-```
-
-### Ephemeral Environments
-
-Spin up a self-contained, throwaway environment for quick testing or previewing a branch — no local database, or full dev setup required. Each run starts with a fresh database and is automatically reset on restart.
-
-```bash
-docker compose -f docker-compose.preview.yaml up --build
-```
-
-Navigate to `http://localhost:5000`.
-
-To stop the environment:
-
-```bash
-docker compose -f docker-compose.preview.yaml down
-```
-
-> **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
-
-
-### VPS Deployment
-
-[![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
-
-For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
-
-### Dev Container (VS Code)
-
-The fastest way to get a fully working dev environment — no local toolchain required.
-
-**Prerequisites**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (12 GB+ memory in Settings → Resources) + VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
-
-```bash
-git clone https://github.com/open-mercato/open-mercato.git
-code open-mercato
-# VS Code → Command Palette → "Dev Containers: Reopen in Container"
-# Wait for setup to complete (~3-5 min on first build), then:
-yarn dev
-```
-
-The container includes Node.js 24, Yarn 4, PostgreSQL (with pgvector), Redis, Meilisearch, and Claude Code CLI — all pre-configured and ready to use.
-
-- **Customize env vars**: create `apps/mercato/.env.local` (takes priority over `.env`, which is auto-generated)
-- **Claude Code CLI**: run `claude` inside the container and follow the OAuth login flow (works with Max plan subscriptions), or set `export ANTHROPIC_API_KEY=sk-...` in your host shell before opening the container for API key auth
-- **Rebuild**: if you need a fresh start, use Command Palette → "Dev Containers: Rebuild Container"
+- 🐳 [Docker dev setup](https://docs.openmercato.com/installation/docker) — hot reload, no local toolchain required
+- 🚀 [VPS / production deployment](https://docs.openmercato.com/installation/vps) — full production stack with security guidance and backup instructions
+- 🛠️ [Dev Container](https://docs.openmercato.com/installation/devcontainer) — zero-install VS Code environment (12 GB RAM recommended)
+- ☁️ [Deploy on Railway](https://docs.openmercato.com/installation/railway) — one-click cloud deployment
 
 ## Live demo
 
@@ -445,7 +310,7 @@ The container includes Node.js 24, Yarn 4, PostgreSQL (with pgvector), Redis, Me
 Browse the full documentation at [docs.openmercato.com](https://docs.openmercato.com/).
 
 - [Introduction](https://docs.openmercato.com/introduction/overview)
-- [Installation](https://docs.openmercato.com/installation/setup)
+- [Installation](https://docs.openmercato.com/installation)
 - [User Guide](https://docs.openmercato.com/user-guide/overview)
 - [Tutorials](https://docs.openmercato.com/tutorials/first-app)
 - [Customization](https://docs.openmercato.com/customization/build-first-app)
@@ -467,17 +332,34 @@ Open Mercato follows a **spec-first development approach**. Before implementing 
 
 ### How It Works
 
-1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `SPEC-###-YYYY-MM-DD-title.md`)
+1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
 2. **New features**: Create or update the spec with your design before implementation
 3. **After changes**: Update the spec's changelog with a dated summary
 
-**Naming convention**: Specs use the format `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-007-2026-01-26-sidebar-reorganization.md`)
+**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
 
 See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 
 ## Join us on Discord
 
 Connect with the team and other builders in our Discord community: [https://discord.gg/f4qwPtJ3qA](https://discord.gg/f4qwPtJ3qA).
+
+## 🏆 Hall of Fame
+
+Honoring the champions of the **Open Mercato Agentic Hackathon** — Sopot, 10–12 April 2026.
+
+### 🥇 Team MercatoMinds — 378 pts · 36 PRs
+
+| # | Contributor | GitHub | Points | PRs |
+|---|-------------|--------|-------:|----:|
+| 1 | Michał Strześniewski | [@strzesniewski](https://github.com/strzesniewski) | 106 | 9 |
+| 2 | Wiktor Idzikowski | [@WXYZx](https://github.com/WXYZx) | 93 | 11 |
+| 3 | Adam Kardasz | [@WH173-P0NY](https://github.com/WH173-P0NY) | 87 | 7 |
+| 4 | Karol Roman | [@RMN-45](https://github.com/RMN-45) | 39 | 3 |
+| 5 | Adam Kanigowski | [@AK-300codes](https://github.com/AK-300codes) | 29 | 3 |
+| 6 | Tomasz Jeleszuk | [@Tomeckyyyy](https://github.com/Tomeckyyyy) | 24 | 3 |
+
+Huge thanks for the incredible energy, craftsmanship, and contributions delivered over the weekend. 🎉
 
 ## Contributing
 

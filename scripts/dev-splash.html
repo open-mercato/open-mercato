@@ -1,0 +1,1584 @@
+<!doctype html>
+<html lang="__SPLASH_INITIAL_LOCALE__">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Mercato Dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #090909;
+        --bg-deep: #090909;
+        --panel: #1c1c1c;
+        --panel-strong: #1c1c1c;
+        --panel-border: rgba(255, 255, 255, 0.12);
+        --surface: rgba(255, 255, 255, 0.03);
+        --surface-strong: rgba(255, 255, 255, 0.05);
+        --muted: #a1a1aa;
+        --text: #fafafa;
+        --accent: #f5f5f5;
+        --accent-strong: #ffffff;
+        --warning: #f5f5f5;
+        --danger: #fca5a5;
+        --danger-strong: #ef4444;
+        --danger-surface: rgba(239, 68, 68, 0.12);
+        --activity-text: #f5f5f5;
+        --activity-time: #a1a1aa;
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+      }
+      html[data-theme="light"] {
+        --bg: #f5f5f5;
+        --bg-deep: #ebebeb;
+        --panel: rgba(255, 255, 255, 0.96);
+        --panel-strong: rgba(255, 255, 255, 0.98);
+        --panel-border: rgba(17, 24, 39, 0.1);
+        --surface: rgba(17, 24, 39, 0.035);
+        --surface-strong: rgba(17, 24, 39, 0.055);
+        --muted: #5f5f67;
+        --text: #111111;
+        --warning: #111111;
+        --danger: #b91c1c;
+        --danger-strong: #991b1b;
+        --danger-surface: rgba(185, 28, 28, 0.08);
+        --activity-text: #111111;
+        --activity-time: #52525b;
+        --shadow: 0 22px 52px rgba(15, 23, 42, 0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 28%),
+          linear-gradient(180deg, var(--bg), var(--bg-deep));
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .shell {
+        width: min(1280px, 100%);
+        height: min(860px, calc(100vh - 48px));
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
+        gap: 24px;
+        align-items: stretch;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        min-height: 0;
+        overflow: hidden;
+      }
+      .hero {
+        padding: 28px 34px 30px;
+        display: grid;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        gap: 18px;
+        min-height: 0;
+      }
+      .hero-top {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+      }
+      .hero-mark {
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+        text-align: center;
+      }
+      .hero-logo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        height: auto;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        line-height: 0;
+      }
+      .hero-logo svg {
+        width: 156px;
+        height: 156px;
+        display: block;
+      }
+      .control-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .control-button {
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .summary {
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.5;
+        max-width: 34rem;
+        margin: 0 auto;
+        text-align: center;
+      }
+      .stream-shell {
+        display: grid;
+        gap: 10px;
+        min-height: 0;
+      }
+      .hero-body {
+        display: grid;
+        gap: 14px;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+      .hero-body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .hero-body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .hero-body::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .stream-heading {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .status-card {
+        padding: 28px 28px 30px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        justify-content: flex-start;
+        background: var(--panel-strong);
+        overflow: visible;
+      }
+      .status-line {
+        font-size: 15px;
+        color: var(--muted);
+      }
+      .phase {
+        font-size: 32px;
+        line-height: 1.12;
+        margin: 0;
+        letter-spacing: -0.04em;
+        font-weight: 700;
+      }
+      .spinner {
+        width: 56px;
+        height: 56px;
+        border-radius: 999px;
+        border: 5px solid rgba(255, 255, 255, 0.12);
+        border-top-color: var(--accent);
+        animation: spin 1s linear infinite;
+      }
+      .ready .spinner {
+        animation: none;
+        border-color: rgba(115, 239, 194, 0.26);
+        position: relative;
+      }
+      .ready .spinner::after {
+        content: "";
+        position: absolute;
+        inset: 11px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+      .failed {
+        border-color: rgba(239, 68, 68, 0.35);
+      }
+      .failed .spinner {
+        animation: none;
+        border-color: rgba(239, 68, 68, 0.18);
+        border-top-color: var(--danger-strong);
+        position: relative;
+      }
+      .failed .spinner::after,
+      .failed .spinner::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 26px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--danger-strong);
+        transform-origin: center;
+      }
+      .failed .spinner::before {
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+      .failed .spinner::after {
+        transform: translate(-50%, -50%) rotate(-45deg);
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        overflow: visible;
+      }
+      .coding-shell {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+        flex: 0 0 auto;
+      }
+      .coding-menu {
+        position: relative;
+        width: fit-content;
+        max-width: 100%;
+      }
+      .coding-summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        max-width: 100%;
+      }
+      .coding-summary::-webkit-details-marker {
+        display: none;
+      }
+      .coding-summary[aria-disabled="true"] {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .coding-menu-panel {
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        min-width: 320px;
+        max-width: min(380px, calc(100vw - 64px));
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel-strong);
+        box-shadow: var(--shadow);
+        z-index: 20;
+      }
+      .coding-menu[data-align="end"] .coding-menu-panel {
+        left: auto;
+        right: 0;
+      }
+      .coding-menu[data-layout="stacked"] {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-summary {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-menu-panel {
+        position: static;
+        top: auto;
+        left: auto;
+        right: auto;
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+        margin-top: 10px;
+      }
+      .coding-item {
+        width: 100%;
+        display: grid;
+        gap: 4px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+      }
+      .coding-item[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .coding-item-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .coding-item-description {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .coding-status {
+        max-width: 360px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .coding-status[hidden] {
+        display: none;
+      }
+      .coding-status[data-kind="error"] {
+        color: var(--danger);
+      }
+      .coding-status[data-kind="success"] {
+        color: var(--text);
+      }
+      .git-repo-shell {
+        display: grid;
+        gap: 12px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+      }
+      .git-repo-shell[hidden] {
+        display: none;
+      }
+      .git-repo-header {
+        display: grid;
+        gap: 6px;
+      }
+      .git-repo-heading {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .git-repo-message {
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .git-repo-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .git-repo-grid[hidden] {
+        display: none;
+      }
+      .git-repo-field {
+        display: grid;
+        gap: 6px;
+      }
+      .git-repo-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .git-repo-input,
+      .git-repo-select {
+        width: 100%;
+        min-height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel-strong);
+        color: var(--text);
+        padding: 0 12px;
+        font: inherit;
+      }
+      .git-repo-input[disabled],
+      .git-repo-select[disabled] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .git-repo-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .git-repo-secondary {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .git-repo-secondary[hidden] {
+        display: none;
+      }
+      .progress-stack {
+        display: grid;
+        gap: 10px;
+      }
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .progress-track {
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--panel-border);
+      }
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #d4d4d8, var(--accent-strong));
+        transition: width 0.3s ease;
+      }
+      .failed .progress-fill {
+        background: linear-gradient(90deg, var(--danger), var(--danger-strong));
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+        min-height: 52px;
+        padding: 0 18px;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        text-decoration: none;
+        text-align: left;
+        font-weight: 600;
+        font: inherit;
+        cursor: pointer;
+        background: transparent;
+        transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
+      }
+      .button.primary {
+        background: #f4f4f5;
+        color: #111111;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+      }
+      .button.secondary {
+        border-color: var(--panel-border);
+        color: var(--text);
+      }
+      .button.danger {
+        background: var(--danger-strong);
+        color: #fff5f5;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      }
+      html[data-theme="light"] .button.primary {
+        background: #111111;
+        color: #fafafa;
+        box-shadow: none;
+      }
+      html[data-theme="light"] .stream-heading,
+      html[data-theme="light"] .status-line,
+      html[data-theme="light"] .terminal-hint {
+        color: #52525b;
+      }
+      html[data-theme="light"] .progress-track {
+        background: rgba(17, 24, 39, 0.06);
+      }
+      html[data-theme="light"] .spinner {
+        border-color: rgba(17, 24, 39, 0.12);
+        border-top-color: #111111;
+      }
+      html[data-theme="light"] .list li {
+        background: rgba(17, 24, 39, 0.055);
+        border-color: rgba(17, 24, 39, 0.1);
+      }
+      html[data-theme="light"] .activity-time {
+        color: #52525b;
+      }
+      html[data-theme="light"] .activity-message {
+        color: #111111;
+      }
+      .button[aria-disabled="true"] {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .terminal-hint {
+        display: inline-flex;
+        align-items: center;
+        min-height: 52px;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+      }
+      .list {
+        gap: 10px;
+        height: clamp(176px, 22vh, 228px);
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        scroll-snap-type: y proximity;
+      }
+      .list::-webkit-scrollbar {
+        width: 10px;
+      }
+      .list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .list::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .list li {
+        padding: 14px 16px;
+        border-radius: 20px;
+        background: var(--surface);
+        border: 1px solid var(--panel-border);
+        scroll-snap-align: start;
+      }
+      .activity-entry {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .activity-time {
+        color: var(--activity-time);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .activity-message {
+        color: var(--activity-text);
+        font-size: 16px;
+        line-height: 1.45;
+        font-weight: 600;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .url {
+        color: var(--warning);
+        word-break: break-all;
+      }
+      .failure-box {
+        display: grid;
+        gap: 10px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(239, 68, 68, 0.24);
+        background: var(--danger-surface);
+      }
+      .failure-box[hidden] {
+        display: none;
+      }
+      .failure-heading {
+        color: var(--danger);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+      .failure-command {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+      .failure-lines {
+        margin: 0;
+        color: var(--text);
+        font: 500 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (max-width: 960px) {
+        .shell { grid-template-columns: 1fr; height: auto; }
+        .hero, .status-card { padding: 30px 24px; }
+        .hero-top { justify-content: flex-start; }
+        .control-row { justify-content: flex-start; }
+        .hero-logo {
+          width: auto;
+          height: auto;
+        }
+        .hero-logo svg {
+          width: 128px;
+          height: 128px;
+        }
+        .summary { font-size: 18px; }
+        .list {
+          height: auto;
+          max-height: min(232px, 34vh);
+        }
+        .git-repo-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .actions {
+          align-items: stretch;
+        }
+        .coding-shell,
+        .coding-menu,
+        .coding-summary {
+          width: 100%;
+        }
+        .coding-menu-panel {
+          position: static;
+          top: auto;
+          left: auto;
+          right: auto;
+          min-width: 0;
+          max-width: none;
+          width: 100%;
+          margin-top: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel hero">
+        <div class="hero-top">
+          <div class="control-row">
+            <button class="control-button" id="theme-toggle" type="button">🌙 Dark</button>
+            <button class="control-button" id="locale-toggle" type="button">🌐 EN</button>
+          </div>
+        </div>
+        <div class="hero-mark" aria-hidden="true">
+          <div class="hero-logo">__SPLASH_INLINE_LOGO_SVG__</div>
+        </div>
+        <p class="summary" id="hero-summary">
+          The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.
+        </p>
+        <div class="hero-body">
+          <section class="stream-shell" aria-labelledby="stream-heading">
+            <div class="stream-heading" id="stream-heading">✨ Live startup stream</div>
+            <ul class="list" id="activity-list">
+              <li>🪟 Preparing dev environment…</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+      <aside class="panel status-card" id="status-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="status-line" id="mode-line">Waiting for current status…</div>
+        <h2 class="phase" id="phase-text">Preparing app runtime</h2>
+        <div class="status-line" id="detail-text">Builds, generators, queue workers, and scheduler will start automatically.</div>
+        <div class="progress-stack">
+          <div class="progress-meta">
+            <span id="progress-label">Preparing startup pipeline</span>
+            <span id="progress-value">0%</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
+        <div class="status-line"><span id="target-label">Current target:</span> <span class="url" id="ready-url">pending</span></div>
+        <div class="actions">
+          <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
+          <div class="coding-shell" id="coding-shell" hidden>
+            <details class="coding-menu" id="coding-menu">
+              <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">🤖 Start coding with AI</summary>
+              <div class="coding-menu-panel" id="coding-menu-panel"></div>
+            </details>
+            <div class="coding-status" id="coding-status" hidden></div>
+          </div>
+          <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
+        </div>
+        <section class="git-repo-shell" id="git-repo-shell" hidden>
+          <div class="git-repo-header">
+            <div class="git-repo-heading" id="git-repo-heading">GitHub repository</div>
+            <div class="git-repo-message" id="git-repo-message"></div>
+          </div>
+          <div class="git-repo-grid" id="git-repo-grid" hidden>
+            <label class="git-repo-field" id="git-repo-owner-field" hidden>
+              <span class="git-repo-label" id="git-repo-owner-label">Owner</span>
+              <select class="git-repo-select" id="git-repo-owner"></select>
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-name-label">Repository</span>
+              <input class="git-repo-input" id="git-repo-name" type="text" autocomplete="off" />
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-visibility-label">Visibility</span>
+              <select class="git-repo-select" id="git-repo-visibility">
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </select>
+            </label>
+          </div>
+          <div class="git-repo-actions">
+            <button class="button secondary" id="git-repo-action" type="button" hidden></button>
+            <a class="button secondary" id="git-repo-link" href="#" hidden target="_blank" rel="noreferrer">Open GitHub repository</a>
+          </div>
+          <div class="git-repo-secondary" id="git-repo-secondary" hidden></div>
+        </section>
+        <section class="failure-box" id="failure-box" hidden>
+          <div class="failure-heading" id="failure-heading">Recent failure output</div>
+          <div class="failure-command" id="failure-command"></div>
+          <pre class="failure-lines" id="failure-lines"></pre>
+        </section>
+      </aside>
+    </main>
+    <script>
+      const splashBootstrap = __SPLASH_BOOTSTRAP__
+      const modeLine = document.getElementById('mode-line')
+      const phaseText = document.getElementById('phase-text')
+      const detailText = document.getElementById('detail-text')
+      const progressLabel = document.getElementById('progress-label')
+      const progressValue = document.getElementById('progress-value')
+      const progressFill = document.getElementById('progress-fill')
+      const heroSummary = document.getElementById('hero-summary')
+      const streamHeading = document.getElementById('stream-heading')
+      const targetLabel = document.getElementById('target-label')
+      const themeToggle = document.getElementById('theme-toggle')
+      const localeToggle = document.getElementById('locale-toggle')
+      const readyUrl = document.getElementById('ready-url')
+      const loginButton = document.getElementById('login-button')
+      const codingShell = document.getElementById('coding-shell')
+      const codingMenu = document.getElementById('coding-menu')
+      const codingSummary = document.getElementById('coding-summary')
+      const codingMenuPanel = document.getElementById('coding-menu-panel')
+      const codingStatus = document.getElementById('coding-status')
+      const gitRepoShell = document.getElementById('git-repo-shell')
+      const gitRepoHeading = document.getElementById('git-repo-heading')
+      const gitRepoMessage = document.getElementById('git-repo-message')
+      const gitRepoGrid = document.getElementById('git-repo-grid')
+      const gitRepoOwnerField = document.getElementById('git-repo-owner-field')
+      const gitRepoOwnerLabel = document.getElementById('git-repo-owner-label')
+      const gitRepoOwner = document.getElementById('git-repo-owner')
+      const gitRepoNameLabel = document.getElementById('git-repo-name-label')
+      const gitRepoName = document.getElementById('git-repo-name')
+      const gitRepoVisibilityLabel = document.getElementById('git-repo-visibility-label')
+      const gitRepoVisibility = document.getElementById('git-repo-visibility')
+      const gitRepoAction = document.getElementById('git-repo-action')
+      const gitRepoLink = document.getElementById('git-repo-link')
+      const gitRepoSecondary = document.getElementById('git-repo-secondary')
+      const terminalHint = document.getElementById('terminal-hint')
+      const activityList = document.getElementById('activity-list')
+      const statusCard = document.getElementById('status-card')
+      const failureBox = document.getElementById('failure-box')
+      const failureHeading = document.getElementById('failure-heading')
+      const failureCommand = document.getElementById('failure-command')
+      const failureLines = document.getElementById('failure-lines')
+      const THEME_KEY = 'om-dev-theme'
+      const LOCALE_KEY = 'om-dev-locale'
+      const supportedLocales = Array.isArray(splashBootstrap.supportedLocales) && splashBootstrap.supportedLocales.length > 0
+        ? splashBootstrap.supportedLocales
+        : ['en', 'pl', 'es', 'de']
+      const defaultLocale = supportedLocales.includes(splashBootstrap.defaultLocale)
+        ? splashBootstrap.defaultLocale
+        : supportedLocales[0]
+      const localeLabels = splashBootstrap.localeLabels || {}
+      const activitySeenAt = new Map()
+      let codingActionInFlight = false
+      let gitRepoActionInFlight = false
+      let codingMenuLayoutRaf = 0
+      const translations = {
+        en: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation and first compilation is in progress…',
+          heroSummary: 'The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.',
+          streamHeading: '✨ Live startup stream',
+          targetLabel: 'Current target:',
+          targetPending: 'pending',
+          loginPreparing: '🚀 App is preparing…',
+          loginReady: '🚪 App is ready, open login',
+          loginFailed: '🛠 Fix setup in terminal',
+          terminalHint: '🖥 Keep terminal visible',
+          terminalFixHint: '🖥 Inspect terminal and rerun after fixing the issue',
+          failureHeading: 'Recent failure output',
+          failureCommand: 'Command',
+          themeLight: '☀️ Light',
+          themeDark: '🌙 Dark',
+          waitingStatus: 'Waiting for dev runner status…',
+          progressOverview: 'Startup progress',
+          modeDev: 'Standard dev flow',
+          modeGreenfield: 'Greenfield dev flow',
+          modeSetup: 'Project setup flow',
+          codingButtonLabel: '🤖 Start coding with AI',
+          codingNoTools: 'No supported coding tools were detected on this machine.',
+          gitRepoHeading: 'GitHub repository',
+          gitRepoOwner: 'Owner',
+          gitRepoName: 'Repository',
+          gitRepoVisibility: 'Visibility',
+          gitRepoVisibilityPrivate: 'Private',
+          gitRepoVisibilityPublic: 'Public',
+          gitRepoCreate: 'Create new GitHub repository',
+          gitRepoPublish: 'Publish to GitHub',
+          gitRepoBusyAuth: 'Authenticating with GitHub…',
+          gitRepoBusyLocal: 'Preparing local repository…',
+          gitRepoBusyRemote: 'Publishing to GitHub…',
+          gitRepoOpen: 'Open GitHub repository',
+          gitRepoRestartHint: 'Install GitHub CLI, then restart `yarn dev`.',
+        },
+        pl: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Instalacja i pierwsza kompilacja są w toku…',
+          heroSummary: 'Workspace przygotowuje się w terminalu. Ta strona przełączy się w stan gotowości, gdy tylko serwer developerski będzie dostępny.',
+          streamHeading: '✨ Strumień startu na żywo',
+          targetLabel: 'Aktualny adres:',
+          targetPending: 'oczekiwanie',
+          loginPreparing: '🚀 Aplikacja się przygotowuje…',
+          loginReady: '🚪 Aplikacja gotowa, otwórz logowanie',
+          loginFailed: '🛠 Napraw w terminalu',
+          terminalHint: '🖥 Zachowaj terminal',
+          terminalFixHint: '🖥 Sprawdź terminal i uruchom ponownie po poprawce',
+          failureHeading: 'Ostatni błąd',
+          failureCommand: 'Polecenie',
+          themeLight: '☀️ Jasny',
+          themeDark: '🌙 Ciemny',
+          waitingStatus: 'Oczekiwanie na status runnera…',
+          progressOverview: 'Postęp uruchamiania',
+          modeDev: 'Standardowy tryb dev',
+          modeGreenfield: 'Tryb greenfield',
+          modeSetup: 'Tryb konfiguracji projektu',
+          codingButtonLabel: '🤖 Zacznij kodować z AI',
+          codingNoTools: 'Na tej maszynie nie wykryto obsługiwanych narzędzi do kodowania.',
+          gitRepoHeading: 'Repozytorium GitHub',
+          gitRepoOwner: 'Właściciel',
+          gitRepoName: 'Repozytorium',
+          gitRepoVisibility: 'Widoczność',
+          gitRepoVisibilityPrivate: 'Prywatne',
+          gitRepoVisibilityPublic: 'Publiczne',
+          gitRepoCreate: 'Utwórz nowe repozytorium GitHub',
+          gitRepoPublish: 'Opublikuj na GitHub',
+          gitRepoBusyAuth: 'Trwa uwierzytelnianie w GitHub…',
+          gitRepoBusyLocal: 'Przygotowywanie lokalnego repozytorium…',
+          gitRepoBusyRemote: 'Publikowanie na GitHub…',
+          gitRepoOpen: 'Otwórz repozytorium GitHub',
+          gitRepoRestartHint: 'Zainstaluj GitHub CLI, a potem uruchom ponownie `yarn dev`.',
+        },
+        es: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'La instalación y la primera compilación están en curso…',
+          heroSummary: 'El workspace se está preparando en la terminal. Esta página cambiará al estado listo en cuanto el servidor de desarrollo esté disponible.',
+          streamHeading: '✨ Flujo de arranque en vivo',
+          targetLabel: 'Destino actual:',
+          targetPending: 'pendiente',
+          loginPreparing: '🚀 La aplicación se está preparando…',
+          loginReady: '🚪 La aplicación está lista, abrir login',
+          loginFailed: '🛠 Corregir en la terminal',
+          terminalHint: '🖥 Mantener la terminal visible',
+          terminalFixHint: '🖥 Revisa la terminal y vuelve a ejecutar después de corregir el problema',
+          failureHeading: 'Salida reciente del error',
+          failureCommand: 'Comando',
+          themeLight: '☀️ Claro',
+          themeDark: '🌙 Oscuro',
+          waitingStatus: 'Esperando el estado del runner de desarrollo…',
+          progressOverview: 'Progreso del arranque',
+          modeDev: 'Flujo dev estándar',
+          modeGreenfield: 'Flujo dev greenfield',
+          modeSetup: 'Flujo de configuración del proyecto',
+          codingButtonLabel: '🤖 Empezar a programar con IA',
+          codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
+          gitRepoHeading: 'Repositorio de GitHub',
+          gitRepoOwner: 'Propietario',
+          gitRepoName: 'Repositorio',
+          gitRepoVisibility: 'Visibilidad',
+          gitRepoVisibilityPrivate: 'Privado',
+          gitRepoVisibilityPublic: 'Publico',
+          gitRepoCreate: 'Crear nuevo repositorio de GitHub',
+          gitRepoPublish: 'Publicar en GitHub',
+          gitRepoBusyAuth: 'Autenticando con GitHub…',
+          gitRepoBusyLocal: 'Preparando el repositorio local…',
+          gitRepoBusyRemote: 'Publicando en GitHub…',
+          gitRepoOpen: 'Abrir repositorio de GitHub',
+          gitRepoRestartHint: 'Instala GitHub CLI y luego reinicia `yarn dev`.',
+        },
+        de: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation und erste Kompilierung laufen…',
+          heroSummary: 'Der Workspace wird im Terminal vorbereitet. Diese Seite wechselt in den Bereitschaftszustand, sobald der Dev-Server verfügbar ist.',
+          streamHeading: '✨ Live-Startstream',
+          targetLabel: 'Aktuelles Ziel:',
+          targetPending: 'ausstehend',
+          loginPreparing: '🚀 Die App wird vorbereitet…',
+          loginReady: '🚪 App ist bereit, Login öffnen',
+          loginFailed: '🛠 Im Terminal beheben',
+          terminalHint: '🖥 Terminal sichtbar lassen',
+          terminalFixHint: '🖥 Terminal prüfen und nach der Korrektur erneut starten',
+          failureHeading: 'Letzte Fehlerausgabe',
+          failureCommand: 'Befehl',
+          themeLight: '☀️ Hell',
+          themeDark: '🌙 Dunkel',
+          waitingStatus: 'Warte auf den Status des Dev-Runners…',
+          progressOverview: 'Startfortschritt',
+          modeDev: 'Standard-Dev-Ablauf',
+          modeGreenfield: 'Greenfield-Dev-Ablauf',
+          modeSetup: 'Projekt-Setup-Ablauf',
+          codingButtonLabel: '🤖 Mit KI programmieren',
+          codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
+          gitRepoHeading: 'GitHub-Repository',
+          gitRepoOwner: 'Besitzer',
+          gitRepoName: 'Repository',
+          gitRepoVisibility: 'Sichtbarkeit',
+          gitRepoVisibilityPrivate: 'Privat',
+          gitRepoVisibilityPublic: 'Oeffentlich',
+          gitRepoCreate: 'Neues GitHub-Repository erstellen',
+          gitRepoPublish: 'Auf GitHub veroeffentlichen',
+          gitRepoBusyAuth: 'GitHub-Anmeldung wird gestartet…',
+          gitRepoBusyLocal: 'Lokales Repository wird vorbereitet…',
+          gitRepoBusyRemote: 'Auf GitHub wird veroeffentlicht…',
+          gitRepoOpen: 'GitHub-Repository oeffnen',
+          gitRepoRestartHint: 'Installiere GitHub CLI und starte dann `yarn dev` neu.',
+        },
+      }
+      const exactTranslations = {
+        pl: {
+          'Installation and first compilation is in progress...': 'Instalacja i pierwsza kompilacja są w toku…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: instalacja i pierwsza kompilacja są w toku…',
+          'Project setup is in progress...': 'Konfiguracja projektu jest w toku…',
+          'Preparing app runtime': 'Przygotowywanie runtime aplikacji',
+          'Preparing project setup': 'Przygotowywanie konfiguracji projektu',
+          'Project files are ready': 'Pliki projektu są gotowe',
+          'Installing dependencies': 'Instalowanie zależności',
+          'Applying database migrations': 'Stosowanie migracji bazy danych',
+          'Initializing Open Mercato': 'Inicjalizowanie Open Mercato',
+          'Starting app runtime': 'Uruchamianie runtime aplikacji',
+          'Waiting for current status…': 'Oczekiwanie na bieżący status…',
+          'Preparing dev environment…': 'Przygotowywanie środowiska developerskiego…',
+          'Waiting for app package manifest…': 'Oczekiwanie na manifest pakietów aplikacji…',
+          'Waiting for queue worker startup…': 'Oczekiwanie na start workerów kolejki…',
+          'pending': 'oczekiwanie',
+          'scheduler · polling engine': 'scheduler · silnik odpytywania',
+        },
+        es: {
+          'Installation and first compilation is in progress...': 'La instalación y la primera compilación están en curso…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: la instalación y la primera compilación están en curso…',
+          'Project setup is in progress...': 'La configuración del proyecto está en curso…',
+          'Preparing app runtime': 'Preparando el runtime de la aplicación',
+          'Preparing project setup': 'Preparando la configuración del proyecto',
+          'Project files are ready': 'Los archivos del proyecto están listos',
+          'Installing dependencies': 'Instalando dependencias',
+          'Applying database migrations': 'Aplicando migraciones de base de datos',
+          'Initializing Open Mercato': 'Inicializando Open Mercato',
+          'Starting app runtime': 'Iniciando el runtime de la aplicación',
+          'Waiting for current status…': 'Esperando el estado actual…',
+          'Preparing dev environment…': 'Preparando el entorno de desarrollo…',
+          'Waiting for app package manifest…': 'Esperando el manifiesto de paquetes de la aplicación…',
+          'Waiting for queue worker startup…': 'Esperando el arranque de los workers de cola…',
+          'pending': 'pendiente',
+          'scheduler · polling engine': 'scheduler · motor de sondeo',
+        },
+        de: {
+          'Installation and first compilation is in progress...': 'Installation und erste Kompilierung laufen…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: Installation und erste Kompilierung laufen…',
+          'Project setup is in progress...': 'Projekt-Setup läuft…',
+          'Preparing app runtime': 'App-Laufzeit wird vorbereitet',
+          'Preparing project setup': 'Projekt-Setup wird vorbereitet',
+          'Project files are ready': 'Projektdateien sind bereit',
+          'Installing dependencies': 'Abhängigkeiten werden installiert',
+          'Applying database migrations': 'Datenbankmigrationen werden angewendet',
+          'Initializing Open Mercato': 'Open Mercato wird initialisiert',
+          'Starting app runtime': 'App-Laufzeit wird gestartet',
+          'Waiting for current status…': 'Warte auf den aktuellen Status…',
+          'Preparing dev environment…': 'Entwicklungsumgebung wird vorbereitet…',
+          'Waiting for app package manifest…': 'Warte auf das Paketmanifest der App…',
+          'Waiting for queue worker startup…': 'Warte auf den Start der Queue-Worker…',
+          'pending': 'ausstehend',
+          'scheduler · polling engine': 'scheduler · Polling-Engine',
+        },
+      }
+      let currentLocale = 'en'
+      let currentTheme = 'dark'
+      let lastState = null
+
+      themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark'
+        localStorage.setItem(THEME_KEY, currentTheme)
+        applyTheme()
+        renderStaticText()
+      })
+
+      localeToggle.addEventListener('click', () => {
+        const currentIndex = Math.max(0, supportedLocales.indexOf(currentLocale))
+        currentLocale = supportedLocales[(currentIndex + 1) % supportedLocales.length] || defaultLocale
+        localStorage.setItem(LOCALE_KEY, currentLocale)
+        renderStaticText()
+      })
+
+      document.addEventListener('click', (event) => {
+        if (!codingMenu.contains(event.target)) {
+          codingMenu.open = false
+        }
+      })
+      codingMenu.addEventListener('toggle', () => {
+        scheduleCodingMenuLayout()
+      })
+      window.addEventListener('resize', () => {
+        scheduleCodingMenuLayout()
+      })
+
+      function template(value, vars = {}) {
+        return String(value).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ''))
+      }
+
+      function t(key, vars = {}) {
+        const dict = translations[currentLocale] || translations.en
+        const fallback = translations.en[key] || key
+        return template(dict[key] || fallback, vars)
+      }
+
+      function getLocaleLabel(locale) {
+        return localeLabels[locale] || String(locale || '').toUpperCase()
+      }
+
+      function splitEmoji(value) {
+        const match = String(value ?? '').match(/^([\p{Extended_Pictographic}\u2600-\u27BF][\uFE0F]?\s*)(.*)$/u)
+        if (!match) return { emoji: '', body: String(value ?? '') }
+        return { emoji: match[1], body: match[2] }
+      }
+
+      function translateMessage(value) {
+        const raw = String(value ?? '')
+        if (!raw) return raw
+        const { emoji, body } = splitEmoji(raw)
+        const exact = exactTranslations[currentLocale]?.[body] || exactTranslations[currentLocale]?.[raw]
+        if (exact) {
+          return emoji ? emoji + exact : exact
+        }
+        return raw
+      }
+
+      function normalizeStatusComparisonValue(value) {
+        const raw = String(value ?? '')
+        if (!raw) return ''
+
+        const { body } = splitEmoji(raw)
+        return body
+          .toLowerCase()
+          .replace(/\s+in\s+\d+(?:\.\d+)?(?:ms|s)\b.*$/i, '')
+          .replace(/[^\p{L}\p{N}]+/gu, ' ')
+          .trim()
+      }
+
+      function shouldCollapseProgressLabel(detail, label) {
+        const normalizedDetail = normalizeStatusComparisonValue(detail)
+        const normalizedLabel = normalizeStatusComparisonValue(label)
+        if (!normalizedDetail || !normalizedLabel) return false
+        return normalizedDetail === normalizedLabel
+          || normalizedDetail.startsWith(normalizedLabel)
+          || normalizedLabel.startsWith(normalizedDetail)
+      }
+
+      function detectLocale() {
+        const stored = localStorage.getItem(LOCALE_KEY)
+        if (supportedLocales.includes(stored)) return stored
+
+        if (supportedLocales.includes(splashBootstrap.initialLocale)) {
+          return splashBootstrap.initialLocale
+        }
+
+        const browserCandidates = Array.isArray(navigator.languages) ? navigator.languages : []
+        for (const candidate of [...browserCandidates, navigator.language]) {
+          if (typeof candidate !== 'string') continue
+          const normalized = candidate.trim().toLowerCase().replace(/_/g, '-')
+          if (supportedLocales.includes(normalized)) return normalized
+          const baseLocale = normalized.split('-')[0]
+          if (supportedLocales.includes(baseLocale)) return baseLocale
+        }
+
+        return defaultLocale
+      }
+
+      function detectTheme() {
+        const stored = localStorage.getItem(THEME_KEY)
+        if (stored === 'light' || stored === 'dark') return stored
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+      }
+
+      function applyTheme() {
+        document.documentElement.dataset.theme = currentTheme
+      }
+
+      function renderStaticText() {
+        document.documentElement.lang = currentLocale
+        heroSummary.textContent = t('heroSummary')
+        streamHeading.textContent = t('streamHeading')
+        targetLabel.textContent = t('targetLabel')
+        terminalHint.textContent = t('terminalHint')
+        localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
+        themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
+        renderCodingFlow(lastState)
+        renderGitRepoFlow(lastState)
+      }
+
+      function formatActivityTimestamp(value) {
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return ''
+        return new Intl.DateTimeFormat(currentLocale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(date)
+      }
+
+      function renderActivities(items) {
+        if (!Array.isArray(items) || items.length === 0) return
+        const ordered = items.slice().reverse()
+        activityList.innerHTML = ordered.map((item) => {
+          const key = String(item ?? '')
+          if (!activitySeenAt.has(key)) {
+            activitySeenAt.set(key, Date.now())
+          }
+          const timestamp = formatActivityTimestamp(activitySeenAt.get(key))
+          const safeMessage = escapeHtml(translateMessage(item))
+          const safeTimestamp = escapeHtml(timestamp)
+          return '<li><div class="activity-entry"><span class="activity-time">' + safeTimestamp + '</span><span class="activity-message">' + safeMessage + '</span></div></li>'
+        }).join('')
+      }
+
+      function renderFailure(state) {
+        const failed = state?.failed === true && state?.ready !== true
+        failureBox.hidden = !failed
+
+        if (!failed) {
+          failureCommand.textContent = ''
+          failureLines.textContent = ''
+          return
+        }
+
+        failureHeading.textContent = t('failureHeading')
+        const command = typeof state.failureCommand === 'string' && state.failureCommand.trim().length > 0
+          ? state.failureCommand.trim()
+          : ''
+        failureCommand.textContent = command ? t('failureCommand') + ': ' + command : ''
+        const lines = Array.isArray(state.failureLines) ? state.failureLines : []
+        failureLines.textContent = lines.join('\n')
+      }
+
+      async function startCoding(toolId) {
+        const codingBootstrap = splashBootstrap.codingFlow
+        if (!codingBootstrap || codingBootstrap.enabled !== true) return
+        if (codingActionInFlight) return
+
+        codingActionInFlight = true
+        renderCodingFlow(lastState)
+
+        try {
+          const response = await fetch('/actions/start-coding', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-om-dev-splash-token': codingBootstrap.actionToken || '',
+            },
+            body: JSON.stringify({ toolId }),
+          })
+          const payload = await response.json().catch(() => ({}))
+
+          if (payload && payload.codingFlow) {
+            lastState = {
+              ...(lastState || {}),
+              codingFlow: payload.codingFlow,
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(payload?.error || 'Unable to start the selected coding tool.')
+          }
+
+          codingMenu.open = false
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to start the selected coding tool.'
+          lastState = {
+            ...(lastState || {}),
+            codingFlow: {
+              ...(lastState?.codingFlow || {}),
+              enabled: true,
+              lastResult: {
+                kind: 'error',
+                message,
+              },
+            },
+          }
+        } finally {
+          codingActionInFlight = false
+          renderCodingFlow(lastState)
+        }
+      }
+
+      function updateCodingMenuLayout() {
+        if (codingShell.hidden) {
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
+          return
+        }
+
+        const viewportPadding = 24
+        const summaryRect = codingSummary.getBoundingClientRect()
+        const availableViewportWidth = Math.max(0, window.innerWidth - (viewportPadding * 2))
+        const preferredPanelWidth = Math.min(380, availableViewportWidth)
+        const panelWidth = Math.max(Math.min(preferredPanelWidth, 380), Math.min(320, availableViewportWidth))
+        const rightOverflow = summaryRect.left + panelWidth > window.innerWidth - viewportPadding
+        const leftOverflow = summaryRect.right - panelWidth < viewportPadding
+        const shouldStack = window.innerWidth <= 640 || (rightOverflow && leftOverflow)
+
+        if (shouldStack) {
+          codingMenu.dataset.layout = 'stacked'
+          delete codingMenu.dataset.align
+          return
+        }
+
+        delete codingMenu.dataset.layout
+        codingMenu.dataset.align = rightOverflow ? 'end' : 'start'
+      }
+
+      function scheduleCodingMenuLayout() {
+        if (codingMenuLayoutRaf) {
+          window.cancelAnimationFrame(codingMenuLayoutRaf)
+        }
+        codingMenuLayoutRaf = window.requestAnimationFrame(() => {
+          codingMenuLayoutRaf = 0
+          updateCodingMenuLayout()
+        })
+      }
+
+      function isRealGitHubRepoUrl(value) {
+        const raw = typeof value === 'string' ? value.trim() : ''
+        if (!raw) return false
+
+        try {
+          const parsed = new URL(raw)
+          const segments = parsed.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+          return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && segments.length === 2
+        } catch {
+          return false
+        }
+      }
+
+      function renderCodingFlow(state) {
+        const codingFlow = state?.codingFlow
+        const ready = state?.ready === true
+        const enabled = codingFlow?.enabled === true && splashBootstrap?.codingFlow?.enabled === true
+
+        codingShell.hidden = !enabled || !ready
+        if (codingShell.hidden) {
+          codingMenu.open = false
+          codingMenuPanel.innerHTML = ''
+          codingStatus.hidden = true
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
+          return
+        }
+
+        const tools = Array.isArray(codingFlow?.tools) ? codingFlow.tools : []
+        const busy = codingActionInFlight || codingFlow?.busy === true
+        const menuDisabled = busy || tools.length === 0
+
+        codingSummary.textContent = t('codingButtonLabel')
+        codingSummary.setAttribute('aria-disabled', menuDisabled ? 'true' : 'false')
+
+        if (menuDisabled) {
+          codingMenu.open = false
+        }
+
+        codingMenuPanel.innerHTML = tools.map((tool) => {
+          const safeId = escapeHtml(tool.id)
+          const safeLabel = escapeHtml(tool.label)
+          const safeDescription = escapeHtml(tool.description || '')
+          return `<button class="coding-item" type="button" data-coding-tool-id="${safeId}" ${busy ? 'disabled' : ''}><span class="coding-item-title">${safeLabel}</span><span class="coding-item-description">${safeDescription}</span></button>`
+        }).join('')
+
+        codingMenuPanel.querySelectorAll('[data-coding-tool-id]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const selectedToolId = button.getAttribute('data-coding-tool-id')
+            if (selectedToolId) {
+              startCoding(selectedToolId)
+            }
+          })
+        })
+
+        const lastResult = codingFlow?.lastResult
+        if (lastResult?.message) {
+          codingStatus.hidden = false
+          codingStatus.dataset.kind = lastResult.kind || 'info'
+          codingStatus.textContent = translateMessage(lastResult.message)
+          scheduleCodingMenuLayout()
+          return
+        }
+
+        if (tools.length === 0) {
+          codingStatus.hidden = false
+          codingStatus.dataset.kind = 'info'
+          codingStatus.textContent = t('codingNoTools')
+          scheduleCodingMenuLayout()
+          return
+        }
+
+        codingStatus.hidden = true
+        codingStatus.textContent = ''
+        codingStatus.dataset.kind = ''
+        scheduleCodingMenuLayout()
+      }
+
+      gitRepoName.addEventListener('input', () => {
+        gitRepoName.dataset.userEdited = 'true'
+      })
+
+      async function startGitRepoFlow() {
+        const gitRepoBootstrap = splashBootstrap.gitRepoFlow
+        const gitRepoFlow = lastState?.gitRepoFlow
+        if (!gitRepoBootstrap || gitRepoBootstrap.enabled !== true) return
+        if (gitRepoActionInFlight) return
+        if (gitRepoFlow?.ghStatus !== 'available') return
+
+        gitRepoActionInFlight = true
+        renderGitRepoFlow(lastState)
+
+        try {
+          const response = await fetch('/actions/git-repo-flow/start', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-om-dev-splash-token': gitRepoBootstrap.actionToken || '',
+            },
+            body: JSON.stringify({
+              owner: gitRepoOwnerField.hidden ? '' : gitRepoOwner.value,
+              repoName: gitRepoName.value,
+              visibility: gitRepoVisibility.value,
+            }),
+          })
+          const payload = await response.json().catch(() => ({}))
+
+          if (payload && payload.gitRepoFlow) {
+            lastState = {
+              ...(lastState || {}),
+              gitRepoFlow: payload.gitRepoFlow,
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(payload?.error || 'Unable to publish this project to GitHub.')
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to publish this project to GitHub.'
+          lastState = {
+            ...(lastState || {}),
+            gitRepoFlow: {
+              ...(lastState?.gitRepoFlow || {}),
+              enabled: true,
+              actionState: 'error',
+              message,
+            },
+          }
+        } finally {
+          gitRepoActionInFlight = false
+          renderGitRepoFlow(lastState)
+        }
+      }
+
+      function getGitRepoActionLabel(gitRepoFlow) {
+        if (gitRepoActionInFlight || gitRepoFlow?.actionState === 'authenticating') {
+          return t('gitRepoBusyAuth')
+        }
+        if (gitRepoFlow?.actionState === 'creating_local_repo') {
+          return t('gitRepoBusyLocal')
+        }
+        if (gitRepoFlow?.actionState === 'creating_remote_repo') {
+          return t('gitRepoBusyRemote')
+        }
+        return gitRepoFlow?.repoState === 'local_only'
+          ? t('gitRepoPublish')
+          : t('gitRepoCreate')
+      }
+
+      function renderGitRepoFlow(state) {
+        const gitRepoFlow = state?.gitRepoFlow
+        const ready = state?.ready === true
+        const enabled = gitRepoFlow?.enabled === true && splashBootstrap?.gitRepoFlow?.enabled === true
+
+        gitRepoShell.hidden = !enabled || !ready
+        if (gitRepoShell.hidden) {
+          gitRepoGrid.hidden = true
+          gitRepoAction.hidden = true
+          gitRepoLink.hidden = true
+          gitRepoSecondary.hidden = true
+          return
+        }
+
+        gitRepoHeading.textContent = t('gitRepoHeading')
+        gitRepoOwnerLabel.textContent = t('gitRepoOwner')
+        gitRepoNameLabel.textContent = t('gitRepoName')
+        gitRepoVisibilityLabel.textContent = t('gitRepoVisibility')
+        gitRepoSecondary.textContent = gitRepoFlow?.ghStatus === 'missing' ? t('gitRepoRestartHint') : ''
+        gitRepoSecondary.hidden = gitRepoFlow?.ghStatus !== 'missing'
+        gitRepoMessage.textContent = translateMessage(gitRepoFlow?.message || '')
+
+        const currentVisibility = gitRepoVisibility.value || 'private'
+        gitRepoVisibility.innerHTML = [
+          `<option value="private">${escapeHtml(t('gitRepoVisibilityPrivate'))}</option>`,
+          `<option value="public">${escapeHtml(t('gitRepoVisibilityPublic'))}</option>`,
+        ].join('')
+        gitRepoVisibility.value = currentVisibility === 'public' ? 'public' : 'private'
+
+        const ownerOptions = Array.isArray(gitRepoFlow?.ownerOptions) ? gitRepoFlow.ownerOptions : []
+        const showOwnerField = ownerOptions.length > 0
+        const hasRealRepoUrl = isRealGitHubRepoUrl(gitRepoFlow?.repoUrl)
+        const canOpenRepository = hasRealRepoUrl && (
+          gitRepoFlow?.repoState === 'github_remote'
+          || gitRepoFlow?.remoteRepoExists === true
+          || gitRepoFlow?.actionState === 'done'
+        )
+        const showForm = gitRepoFlow?.ghStatus === 'available'
+          && gitRepoFlow?.repoState !== 'github_remote'
+          && gitRepoFlow?.repoState !== 'other_remote'
+          && gitRepoFlow?.remoteRepoExists !== true
+          && !canOpenRepository
+
+        gitRepoGrid.hidden = !showForm
+        gitRepoOwnerField.hidden = !showOwnerField
+
+        if (showOwnerField) {
+          const previousOwner = gitRepoOwner.value
+          gitRepoOwner.innerHTML = ownerOptions.map((owner) => (
+            `<option value="${escapeHtml(owner)}">${escapeHtml(owner)}</option>`
+          )).join('')
+          const nextOwner = ownerOptions.includes(previousOwner)
+            ? previousOwner
+            : (gitRepoFlow?.defaultOwner || ownerOptions[0])
+          gitRepoOwner.value = nextOwner || ''
+        } else {
+          gitRepoOwner.innerHTML = ''
+        }
+
+        if ((!gitRepoName.dataset.userEdited || !gitRepoName.value) && typeof gitRepoFlow?.defaultRepoName === 'string') {
+          gitRepoName.value = gitRepoFlow.defaultRepoName
+        }
+
+        const busy = gitRepoActionInFlight
+          || gitRepoFlow?.actionState === 'authenticating'
+          || gitRepoFlow?.actionState === 'creating_local_repo'
+          || gitRepoFlow?.actionState === 'creating_remote_repo'
+        const canStart = showForm
+          && gitRepoFlow?.ghStatus === 'available'
+          && (gitRepoFlow?.repoState === 'missing' || gitRepoFlow?.repoState === 'local_only')
+
+        gitRepoAction.hidden = !canStart
+        gitRepoAction.disabled = busy
+        gitRepoAction.textContent = getGitRepoActionLabel(gitRepoFlow)
+        gitRepoAction.onclick = () => {
+          void startGitRepoFlow()
+        }
+
+        gitRepoName.disabled = busy || !showForm
+        gitRepoVisibility.disabled = busy || !showForm
+        gitRepoOwner.disabled = busy || !showOwnerField
+
+        gitRepoLink.hidden = false
+        gitRepoLink.textContent = t('gitRepoOpen')
+        gitRepoLink.href = canOpenRepository ? gitRepoFlow.repoUrl : '#'
+        gitRepoLink.setAttribute('aria-disabled', canOpenRepository ? 'false' : 'true')
+        gitRepoLink.tabIndex = canOpenRepository ? 0 : -1
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[char]))
+      }
+
+      async function refresh() {
+        try {
+          const response = await fetch('/status', { cache: 'no-store' })
+          const state = await response.json()
+          modeLine.textContent = state.mode === 'greenfield'
+            ? t('modeGreenfield')
+            : state.mode === 'setup'
+              ? t('modeSetup')
+              : t('modeDev')
+          const rawPhase = state.phase || 'Preparing app runtime'
+          const rawDetail = state.detail || 'Preparing app runtime'
+          const rawProgressLabel = state.progressLabel || 'Preparing startup pipeline'
+          phaseText.textContent = translateMessage(rawPhase)
+          detailText.textContent = translateMessage(rawDetail)
+          const percent = Number.isFinite(state.progressPercent) ? Math.max(0, Math.min(100, state.progressPercent)) : 0
+          progressLabel.textContent = shouldCollapseProgressLabel(rawDetail, rawProgressLabel)
+            ? t('progressOverview')
+            : translateMessage(rawProgressLabel)
+          progressValue.textContent = Number.isFinite(state.progressCurrent) && Number.isFinite(state.progressTotal) && state.progressTotal > 0
+            ? state.progressCurrent + '/' + state.progressTotal + ' · ' + percent + '%'
+            : percent + '%'
+          progressFill.style.width = percent + '%'
+          readyUrl.textContent = state.readyUrl || t('targetPending')
+          renderActivities(state.activities)
+          renderFailure(state)
+          lastState = state
+          renderCodingFlow(state)
+          renderGitRepoFlow(state)
+
+          if (state.ready && state.loginUrl) {
+            statusCard.classList.add('ready')
+            statusCard.classList.remove('failed')
+            loginButton.textContent = t('loginReady')
+            loginButton.classList.remove('danger')
+            loginButton.classList.add('primary')
+            loginButton.href = state.loginUrl
+            loginButton.setAttribute('aria-disabled', 'false')
+            terminalHint.textContent = t('terminalHint')
+          } else if (state.failed) {
+            statusCard.classList.remove('ready')
+            statusCard.classList.add('failed')
+            loginButton.textContent = t('loginFailed')
+            loginButton.classList.remove('primary')
+            loginButton.classList.add('danger')
+            loginButton.href = '#'
+            loginButton.setAttribute('aria-disabled', 'true')
+            terminalHint.textContent = t('terminalFixHint')
+          } else {
+            statusCard.classList.remove('ready')
+            statusCard.classList.remove('failed')
+            loginButton.textContent = t('loginPreparing')
+            loginButton.classList.remove('danger')
+            loginButton.classList.add('primary')
+            loginButton.href = '#'
+            loginButton.setAttribute('aria-disabled', 'true')
+            terminalHint.textContent = t('terminalHint')
+          }
+        } catch {
+          if (!lastState?.failed) {
+            modeLine.textContent = t('waitingStatus')
+          }
+        }
+      }
+
+      currentLocale = detectLocale()
+      currentTheme = detectTheme()
+      applyTheme()
+      renderStaticText()
+      refresh()
+      setInterval(refresh, 1000)
+    </script>
+  </body>
+</html>

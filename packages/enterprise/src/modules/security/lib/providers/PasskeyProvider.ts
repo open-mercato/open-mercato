@@ -358,8 +358,8 @@ export class PasskeyProvider implements MfaProviderInterface {
     return Buffer.from(value).toString('base64url')
   }
 
-  private base64UrlToBytes(value: string): Uint8Array {
-    return new Uint8Array(Buffer.from(value, 'base64url'))
+  private base64UrlToBytes(value: string) {
+    return new Uint8Array(Buffer.from(value, 'base64url')).slice()
   }
 
   private createSetupToken(setup: PendingSetup): string {
@@ -415,8 +415,8 @@ export class PasskeyProvider implements MfaProviderInterface {
     return resolveSecurityModuleConfigForRequest(this.securityConfig, context?.request)
   }
 
-  private toWebAuthnUserId(userId: string): Uint8Array {
-    return new TextEncoder().encode(userId)
+  private toWebAuthnUserId(userId: string) {
+    return new TextEncoder().encode(userId).slice()
   }
 }
 

@@ -203,6 +203,64 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(mockEm.persistAndFlush).toHaveBeenCalled()
     })
 
+    test('should create a rule without conditionExpression', async () => {
+      const newRule = {
+        ruleId: 'RULE-NO-COND',
+        ruleName: 'Rule Without Conditions',
+        ruleType: 'VALIDATION',
+        entityType: 'Customer',
+        enabled: true,
+        priority: 100,
+        version: 1,
+      }
+
+      mockEm.create.mockReturnValue({ id: '323e4567-e89b-12d3-a456-426614174005', ...newRule, conditionExpression: null })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body.id).toBe('323e4567-e89b-12d3-a456-426614174005')
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          conditionExpression: null,
+          ruleId: 'RULE-NO-COND',
+          tenantId: validTenantId,
+          organizationId: validOrgId,
+        })
+      )
+      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    })
+
+    test('should create a rule with explicit null conditionExpression', async () => {
+      const newRule = {
+        ruleId: 'RULE-NULL-COND',
+        ruleName: 'Rule With Null Conditions',
+        ruleType: 'ACTION',
+        entityType: 'Order',
+        conditionExpression: null,
+      }
+
+      mockEm.create.mockReturnValue({ id: '423e4567-e89b-12d3-a456-426614174006', ...newRule })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body.id).toBe('423e4567-e89b-12d3-a456-426614174006')
+    })
+
     test('should return 400 for invalid rule data', async () => {
       const invalidRule = {
         ruleId: '',
@@ -246,6 +304,37 @@ describe('Business Rules API - /api/business_rules/rules', () => {
           createdBy: 'user-1',
         })
       )
+    })
+
+    test('should return 500 with sanitized JSON error when persistAndFlush fails', async () => {
+      const newRule = {
+        ruleId: 'RULE-DB-FAIL',
+        ruleName: 'DB Failure Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      const rawDbError = new Error(
+        'insert into "business_rules" ("id", "rule_id", "condition_expression") values ($1, $2, $3) - null value in column "condition_expression" of relation "business_rules" violates not-null constraint'
+      )
+
+      mockEm.create.mockReturnValue({ id: '523e4567-e89b-12d3-a456-426614174007', ...newRule })
+      mockEm.persistAndFlush.mockRejectedValue(rawDbError)
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body.error).toBe(enStrings['business_rules.errors.createFailed'])
+      expect(body.error).not.toMatch(/insert into|null value|not-null constraint|condition_expression|relation ".+"/i)
+      expect(consoleError).toHaveBeenCalled()
+      consoleError.mockRestore()
     })
   })
 
@@ -333,6 +422,42 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(response.status).toBe(400)
       const body = await response.json()
       expect(body.error).toBe('Rule id is required')
+    })
+
+    test('should return 500 with sanitized JSON error when persistAndFlush fails', async () => {
+      const existingRule = {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        ruleId: 'RULE-001',
+        ruleName: 'Original Name',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+      }
+
+      mockEm.findOne.mockResolvedValue(existingRule)
+      mockEm.assign.mockImplementation((target: any, data: any) => Object.assign(target, data))
+      mockEm.persistAndFlush.mockRejectedValue(
+        new Error('update "business_rules" set "condition_expression" = $1 - null value violates not-null constraint')
+      )
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          ruleName: 'Updated',
+        }),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body.error).toBe(enStrings['business_rules.errors.updateFailed'])
+      expect(body.error).not.toMatch(/update "business_rules"|null value|not-null constraint|condition_expression/i)
+      expect(consoleError).toHaveBeenCalled()
+      consoleError.mockRestore()
     })
 
     test('should toggle enabled state via PUT', async () => {

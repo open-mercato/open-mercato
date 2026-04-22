@@ -2,7 +2,7 @@ import type { Knex } from 'knex'
 import type { QueryOptions, QueryJoinEdge } from './types'
 import type { FilterOp } from './types'
 
-export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown }
+export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown; orGroup?: string; qualified?: string | null }
 
 export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedFilter[] {
   if (!filters) return []
@@ -15,10 +15,34 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
   }
   const out: NormalizedFilter[] = []
   const obj = filters as Record<string, unknown>
-  const push = (field: string, op: FilterOp, value?: unknown) => {
-    out.push({ field, op, value })
+  const push = (field: string, op: FilterOp, value?: unknown, orGroup?: string) => {
+    out.push({ field, op, value, orGroup })
+  }
+  // Handle $or at top level — one group id per disjunct so fields inside a clause are ANDed by the engine.
+  if (Array.isArray(obj.$or)) {
+    const clauses = obj.$or as Record<string, unknown>[]
+    for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex++) {
+      const clause = clauses[clauseIndex]
+      const orGroupId = `or_${clauseIndex}`
+      if (clause && typeof clause === 'object') {
+        for (const [rawKey, rawVal] of Object.entries(clause)) {
+          const field = normalizeField(rawKey)
+          if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+            for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
+              const op = opKey.replace('$', '') as FilterOp
+              if (['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists'].includes(op)) {
+                push(field, op, opVal, orGroupId)
+              }
+            }
+          } else {
+            push(field, 'eq', rawVal, orGroupId)
+          }
+        }
+      }
+    }
   }
   for (const [rawKey, rawVal] of Object.entries(obj)) {
+    if (rawKey === '$or') continue
     const field = normalizeField(rawKey)
     if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
       for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
@@ -68,13 +92,14 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
 export type ResolvedJoin = {
   alias: string
   table: string
+  entityId?: string | null
   fromAlias: string
   fromField: string
   toField: string
   type: 'left' | 'inner'
 }
 
-export type BaseFilter = NormalizedFilter & { qualified?: string }
+export type BaseFilter = NormalizedFilter & { qualified?: string | null }
 export type JoinFilter = { alias: string; column: string; op: FilterOp; value?: unknown }
 
 export function resolveJoins(
@@ -100,7 +125,15 @@ export function resolveJoins(
     const fromAliasRaw = entry.from?.alias?.trim()
     const fromAlias = fromAliasRaw && fromAliasRaw.length > 0 ? fromAliasRaw : 'base'
     const type: 'left' | 'inner' = entry.type === 'inner' ? 'inner' : 'left'
-    resolved.push({ alias, table, fromAlias, fromField, toField, type })
+    resolved.push({
+      alias,
+      table,
+      entityId: entry.entityId ? String(entry.entityId) : null,
+      fromAlias,
+      fromField,
+      toField,
+      type,
+    })
     seen.add(alias)
   }
   return resolved
@@ -171,6 +204,7 @@ type ApplyJoinFiltersOptions = {
   qualifyBase: (column: string) => string
   applyAliasScope: (builder: Knex.QueryBuilder, alias: string, table: string) => Promise<void> | void
   applyFilterOp: (builder: Knex.QueryBuilder, column: string, op: FilterOp, value?: unknown) => void
+  applyJoinFilterOp?: (builder: Knex.QueryBuilder, filter: JoinFilter, qualified: string, join: ResolvedJoin, table: string) => Promise<boolean> | boolean
   columnExists?: (table: string, column: string) => Promise<boolean> | boolean
 }
 
@@ -184,6 +218,7 @@ export async function applyJoinFilters({
   qualifyBase,
   applyAliasScope,
   applyFilterOp,
+  applyJoinFilterOp,
   columnExists,
 }: ApplyJoinFiltersOptions): Promise<Knex.QueryBuilder> {
   const resolveAliasName = (aliasName?: string | null) => {
@@ -222,6 +257,8 @@ export async function applyJoinFilters({
         else if (existsDirective === null) existsDirective = true
         continue
       }
+      const join = joinMap.get(filter.alias)
+      if (!join) continue
       const targetTable = aliasTables.get(filter.alias)
       if (!targetTable) continue
       if (columnExists) {
@@ -229,6 +266,10 @@ export async function applyJoinFilters({
         if (!exists) continue
       }
       const qualified = `${filter.alias}.${filter.column}`
+      if (applyJoinFilterOp) {
+        const handled = await applyJoinFilterOp(sub, filter, qualified, join, targetTable)
+        if (handled) continue
+      }
       applyFilterOp(sub, qualified, filter.op, filter.value)
     }
     if (existsDirective === false) builder = builder.whereNotExists(sub)

@@ -6,8 +6,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function POST(req: Request) {
   let body: unknown
@@ -35,6 +37,13 @@ export async function POST(req: Request) {
   await customerUserService.updatePassword(
     { id: result.userId } as any,
     parsed.data.password,
+  )
+
+  const em = container.resolve('em') as EntityManager
+  await em.nativeUpdate(
+    CustomerUser,
+    { id: result.userId, emailVerifiedAt: null },
+    { emailVerifiedAt: new Date() },
   )
 
   // Revoke all existing sessions for security

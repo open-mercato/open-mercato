@@ -17,5 +17,17 @@ if (!existsSync(distIndex)) {
   process.exit(1);
 }
 
-// Import the actual CLI
-await import(pathToFileURL(distIndex).href);
+const cliModule = await import(pathToFileURL(distIndex).href);
+
+if (typeof cliModule.main !== 'function') {
+  console.error(`Error: CLI entrypoint at ${distIndex} does not export main().`);
+  process.exit(1);
+}
+
+try {
+  await cliModule.main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Error creating app: ${message}`);
+  process.exit(1);
+}

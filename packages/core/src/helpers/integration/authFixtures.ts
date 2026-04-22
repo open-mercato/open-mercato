@@ -5,14 +5,17 @@ import { expectId, readJsonSafe } from './generalFixtures';
 export async function createRoleFixture(
   request: APIRequestContext,
   token: string,
-  input: { name: string; tenantId?: string | null },
+  input: { name: string; tenantId?: string },
 ): Promise<string> {
+  const payload: { name: string; tenantId?: string } = {
+    name: input.name,
+  };
+  if (typeof input.tenantId === 'string' && input.tenantId.length > 0) {
+    payload.tenantId = input.tenantId;
+  }
   const response = await apiRequest(request, 'POST', '/api/auth/roles', {
     token,
-    data: {
-      name: input.name,
-      tenantId: input.tenantId ?? null,
-    },
+    data: payload,
   });
   const body = await readJsonSafe<{ id?: string }>(response);
   expect(response.status(), 'POST /api/auth/roles should return 201').toBe(201);

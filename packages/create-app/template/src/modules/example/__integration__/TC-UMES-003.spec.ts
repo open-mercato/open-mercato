@@ -14,6 +14,7 @@ import {
   createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const OM_EVENT_NAME = 'om:event'
@@ -150,13 +151,16 @@ async function openBackendSession(
   seed: string,
 ): Promise<void> {
   const streamRequest = page.waitForRequest(
-    (candidate) => candidate.url().includes('/api/events/stream'),
+    (candidate) => (
+      candidate.url().includes('/api/events/stream')
+        && candidate.resourceType() === 'eventsource'
+    ),
     { timeout: 10_000 },
-  ).catch(() => null)
+  )
   await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
   await streamRequest
+  await page.waitForTimeout(250)
   await installEventCollector(page)
-  await page.waitForTimeout(1_500)
   await waitForBridgeReady(page, request, token, organizationId, seed)
 }
 
@@ -664,10 +668,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const personIdInput = page.getByTestId('phase-d-person-id')
-      await personIdInput.click()
-      await personIdInput.fill('')
-      await personIdInput.pressSequentially(personId)
-      await expect(personIdInput).toHaveValue(personId)
+      await fillControlledInput(personIdInput, personId)
       await page.getByTestId('phase-d-probe-title').fill('')
       await page.getByTestId('phase-d-run-probe').click()
 

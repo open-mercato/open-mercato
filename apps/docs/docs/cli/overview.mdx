@@ -21,7 +21,12 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
 - **Development Runtime**
+  - `yarn dev` – start the compact development runtime with splash-based startup progress on the default local backend port, plus ready-state splash actions such as coding-tool launchers and standalone GitHub publish helpers when enabled.
+  - `yarn dev:classic` – start the legacy raw passthrough runtime with no splash screen.
+  - `yarn dev:verbose` – start the same runtime in raw passthrough mode for debugging.
+  - `yarn dev:greenfield:classic` – run the greenfield boot flow with raw passthrough output and no splash screen.
   - [`yarn dev:ephemeral`](./dev-ephemeral) – start a dev server on a free port, open browser automatically, and register active instances in `.ai/dev-ephemeral-envs.json`.
+  - `yarn dev:ephemeral:classic` – run the ephemeral flow with raw passthrough output and no splash screen.
 - **Code Generation**
   - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
   - `mercato generate entity-ids` – generate entity ID mappings.
@@ -56,6 +61,8 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
 - **Entities**
   - [`mercato entities install`](./entities-install)
   - [`mercato entities decrypt-database`](./entities-decrypt-database)
+- **Configs module**
+  - [`mercato configs cache`](./configs-cache) – inspect cache segments and purge by segment, tag, key, identifier token, pattern, or structural navigation scope.
 - **Official Modules**
   - [`mercato module add <packageSpec>`](./module-add) – install and register an official `@open-mercato/*` module package.
   - [`mercato module add <packageSpec> --eject`](./module-add) – copy module source into `src/modules/` for local ownership.

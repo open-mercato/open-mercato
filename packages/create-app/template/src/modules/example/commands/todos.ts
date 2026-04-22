@@ -12,11 +12,12 @@ import {
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import { Todo } from '../data/entities'
-import { E } from '@/.mercato/generated/entities.ids.generated'
+
+const ENTITY_ID = 'example:todo' as const
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   loadCustomFieldSnapshot,
@@ -25,6 +26,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 export const todoCreateSchema = z.object({
+  id: z.string().uuid().optional(),
   title: z.string().min(1),
   is_done: z.boolean().optional(),
 })
@@ -52,19 +54,22 @@ export const todoCrudEvents: CrudEventsConfig<Todo> = {
     id: ctx.identifiers.id,
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
+    title: ctx.entity?.title ?? null,
+    isDone: typeof ctx.entity?.isDone === 'boolean' ? ctx.entity.isDone : null,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
 }
 
 export const todoCrudIndexer: CrudIndexerConfig<Todo> = {
-  entityType: E.example.todo,
+  entityType: ENTITY_ID,
   buildUpsertPayload: (ctx: CrudEmitContext<Todo>) => ({
-    entityType: E.example.todo,
+    entityType: ENTITY_ID,
     recordId: ctx.identifiers.id,
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
   }),
   buildDeletePayload: (ctx: CrudEmitContext<Todo>) => ({
-    entityType: E.example.todo,
+    entityType: ENTITY_ID,
     recordId: ctx.identifiers.id,
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
@@ -82,6 +87,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const todo = await de.createOrmEntity({
       entity: Todo,
       data: {
+        ...(parsed.id ? { id: parsed.id } : {}),
         title: parsed.title,
         isDone: parsed.is_done ?? false,
         tenantId: scope.tenantId,
@@ -91,7 +97,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
 
     await setCustomFieldsIfAny({
       dataEngine: de,
-      entityId: E.example.todo,
+      entityId: ENTITY_ID,
       recordId: String(todo.id),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -107,6 +113,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -154,7 +161,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       const values = normalizeCustomFieldValues(rawValues)
       if (Object.keys(values).length) {
         await de.setCustomFields({
-          entityId: E.example.todo,
+          entityId: ENTITY_ID,
           recordId: id,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
@@ -172,6 +179,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -198,25 +206,19 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const { parsed, custom } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-
-    const todo = await de.updateOrmEntity({
-      entity: Todo,
-      where: {
-        id: parsed.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      } as FilterQuery<Todo>,
-      apply: (entity) => {
-        if (parsed.title !== undefined) entity.title = parsed.title
-        if (parsed.is_done !== undefined) entity.isDone = parsed.is_done
-      },
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const todo = await updateTodoWithoutFlushingRequestScope(em, {
+      id: parsed.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      title: parsed.title,
+      isDone: parsed.is_done,
     })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,
-      entityId: E.example.todo,
+      entityId: ENTITY_ID,
       recordId: String(todo.id),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -232,6 +234,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -301,7 +304,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const customValues = normalizeCustomFieldValues(customResetValues)
     if (Object.keys(customValues).length > 0) {
       await de.setCustomFields({
-        entityId: E.example.todo,
+        entityId: ENTITY_ID,
         recordId: before.id,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
@@ -318,6 +321,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -366,6 +370,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -418,7 +423,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     if (before.custom && Object.keys(before.custom).length > 0) {
       const values = normalizeCustomFieldValues(before.custom)
       await de.setCustomFields({
-        entityId: E.example.todo,
+        entityId: ENTITY_ID,
         recordId: before.id,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
@@ -435,6 +440,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -485,6 +491,41 @@ function ensureScope(ctx: CommandRuntimeContext): { tenantId: string; organizati
   return { tenantId, organizationId }
 }
 
+// Uses nativeUpdate on a forked EntityManager to avoid flushing unrelated
+// pending changes from the request-scoped EM. This is required when the
+// sync bridge calls update inside a worker context where the shared EM may
+// carry state from prior operations within the same job batch.
+async function updateTodoWithoutFlushingRequestScope(
+  em: EntityManager,
+  input: {
+    id: string
+    tenantId: string
+    organizationId: string
+    title?: string
+    isDone?: boolean
+  },
+): Promise<Todo | null> {
+  const isolatedEm = em.fork({ clear: true, freshEventManager: true })
+  const where = {
+    id: input.id,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    deletedAt: null,
+  } as FilterQuery<Todo>
+  const patch: EntityData<Todo> = {}
+
+  if (input.title !== undefined) patch.title = input.title
+  if (input.isDone !== undefined) patch.isDone = input.isDone
+
+  if (Object.keys(patch).length > 0) {
+    patch.updatedAt = new Date()
+    const updatedRows = await isolatedEm.nativeUpdate(Todo, where, patch)
+    if (updatedRows === 0) return null
+  }
+
+  return await isolatedEm.findOne(Todo, where)
+}
+
 async function loadTodoCustomSnapshot(
   em: EntityManager,
   id: string,
@@ -492,7 +533,7 @@ async function loadTodoCustomSnapshot(
   organizationId: string | null
 ): Promise<Record<string, unknown>> {
   return await loadCustomFieldSnapshot(em, {
-    entityId: E.example.todo,
+    entityId: ENTITY_ID,
     recordId: id,
     tenantId,
     organizationId,

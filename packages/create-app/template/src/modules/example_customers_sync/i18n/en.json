@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "Invalid cursor.",
+  "exampleCustomersSync.errors.invalidJson": "Invalid JSON body.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "Failed to load Example customer sync mappings.",
+  "exampleCustomersSync.errors.organizationContextRequired": "Organization context is required.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "Organization scope mismatch.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "Failed to enqueue Example customer sync reconciliation.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "Tenant scope mismatch.",
+  "exampleCustomersSync.errors.unauthorized": "Unauthorized",
+  "exampleCustomersSync.errors.validationFailed": "Validation failed"
+}

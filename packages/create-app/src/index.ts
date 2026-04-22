@@ -1,8 +1,16 @@
-import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
-import { join, dirname, basename, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { basename, dirname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
+import {
+  downloadReadyAppSnapshot,
+  extractTarballSnapshot,
+  resolveReadyAppSource,
+  type ReadyAppSource,
+  validateImportedReadyAppSnapshot,
+  validateSlug,
+} from './lib/ready-apps.js'
 import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -11,7 +19,10 @@ const PACKAGE_VERSION: string = packageJson.version
 const TEMPLATE_DIR = join(__dirname, '..', 'template')
 
 interface Options {
+  app?: string
+  appUrl?: string
   registry?: string
+  skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -28,6 +39,9 @@ ${pc.bold('Arguments:')}
   app-name           Name of the application (will create folder with this name)
 
 ${pc.bold('Options:')}
+  --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
+  --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --skip-agentic-setup  Skip the interactive agentic setup wizard
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -35,6 +49,8 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-prm --app prm
+  npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
   npx create-mercato-app my-store --registry http://localhost:4873
 `)
@@ -44,26 +60,47 @@ function showVersion(): void {
   console.log(`create-mercato-app v${PACKAGE_VERSION}`)
 }
 
+function requireOptionValue(args: string[], index: number, flag: string): string {
+  const value = args[index + 1]
+  if (!value || value.startsWith('-')) {
+    throw new Error(`Option ${flag} requires a value`)
+  }
+
+  return value
+}
+
 function parseArgs(args: string[]): { appName: string | null; options: Options } {
   const options: Options = {
+    app: undefined,
+    appUrl: undefined,
     registry: undefined,
+    skipAgenticSetup: false,
     verdaccio: false,
     help: false,
     version: false,
   }
   let appName: string | null = null
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
 
     if (arg === '--help' || arg === '-h') {
       options.help = true
     } else if (arg === '--version' || arg === '-v') {
       options.version = true
+    } else if (arg === '--skip-agentic-setup') {
+      options.skipAgenticSetup = true
     } else if (arg === '--verdaccio') {
       options.verdaccio = true
     } else if (arg === '--registry') {
-      options.registry = args[++i]
+      options.registry = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--app') {
+      options.app = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--app-url') {
+      options.appUrl = requireOptionValue(args, index, arg)
+      index += 1
     } else if (!arg.startsWith('-')) {
       appName = arg
     }
@@ -72,33 +109,13 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   return { appName, options }
 }
 
-function validateAppName(name: string): { valid: boolean; error?: string } {
-  if (!name) {
-    return { valid: false, error: 'App name is required' }
-  }
-
-  if (!/^[a-z0-9-]+$/.test(name)) {
-    return {
-      valid: false,
-      error: 'App name must be lowercase alphanumeric with hyphens only (e.g., my-app)',
-    }
-  }
-
-  if (name.startsWith('-') || name.endsWith('-')) {
-    return { valid: false, error: 'App name cannot start or end with a hyphen' }
-  }
-
-  return { valid: true }
-}
-
 function buildRegistryConfig(registryUrl: string): string {
   let parsedRegistryUrl: URL
 
   try {
     parsedRegistryUrl = new URL(registryUrl)
   } catch {
-    console.error(pc.red(`Error: Invalid registry URL "${registryUrl}"`))
-    process.exit(1)
+    throw new Error(`Invalid registry URL "${registryUrl}"`)
   }
 
   const configLines: string[] = []
@@ -124,7 +141,6 @@ function buildRegistryConfig(registryUrl: string): string {
   return configLines.join('\n')
 }
 
-// Files that need to be renamed (npm ignores .gitignore during pack)
 const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
 }
@@ -148,7 +164,6 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
       if (SKIP_DIRS.has(entry)) continue
       copyDirRecursive(srcPath, destPath, placeholders)
     } else if (entry.endsWith('.template')) {
-      // Process template files
       const finalName = entry.replace('.template', '')
       destPath = join(dest, finalName)
       let content = readFileSync(srcPath, 'utf-8')
@@ -164,115 +179,180 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
   }
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2)
-  const { appName: appNameArg, options } = parseArgs(args)
+function ensureGeneratedCssPlaceholder(targetDir: string): void {
+  const generatedDir = join(targetDir, '.mercato', 'generated')
+  const placeholderPath = join(generatedDir, 'module-package-sources.css')
+
+  mkdirSync(generatedDir, { recursive: true })
+  if (!existsSync(placeholderPath)) {
+    writeFileSync(placeholderPath, '')
+  }
+}
+
+async function scaffoldTemplateApp(
+  targetDir: string,
+  placeholders: Record<string, string>,
+): Promise<void> {
+  if (!existsSync(TEMPLATE_DIR)) {
+    throw new Error(`Template directory not found at ${TEMPLATE_DIR}`)
+  }
+
+  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+  ensureGeneratedCssPlaceholder(targetDir)
+}
+
+function describeReadyAppSource(source: ReadyAppSource): string {
+  if (source.kind === 'official') {
+    return `${source.owner}/${source.repo}@${source.ref}`
+  }
+
+  return `${source.owner}/${source.repo}${source.ref ? `@${source.ref}` : ''}`
+}
+
+async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSource): Promise<void> {
+  const download = await downloadReadyAppSnapshot(source, PACKAGE_VERSION)
+  console.log(pc.dim(`Fetching ready app snapshot from ${download.owner}/${download.repo}@${download.ref}`))
+
+  await extractTarballSnapshot(download.archive, targetDir)
+  validateImportedReadyAppSnapshot(targetDir)
+  ensureGeneratedCssPlaceholder(targetDir)
+}
+
+async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean): Promise<void> {
+  if (skipAgenticSetup) {
+    await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
+    return
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (question: string) =>
+    new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+
+  try {
+    await runAgenticSetup(targetDir, ask)
+  } finally {
+    rl.close()
+  }
+}
+
+function printTemplateNextSteps(appName: string): void {
+  console.log('Next steps:')
+  console.log('')
+  console.log(pc.cyan(`  cd ${appName}`))
+  console.log(pc.dim('  # Make sure Yarn 4.1x is installed before running the setup command, and install all the deependencies with:'))
+  console.log(pc.cyan('  yarn'))
+  console.log('')
+  console.log(pc.green('Suggested quick start:'))
+  console.log(pc.cyan('  yarn setup'))
+  console.log(pc.dim('  # Copies .env.example to .env if needed, installs deps, migrates, initializes, and starts dev'))
+  console.log(pc.dim('  # If you need a clean reset first: yarn setup --reinstall'))
+  console.log(pc.dim('  # Alias: yarn setup:reinstall'))
+  console.log('')
+  console.log('Manual alternative:')
+  console.log(pc.cyan('  cp .env.example .env'))
+  console.log(pc.dim('  # Edit .env with your database credentials'))
+  console.log(pc.cyan('  yarn install'))
+  console.log(pc.cyan('  yarn generate'))
+  console.log(pc.cyan('  yarn db:migrate'))
+  console.log(pc.cyan('  yarn initialize'))
+  console.log(pc.cyan('  yarn dev'))
+  console.log('')
+  console.log('Docker alternatives:')
+  console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
+  console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
+  console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
+  console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
+  console.log('')
+}
+
+function printImportedReadyAppNextSteps(appName: string): void {
+  console.log('Next steps:')
+  console.log('')
+  console.log(pc.cyan(`  cd ${appName}`))
+  console.log(pc.cyan('  yarn install'))
+  console.log(pc.cyan('  yarn initialize'))
+  console.log(pc.cyan('  yarn dev'))
+  console.log('')
+  console.log(pc.dim('Imported ready apps are copied as raw source snapshots.'))
+  console.log(pc.dim('If you want agentic tooling in the imported app later, run `yarn mercato agentic:init` inside it.'))
+  console.log('')
+}
+
+export async function main(argv = process.argv.slice(2)): Promise<void> {
+  const { appName: appNameArg, options } = parseArgs(argv)
 
   if (options.help) {
     showHelp()
-    process.exit(0)
+    return
   }
 
   if (options.version) {
     showVersion()
-    process.exit(0)
+    return
   }
 
   if (!appNameArg) {
-    console.error(pc.red('Error: App name is required'))
-    console.error('')
-    showHelp()
-    process.exit(1)
+    throw new Error('App name is required')
   }
 
-  // Support both relative names (my-app) and full paths (/tmp/my-app)
   const targetDir = resolve(process.cwd(), appNameArg)
   const appName = basename(targetDir)
 
-  const validation = validateAppName(appName)
+  const validation = validateSlug(appName, 'App name')
   if (!validation.valid) {
-    console.error(pc.red(`Error: ${validation.error}`))
-    process.exit(1)
+    throw new Error(validation.error)
   }
 
   if (existsSync(targetDir)) {
-    console.error(pc.red(`Error: Directory "${appName}" already exists`))
-    process.exit(1)
+    throw new Error(`Directory "${appName}" already exists`)
   }
 
-  if (!existsSync(TEMPLATE_DIR)) {
-    console.error(pc.red('Error: Template directory not found'))
-    console.error(`Expected: ${TEMPLATE_DIR}`)
-    process.exit(1)
-  }
-
-  // Determine registry config
-  let registryConfig = ''
-  if (options.verdaccio) {
-    registryConfig = buildRegistryConfig('http://localhost:4873')
-  } else if (options.registry) {
-    registryConfig = buildRegistryConfig(options.registry)
-  }
+  const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
+  const registryConfig = options.verdaccio
+    ? buildRegistryConfig('http://localhost:4873')
+    : options.registry
+      ? buildRegistryConfig(options.registry)
+      : ''
 
   console.log('')
   console.log(pc.bold(`Creating a new Open Mercato app in ${pc.cyan(targetDir)}`))
   console.log('')
 
-  // Define placeholders
   const placeholders: Record<string, string> = {
     APP_NAME: appName,
-    PACKAGE_VERSION: PACKAGE_VERSION,
+    PACKAGE_VERSION,
     REGISTRY_CONFIG: registryConfig,
   }
 
-  try {
-    copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
-
-    // Create an empty placeholder so globals.css @import resolves before generators run
-    const generatedDir = join(targetDir, '.mercato', 'generated')
-    mkdirSync(generatedDir, { recursive: true })
-    writeFileSync(join(generatedDir, 'module-package-sources.css'), '')
-
-    console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
+  if (readyAppSource) {
+    console.log(pc.dim(`Ready app source: ${describeReadyAppSource(readyAppSource)}`))
     console.log('')
-
-    // Agentic tool setup wizard
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-    const ask = (q: string) => new Promise<string>((res) => rl.question(q, (a) => res(a.trim())))
-    await runAgenticSetup(targetDir, ask)
-    rl.close()
-
-    console.log('Next steps:')
-    console.log('')
-    console.log(pc.cyan(`  cd ${appName}`))
-    console.log('')
-    console.log(pc.green('Suggested quick start:'))
-    console.log(pc.cyan('  yarn setup'))
-    console.log(pc.dim('  # Copies .env.example to .env if needed, installs deps, migrates, initializes, and starts dev'))
-    console.log(pc.dim('  # If you need a clean reset first: yarn setup --reinstall'))
-    console.log(pc.dim('  # Alias: yarn setup:reinstall'))
-    console.log('')
-    console.log('Manual alternative:')
-    console.log(pc.cyan('  cp .env.example .env'))
-    console.log(pc.dim('  # Edit .env with your database credentials'))
-    console.log(pc.cyan('  yarn install'))
-    console.log(pc.cyan('  yarn generate'))
-    console.log(pc.cyan('  yarn db:migrate'))
-    console.log(pc.cyan('  yarn initialize'))
-    console.log(pc.cyan('  yarn dev'))
-    console.log('')
-    console.log('Docker alternatives:')
-    console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
-    console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
-    console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
-    console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
-    console.log('')
-    console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
-    console.log('')
-  } catch (error) {
-    console.error(pc.red('Error creating app:'), error)
-    process.exit(1)
+    await scaffoldImportedReadyApp(targetDir, readyAppSource)
+  } else {
+    await scaffoldTemplateApp(targetDir, placeholders)
   }
+
+  console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
+  console.log('')
+
+  if (readyAppSource) {
+    printImportedReadyAppNextSteps(appName)
+  } else {
+    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
+    printTemplateNextSteps(appName)
+  }
+
+  console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
+  console.log('')
 }
 
-main()
+const isEntrypoint =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isEntrypoint) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(pc.red('Error creating app:'), message)
+    process.exit(1)
+  })
+}

@@ -4,9 +4,9 @@
 1. **After editing any entity file** (`src/modules/<id>/entities/*.ts`):
    - STOP immediately before any further action
    - Tell the user: "I modified an entity in module <id>. Should I create a migration?"
-   - If yes: run `yarn db:generate`
+   - If yes: run `yarn mercato db generate`
    - Show the generated migration to the user before applying
-   - Ask for confirmation, then run `yarn db:migrate`
+   - Ask for confirmation, then run `yarn mercato db migrate`
    - Run `yarn generate` after migration is applied
 
 2. **After editing `src/modules.ts`**: immediately run `yarn generate`

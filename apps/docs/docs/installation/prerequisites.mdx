@@ -6,25 +6,58 @@ description: Tools and services required before installing Open Mercato locally.
 Before cloning the repository make sure the following tools are installed:
 
 :::tip Standalone app
-If you want to build on Open Mercato without cloning the monorepo, use [`create-mercato-app`](/customization/standalone-app) to scaffold a standalone project. It has its own lighter prerequisites — see the [standalone app guide](/customization/standalone-app) for details.
+If you want to build on Open Mercato without cloning the monorepo, use [`create-mercato-app`](/customization/standalone-app) to scaffold a standalone project. It has its own lighter prerequisites; see the [standalone app guide](/customization/standalone-app) for details.
 :::
 
-:::tip Docker-only setup (Windows recommended)
-If you plan to use the [Docker development setup](./setup#docker-development-setup), you only need **Docker Desktop** and **Git**. Node.js, Yarn, and the other tools below are not required — everything runs inside containers. This is the recommended path for **Windows** users.
+:::tip Docker-only setup
+If you plan to use the [Docker development setup](./setup#docker-development-setup), you only need **Docker Desktop** and **Git**. Node.js, Yarn, and the other tools below are not required — everything runs inside containers. On **Windows**, treat this as an optional container-only workflow, not the default day-to-day monorepo path.
 :::
 
-- **Node.js 24+** – aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.
-- **Yarn (via Corepack)** – enable it once per machine:
+:::tip Windows native setup
+For the recommended Windows monorepo workflow, run the Windows-native prerequisite commands manually in PowerShell from the repository root or another elevated terminal as needed.
+:::
+
+- **Node.js 24+** - aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.
+- **Yarn (via Corepack)** - enable it once per machine:
   ```bash
   corepack enable
   corepack prepare yarn@stable --activate
   ```
-- **Docker & Docker Compose** – required for running PostgreSQL with pgvector and Redis.
-- **OpenSSL** – handy for generating random secrets while configuring `.env`.
-- **GraphicsMagick, Ghostscript, and Poppler** (optional) – required for LLM-based OCR on PDFs:
+- **Visual Studio 2022 Build Tools** - required for the recommended native Windows monorepo workflow. Some Node.js dependencies include native modules and can fail on a clean machine without the Visual C++ toolchain.
+- **Microsoft Visual C++ Redistributable 2015+ x64** - required on Windows for native binaries used by the toolchain in the recommended native local workflow.
+- **Docker & Docker Compose** - required for running PostgreSQL with pgvector and Redis.
+- **OpenSSL** - handy for generating random secrets while configuring `.env`.
+- **GraphicsMagick, Ghostscript, and Poppler** (optional) - required for LLM-based OCR on PDFs:
   - **macOS**: `brew install graphicsmagick ghostscript poppler`
   - **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
   - **Windows**: install via [Chocolatey](https://chocolatey.org/) or [Scoop](https://scoop.sh/) if using the native setup
+
+Recommended PowerShell commands on Windows:
+
+```powershell
+corepack enable
+corepack prepare yarn@stable --activate
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
+```
+
+Optional but recommended for better performance on large repos:
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
+```
+
+The Defender exclusion is optional, but without it local Windows development can be noticeably slower.
+
+## Recommended standalone developer tools
+
+If you are using a standalone app, these tools are strongly recommended because the native `yarn dev` splash can detect and launch them directly once the app is ready.
+
+- **GitHub CLI (`gh`)** - required for the standalone splash `Create new GitHub repository` / `Publish to GitHub` flow. Install it from [cli.github.com](https://cli.github.com/) and authenticate once with `gh auth login`.
+- **Codex CLI** - recommended OpenAI terminal workflow for the splash `Start coding with AI` menu. Install guide: [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
+- **Claude Code** - recommended Anthropic terminal workflow for the same splash coding menu. Install guide: [code.claude.com/docs/en/setup](https://code.claude.com/docs/en/setup)
+- **Visual Studio Code** - recommended general-purpose editor for standalone apps. Download: [code.visualstudio.com/Download](https://code.visualstudio.com/Download)
+- **Cursor** - recommended AI-first editor if you prefer an IDE workflow instead of a terminal-only CLI workflow. Download: [cursor.com/download](https://cursor.com/download)
 
 Copy `.env.example` to `.env` and configure at least:
 
@@ -56,8 +89,9 @@ AWS_REGION=us-east-1
 OLLAMA_BASE_URL=http://localhost:11434  # Optional, defaults to localhost
 ```
 
-You can configure multiple providers and switch between them in **Backend → Configuration → Vector Search**. See the [Vector Search API reference](/api/vector) for details.
+You can configure multiple providers and switch between them in **Backend -> Configuration -> Vector Search**. See the [Vector Search API reference](/api/vector) for details.
 
 Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
 
 The docs site you are reading lives in `apps/docs` and has its own dependencies. From the monorepo root, run `yarn docs:dev` to start the documentation development server.
+
