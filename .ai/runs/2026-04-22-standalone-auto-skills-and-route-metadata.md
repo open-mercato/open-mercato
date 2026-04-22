@@ -175,17 +175,17 @@ Post a comment per label per PR workflow. Then run the `auto-review-pr` skill ag
 - [x] 6.1 Trace packages/create-app/src/setup manifest — 6cec00253
 - [x] 6.2 Adjust manifest so auto-* + trim-unused-modules ship — 6cec00253 / 1740997e4
 
-### Phase 7: Fix yarn dev module-reload (DEFERRED — /auto-continue-pr)
+### Phase 7: Fix yarn dev module-reload (DEFERRED — needs repro)
 
-- [ ] 7.1 Broaden `generate watch` tracked paths (include src/modules recursive, .mercato/generated sentinel)
-- [ ] 7.2 Touch sentinel after regeneration to force Next HMR
-- [ ] 7.3 Apply same fix to template dev runtime
+- [ ] 7.1 Broaden `generate watch` tracked paths (include src/modules recursive, .mercato/generated sentinel) — DEFERRED: the existing watcher already tracks `src/modules` at the root and `calculateStructureChecksum` walks children; the user's `Module not found: ../../../components/BookCoverField` error points at Next.js's module-resolution cache, not the generator watcher. Needs a minimal reproducible scenario before changing hot-path dev-runtime code.
+- [ ] 7.2 Touch sentinel after regeneration to force Next HMR — DEFERRED: same reason; sentinel-touch is speculative without knowing which cache layer is stale.
+- [ ] 7.3 Apply same fix to template dev runtime — DEFERRED.
 
 ### Phase 8: yarn dev auto-migrate option + single-shot migration guidance
 
-- [ ] 8.1 Add OM_DEV_AUTO_MIGRATE gate + pre-dev db:migrate step (monorepo) — DEFERRED
-- [ ] 8.2 Mirror for standalone dev runtime — DEFERRED
-- [ ] 8.3 Add friendly conflict-warning formatter — DEFERRED
+- [ ] 8.1 Add OM_DEV_AUTO_MIGRATE gate + pre-dev db:migrate step (monorepo) — DEFERRED (standalone-only scope per user)
+- [x] 8.2 Mirror for standalone dev runtime — b6b92ab06
+- [x] 8.3 Add friendly conflict-warning formatter — b6b92ab06
 - [x] 8.4 Add "Single-shot migrations" rule to standalone AGENTS.md — e60515ac0
 - [x] 8.5 Add rule to standalone template AGENTS.md + agentic template — e60515ac0
 
@@ -193,8 +193,8 @@ Post a comment per label per PR workflow. Then run the `auto-review-pr` skill ag
 
 - [x] 9.1 Standalone AGENTS.md rule: new features auto-granted to admin/superadmin — 1740997e4
 - [x] 9.2 Agentic shared AGENTS.md.template mirror — 1740997e4
-- [ ] 9.3 Implement `yarn mercato acl apply --all-tenants` CLI — DEFERRED
-- [ ] 9.4 Ensure defaultRoleFeatures is seeded on tenant creation (verify existing behavior) — DEFERRED
+- [x] 9.3 Implement `yarn mercato auth apply-acl --all-tenants` CLI — b31edd562 (command landed under the auth module namespace since the CLI dispatcher is module-scoped; docs updated to match)
+- [x] 9.4 Ensure defaultRoleFeatures is seeded on tenant creation (verify existing behavior) — verified: `setupInitialTenant()` already calls `ensureDefaultRoleAcls` at line 336 of `packages/core/src/modules/auth/lib/setup-app.ts`, so new tenants receive defaults on creation. The new `apply-acl` CLI reconciles existing tenants.
 
 ### Phase 10: Strict Design System enforcement in AGENTS.md (NEW scope)
 

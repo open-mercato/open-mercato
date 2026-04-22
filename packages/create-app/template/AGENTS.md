@@ -195,6 +195,26 @@ Practical consequences:
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
 
+## Disabling the Dashboards Module: Update /backend
+
+The default `/backend` page (`src/app/(backend)/backend/page.tsx`) renders `<DashboardScreen />` from `@open-mercato/ui/backend/dashboard`. That component's data flow depends on the `dashboards` module being enabled — widgets, layouts, and the dashboard API routes all live there.
+
+If you or the `trim-unused-modules` skill removes `dashboards` from `src/modules.ts`, you MUST also update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the body with a `redirect(...)` to the first backend page the current user can see — pick from the main sidebar group, fall back to `/backend/profile` when nothing else is enabled. Example:
+
+```tsx
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { redirect } from 'next/navigation'
+
+export default async function BackendIndex() {
+  const auth = await getAuthFromCookies()
+  if (!auth) redirect('/api/auth/session/refresh?redirect=/backend')
+  // dashboards disabled — pick the first enabled backend page the user can reach
+  redirect('/backend/customers/people') // replace with your project's landing page
+}
+```
+
+Do this in the same change where you disable the module — otherwise `/backend` will crash at request time because `DashboardScreen` will be missing from the bundle (or, worse, will render but fail to load widgets).
+
 ## Feature Grants: New Features MUST Be Visible Immediately
 
 Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also:
@@ -244,7 +264,40 @@ All UI added or edited in `src/modules/<module>/backend/**` or `src/modules/<mod
 | Loading state | `<LoadingMessage />`, `<Spinner />`, or `<DataLoader />` |
 | Empty state | `<EmptyState>` (or `emptyState` prop on `DataTable`) |
 
-**Icons.** Use `lucide-react` for every icon — never inline `<svg>`. Sizes: `size-3`, `size-4` (default), `size-5`, `size-6`. Do not override `strokeWidth` per-instance. Icon-only buttons MUST have `aria-label`.
+**Icons (page body).** Use `lucide-react` for every icon inside page body UI (`Page`, `DataTable`, `CrudForm`, cards, buttons, etc.) — never inline `<svg>`. Sizes: `size-3`, `size-4` (default), `size-5`, `size-6`. Do not override `strokeWidth` per-instance. Icon-only buttons MUST have `aria-label`.
+
+**Icons (`page.meta.ts`).** In `src/modules/<module>/backend/**/page.meta.ts` files, the `icon` field has a stricter contract — it is consumed by the sidebar renderer and must be a plain `React.createElement('svg', …)` tree, NOT a direct `lucide-react` import. After the lucide-react major upgrade, importing `{ IconName } from 'lucide-react'` inside a meta file can break page-metadata serialization and cause the sidebar to drop the icon. Use this pattern — which is the one currently used by `customers/people/page.meta.ts` and every other shipping module:
+
+```ts
+import React from 'react'
+
+const myIcon = React.createElement(
+  'svg',
+  {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  },
+  React.createElement('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2' }),
+  React.createElement('circle', { cx: 9, cy: 7, r: 4 }),
+)
+
+export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['my_module.view'],
+  pageTitle: 'My Page',
+  pageTitleKey: 'my_module.nav.title',
+  icon: myIcon,
+  // ...
+}
+```
+
+Grab the `d="..."` path values from the lucide icon you want — for example by searching `lucide.dev/icons/<name>` — and inline them via `React.createElement('path', { d: '…' })`. This keeps the meta file free of runtime imports while preserving a consistent visual language.
 
 **Dialogs.** Every dialog MUST submit on `Cmd/Ctrl+Enter` and cancel on `Escape`.
 

@@ -43,6 +43,7 @@ Invoke this skill when:
    - Remove the entry from `src/modules.ts`.
    - Do NOT delete files from `node_modules/@open-mercato/*` (packages stay installed — disabling just means the app no longer loads them).
    - Do NOT drop the module's database tables. Data removal is a separate, destructive operation that the user must request explicitly.
+   - **If `dashboards` is one of the disabled modules, you MUST also update `src/app/(backend)/backend/page.tsx`** so it no longer renders `<DashboardScreen />`. Replace the body with a `redirect(...)` to the first backend page the user can reach — prefer the main sidebar group (e.g. `/backend/customers/people`) and fall back to `/backend/profile` if nothing else is enabled. Without this edit, `/backend` will crash at build or request time because the removed module no longer ships `DashboardScreen`. Commit this edit in the same change as the `src/modules.ts` edit.
 
 7. **Re-run the generator.** After the edit:
 
