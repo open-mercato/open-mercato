@@ -13,6 +13,7 @@
   "translations.manager.description": "Manage translations for entity records across supported locales.",
   "translations.manager.errors.loadEntities": "Failed to load entities",
   "translations.manager.errors.loadTranslation": "Failed to load translations",
+  "translations.manager.errors.nothingToSave": "Nothing to save — enter a translation first",
   "translations.manager.errors.save": "Failed to save translations",
   "translations.manager.errors.selectRecord": "Select an entity and record before saving",
   "translations.manager.fields.baseValue": "Base value",
