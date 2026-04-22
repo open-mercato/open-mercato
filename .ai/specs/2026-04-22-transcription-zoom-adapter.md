@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-04-22 |
-| **Status** | Draft — Proposed |
+| **Status** | Proposed (revised 2026-04-22: adopts WebhookEndpointAdapter + call_transcripts module) |
 | **Author** | Maciej Gren (with om-superpowers + Claude) |
 | **Scope** | OSS |
-| **Module(s)** | new `packages/transcription-zoom` |
+| **Module(s)** | new `packages/transcription-zoom` — registers into `call_transcripts` module + `@open-mercato/webhooks` inbound pipeline |
 | **Parent spec** | `.ai/specs/2026-04-21-crm-call-transcriptions.md` (CRM Call Transcriptions) |
 | **Sibling sub-specs** | `.ai/specs/2026-04-22-transcription-tldv-adapter.md` |
-| **Implements** | `CallTranscriptProvider<ZoomCredentials>` from `packages/shared/src/modules/customers/transcription.ts` (created by parent spec Phase 1) |
-| **Depends on** | Parent spec must ship first; this adapter is provider #1 (reference implementation). |
+| **Implements** | `CallTranscriptProvider<ZoomCredentials>` from `@open-mercato/shared/modules/call_transcripts/provider` (created by parent spec Phase 1) + `WebhookEndpointAdapter` from `@open-mercato/webhooks` |
+| **Depends on** | (1) Parent spec `2026-04-21-crm-call-transcriptions.md` must ship first (this adapter is provider #1, the reference implementation). (2) Additive `WebhookEndpointAdapter.handleHandshake` hook in `@open-mercato/webhooks` — hard prerequisite for Zoom's synchronous URL-validation response. See parent spec §3 "URL-validation handshakes" for the contract and this doc's API Contracts section for the response-body implications. |
 
 ---
 
@@ -18,9 +18,9 @@
 
 - Implement `CallTranscriptProvider` for Zoom as the **reference adapter** in `packages/transcription-zoom`. Ships alongside the parent and is the model other provider packages copy.
 - Auth: **Server-to-Server OAuth**, account-wide. One Zoom connection per OM tenant; the Zoom Admin authorizes once. Credentials stored in the SPEC-045 integrations vault at **tenant scope** (not per-user). Tenant resolution on webhook is by a **signed tenant token in the webhook URL** (see §Tenant routing); `payload.account_id` is cross-checked against the vault entry as defense-in-depth.
-- Triggers: (a) `recording.transcript_completed` webhook (primary), signed via **HMAC-SHA256** (`x-zm-signature: v0=<hex>` + `x-zm-request-timestamp`, validated with a 5-minute replay window); (b) scheduled polling fallback via `GET /users/{userId}/recordings` iterated across all users under the connected account.
+- Triggers: (a) `recording.transcript_completed` webhook (primary) — webhook intake flows through the shared `@open-mercato/webhooks` inbound pipeline via a registered `WebhookEndpointAdapter`. The intake URL `POST /api/webhooks/inbound/zoom` is owned by `@open-mercato/webhooks`, not by this package. The adapter's `verifyWebhook` handles HMAC-SHA256 (`x-zm-signature: v0=<hex>` + `x-zm-request-timestamp`, 5-minute replay window), the URL-validation handshake, and tenant resolution via a signed tenant token in the URL query param (`?t=`). The adapter's `processInbound` calls `fetchTranscript` and invokes `call_transcripts.ingest` via the command bus. (b) Scheduled polling fallback via `GET /users/{userId}/recordings` iterated across all users under the connected account.
 - **Plan gate is hard at connect time.** Zoom Cloud Recording + Audio Transcript requires Business / Education / Enterprise. The connect flow calls `GET /accounts/{accountId}/settings?option=recording` before saving credentials; if Audio Transcript is disabled (or the plan is below Business), the route returns 400 with a localized "upgrade required" message. Silent non-ingest on Pro is explicitly rejected — fail loud on detectable hard gates.
-- **Attendee matching is materially richer than tl;dv.** `GET /past_meetings/{meetingUUID}/participants` returns `user_email` for every participant who joined while signed into a Zoom account. A typical sales call with 1 host + 2 external prospects who sign in gets 3 `CustomerInteractionParticipant` rows — all `matched_via='primary_email'` when they're in the CRM. Anonymous guest joiners (joined without signing into Zoom) lack `user_email` → preserved as display-only in `TranscriptResult.segments` per the parent's `CHECK (email IS NOT NULL OR phone IS NOT NULL)` constraint. Calendar enrichment remains the v2 escape hatch for those, identical to tl;dv's follow-up track.
+- **Attendee matching is materially richer than tl;dv.** `GET /past_meetings/{meetingUUID}/participants` returns `user_email` for every participant who joined while signed into a Zoom account. A typical sales call with 1 host + 2 external prospects who sign in gets 3 `CustomerInteractionParticipant` rows — all `matched_via='primary_email'` when they're in the CRM. Anonymous guest joiners (joined without signing into Zoom) lack `user_email` → stored as display-name-only `CallTranscriptParticipant` rows (`matchable=false` per the parent's relaxed CHECK `email OR phone OR display_name`), visible in segments + unmatched-inbox summary, but NOT promoted to `CustomerInteractionParticipant` (whose CHECK still requires email or phone). Calendar enrichment remains the v2 escape hatch for turning those anonymous speakers into matchable identities, identical to tl;dv's follow-up track.
 - Transcript format: **WebVTT**. The adapter fetches the VTT via `download_url` using the **short-lived `download_token`** delivered in the webhook payload (or a fresh OAuth access token on the polling path), parses each cue into `{ speaker, startSec, endSec, text }`, and stores the joined plain text as `TranscriptResult.text`.
 - Webhook URL validation: Zoom sends `endpoint.url_validation` on webhook configuration; adapter MUST reply within 3 seconds with `{ plainToken, encryptedToken: hex(HMAC-SHA256(plainToken, secretToken)) }`.
 - Throttling: Zoom's cloud-recording endpoints sit in the "Medium" rate-limit tier (≈ 10 req/sec per account per-endpoint-class). Adapter self-throttles at 10 req/sec per account and honors `Retry-After` on 429/5xx with capped exponential backoff.
@@ -31,17 +31,18 @@
 
 This sub-spec is **purely additive** to the parent. It does NOT change:
 
-- The `CallTranscriptProvider<TCredentials>` contract in `packages/shared/src/modules/customers/transcription.ts` (created by parent Phase 1).
-- The customers module's ingest API (`POST /api/customers/call-transcripts/ingest`), routing algorithm, junction entity, unmatched-inbox flow, retroactive matching, or any UI surface.
-- ACL features, encryption maps, or events declared by the parent.
+- The `CallTranscriptProvider<TCredentials>` contract in `@open-mercato/shared/modules/call_transcripts/provider`.
+- The `call_transcripts` module's ingest command / routing / staging / inbox / ACL / events.
+- The customers module's `CustomerInteraction` model or its new `create_from_transcript` command.
 
 It does add:
 
 - A new workspace package `packages/transcription-zoom` (npm workspace, OSS).
-- Provider-package-local ACL features (`transcription_zoom.view`, `transcription_zoom.configure`) aligned to the OM provider-package convention.
-- A webhook intake route registered with `packages/webhooks`.
-- An integrations-marketplace registry entry (SPEC-045) declaring the Zoom OAuth scopes.
-- Env-backed preconfiguration for `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `ZOOM_WEBHOOK_SECRET_TOKEN`, applied from the provider's own `setup.ts` per the root `AGENTS.md` integration-provider rule.
+- Provider-package-local ACL features (`transcription_zoom.view`, `transcription_zoom.configure`).
+- A `WebhookEndpointAdapter` registered via `registerWebhookEndpointAdapter` (from `@open-mercato/webhooks`).
+- A `CallTranscriptProvider` registered via `registerCallTranscriptProvider` (from `@open-mercato/core/modules/call_transcripts/lib/adapter-registry` — note: module-level registry, NOT a DI token).
+- An integrations-marketplace registry entry (SPEC-045) declaring `hub: 'call_transcripts'`.
+- Env-backed preconfiguration for `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `ZOOM_WEBHOOK_SECRET_TOKEN`, applied from the provider's own `setup.ts`.
 
 If the parent spec is unimplemented when this sub-spec is picked up, this work blocks until the parent's Phase 1 (data model + contract + internal ingest route) lands.
 
@@ -131,59 +132,80 @@ v1 ignores `recording.completed` and `recording.deleted` to keep scope tight. Th
         │   (HMAC-SHA256 over v0:<ts>:<rawBody>, x-zm-signature header)
         ▼
  ┌──────────────────────────────────────────────────────────────────────┐
- │ packages/transcription-zoom                                           │
+ │ @open-mercato/webhooks — shared inbound pipeline                      │
  │                                                                       │
- │  POST /api/webhooks/transcription/zoom                                │
- │    1. If event='endpoint.url_validation' → respond with               │
- │         { plainToken, encryptedToken: HMAC-SHA256(plainToken,secret) }│
- │    2. Else: verify HMAC on v0:<x-zm-request-timestamp>:<rawBody>      │
- │    3. Reject if |now - ts| > 5 min (replay window)                    │
- │    4. Resolve tenant by payload.account_id → integrations vault       │
- │    5. On recording.transcript_completed:                              │
- │         a. Locate recording_files[file_type='TRANSCRIPT', ext='VTT']  │
- │         b. GET <download_url> with ?access_token=<download_token>     │
- │            (short-lived; also works with OAuth access_token)          │
- │         c. Parse VTT cues → segments[]                                │
- │         d. GET /past_meetings/{uuid}/participants → attendees         │
- │         e. Build normalized TranscriptResult                          │
- │         f. POST to internal customers ingest API (parent spec)        │
+ │  POST /api/webhooks/inbound/zoom?t=<signedTenantToken>                │
+ │    (shared route, owned by @open-mercato/webhooks)                    │
+ │                                                                       │
+ │    1. Raw-body preservation (middleware)                              │
+ │    2. Rate limit                                                      │
+ │    3. Dedup                                                           │
+ │    4. adapter.verifyWebhook({ headers, body, method })                │
+ │         → extracts tenantId from ?t=, verifies HMAC, handles          │
+ │           endpoint.url_validation, returns envelope                   │
+ │    5. Emit webhooks.inbound.received                                  │
+ │    6. Subscriber calls adapter.processInbound(...)                    │
+ └──────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ packages/transcription-zoom                                           │
+ │   src/modules/transcription_zoom/webhook-adapter.ts                   │
+ │                                                                       │
+ │  verifyWebhook({ headers, body, method }):                            │
+ │    - Read ?t=<signedTenantToken>, extract tenantId                    │
+ │    - Constant-time-verify HMAC of the signed token                    │
+ │    - If body.event === 'endpoint.url_validation':                     │
+ │        return { eventType: 'endpoint.url_validation',                 │
+ │                 payload: { plainToken },                              │
+ │                 tenantId, organizationId }                            │
+ │    - Else verify x-zm-signature over v0:<ts>:<rawBody>                │
+ │    - Reject if |now - x-zm-request-timestamp| > 300s                  │
+ │    - Return { eventType, payload, tenantId, organizationId }          │
+ │                                                                       │
+ │  processInbound({ eventType, payload, tenantId, organizationId,       │
+ │                   providerKey: 'zoom' }):                             │
+ │    - Resolve ZoomCredentials from integrations vault by               │
+ │      (tenantId, organizationId)                                       │
+ │    - Consistency check payload.account_id === vault.accountId         │
+ │    - fetchTranscript(payload.object.uuid, ctx) =                      │
+ │        Promise.all([                                                  │
+ │          GET /meetings/{uuid}/recordings,                             │
+ │          GET /past_meetings/{uuid}/participants?page_size=300         │
+ │        ])                                                             │
+ │    - Fetch VTT via download_url (download_token; OAuth Bearer fallbk) │
+ │    - Parse VTT cues → segments[]                                      │
+ │    - Compose normalized TranscriptResult                              │
+ │    - commandBus.execute('call_transcripts.ingest', {                  │
+ │        tenantId, organizationId,                                      │
+ │        providerKey: 'zoom',                                           │
+ │        transcript: result,                                            │
+ │      })                                                               │
  │                                                                       │
  │  workers/poll-zoom.ts (scheduled, per-tenant)                         │
  │    Fetch OAuth token                                                  │
  │    For each user under account (GET /users):                          │
  │      - GET /users/{id}/recordings?from=<lastPolledAt>&to=<now>        │
  │      - For each recording with a TRANSCRIPT file:                     │
- │          - Skip if already ingested (idempotency via parent's         │
- │            (sourceProvider='zoom', sourceRecordingId) check)          │
+ │          - Skip if already ingested (idempotency via call_transcripts │
+ │            module's (providerKey='zoom', sourceRecordingId) check)    │
  │          - Execute fetchTranscript(meetingUUID, ctx)                  │
- │          - Submit TranscriptResult to ingest API                      │
+ │          - commandBus.execute('call_transcripts.ingest', {...})       │
  │      - Persist lastPolledAt per (tenantId, zoomUserId)                │
- │                                                                       │
- │  TranscriptionProvider implementation:                                │
- │    fetchTranscript(meetingUuid, ctx):                                 │
- │      [bundle, participants, meeting] := Promise.all([                 │
- │        GET /meetings/{uuid}/recordings,                               │
- │        GET /past_meetings/{uuid}/participants?page_size=300,          │
- │        GET /meetings/{meetingId}           // optional enrichment     │
- │      ])                                                               │
- │      vtt := fetch(bundle.recording_files[TRANSCRIPT].download_url,    │
- │                    { headers: { Authorization: `Bearer ${token}` } }) │
- │      return normalize(vtt, participants, bundle, meeting)             │
  │                                                                       │
  │  Self-throttling: 10 req/sec per account; Retry-After honored;        │
  │  exponential backoff 500ms → 8s, max 5 retries per call.              │
  └──────────────────────────────────────────────────────────────────────┘
         │
-        │ POST /api/customers/call-transcripts/ingest (parent spec API)
         ▼
  ┌──────────────────────────────────────────────────────────────────────┐
- │ packages/core/src/modules/customers — INGEST PIPELINE (parent spec)  │
- │  Routing algorithm runs unchanged.                                    │
- │  For Zoom-sourced TranscriptResults: typically all authenticated      │
- │  attendees produce CustomerInteractionParticipant rows with           │
- │  matched_via='primary_email'. Anonymous guest joiners are NOT         │
- │  promoted to junction rows (no email); their words are preserved      │
- │  in TranscriptResult.segments.                                        │
+ │ call_transcripts.ingest command (parent spec)                        │
+ │   Routing algorithm runs unchanged.                                   │
+ │   For Zoom-sourced TranscriptResults: typically all authenticated     │
+ │   attendees produce CustomerInteractionParticipant rows with          │
+ │   matched_via='primary_email'. Anonymous guest joiners are NOT        │
+ │   promoted to junction rows (no email); their words are preserved     │
+ │   in TranscriptResult.segments.                                       │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -222,7 +244,7 @@ Vault scope: **per tenant** (one row). Unlike tl;dv's per-user scope, the Zoom a
 
 ### Integrations marketplace hub
 
-This adapter registers against a new marketplace hub `call_transcripts`, declared by the **parent spec** (see `.ai/specs/2026-04-21-crm-call-transcriptions.md` §Proposed Solution). Verified existing hubs in `packages/*`: `payment_gateways`, `shipping_carriers`, `data_sync`, `webhook_endpoints` — none fit transcription providers. `call_transcripts` is the parent's responsibility to register; this sub-spec only consumes it. The provider's `integration.ts` declares:
+This adapter registers against the marketplace hub `call_transcripts`, which is introduced by the parent `call_transcripts` **module** (NOT by customers) — see `.ai/specs/2026-04-21-crm-call-transcriptions.md` §Proposed Solution. Verified existing hubs in `packages/*`: `payment_gateways`, `shipping_carriers`, `data_sync`, `webhook_endpoints` — none fit transcription providers. The new `call_transcripts` hub is owned by the parent spec's new module; this sub-spec only consumes it. The provider's `integration.ts` declares:
 
 ```ts
 export const integration: IntegrationDefinition = {
@@ -269,7 +291,7 @@ When all three (or four, with account_id) are present at setup time, the provide
    - Calls `GET /accounts/{accountId}/settings?option=recording` with the token. Inspects the recording settings object for the "auto_transcription" (or plan-equivalent) flag and the effective recording plan. If Audio Transcript is disabled or the plan tier is below Business, returns 400 with i18n key `transcription_zoom.connect.plan_gate_failed` — "Zoom Audio Transcript is not available on this account. Upgrade to Business or above and enable Audio Transcript, then reconnect." *(Exact field path flagged for verification in §Assumptions.)*
    - On both checks passing, stores credentials in the vault with `verifiedAt = now()`, generates the **signed tenant token** `t = base64url(tenantId) + "." + hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`, and returns `{ webhookUrl, setupInstructions }` to the UI where `webhookUrl` already includes `?t=<signedTenantToken>`.
 4. The UI then shows the webhook setup panel:
-   - Webhook URL (copy-ready, including the signed tenant token): `https://<om-host>/api/webhooks/transcription/zoom?t=<signedTenantToken>`
+   - Webhook URL (copy-ready, including the signed tenant token): `https://<om-host>/api/webhooks/inbound/zoom?t=<signedTenantToken>`
    - Events to subscribe: `recording.transcript_completed` (required), `recording.completed` (recommended fallback)
    - The admin pastes this URL as-is into Zoom's Event Subscriptions page. There is no "edit it twice" step. Validation succeeds immediately because the URL binds the webhook to the tenant deterministically (§Webhook security).
 
@@ -287,31 +309,40 @@ Access tokens last ~1h. The adapter uses an in-memory token cache keyed by `tena
 
 ### Webhook path (primary)
 
-Route: `POST /api/webhooks/transcription/zoom` (declared by `packages/transcription-zoom`, registered with `packages/webhooks`).
+**Intake route**: `POST /api/webhooks/inbound/zoom?t=<signedTenantToken>` — owned by `@open-mercato/webhooks`, NOT by this package. This package registers a `WebhookEndpointAdapter` via `registerWebhookEndpointAdapter` (from `@open-mercato/webhooks`); the shared route dispatches to it based on the path segment `/zoom`.
 
 Steps:
 
-1. Read query param `t` (signed tenant token) + headers `x-zm-signature`, `x-zm-request-timestamp`. Read raw body (MUST be the exact bytes Zoom sent — any reformatting breaks the HMAC).
-2. **Resolve tenant from `t`**: split on `.`, base64url-decode the left half to `tenantId`, constant-time-compare the right half against `hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`. Reject with 401 on missing/invalid token. Load `ZoomCredentials` from the vault using the resolved `(tenantId, organizationId)`.
-3. If body event is `endpoint.url_validation`:
-   - Compute `encryptedToken = hex(HMAC-SHA256(plainToken, vault.webhookSecretToken))`.
-   - Respond 200 with `{ plainToken, encryptedToken }`. Done — no scanning, no caching.
-4. Else (real event):
-   - Reject if `|now - x-zm-request-timestamp| > 300s`.
-   - Compute expected signature: `"v0=" + hex(HMAC-SHA256(vault.webhookSecretToken, "v0:" + x_zm_request_timestamp + ":" + rawBody))`.
-   - Constant-time compare against `x-zm-signature`. Fail → 401.
-   - Consistency check: if `payload.account_id !== vault.accountId`, reject with 409 and log `zoom.webhook.account_mismatch` (see §Webhook security).
-4. Validate the parsed JSON against the zod schema for `recording.transcript_completed`. Fail → 400.
-5. Build `ProviderCtx<ZoomCredentials>` from the resolved vault entry.
-6. Execute `provider.fetchTranscript(payload.object.uuid, ctx)` — internally:
-   - Locate `recording_files[]` entry with `file_type='TRANSCRIPT'` and `file_extension='VTT'`. If none, respond 200 and emit a structured log `zoom.webhook.no_transcript_file` — a `recording.transcript_completed` without a VTT file would be a Zoom oddity worth tracking but not worth retrying.
-   - Fetch VTT via `download_url` using the `download_token` from the webhook payload: `GET <download_url>?access_token=<download_token>`. On 401/403 (token expired), fall back to a freshly-issued OAuth access token via the `Authorization: Bearer` header.
-   - Fetch `GET /past_meetings/{uuid}/participants?page_size=300` with cursor pagination until exhausted.
-   - Compose `TranscriptResult` (see §Provider implementation).
-7. Submit `TranscriptResult` to `POST /api/customers/call-transcripts/ingest` (parent spec).
-8. Return 200 to Zoom with `{ status: 'received' }` regardless of downstream ingest outcome — the parent's ingest is idempotent, and we don't want Zoom's retry machinery stacking duplicate work onto transient OM errors.
+1. External Zoom webhook hits the shared route `/api/webhooks/inbound/zoom?t=<signedTenantToken>` with headers (`x-zm-signature`, `x-zm-request-timestamp`, `Content-Type`) and raw body. The shared pipeline preserves raw bytes (any reformatting breaks the HMAC).
+2. **Synchronous handshake path (`adapter.handleHandshake`)** — called BEFORE `verifyWebhook` by the shared route:
+   - This package's `handleHandshake({ headers, body, method })` parses the body and checks `event === 'endpoint.url_validation'`. If so:
+     - Reads query param `t` (signed tenant token); verifies the HMAC; extracts `tenantId`/`organizationId`. On tamper → throws (shared route maps to 401).
+     - Loads `ZoomCredentials` for the resolved tenant to get `webhookSecretToken`.
+     - Computes `encryptedToken = hex(HMAC-SHA256(body.payload.plainToken, webhookSecretToken))`.
+     - Returns `{ status: 200, body: { plainToken, encryptedToken } }` — the shared route sends this verbatim to Zoom, skipping the standard persist/emit/subscriber path. Zoom validates and webhook registration succeeds.
+   - On all other event values (including malformed bodies), `handleHandshake` returns `null`, and the shared route falls through to the standard `verifyWebhook` → persist → emit → `processInbound` flow.
 
-Failure handling: any verification failure returns 401/400 per above. Any internal error after verification returns 500, letting Zoom retry per their webhook policy (up to 3 retries with exponential backoff).
+   **Dependency**: `handleHandshake` is an additive extension to the `WebhookEndpointAdapter` interface in `@open-mercato/webhooks`, introduced by the parent spec (§Proposed Solution.3 "URL-validation handshakes"). Landing this extension is a **hard prerequisite for Phase 2** of this sub-spec; it cannot be worked around adapter-side because the current shared route returns a fixed JSON ack and `processInbound` runs asynchronously in a subscriber — neither allows a synchronous provider-specific response body. tl;dv does not need this (no synchronous handshake requirement).
+
+3. **Standard event path — `adapter.verifyWebhook({ headers, body, method })`** for every non-handshake request. Inside `verifyWebhook`:
+   - Read query param `t` from the request URL; split on `.`, base64url-decode the left half to `tenantId`, constant-time-compare the right half against `hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`. Reject (throw) on missing/invalid token.
+   - Load `ZoomCredentials` from the integrations vault using `(tenantId, organizationId)`.
+   - Verify `x-zm-signature`: compute `"v0=" + hex(HMAC-SHA256(vault.webhookSecretToken, "v0:" + x_zm_request_timestamp + ":" + rawBody))` and constant-time-compare. Fail → throw (shared pipeline maps to 401).
+   - Reject if `|now - x-zm-request-timestamp| > 300s` (replay window).
+   - Validate the parsed JSON against the zod schema for `recording.transcript_completed`. Fail → throw.
+   - Return `{ eventType, payload, tenantId, organizationId }` on success.
+
+4. On real events, the shared pipeline runs dedup + rate limit, then emits `webhooks.inbound.received`. A subscriber calls `adapter.processInbound({ eventType, payload, tenantId, organizationId, providerKey: 'zoom' })`. Inside `processInbound`:
+   - Resolve `ZoomCredentials` from the integrations vault at `(tenantId, organizationId)`.
+   - Consistency check: if `payload.account_id !== vault.accountId`, reject with 409 and log `zoom.webhook.account_mismatch` (see §Webhook security).
+   - Call `provider.fetchTranscript(payload.object.uuid, ctx)` — internally:
+     - Locate `recording_files[]` entry with `file_type='TRANSCRIPT'` and `file_extension='VTT'`. If none, swallow with a structured log `zoom.webhook.no_transcript_file` — a `recording.transcript_completed` without a VTT file would be a Zoom oddity worth tracking but not worth retrying.
+     - Fetch VTT via `download_url` using the `download_token` from the webhook payload: `GET <download_url>?access_token=<download_token>`. On 401/403 (token expired), fall back to a freshly-issued OAuth access token via the `Authorization: Bearer` header.
+     - Fetch `GET /past_meetings/{uuid}/participants?page_size=300` with cursor pagination until exhausted.
+     - Compose `TranscriptResult` (see §Provider implementation).
+   - Submit the normalized `TranscriptResult` via `commandBus.execute('call_transcripts.ingest', { tenantId, organizationId, providerKey: 'zoom', transcript: result })` (owned by the parent `call_transcripts` module).
+
+Failure handling: verification failures throw from `verifyWebhook` and the shared pipeline maps them to 401/400/409. Any internal error in `processInbound` bubbles up to the subscriber's error handler, letting Zoom retry per their webhook policy (up to 3 retries with exponential backoff). The parent's `call_transcripts.ingest` command is idempotent on `(providerKey='zoom', sourceRecordingId)`, so retries don't produce duplicates.
 
 ### Polling fallback
 
@@ -324,15 +355,15 @@ Worker: `packages/transcription-zoom/src/workers/poll-zoom.ts`
   2. Page through `GET /users?page_size=100` to list every user under the account.
   3. For each user, read `ZoomPollCursor(tenant_id, zoom_user_id).lastPolledAt` (default: `now() - 30 days` on first poll) and page `GET /users/{id}/recordings?from=<lastPolledAt>&to=<now>&page_size=100`.
   4. For each recording item with a `recording_files[]` entry of `file_type='TRANSCRIPT'`:
-     - Skip if `(sourceProvider='zoom', sourceRecordingId=meeting.uuid)` is already known via the parent's query-index (idempotency).
+     - Skip if `(providerKey='zoom', sourceRecordingId=meeting.uuid)` is already known via the `call_transcripts` module's query-index (idempotency).
      - Execute `provider.fetchTranscript(meeting.uuid, ctx)`.
-     - Submit to ingest API.
+     - Submit via `commandBus.execute('call_transcripts.ingest', { tenantId, organizationId, providerKey: 'zoom', transcript: result })`.
   5. Update `lastPolledAt = now()` only after all pages for this user are fully processed.
 - Self-throttling: 10 req/sec per account; exponential backoff (500ms → 8s) on 429/5xx; honor `Retry-After` header; max 5 retries per call.
 
 ### Manual reingest
 
-Reuses the parent spec's `POST /api/customers/interactions/:id/reingest-transcript` route. The route resolves `sourceProvider='zoom'` from the interaction's custom fields, then calls our `provider.fetchTranscript` with the existing `sourceRecordingId` (the meeting UUID).
+Reuses the parent `call_transcripts` module's reingest command. The command resolves `providerKey='zoom'` from the transcript's staging record, then calls our `provider.fetchTranscript` with the existing `sourceRecordingId` (the meeting UUID) and re-runs `call_transcripts.ingest`.
 
 ---
 
@@ -348,13 +379,13 @@ v0:<x-zm-request-timestamp>:<rawBody>
 
 with the webhook secret token as the key. Format delivered in the header: `x-zm-signature: v0=<hex>`.
 
-Adapter requirements:
+Adapter requirements (enforced inside `adapter.verifyWebhook`):
 
-1. **Preserve raw body.** The webhook route MUST read the raw body before any JSON parsing middleware mutates it. Implementation via `bodyParser.raw({ type: 'application/json' })` in the route's own middleware chain.
-2. **Constant-time compare** (`crypto.timingSafeEqual`). No string equality — applies to both the `?t=` signature compare and the `x-zm-signature` compare.
+1. **Preserve raw body.** The shared `@open-mercato/webhooks` pipeline handles raw-body preservation upstream of the adapter; this package does NOT own a route or middleware of its own. `adapter.verifyWebhook` receives the raw bytes as its `body` argument.
+2. **Constant-time compare** (`crypto.timingSafeEqual`). No string equality — applies to both the `?t=` signed-token compare and the `x-zm-signature` compare.
 3. **Replay protection.** Reject if `|now - x-zm-request-timestamp|` exceeds 300 seconds. Protects against replay of captured requests.
-4. **URL validation handshake.** On `endpoint.url_validation`, the handler computes `hex(HMAC-SHA256(plainToken, secretToken))` and returns both tokens. Zoom's mandatory cooperative handshake; failure prevents webhook registration. Because the webhook URL carries a signed tenant token (§Tenant routing), the handler knows exactly which tenant's secret to use.
-5. **Account-id consistency.** On real events, `payload.account_id` MUST equal the vault's `accountId` for the URL-resolved tenant. Defense-in-depth against a legitimate signed token being replayed against a webhook payload that originated from a different Zoom account.
+4. **URL validation handshake.** On `endpoint.url_validation`, `verifyWebhook` returns a synthetic envelope; the adapter's response path (either `processInbound` returning a typed response, or a dedicated handshake responder exposed to the shared route) computes `hex(HMAC-SHA256(plainToken, secretToken))` and returns both tokens. Zoom's mandatory cooperative handshake; failure prevents webhook registration. Because the webhook URL carries a signed tenant token (§Tenant routing), the handler knows exactly which tenant's secret to use.
+5. **Account-id consistency.** On real events, `payload.account_id` MUST equal the vault's `accountId` for the URL-resolved tenant. Enforced inside `processInbound`. Defense-in-depth against a legitimate signed token being replayed against a webhook payload that originated from a different Zoom account.
 
 ### Tenant routing (URL-validation AND real events)
 
@@ -365,7 +396,7 @@ Adapter requirements:
 The URL the admin pastes into Zoom's Event Subscriptions page is:
 
 ```
-https://<om-host>/api/webhooks/transcription/zoom?t=<signedTenantToken>
+https://<om-host>/api/webhooks/inbound/zoom?t=<signedTenantToken>
 ```
 
 Where `signedTenantToken = base64url(tenantId) + "." + hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`. The key is an OM-internal secret (env `OM_INTERNAL_WEBHOOK_KEY`, 32-byte random); it does NOT rotate with tenant-visible secrets. Properties:
@@ -442,7 +473,7 @@ if (recording.host_email && !participants.some((x) => x.email === recording.host
 }
 ```
 
-Anonymous joiners (no `user_email`) are **not** added to `participants[]` — doing so would violate the parent spec's `CHECK (email IS NOT NULL OR phone IS NOT NULL)` constraint on `CustomerInteractionParticipant`. They remain visible inside the transcript itself via their VTT speaker label. This mirrors the tl;dv sub-spec's §Routing limitations decision (per proxy lesson 2026-04-22, "timeline completeness"), but Zoom's practical coverage is much better than tl;dv's because most organized sales calls have authenticated participants.
+Anonymous joiners (no `user_email`) **are** added to `participants[]` as display-name-only rows (`{ displayName: vttSpeakerLabel, role: 'participant' }`). The parent spec's relaxed CHECK on `CallTranscriptParticipant` (email OR phone OR display_name) accepts these; the rows are stored with `matchable = false` and are skipped by `CustomerMatchingService.matchParticipants`. They do NOT propagate to `CustomerInteractionParticipant` (whose CHECK still requires email or phone) — the CRM-side junction table is the matchable-identity subset by design. They remain visible inside the transcript segments via their VTT speaker label, and in the unmatched-inbox participant summary, so operators can see who spoke even when the speaker has no contact identity.
 
 ### VTT parsing → segments
 
@@ -534,7 +565,7 @@ import type {
   ProviderCtx,
   TranscriptResult,
   RecordingSummary,
-} from '@open-mercato/shared/modules/customers/transcription'
+} from '@open-mercato/shared/modules/call_transcripts/provider'
 import type { ZoomCredentials } from './credentials'
 import { fetchZoomAccessToken } from './lib/token'
 import { throttledFetch } from './lib/throttled-fetch'
@@ -680,17 +711,15 @@ packages/transcription-zoom/
             ├── index.ts                       // module metadata
             ├── integration.ts                 // IntegrationDefinition (SPEC-045 marketplace entry)
             ├── provider.ts                    // ZoomCallTranscriptProvider
+            ├── webhook-adapter.ts             // WebhookEndpointAdapter (verifyWebhook + processInbound)
             ├── credentials.ts                 // ZoomCredentials + zod schema
             ├── acl.ts                         // transcription_zoom.view, .configure
             ├── setup.ts                       // defaultRoleFeatures, onTenantCreated, env preset
-            ├── di.ts                          // registers provider on callTranscriptProviders
+            ├── di.ts                          // registers provider via registerCallTranscriptProvider + webhook adapter via registerWebhookEndpointAdapter
             ├── cli.ts                         // apply-preset (reapply env presets post-rotation); ping (health-check: token fetch + plan-gate dry run, prints JSON)
             ├── api/
             │   ├── schemas.ts                 // zod schemas (Zoom REST + webhook payloads)
             │   └── POST/
-            │       ├── webhooks/
-            │       │   └── transcription/
-            │       │       └── zoom.ts        // auto-discovered → POST /api/webhooks/transcription/zoom
             │       └── integrations/
             │           └── transcription-zoom/
             │               ├── connect.ts
@@ -724,19 +753,26 @@ Note on `disconnect.ts`: OM's auto-discovery convention dispatches by HTTP metho
 
 ## API Contracts (delta from parent)
 
-### Webhook intake (this package)
+### Webhook intake (via `@open-mercato/webhooks` shared route)
 
-**Registration mechanism**: OM's auto-discovered API route convention. A single file at `packages/transcription-zoom/src/modules/transcription_zoom/api/POST/webhooks/transcription/zoom.ts` materializes `POST /api/webhooks/transcription/zoom`. No `registerWebhookHandler` is used — that export lives in `@open-mercato/shared/modules/payment_gateways/types` and is scoped to payment gateways. Non-payment provider webhooks rely on auto-discovery, per the established convention.
+**This package does NOT expose a new webhook route URL.** The shared inbound route `POST /api/webhooks/inbound/zoom` (owned by `@open-mercato/webhooks`) dispatches to the `WebhookEndpointAdapter` that this package registers from `di.ts` via `registerWebhookEndpointAdapter`. The earlier plan to ship an auto-discovered `api/POST/webhooks/transcription/zoom.ts` file has been retired per PR #1645 feedback; all provider webhooks now flow through the shared pipeline.
 
-`POST /api/webhooks/transcription/zoom?t=<signedTenantToken>`
-- **Auth** (layered):
-  1. Query param `t` — validated as `base64url(tenantId).hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`. Missing or tampered → 401.
-  2. `x-zm-signature` header — verified against the resolved tenant's stored `webhookSecretToken`. Fails constant-time compare → 401.
+`POST /api/webhooks/inbound/zoom?t=<signedTenantToken>` — served by `@open-mercato/webhooks`. The behavior below describes what happens inside the adapter hooks (`verifyWebhook` + `processInbound`) for Zoom events:
+
+- **Auth** (layered, all enforced inside `adapter.verifyWebhook`):
+  1. Query param `t` — validated as `base64url(tenantId).hex(HMAC-SHA256(tenantId, OM_INTERNAL_WEBHOOK_KEY))`. Missing or tampered → throw (shared pipeline maps to 401).
+  2. `x-zm-signature` header — verified against the resolved tenant's stored `webhookSecretToken`. Fails constant-time compare → throw (401).
   3. Replay window — reject if `|now - x-zm-request-timestamp| > 300s` on real events.
-  4. Consistency — on real events, `payload.account_id` must equal `vault.accountId` for the resolved tenant, else 409.
-- **Body schema**: raw body preserved and zod-validated. Dispatched by the `event` field (`endpoint.url_validation` or `recording.transcript_completed`; others → 200 + no-op in v1).
-- **Response**: 200 `{ status: 'received' }` on real events; 200 `{ plainToken, encryptedToken }` on URL validation; 401 on signed-token / signature failure; 409 on account-id mismatch; 400 on payload schema failure; 500 on internal error.
-- **Idempotency**: handled downstream by the parent's ingest (idempotent on `(sourceProvider='zoom', sourceRecordingId=meetingUuid)`).
+  4. Consistency — on real events (inside `processInbound`), `payload.account_id` must equal `vault.accountId` for the resolved tenant, else 409.
+- **Body schema**: raw body preserved by the shared pipeline, zod-validated. `endpoint.url_validation` is handled inside the new `adapter.handleHandshake` hook (synchronous short-circuit path — see parent spec §3 "URL-validation handshakes"); `recording.transcript_completed` flows through the normal `verifyWebhook` → receipt → subscriber path. Other events → 200 + no-op in v1.
+- **Response**:
+  - `endpoint.url_validation`: 200 `{ plainToken, encryptedToken }` returned synchronously by `handleHandshake`, short-circuiting the receipt / emit pipeline. **This path depends on the additive `handleHandshake` hook landing in `@open-mercato/webhooks` — it is a hard prerequisite for Phase 2 of this sub-spec (see §Implementation Phases) and is tracked separately from this adapter's own commits.**
+  - Real events: 200 `{ ok: true }` from the shared pipeline default.
+  - 401 on signed-token / signature failure (thrown from `verifyWebhook` or `handleHandshake`).
+  - 409 on account-id mismatch (thrown inside `processInbound`; the receipt still lands, but the event is discarded).
+  - 400 on payload schema failure.
+  - 500 on internal error.
+- **Idempotency**: handled downstream by the parent `call_transcripts.ingest` command (idempotent on `(providerKey='zoom', sourceRecordingId=meetingUuid)`).
 
 ### Provider connect (this package)
 
@@ -764,9 +800,9 @@ All routes export `openApi`.
 
 ## Commands & Events (delta from parent)
 
-No new events declared in the customers module — the adapter relies on the parent spec's events (`customers.call_transcript.ingested`, `.unmatched`, `.reingested`).
+No new events declared by this package — the adapter relies on the parent `call_transcripts` module's events (`call_transcripts.transcript.ingested`, `.unmatched`, `.reingested`).
 
-The adapter does NOT declare its own commands — connect/disconnect/update-webhook-secret are direct API routes, not undoable commands (provider lifecycle, not domain mutations).
+The adapter does NOT declare its own commands — connect/disconnect/update-webhook-secret are direct API routes, not undoable commands (provider lifecycle, not domain mutations). The ingestion entry point is the parent's `call_transcripts.ingest` command, invoked from `processInbound` and the polling worker.
 
 ---
 
@@ -797,7 +833,7 @@ Four fields laid out in a single `<CrudForm>`-style panel:
 
 ### No provider-specific UI hints on `<CallTranscriptCard>`
 
-Unlike the tl;dv adapter (which needs the "organizer-matched only" notice), Zoom's matching is rich enough that no special UI warning is needed for the normal case. When `providerMetadata.anonymousParticipantCount > 0` on a specific transcript, `<CallTranscriptCard>` renders a small muted caption under the participants strip: *"{{count}} anonymous attendee(s) in this meeting — their words appear in the transcript but aren't linked to a CRM contact."* (translatable; key `customers.call_transcripts.zoom.anonymous_notice`). This notice is driven by data, not provider id — it only fires when the count is > 0 — so it stays silent for clean-call cases.
+Unlike the tl;dv adapter (which needs the "organizer-matched only" notice), Zoom's matching is rich enough that no special UI warning is needed for the normal case. When `providerMetadata.anonymousParticipantCount > 0` on a specific transcript, `<CallTranscriptCard>` renders a small muted caption under the participants strip: *"{{count}} anonymous attendee(s) in this meeting — their words appear in the transcript but aren't linked to a CRM contact."* (translatable; key `call_transcripts.provider_notices.zoom.anonymous_notice` — owned by this Zoom package and merged into the `call_transcripts` i18n namespace at runtime). This notice is driven by data, not provider id — it only fires when the count is > 0 — so it stays silent for clean-call cases.
 
 ---
 
@@ -835,7 +871,7 @@ transcription_zoom.status.last_activity_at
 transcription_zoom.metrics.anonymous_ratio
 ```
 
-Plus one parent-namespace addition (declared in the customers package, not this package): `customers.call_transcripts.zoom.anonymous_notice`.
+Plus one additional key in this package's i18n bundle under the shared transcript-module namespace: `call_transcripts.provider_notices.zoom.anonymous_notice`. This key is owned by the Zoom package but merged into the `call_transcripts` runtime namespace so `<CallTranscriptCard>` (owned by the transcript module) can resolve it via `useT()` without the card needing provider-specific wiring.
 
 Locales: `en` (mandatory) and `pl` (user is Polish-speaking; same as tl;dv).
 
@@ -866,7 +902,7 @@ Default role assignments (`setup.ts`, via `defaultRoleFeatures`):
 
 The webhook intake route is NOT gated by an ACL feature — it's public by URL and authenticates by HMAC-SHA256 signature against the tenant-specific secret token. This matches the webhooks-package norm: webhooks are signature-authenticated, not role-gated. (Earlier drafts introduced a `transcription_zoom.webhook.receive` audit feature; removed — it has no analogue in any existing OM provider package and the audit concern is served by the integrations-module log service.)
 
-Transcript view ACL remains the parent spec's `customers.call_transcripts.view` — unchanged.
+Transcript view ACL remains the parent spec's `call_transcripts.view` (owned by the `call_transcripts` module, unchanged by this package).
 
 ---
 
@@ -882,9 +918,9 @@ Reviewed against the 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`. All ch
 | 4 | Import paths | New: `@open-mercato/transcription-zoom`. Internal package; not consumed elsewhere. |
 | 5 | Event IDs | None new. |
 | 6 | Widget injection spot IDs | Uses the existing integrations-marketplace spot; no new spot ID. |
-| 7 | API route URLs | New: `/api/webhooks/transcription/zoom`, `/api/integrations/transcription-zoom/{connect,update-webhook-secret,test,disconnect}`. |
+| 7 | API route URLs | New: `/api/integrations/transcription-zoom/{connect,update-webhook-secret,test,disconnect}`. No new webhook route — registers a `WebhookEndpointAdapter` for the existing shared route `/api/webhooks/inbound/zoom`. |
 | 8 | Database schema | One new table `transcription_zoom_poll_cursors`. Owned by this package. |
-| 9 | DI service names | One new multi-provider registration on `callTranscriptProviders`. |
+| 9 | DI service names | Two additive registrations: `registerCallTranscriptProvider(ZoomCallTranscriptProvider)` + `registerWebhookEndpointAdapter(zoomWebhookAdapter)`. Matches the `payment_gateways` / `data_sync` module-level registry pattern — no DI multi-provider token. |
 | 10 | ACL feature IDs | 2 new in `transcription_zoom.*`. |
 | 11 | Notification type IDs | None new. |
 | 12 | CLI commands | 2 new: `yarn mercato transcription-zoom apply-preset`, `yarn mercato transcription-zoom ping`. Additive. |
@@ -923,18 +959,18 @@ All tests self-contained per `.ai/qa/AGENTS.md`. Mocks Zoom's REST API + webhook
 | TC-ZOOM-004 | Account-id consistency check: `payload.account_id` matches `vault.accountId` → 200; mismatch → 409 + structured `zoom.webhook.account_mismatch` log. |
 | TC-ZOOM-005 | `provider.fetchTranscript`: happy path. VTT fetched, parsed into segments; participants call returns 2 authenticated attendees → participants array has 2 rows + host. |
 | TC-ZOOM-006 | `provider.fetchTranscript`: anonymous participants (no `user_email`) — dropped from participants array; `providerMetadata.anonymousParticipantCount` populated. |
-| TC-ZOOM-007 | `provider.fetchTranscript`: VTT missing in `recording_files[]` → `ZoomMissingTranscriptError`; webhook handler responds 200 (no retry) + structured log. |
+| TC-ZOOM-007 | `provider.fetchTranscript`: VTT missing in `recording_files[]` → `ZoomMissingTranscriptError`; `processInbound` swallows with structured log, shared pipeline responds 200 (no retry). |
 | TC-ZOOM-008 | VTT parser: real Zoom-format VTT with and without speaker prefix; timestamp math (`00:12:34.567` → 754.567). |
 | TC-ZOOM-009 | Meeting UUID encoding: UUID starting with `/` (e.g. `/ABC=`) double-encoded correctly in REST path. |
 | TC-ZOOM-010 | OAuth token: cache returns same token within TTL; 401 on API call triggers refresh; invalid client credentials → 400 on connect. |
 | TC-ZOOM-011 | Plan gate: `account:read:admin` recording settings with Audio Transcript disabled → connect returns 400 with `plan_gate_failed`; enabled → success. |
 | TC-ZOOM-012 | `provider.listRecentRecordings`: pagination across users AND per-user recordings; stops cleanly at `to` boundary; skips recordings without TRANSCRIPT file. |
 | TC-ZOOM-013 | Polling worker: respects `lastPolledAt`; updates only after full page; 10 req/sec throttle observed; `Retry-After` honored on simulated 429. |
-| TC-ZOOM-014 | Polling worker: skips meetings already ingested (idempotency via parent's `(sourceProvider, sourceRecordingId)` check). |
+| TC-ZOOM-014 | Polling worker: skips meetings already ingested (idempotency via parent `call_transcripts` module's `(providerKey, sourceRecordingId)` check). |
 | TC-ZOOM-015 | Connect API: missing scopes in OAuth app → Zoom returns 403 → connect returns 400 with `missing_scope` error. |
 | TC-ZOOM-016 | Test API (`/test`): returns health JSON with token-cache state + plan-gate state + user count. |
 | TC-ZOOM-017 | Disconnect API: credential entry removed; subsequent webhook with a previously-valid signed token → 401 (no vault entry for the tenant). |
-| TC-ZOOM-018 | End-to-end (mocked Zoom + real customers ingest API + real DB): webhook arrives with signed token → ingest API called → CustomerInteraction + Attachment + N participants created on the test tenant; `customers.call_transcript.ingested` event fired. |
+| TC-ZOOM-018 | End-to-end (mocked Zoom + real `call_transcripts` module + real DB): webhook arrives at `/api/webhooks/inbound/zoom?t=<signedToken>` → shared pipeline calls `adapter.verifyWebhook` → `adapter.processInbound` → `commandBus.execute('call_transcripts.ingest', ...)` → `customers.interactions.create_from_transcript` → CustomerInteraction + Attachment + N participants created on the test tenant; `call_transcripts.transcript.ingested` event fired. |
 | TC-ZOOM-019 | End-to-end: transcript downloaded via `download_token` initially, then falls back to OAuth Bearer when the `download_token` returns 401. |
 
 UI tests inherit from the parent spec's `<CallTranscriptCard>` coverage. Adapter-specific UI tests:
@@ -956,24 +992,28 @@ Each phase = a working app increment; a phase is only "done" when its tests pass
 
 1. Scaffold `packages/transcription-zoom/` (package.json, tsconfig, OM module conventions).
 2. Implement `ZoomCallTranscriptProvider` (provider.ts, credentials.ts, api/schemas.ts, lib/{token, throttled-fetch, vtt, http, meeting-uuid}).
-3. DI registration on `callTranscriptProviders` (di.ts).
+3. Register provider via `registerCallTranscriptProvider(ZoomCallTranscriptProvider)` (from `@open-mercato/core/modules/call_transcripts/lib/adapter-registry`) in `di.ts`. The provider contract is re-exported from `@open-mercato/shared/modules/call_transcripts/provider`. No DI multi-provider token — this is a module-level registry, matching the verified `registerGatewayAdapter` / `registerDataSyncAdapter` pattern.
 4. ACL features + setup defaults + env preset + CLI (`apply-preset`, `ping`).
 5. Connect / update-webhook-secret / test / disconnect API routes.
 6. Integrations marketplace card UI + connect dialog.
 7. Tests TC-ZOOM-005..011, 015, 016, 017.
-8. Manual ingest exercised via the parent's existing `POST /api/customers/interactions/:id/reingest-transcript` route after a TranscriptResult is hand-submitted.
+8. Manual ingest exercised via the parent `call_transcripts` module's reingest command after a TranscriptResult is hand-submitted through `commandBus.execute('call_transcripts.ingest', ...)`.
 
 **Result**: an admin connects Zoom, plan-gate passes, manual reingest of a known meeting UUID produces a transcript on the matched person's timeline.
 
-### Phase 2 — Webhook intake
+### Phase 2 — Webhook adapter intake (via `@open-mercato/webhooks`)
 
-1. `webhook.ts` route handler with URL-validation handshake, HMAC verification, replay window.
-2. Raw-body preservation middleware.
-3. URL-validation handshake handler — deterministic via the signed tenant token `?t=` in the URL; no scanning, no caching.
-4. Wire into `packages/webhooks` registration in `setup.ts`.
-5. Tests TC-ZOOM-001, 002, 003, 004, 018, 019.
+**Prerequisite (blocker)**: `@open-mercato/webhooks` must first ship the `handleHandshake(input) → Promise<null | { status, headers?, body }>` optional hook on the `WebhookEndpointAdapter` interface, and the shared inbound route must invoke it BEFORE `verifyWebhook` (bypassing the standard persist/emit/subscriber path when a non-null result is returned). This is verified as currently NOT supported (route persists a receipt + returns a fixed JSON ack + runs `processInbound` asynchronously — see `packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts:54-106` and `.../subscribers/inbound-process.ts`). Size: ~1 atomic commit in `packages/webhooks`. Without this extension, Zoom's URL-validation step fails in 3 seconds and webhook registration is impossible.
 
-**Result**: real Zoom `recording.transcript_completed` webhooks land transcripts automatically end-to-end.
+1. (Prerequisite) Land the `handleHandshake` extension in `@open-mercato/webhooks` per the parent spec §Proposed Solution.3. Ship with a shared-route test that asserts a non-null `handleHandshake` result bypasses receipt/emit.
+2. Implement `webhook-adapter.ts` at the module root — `WebhookEndpointAdapter` with:
+   - `handleHandshake`: parses body, checks `event === 'endpoint.url_validation'`, computes `{ plainToken, encryptedToken }`, returns `{ status: 200, body: {...} }`; otherwise returns `null`.
+   - `verifyWebhook`: signed-token tenant resolution, HMAC-SHA256 signature verification, 300s replay window (no longer responsible for URL-validation short-circuit — that moved into `handleHandshake`).
+   - `processInbound`: account-id consistency check, `fetchTranscript` call, `commandBus.execute('call_transcripts.ingest', ...)`.
+3. Register the adapter via `registerWebhookEndpointAdapter(zoomWebhookAdapter)` (from `@open-mercato/webhooks`) in `di.ts`. The shared route `POST /api/webhooks/inbound/zoom` will dispatch to it.
+4. Tests TC-ZOOM-001, 002, 003, 004, 018, 019. TC-ZOOM-002 MUST assert that a URL-validation payload hitting `/api/webhooks/inbound/zoom` round-trips correctly and returns the expected `{ plainToken, encryptedToken }` body within the 3-second Zoom handshake budget.
+
+**Result**: real Zoom `recording.transcript_completed` webhooks land transcripts automatically end-to-end through the shared `@open-mercato/webhooks` pipeline, with no per-provider webhook route code in this package.
 
 ### Phase 3 — Polling fallback
 
@@ -986,7 +1026,7 @@ Each phase = a working app increment; a phase is only "done" when its tests pass
 ### Phase 4 — UI hardening + i18n + docs
 
 1. Status pill thresholds + metrics panel on the integrations card.
-2. Anonymous-notice caption on `<CallTranscriptCard>` (key `customers.call_transcripts.zoom.anonymous_notice` added to the customers i18n bundle — coordinated additive change).
+2. Anonymous-notice caption on `<CallTranscriptCard>` (key `call_transcripts.provider_notices.zoom.anonymous_notice` shipped in this package's i18n bundle and merged into the `call_transcripts` runtime namespace; no customers-module change).
 3. Onboarding screenshots in `docs/setup-screenshots/`.
 4. Polish translation pass.
 5. README in the package root.
@@ -1042,3 +1082,16 @@ Each phase = a working app increment; a phase is only "done" when its tests pass
 - **2026-04-22** — Readability cleanup pass (spec-writing skill review, findings M1 + M2):
   - **M1** — TLDR bullet on webhook tenant resolution was stale (said `payload.account_id` → vault lookup) after the F2/F3 redesign moved resolution to the signed tenant token in the URL. Rewrote to cite the signed token as primary; `account_id` as defense-in-depth cross-check.
   - **M2** — removed the `*(Proxy lesson 2026-04-22, "fail loud on detectable hard gates".)*` attribution from the plan-gate TLDR bullet. Kept the principle ("fail loud on detectable hard gates") inline. Future readers arriving from a PR would not know what "proxy lesson" referred to.
+- **2026-04-22** — Adopted parent spec's module-boundary redesign (PR #1645 feedback). Concrete changes:
+  - Webhook intake retargeted from provider-owned auto-discovered route (`POST /api/webhooks/transcription/zoom`) to the shared `@open-mercato/webhooks` inbound pipeline via a `WebhookEndpointAdapter` implementation registered through `registerWebhookEndpointAdapter`. The URL the admin pastes into Zoom becomes `https://<om-host>/api/webhooks/inbound/zoom?t=<signedTenantToken>`. Signature verification, replay window, URL-validation handshake, and tenant resolution all moved into the adapter's `verifyWebhook` method; downstream processing happens in `processInbound`. Raw-body preservation, rate limiting, and dedup are now inherited from the shared pipeline.
+  - Provider registry moved from the retired `callTranscriptProviders` DI multi-provider token to the module-level `registerCallTranscriptProvider` registry (matches the verified `registerGatewayAdapter` / `registerDataSyncAdapter` pattern). Provider contract re-exported from `@open-mercato/shared/modules/call_transcripts/provider`.
+  - Event namespace change: all references to `customers.call_transcript.*` events updated to `call_transcripts.transcript.*`. The ingest target command renamed from `customers.call_transcripts.ingest` to `call_transcripts.ingest` (owned by the new transcript module).
+  - §Files to create: retired the `api/POST/webhooks/transcription/zoom.ts` route file; added `webhook-adapter.ts` at the module root.
+  - §Backward Compatibility, §Integration Test Coverage, §Implementation Phases updated to reflect the new wiring.
+  - Status remains **Proposed** (revised).
+- **2026-04-22** — Follow-up review `ANALYSIS-2026-04-22-crm-call-transcriptions-review.md` applied (Zoom-relevant finding #4):
+  - URL-validation handshake path corrected: the earlier draft claimed `verifyWebhook` could return a "synthetic envelope" and the shared route would pass it through as `{ plainToken, encryptedToken }`. Verified against `packages/webhooks/.../route.ts:54-106` and `.../subscribers/inbound-process.ts`: the shared route persists a receipt, emits `webhooks.inbound.received`, and returns a fixed JSON ack. `processInbound` runs asynchronously in a subscriber — there is no way for a subscriber result to reach the HTTP response body, and Zoom's handshake requires synchronous `{ plainToken, encryptedToken }` within 3 seconds.
+  - §Ingestion rewritten to consume a NEW `adapter.handleHandshake(input) → Promise<null | { status, headers?, body }>` hook — an additive extension to `WebhookEndpointAdapter` introduced by the parent spec §Proposed Solution.3. The shared route calls `handleHandshake` BEFORE `verifyWebhook` and, when it returns non-null, bypasses the standard persist/emit/subscriber path and responds with the returned body. Zoom's adapter implements `handleHandshake` to detect `endpoint.url_validation`, compute the encrypted token, and return `{ status: 200, body: { plainToken, encryptedToken } }` synchronously. All other events get `null`, falling through to the standard `verifyWebhook → persist → emit → processInbound` flow. `verifyWebhook` no longer carries URL-validation short-circuit logic.
+  - §Implementation Phases Phase 2 gained a **Prerequisite (blocker)** note: the `handleHandshake` hook must land in `packages/webhooks` BEFORE Phase 2 of this sub-spec starts. Includes a shared-route test asserting non-null `handleHandshake` bypasses receipt/emit. Size: ~1 atomic commit in `packages/webhooks`.
+  - §API Contracts "Webhook intake" response table clarified: `endpoint.url_validation` response is produced by `handleHandshake` (synchronous short-circuit); real-event response is the shared pipeline's default `{ ok: true }` ack; Phase 2 dependency flagged inline.
+  - Status remains **Proposed** (revised).

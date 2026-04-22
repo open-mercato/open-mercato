@@ -3,12 +3,12 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-04-22 |
-| **Status** | Draft — Proposed |
+| **Status** | Proposed (revised 2026-04-22: adopts WebhookEndpointAdapter + call_transcripts module) |
 | **Author** | Maciej Gren (with om-superpowers + Claude) |
 | **Scope** | OSS |
-| **Module(s)** | new `packages/transcription-tldv` |
+| **Module(s)** | new `packages/transcription-tldv` — registers into `call_transcripts` module + `@open-mercato/webhooks` inbound pipeline |
 | **Parent spec** | `.ai/specs/2026-04-21-crm-call-transcriptions.md` (CRM Call Transcriptions) |
-| **Implements** | `CallTranscriptProvider<TldvCredentials>` from `packages/shared/src/modules/customers/transcription.ts` |
+| **Implements** | `CallTranscriptProvider<TldvCredentials>` from `@open-mercato/shared/modules/call_transcripts/provider` (created by parent spec Phase 1) + `WebhookEndpointAdapter` from `@open-mercato/webhooks` |
 | **Depends on** | Parent spec must ship first; this adapter is provider #2 (Zoom is provider #1). |
 
 ---
@@ -17,7 +17,7 @@
 
 - Implement `CallTranscriptProvider` for tl;dv as a separate npm workspace package `packages/transcription-tldv`.
 - Auth: per-user `x-api-key` against `https://pasta.tldv.io/v1alpha1`. Stored in a **provider-owned encrypted table** `transcription_tldv_user_credentials` — SPEC-045's `IntegrationScope` is tenant-scoped only, so per-user secrets cannot live in the shared vault. The shared vault holds only a tenant-level enablement marker (`TldvVaultConfig { enabled: true }`).
-- Triggers: (a) `TranscriptReady` webhook (primary) signed via a **shared-secret-in-custom-header** scheme (tl;dv has no native HMAC), (b) scheduled polling against `GET /meetings?since=lastPolledAt` per connected user.
+- Triggers: (a) `TranscriptReady` webhook (primary) signed via a **shared-secret-in-custom-header** scheme (tl;dv has no native HMAC), delivered to the shared `@open-mercato/webhooks` inbound pipeline route `/api/webhooks/inbound/tldv`. The adapter's `verifyWebhook` does the fingerprint lookup + decrypt + constant-time compare; `processInbound` calls `fetchTranscript` and submits via `commandBus.execute('call_transcripts.ingest', ...)`. (b) Scheduled polling via page-based `GET /meetings?page=&pageSize=50` per connected user, filtered client-side by `happenedAt > lastPolledAt` (tl;dv's API does not support a server-side `since` filter — confirmed in §Provider profile).
 - Two-call ingest: every TranscriptResult requires `GET /meetings/{id}/transcript` AND `GET /meetings/{id}` (segments come from the first endpoint, metadata from the second).
 - **Critical limitation, verified live (2026-04-22)**: tl;dv's `invitees[]` is empty on both list and detail endpoints in the current data shape. Email-deterministic matching is reduced to **the organizer only**. Other speakers appear in transcript segments by display name, no email — they are NOT linkable to CRM People in v1. Documented as an explicit constraint with a v2 calendar-enrichment escape hatch.
 - Webhook signing is weaker than Zoom's HMAC-SHA256: shared secret in a custom header that the user configures in the tl;dv UI. Acceptable given TLS, documented in security posture.
@@ -29,19 +29,21 @@
 
 This sub-spec is **purely additive** to the parent. It does NOT change:
 
-- The `CallTranscriptProvider` contract.
-- The customers module's ingest API (`POST /api/customers/call-transcripts/ingest`), routing algorithm, junction entity, unmatched-inbox flow, retroactive matching, or any UI surface.
-- ACL features, encryption maps, or events declared by the parent.
+- The `CallTranscriptProvider<TCredentials>` contract in `@open-mercato/shared/modules/call_transcripts/provider`.
+- The `call_transcripts` module's ingest command (`call_transcripts.ingest`), routing algorithm, unmatched-transcript staging, inbox UI, ACL namespace, or events.
+- The customers module's `CustomerInteraction` model or its new `create_from_transcript` command.
 
 It does add:
 
 - A new workspace package `packages/transcription-tldv` (npm workspace, OSS).
 - Provider-package-local ACL features (`transcription_tldv.view`, `transcription_tldv.configure`) — aligned to the OM provider-package convention (verified against `packages/gateway-stripe/src/modules/gateway_stripe/acl.ts`).
-- A provider-package-local webhook intake route at `src/modules/transcription_tldv/api/POST/webhooks/transcription/tldv.ts`, materialized by OM's auto-discovery as `POST /api/webhooks/transcription/tldv`.
+- A `WebhookEndpointAdapter` registered via `registerWebhookEndpointAdapter` from `@open-mercato/webhooks`; the shared inbound pipeline route `/api/webhooks/inbound/tldv` dispatches to this adapter. No per-provider webhook route is introduced.
+- A `CallTranscriptProvider` registered via `registerCallTranscriptProvider` from the new `call_transcripts` module's adapter registry (matches the verified `registerGatewayAdapter` / `registerDataSyncAdapter` pattern).
 - Provider-package-local entry in the integrations marketplace registry (SPEC-045) declaring `hub: 'call_transcripts'` (hub introduced by the parent spec).
-- A documented routing limitation flag on TranscriptResults the adapter produces.
+- Per-user credentials table `transcription_tldv_user_credentials` (provider-owned, since SPEC-045's `IntegrationScope` is tenant-scoped only and cannot store per-user secrets).
+- A documented routing limitation flag on TranscriptResults the adapter produces (organizer-only matching).
 
-If the parent spec is unimplemented when this sub-spec is picked up, this work blocks until the parent's Phase 1 (data model + contract) lands.
+If the parent spec is unimplemented when this sub-spec is picked up, this work blocks until the parent's Phase 1 (new `call_transcripts` module + `CallTranscriptProvider` contract + `registerCallTranscriptProvider` registry + `WebhookEndpointAdapter` contract) lands.
 
 ---
 
@@ -93,30 +95,51 @@ The adapter assumes Pro is sufficient until tl;dv enforces the gate. Adapter log
  tl;dv user's account
         │
         │ TranscriptReady webhook
-        │ (shared-secret in custom header)
+        │ (shared-secret in X-OM-Webhook-Secret header)
+        ▼
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ @open-mercato/webhooks — SHARED INBOUND PIPELINE                      │
+ │                                                                       │
+ │  POST /api/webhooks/inbound/tldv                                      │
+ │    1. Preserve raw body                                               │
+ │    2. Dedup (replay protection)                                       │
+ │    3. Rate limit                                                      │
+ │    4. Dispatch to registered adapter for slug 'tldv':                 │
+ │         adapter.verifyWebhook({ headers, body, method })              │
+ │            ├── Read X-OM-Webhook-Secret header                        │
+ │            ├── SELECT TldvUserCredentials WHERE                       │
+ │            │      webhook_secret_fingerprint = sha256Hex(header)      │
+ │            │    → resolves (user, tenant, organization) in one        │
+ │            │      indexed row read                                    │
+ │            ├── findOneWithDecryption → decrypt stored secret          │
+ │            ├── crypto.timingSafeEqual(decrypted, headerValue)         │
+ │            └── return {                                               │
+ │                   eventType: 'TranscriptReady', payload,              │
+ │                   tenantId, organizationId                            │
+ │                }                                                      │
+ │    5. Emit event `webhooks.inbound.received`                          │
+ │    6. Subscriber → adapter.processInbound({ payload, tenantId, ... }) │
+ │            ├── Build ProviderCtx<TldvCredentials> (decrypted apiKey)  │
+ │            ├── Reuse inline segments from payload (skip /transcript)  │
+ │            ├── GET /meetings/{id} for metadata enrichment             │
+ │            ├── Build TranscriptResult                                 │
+ │            └── commandBus.execute('call_transcripts.ingest', {        │
+ │                   tenantId, organizationId,                           │
+ │                   providerKey: 'tldv', transcript: result             │
+ │                })                                                     │
+ └──────────────────────────────────────────────────────────────────────┘
+        │
         ▼
  ┌──────────────────────────────────────────────────────────────────────┐
  │ packages/transcription-tldv                                           │
  │                                                                       │
- │  POST /api/webhooks/transcription/tldv                                │
- │    1. Read X-OM-Webhook-Secret header                                 │
- │    2. Look up TldvUserCredentials WHERE                               │
- │         webhook_secret_fingerprint = sha256Hex(header)                │
- │       → resolves (user, tenant, organization) in one indexed row read │
- │    3. findOneWithDecryption → decrypt secret + constant-time compare  │
- │    4. Read inline TranscriptReady payload                             │
- │    5. Call GET /meetings/{id} for organizer/title/url/duration/etc.   │
- │    6. Build normalized TranscriptResult                               │
- │    7. POST to internal customers ingest API                           │
+ │  webhook-adapter.ts (WebhookEndpointAdapter for slug 'tldv')          │
+ │    Registered in di.ts via registerWebhookEndpointAdapter.            │
+ │    verifyWebhook()  — fingerprint lookup + decrypt + compare          │
+ │    processInbound() — enrich + call_transcripts.ingest                │
  │                                                                       │
- │  workers/poll-tldv.ts (scheduled)                                     │
- │    For each connected (user, tenant) pair:                            │
- │      - Page through GET /meetings?page=, filter by happenedAt > since │
- │      - For each new meeting: GET /meetings/{id}/transcript            │
- │      - Build TranscriptResult, submit                                 │
- │      - Persist lastPolledAt                                           │
- │                                                                       │
- │  TranscriptionProvider implementation:                                │
+ │  TldvCallTranscriptProvider (CallTranscriptProvider<TldvCredentials>) │
+ │    Registered in di.ts via registerCallTranscriptProvider.            │
  │    fetchTranscript(meetingId, ctx):                                   │
  │      [transcript, meeting] := Promise.all([                           │
  │        GET /meetings/{id}/transcript,                                 │
@@ -126,17 +149,23 @@ The adapter assumes Pro is sufficient until tl;dv enforces the gate. Adapter log
  │    listRecentRecordings(ctx, since):                                  │
  │      yield* paginated GET /meetings filtered by happenedAt > since    │
  │                                                                       │
+ │  workers/poll-tldv.ts (scheduled)                                     │
+ │    For each connected (user, tenant) pair:                            │
+ │      - Page through GET /meetings?page=, filter by happenedAt > since │
+ │      - For each new meeting: provider.fetchTranscript + ingest command│
+ │      - Persist lastPolledAt                                           │
+ │                                                                       │
  │  Self-throttling: 1 req/sec per user, exponential backoff on 429/5xx  │
  └──────────────────────────────────────────────────────────────────────┘
         │
-        │ POST /api/customers/call-transcripts/ingest (parent spec API)
+        │ commandBus.execute('call_transcripts.ingest', {...})
         ▼
  ┌──────────────────────────────────────────────────────────────────────┐
- │ packages/core/src/modules/customers — INGEST PIPELINE (parent spec)  │
+ │ call_transcripts.ingest command (parent spec)                         │
  │  Routing algorithm runs unchanged.                                    │
  │  For tl;dv-sourced TranscriptResults: typically 1 matched participant │
  │  (the organizer); transcript segments preserve speaker display names  │
- │  in storage_metadata.transcription.segments for UI passthrough.       │
+ │  in CallTranscript.segments for UI passthrough.                       │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -237,7 +266,7 @@ All reads that materialize `apiKey` / `webhookSecret` MUST use `findWithDecrypti
    - Upserts the vault's `TldvVaultConfig` at `(tenant, organization)` with `enabled: true` (idempotent).
    - Inserts the `TldvUserCredentials` row, UNIQUE on `(tenantId, userId)`. If a row already exists for this (tenant, user), the route rotates the secret and updates the API key.
 4. Shows the user the one-time setup page:
-   - Webhook URL: `https://<om-host>/api/webhooks/transcription/tldv` (NO `?u=...` — see §Webhook security for the tenant/user resolution flow).
+   - Webhook URL: `https://<om-host>/api/webhooks/inbound/tldv` (NO `?u=...` — this is the shared `@open-mercato/webhooks` inbound route; the shared pipeline dispatches to the adapter registered for slug `tldv`. See §Webhook security for the tenant/user resolution flow).
    - Event: `TranscriptReady`.
    - Custom header to add: `X-OM-Webhook-Secret: <generated secret>`.
    - Step-by-step screenshot of tl;dv's webhook configuration UI.
@@ -257,25 +286,27 @@ If the user is in an environment that can't expose a public webhook endpoint (e.
 
 ### Webhook path (primary)
 
-Route: `POST /api/webhooks/transcription/tldv`, materialized by OM's auto-discovery from the file `packages/transcription-tldv/src/modules/transcription_tldv/api/POST/webhooks/transcription/tldv.ts`. The adapter does NOT use `registerWebhookHandler` from `@open-mercato/shared/modules/payment_gateways/types` — that export is payment-gateway-scoped and takes a `VerifyWebhookInput` shape that doesn't fit the transcription pipeline's signed-body-pull-fetch pattern (per the parent spec's §Proposed Solution.2 webhook registration convention).
+Route: `POST /api/webhooks/inbound/tldv`. This is the shared `@open-mercato/webhooks` inbound pipeline route — owned by the webhooks package, NOT auto-discovered from this provider package. The shared pipeline dispatches to the `WebhookEndpointAdapter` registered for slug `tldv` in `di.ts` via `registerWebhookEndpointAdapter`. The adapter does NOT use `registerWebhookHandler` from `@open-mercato/shared/modules/payment_gateways/types` — that export is payment-gateway-scoped and takes a `VerifyWebhookInput` shape that doesn't fit the transcription pipeline's signed-body-pull-fetch pattern.
 
 Steps:
 
-1. Read `X-OM-Webhook-Secret` header (presence required; absent → 401).
-2. Resolve `(tenantId, userId, organizationId)` by looking up `TldvUserCredentials` where `webhookSecretFingerprint = sha256Hex(<received-header-value>)`. The `webhook_secret_fingerprint` column has a **global UNIQUE** constraint (no tenant qualifier) — one indexed row read, zero scans. Missing → 401 (no such credential).
-3. Load the matching row via `findOneWithDecryption` scoped to the resolved `(organizationId, tenantId)`; constant-time-compare the decrypted `webhookSecret` against the received header as a defense-in-depth check (the fingerprint match alone is already cryptographically sufficient given a 32-byte high-entropy secret; the re-compare guards against a theoretical SHA-256 collision).
-4. Validate request body against tl;dv's webhook payload schema.
-5. Build `ProviderCtx<TldvCredentials>` from the resolved (user, tenant, organization) + decrypted `apiKey`.
-6. Call `provider.fetchTranscript(payload.data.meetingId, ctx)` — internally:
+1. The shared `@open-mercato/webhooks` route `/api/webhooks/inbound/tldv` receives the POST, preserves the raw body, and applies rate limiting + dedup.
+2. Shared pipeline calls `adapter.verifyWebhook({ headers, body, method, rawBody })`. Inside the adapter's `verifyWebhook`:
+   - Read `X-OM-Webhook-Secret` header (presence required; absent → returns verification failure → pipeline responds 401).
+   - Resolve `(tenantId, userId, organizationId)` by looking up `TldvUserCredentials` where `webhookSecretFingerprint = sha256Hex(<received-header-value>)`. The `webhook_secret_fingerprint` column has a **global UNIQUE** constraint (no tenant qualifier) — one indexed row read, zero scans. Missing → verification failure → 401.
+   - Load the matching row via `findOneWithDecryption` scoped to the resolved `(organizationId, tenantId)`; `crypto.timingSafeEqual` compares the decrypted `webhookSecret` against the received header as a defense-in-depth check (the fingerprint match alone is already cryptographically sufficient given a 32-byte high-entropy secret; the re-compare guards against a theoretical SHA-256 collision).
+   - Validate the body against tl;dv's webhook payload zod schema.
+   - Return `{ eventType: 'TranscriptReady', payload, tenantId, organizationId }` on success. Same logic as the prior stand-alone route, now encapsulated inside the adapter method.
+3. Shared pipeline emits `webhooks.inbound.received`; the registered subscriber calls `adapter.processInbound({ payload, tenantId, organizationId, userId })`. Inside the adapter's `processInbound`:
+   - Resolve credentials: re-load `TldvUserCredentials` via `findOneWithDecryption` for `(organizationId, tenantId, userId)`.
+   - Build `ProviderCtx<TldvCredentials>` with decrypted `apiKey`.
    - Reuse the inline transcript segments from the webhook payload (skip the `/transcript` API call — saves one round-trip).
    - `GET /meetings/{id}` for metadata enrichment.
    - Compose `TranscriptResult`.
-7. Submit `TranscriptResult` to `POST /api/customers/call-transcripts/ingest` (parent spec).
-8. Return 200 to tl;dv with `{ status: 'received' }` regardless of downstream ingest success — the parent's ingest is idempotent and we don't want tl;dv retrying on transient OM issues.
+   - Submit via `commandBus.execute('call_transcripts.ingest', { tenantId, organizationId, providerKey: 'tldv', transcript: result })`. This is an **in-process command bus call** — no internal HTTP round-trip; the prior `POST /api/customers/call-transcripts/ingest` route is replaced by the new `call_transcripts` module's ingest command.
+4. Shared pipeline returns 200 to tl;dv with `{ status: 'received' }` once `adapter.verifyWebhook` accepts. The `processInbound` run is dispatched via the event bus so failures after 200 don't cause tl;dv to retry (idempotency on `(sourceProvider, sourceRecordingId)` in the `call_transcripts.ingest` command makes replays safe).
 
-Failure handling: any verification failure returns 401 (tl;dv treats this as a webhook configuration error and surfaces it in their UI). Any internal error after verification returns 500 and lets tl;dv retry per their webhook policy.
-
-**Why no `?u=<signedToken>` in the URL**: the webhook secret is high-entropy (32 bytes) and unique per (tenant, user); its fingerprint serves as the tenant/user identifier without a URL query parameter. This keeps the URL uniform across all users and removes the need for the admin (or the user) to construct a user-specific URL. An attacker would need to brute-force a 256-bit secret to forge the fingerprint — practically impossible.
+Failure handling: any verification failure in `verifyWebhook` surfaces back through the shared pipeline as 401 (tl;dv treats this as a webhook configuration error and surfaces it in their UI). Downstream errors inside `processInbound` are caught by the shared subscriber and logged; the ingest command itself is idempotent so a manual reingest recovers.
 
 ### Polling fallback
 
@@ -287,33 +318,38 @@ Worker: `packages/transcription-tldv/src/workers/poll-tldv.ts`
   1. Fetch `lastPolledAt` from a small per-user state row (table `transcription_tldv_poll_cursors(user_id, tenant_id, last_polled_at)`).
   2. Page through `GET /meetings?page=N&pageSize=50` until `happenedAt < lastPolledAt`.
   3. For each new meeting:
-     - Skip if its `id` is already known to OM (idempotency check via parent's existing `(sourceProvider, sourceRecordingId)` query-index lookup).
+     - Skip if its `id` is already known to OM (idempotency check via the `call_transcripts` module's `(sourceProvider, sourceRecordingId)` query-index lookup).
      - Call `provider.fetchTranscript(meeting.id, ctx)` — this does both the `/transcript` and `/meetings/{id}` calls.
-     - Submit to ingest API.
+     - Submit via `commandBus.execute('call_transcripts.ingest', { tenantId, organizationId, providerKey: 'tldv', transcript: result })`.
   4. Update `lastPolledAt` to `now()` only after the page is fully processed.
 - Self-throttling: 1 req/sec per user; exponential backoff (250ms → 4s) on 429/5xx, max 5 retries per call.
 
 ### Manual reingest
 
-Reuses the parent spec's `POST /api/customers/interactions/:id/reingest-transcript` route. The route resolves `sourceProvider='tldv'` from the interaction's custom fields, then calls our `provider.fetchTranscript` with the existing `sourceRecordingId`.
+Reuses the parent spec's reingest command on the `call_transcripts` module. The command resolves `sourceProvider='tldv'` from the transcript record and calls our `provider.fetchTranscript` with the existing `sourceRecordingId`, then re-submits via `commandBus.execute('call_transcripts.ingest', ...)`.
 
 ---
 
 ## Webhook security (no HMAC)
 
-tl;dv does not provide HMAC signing on outbound webhooks. Their webhook UI does support **a custom HTTP header** that gets sent verbatim with every POST — this is the carry channel for our shared secret.
+tl;dv does not provide HMAC signing on outbound webhooks. Their webhook UI does support **a custom HTTP header** that gets sent verbatim with every POST — this is the carry channel for our shared secret. Verification now runs inside `adapter.verifyWebhook` (the shared `@open-mercato/webhooks` pipeline invokes the adapter after preserving the raw body); there is no stand-alone route handler in this package.
 
 ### Mitigations applied
 
 1. **Per-user, high-entropy secret** (256 bits, base64-encoded). Stored encrypted at rest in the provider-owned `transcription_tldv_user_credentials` table. Never stored in the shared integrations vault.
-2. **Constant-time comparison** of the received header against the decrypted secret (`crypto.timingSafeEqual`).
-3. **Fingerprint-indexed lookup** (`webhookSecretFingerprint = sha256Hex(webhookSecret)`, plain-text column, indexed). The webhook handler resolves the (tenant, user) pair by querying this column — one indexed row read, no scan, no URL query parameter, no admin URL construction. The secret's 256-bit entropy makes fingerprint collisions cryptographically negligible.
-4. **TLS required** — webhook URL must be HTTPS; HTTP is rejected.
-5. **Rotation** — if a leak is suspected, the user regenerates the secret in OM (vault update) and updates the header value in tl;dv. Rotation MUST be exposed as a one-click action in the integrations admin UI.
+2. **Constant-time comparison** of the received header against the decrypted secret (`crypto.timingSafeEqual`) — inside `adapter.verifyWebhook`.
+3. **Fingerprint-indexed lookup** (`webhookSecretFingerprint = sha256Hex(webhookSecret)`, plain-text column, indexed). `adapter.verifyWebhook` resolves the (tenant, user) pair by querying this column — one indexed row read, no scan, no URL query parameter, no admin URL construction. The secret's 256-bit entropy makes fingerprint collisions cryptographically negligible.
+4. **TLS required** — the shared pipeline rejects non-HTTPS.
+5. **Raw-body preservation** — `@open-mercato/webhooks` preserves the raw request body end-to-end so the fingerprint lookup runs against the exact inbound header value without framework middleware tampering.
+6. **Rotation** — if a leak is suspected, the user regenerates the secret in OM (vault update) and updates the header value in tl;dv. Rotation MUST be exposed as a one-click action in the integrations admin UI.
 
 ### Documented residual risk
 
 Lower assurance than Zoom's HMAC-over-body: a passive eavesdropper on a TLS-broken path could replay the header. Acceptable for a meeting-transcript ingest channel with idempotency on `(sourceProvider, sourceRecordingId)` (replays are no-ops). NOT acceptable for any future mutation-capable provider event — but tl;dv's surface doesn't include those.
+
+### Why no URL query parameter is needed
+
+The shared inbound route is uniform for every tl;dv user: `https://<om-host>/api/webhooks/inbound/tldv`. The fingerprint-indexed lookup in `adapter.verifyWebhook` resolves `(tenant, user)` from the 256-bit header value, so there is no need for a URL query parameter (e.g. a signed tenant token `?u=...`) to carry the tenant identity. The admin pastes the same URL for every connected user; the per-user secret in the header both authenticates the request AND identifies the credentials row via its fingerprint. An attacker would need to brute-force a 256-bit secret to forge the fingerprint — practically impossible.
 
 ---
 
@@ -339,14 +375,18 @@ The adapter produces a `TranscriptResult.participants` list with the following c
 participants: [
   { email: meeting.organizer.email, displayName: meeting.organizer.name, role: 'host' },
   ...meeting.invitees.map(i => ({ email: i.email, displayName: i.name, role: 'participant' })),
-  // Speakers without invitee match are NOT added — they have no email and would
-  // violate the parent spec's CHECK constraint (email IS NOT NULL OR phone IS NOT NULL).
+  ...distinctSpeakersFromSegments().map(s => ({ displayName: s, role: 'participant' })),
+  //  ^ speakers with no email become display-name-only rows on CallTranscriptParticipant
+  //    (parent CHECK is email OR phone OR display_name; rows are flagged matchable=false
+  //    and are skipped by CustomerMatchingService; they do NOT propagate to
+  //    CustomerInteractionParticipant, whose CHECK still requires email or phone).
 ]
 ```
 
-Speaker display names from transcript segments are preserved in `TranscriptResult.segments` for UI display. They are NOT promoted into `participants[]` because:
-- We have no email/phone for them, violating the parent's CHECK constraint.
+Speaker display names from transcript segments are preserved in `TranscriptResult.segments` for UI display AND promoted into `participants[]` as `matchable=false` rows — the relaxed parent CHECK (email OR phone OR display_name) accepts them. They are NOT used for CRM matching:
+- They carry no email/phone, so `CustomerMatchingService.matchParticipants` returns `{ customerEntityId: null, matchedVia: null }` for them.
 - A display-name-only match against CRM People would be fuzzy, violating Mat's lesson "email is the deterministic participation key" (`apps/mercato/app-spec/proxy-lessons.md`, lesson dated 2026-04-22).
+- They do NOT project to `CustomerInteractionParticipant` — that junction intentionally keeps the stricter email-or-phone CHECK. The raw `CallTranscriptParticipant` row still exists, so the segments view and the unmatched-inbox summary can display "who spoke" without forcing fake identifiers.
 
 ### Practical impact
 
@@ -509,17 +549,15 @@ packages/transcription-tldv/
         └── transcription_tldv/
             ├── index.ts                       // module metadata
             ├── integration.ts                 // IntegrationDefinition (SPEC-045 marketplace entry; hub: 'call_transcripts')
-            ├── provider.ts                    // TldvCallTranscriptProvider
+            ├── provider.ts                    // TldvCallTranscriptProvider (CallTranscriptProvider<TldvCredentials>)
+            ├── webhook-adapter.ts             // WebhookEndpointAdapter for slug 'tldv'; registered via registerWebhookEndpointAdapter
             ├── credentials.ts                 // TldvCredentials + zod schema
             ├── acl.ts                         // transcription_tldv.view, .configure
             ├── setup.ts                       // defaultRoleFeatures, onTenantCreated
-            ├── di.ts                          // registers provider on callTranscriptProviders
+            ├── di.ts                          // registers BOTH the call_transcripts provider (via registerCallTranscriptProvider) AND the webhook adapter (via registerWebhookEndpointAdapter)
             ├── api/
             │   ├── schemas.ts                 // zod schemas (tl;dv REST + webhook payloads)
             │   ├── POST/
-            │   │   ├── webhooks/
-            │   │   │   └── transcription/
-            │   │   │       └── tldv.ts        // auto-discovered → POST /api/webhooks/transcription/tldv
             │   │   └── integrations/
             │   │       └── transcription-tldv/
             │   │           ├── connect.ts
@@ -550,13 +588,16 @@ packages/transcription-tldv/
 
 ## API Contracts (delta from parent)
 
-### Webhook intake (this package)
+### Webhook intake (via `@open-mercato/webhooks` shared route)
 
-`POST /api/webhooks/transcription/tldv`
-- **Auth**: `X-OM-Webhook-Secret` header. Handler computes `sha256Hex(header)` → looks up the matching `TldvUserCredentials` row by `webhookSecretFingerprint` → decrypts the stored secret → constant-time compares (defense-in-depth). Missing header / no matching fingerprint / compare mismatch → 401.
-- **Body schema**: zod-validated against tl;dv's `TranscriptReady` payload. Rejects on schema mismatch with 400.
-- **Response**: `200 { status: 'received' }` on accepted; `401` on signature failure; `400` on payload schema failure; `404` on unknown user token; `500` on internal error.
-- **Idempotency**: handled downstream by the parent's ingest (idempotent on `(sourceProvider='tldv', sourceRecordingId=meetingId)`).
+This package does NOT introduce a new webhook route URL. Inbound `TranscriptReady` webhooks from tl;dv land on the shared pipeline route owned by `@open-mercato/webhooks`:
+
+`POST /api/webhooks/inbound/tldv`
+- **Routing**: the shared pipeline dispatches to the `WebhookEndpointAdapter` registered in this package's `di.ts` via `registerWebhookEndpointAdapter` under slug `tldv`.
+- **Auth** (inside `adapter.verifyWebhook`): `X-OM-Webhook-Secret` header. Adapter computes `sha256Hex(header)` → looks up the matching `TldvUserCredentials` row by `webhookSecretFingerprint` → decrypts the stored secret → `crypto.timingSafeEqual` compares (defense-in-depth). Missing header / no matching fingerprint / compare mismatch → verification failure → shared pipeline responds 401.
+- **Body schema**: zod-validated against tl;dv's `TranscriptReady` payload inside `verifyWebhook`. Rejects on schema mismatch with verification failure → 400.
+- **Response**: shared pipeline returns `200 { status: 'received' }` once `verifyWebhook` accepts; `401` on verification failure; `400` on payload schema failure; `500` on unexpected internal error.
+- **Idempotency**: handled downstream by the `call_transcripts.ingest` command (idempotent on `(sourceProvider='tldv', sourceRecordingId=meetingId)`).
 
 ### Provider connect (this package)
 
@@ -579,9 +620,9 @@ All routes export `openApi`.
 
 ## Commands & Events (delta from parent)
 
-No new events declared in the customers module. The adapter relies on the parent spec's events (`customers.call_transcript.ingested`, `.unmatched`, `.reingested`).
+No new events declared. The adapter relies on the parent spec's events in the `call_transcripts` module (`call_transcripts.transcript.ingested`, `call_transcripts.transcript.unmatched`, `call_transcripts.transcript.reingested`).
 
-The adapter does NOT declare its own commands — connect/disconnect/rotate are direct API routes, not undoable commands (provider lifecycle, not domain mutations).
+The adapter does NOT declare its own commands — connect/disconnect/rotate are direct API routes, not undoable commands (provider lifecycle, not domain mutations). Ingest is dispatched via `commandBus.execute('call_transcripts.ingest', ...)` — the command lives in the parent `call_transcripts` module.
 
 ---
 
@@ -598,8 +639,8 @@ A new card in `/backend/integrations` for "tl;dv (transcripts)" with:
 
 ### Provider-specific UI hint on `<CallTranscriptCard>` (parent spec component)
 
-When the parent's `<CallTranscriptCard>` renders an interaction with `sourceProvider='tldv'`, it displays a small inline note above the participants strip:
-- *"Routed by organizer email only — tl;dv doesn't expose attendee emails for ad-hoc meetings. To match other participants, add them to CRM manually or use a calendar-linked meeting."* (translatable; key `customers.call_transcripts.tldv.organizer_only_notice`).
+When the parent's `<CallTranscriptCard>` renders a transcript with `sourceProvider='tldv'`, it displays a small inline note above the participants strip:
+- *"Routed by organizer email only — tl;dv doesn't expose attendee emails for ad-hoc meetings. To match other participants, add them to CRM manually or use a calendar-linked meeting."* (translatable; key `call_transcripts.provider_notices.tldv.organizer_only_notice`, owned by this tl;dv package and merged into the `call_transcripts` runtime namespace so the shared `<CallTranscriptCard>` can resolve it via `useT()` without any provider-specific wiring).
 
 ### Onboarding screenshots
 
@@ -634,7 +675,7 @@ transcription_tldv.status.auth_failed
 transcription_tldv.status.last_polled_at
 ```
 
-Plus one parent-namespace addition (declared via the customers package, not this package): `customers.call_transcripts.tldv.organizer_only_notice` for the participants-strip hint.
+Plus one key under the parent module's runtime namespace, but **owned by this package's i18n bundle**: `call_transcripts.provider_notices.tldv.organizer_only_notice` for the participants-strip hint. Because the key is merged into the `call_transcripts` runtime namespace at module-load time, the shared `<CallTranscriptCard>` resolves it via `useT()` without provider-specific wiring; the shared component never needs to know which adapter produced the transcript.
 
 Locales: `en` mandatory; `pl` shipped because the user is Polish-speaking and tl;dv has strong adoption in PL.
 
@@ -665,7 +706,7 @@ Default role assignments (`setup.ts`, via `defaultRoleFeatures`):
 
 The webhook intake route is NOT gated by an ACL feature — it's public by URL and authenticated by the shared-secret header against the per-user credentials row (looked up via the secret fingerprint), per §Webhook security.
 
-The transcript view side is governed by the parent spec's `customers.call_transcripts.view` — unchanged.
+The transcript view side is governed by the parent spec's `call_transcripts.view` (owned by the new `call_transcripts` module) — unchanged.
 
 ---
 
@@ -681,9 +722,9 @@ Reviewed against the 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`. All ch
 | 4 | Import paths | New: `@open-mercato/transcription-tldv`. Internal package; not consumed elsewhere. |
 | 5 | Event IDs | None new. |
 | 6 | Widget injection spot IDs | New integration-marketplace card uses an existing spot; no new spot ID. |
-| 7 | API route URLs | New: `/api/webhooks/transcription/tldv`, `/api/integrations/transcription-tldv/{connect,rotate-secret,disconnect}`. |
+| 7 | API route URLs | No new webhook route is introduced by this package — inbound webhooks land on the shared `@open-mercato/webhooks` route `/api/webhooks/inbound/tldv` (owned by the webhooks package). New provider-management routes only: `/api/integrations/transcription-tldv/{connect,rotate-secret,disconnect}`. |
 | 8 | Database schema | Two new tables owned by this package: `transcription_tldv_user_credentials` (per-user API key + webhook secret; encrypted at rest via the provider's `ModuleEncryptionMap`) and `transcription_tldv_poll_cursors` (polling cursor). |
-| 9 | DI service names | One new multi-provider registration on `callTranscriptProviders`. |
+| 9 | DI service names | No multi-provider DI token introduced. The adapter registers itself via two module-level registries from upstream packages: `registerCallTranscriptProvider` (from the `call_transcripts` module) and `registerWebhookEndpointAdapter` (from `@open-mercato/webhooks`). |
 | 10 | ACL feature IDs | 2 new in `transcription_tldv.*`. |
 | 11 | Notification type IDs | None new. |
 | 12 | CLI commands | None in v1. (Optional follow-up: `yarn mercato transcription-tldv reconnect <userId>`.) |
@@ -716,18 +757,18 @@ All tests self-contained per `.ai/qa/AGENTS.md`. Mocks tl;dv API at the HTTP lay
 | TC-TLDV-002 | `provider.fetchTranscript`: organizer-only matching when `invitees: []`; participants array contains exactly one entry; `providerMetadata.organizerOnlyMatched=true`. |
 | TC-TLDV-003 | `provider.fetchTranscript`: invitees populated; participants array contains organizer + invitees; `providerMetadata.organizerOnlyMatched=false`. |
 | TC-TLDV-004 | `provider.listRecentRecordings`: pagination across multiple pages; stops when `happenedAt <= since`. |
-| TC-TLDV-005 | Webhook handler: valid `X-OM-Webhook-Secret` → fingerprint lookup finds the row → decrypted compare passes → 200 + ingest call. |
-| TC-TLDV-006 | Webhook handler: missing header → 401; header whose `sha256` doesn't match any row → 401; header whose fingerprint matches but whose decrypted value differs (forced via a manual DB tamper) → 401. |
-| TC-TLDV-007 | Webhook handler: two users in one tenant each have their own row; a webhook with user A's secret dispatches to user A's ingest context, not user B's. |
-| TC-TLDV-008 | Webhook handler: schema mismatch → 400 with structured error. |
+| TC-TLDV-005 | `adapter.verifyWebhook`: valid `X-OM-Webhook-Secret` delivered via shared route `/api/webhooks/inbound/tldv` → fingerprint lookup finds the row → decrypted `timingSafeEqual` passes → returns `{ eventType: 'TranscriptReady', payload, tenantId, organizationId }` → pipeline responds 200; `adapter.processInbound` invoked and emits `call_transcripts.ingest` command. |
+| TC-TLDV-006 | `adapter.verifyWebhook`: missing header → verification failure → 401; header whose `sha256` doesn't match any row → 401; header whose fingerprint matches but whose decrypted value differs (forced via a manual DB tamper) → 401. |
+| TC-TLDV-007 | Adapter dispatch: two users in one tenant each have their own row; a webhook with user A's secret resolves to user A's `ProviderCtx` in `processInbound`, not user B's. |
+| TC-TLDV-008 | `adapter.verifyWebhook`: payload schema mismatch → verification failure → 400 with structured error. |
 | TC-TLDV-009 | Connect flow: invalid API key → 400; valid key → 200 + secret returned + `TldvUserCredentials` row persisted with encrypted fields + `verifiedAt` set + tenant-level `TldvVaultConfig` upserted with `enabled: true`. |
 | TC-TLDV-010 | Polling worker: iterates `TldvUserCredentials` rows per tenant; respects `lastPolledAt` per user via `TldvPollCursor`; updates state only on full-page success; 1 req/sec throttling per user. |
-| TC-TLDV-011 | Polling worker: skips meetings already ingested (idempotency check via parent's query index). |
+| TC-TLDV-011 | Polling worker: skips meetings already ingested (idempotency check via the `call_transcripts` module's `(sourceProvider, sourceRecordingId)` query index). |
 | TC-TLDV-012 | Date normalizer: covers list-format and detail-format strings; round-trips Date → string → Date. |
-| TC-TLDV-013 | End-to-end (mocked tl;dv API + real customers ingest API + real DB): webhook arrives → ingest API called → CustomerInteraction + Attachment + 1 participant created on the test tenant. |
-| TC-TLDV-014 | End-to-end: organizer email matches an existing CRM Person → primary entity_id set correctly; participant junction populated with `matched_via='primary_email'`. |
-| TC-TLDV-015 | End-to-end: organizer email matches no CRM Person → unmatched-transcript staging row created (parent's flow). |
-| TC-TLDV-016 | Rotate-secret API: row's `webhookSecretFingerprint` updates atomically; the old secret stops working on next webhook within 1 second (fingerprint lookup misses). |
+| TC-TLDV-013 | End-to-end (mocked tl;dv API + shared `/api/webhooks/inbound/tldv` pipeline + real `call_transcripts.ingest` command + real DB): webhook arrives → adapter verifies → `processInbound` calls ingest command → `CallTranscript` row + 1 participant created on the test tenant. |
+| TC-TLDV-014 | End-to-end: organizer email matches an existing CRM Person → primary `CustomerInteraction.entity_id` set correctly; participant junction populated with `matched_via='primary_email'`. |
+| TC-TLDV-015 | End-to-end: organizer email matches no CRM Person → unmatched-transcript staging row created in the `call_transcripts` module. |
+| TC-TLDV-016 | Rotate-secret API: row's `webhookSecretFingerprint` updates atomically; the old secret stops working on next webhook within 1 second (fingerprint lookup misses → `adapter.verifyWebhook` returns failure → 401). |
 | TC-TLDV-017 | Disconnect API: `TldvUserCredentials` row deleted (or soft-deleted); subsequent webhook with old secret → 401 (fingerprint lookup misses). If the deleted row was the last one in the tenant, `TldvVaultConfig` is also removed. |
 | TC-TLDV-018 | Encryption round-trip: write → read via `findOneWithDecryption` returns the original plaintext; direct `em.find` returns ciphertext (confirms at-rest protection). |
 
@@ -747,33 +788,36 @@ Each phase = a working app increment.
 1. Scaffold `packages/transcription-tldv/` (package.json, tsconfig, OM module conventions under `src/modules/transcription_tldv/`).
 2. Declare entities: `TldvUserCredentials` (with `webhookSecretFingerprint` index) and `TldvPollCursor`; `encryption.ts` map for `api_key` + `webhook_secret`; run `yarn db:generate` and commit the migration.
 3. `lib/fingerprint.ts` — `sha256Hex` helper.
-4. Implement `TldvCallTranscriptProvider` (provider.ts, credentials.ts, api/schemas.ts, lib/normalize-date.ts, lib/throttled-fetch.ts).
-5. DI registration on `callTranscriptProviders` (di.ts).
+4. Implement `TldvCallTranscriptProvider` (provider.ts, credentials.ts, api/schemas.ts, lib/normalize-date.ts, lib/throttled-fetch.ts) against `CallTranscriptProvider<TldvCredentials>` from `@open-mercato/shared/modules/call_transcripts/provider` (parent spec Phase 1).
+5. DI registration via `registerCallTranscriptProvider(adapter)` in `di.ts` — matches the verified `registerGatewayAdapter` / `registerDataSyncAdapter` pattern. No multi-provider DI token is used; the parent spec's module-level registry is the single source of truth.
 6. ACL features + setup defaults + `integration.ts` (`hub: 'call_transcripts'`).
 7. Connect / rotate-secret / disconnect API routes (upsert the per-user row + vault-level `TldvVaultConfig`).
 8. Integrations marketplace card UI.
 9. Tests TC-TLDV-001..004, 009, 012, 016, 017.
-10. Manual ingest exercised via the parent's existing `POST /api/customers/interactions/:id/reingest-transcript` route after a `TranscriptResult` is hand-submitted.
+10. Manual ingest exercised via the parent's reingest command on the `call_transcripts` module after a `TranscriptResult` is hand-submitted.
 
 **Result**: a user in a tenant connects tl;dv; the credentials row is stored encrypted with a fingerprinted secret; a manual reingest surfaces a transcript on the matched person's timeline.
 
-### Phase 2 — Webhook intake
+### Phase 2 — Webhook intake (via `@open-mercato/webhooks` shared pipeline)
 
-1. Webhook handler at `api/POST/webhooks/transcription/tldv.ts`: fingerprint-indexed lookup, decryption-aware load via `findOneWithDecryption`, constant-time compare on the decrypted secret.
-2. Tests TC-TLDV-005..008, 013..015.
+1. Implement `webhook-adapter.ts` at the module root as a `WebhookEndpointAdapter` for slug `tldv`. The adapter:
+   - `verifyWebhook({ headers, body, method, rawBody })` — fingerprint-indexed lookup in `TldvUserCredentials`, decryption-aware load via `findOneWithDecryption`, `crypto.timingSafeEqual` on the decrypted secret, zod payload validation, returns `{ eventType: 'TranscriptReady', payload, tenantId, organizationId }` on success.
+   - `processInbound({ payload, tenantId, organizationId, userId })` — resolves credentials, builds `ProviderCtx`, enriches via `GET /meetings/{id}`, builds `TranscriptResult`, submits via `commandBus.execute('call_transcripts.ingest', ...)`.
+2. Register the adapter via `registerWebhookEndpointAdapter(adapter)` in `di.ts`; the shared `@open-mercato/webhooks` inbound pipeline route `/api/webhooks/inbound/tldv` will dispatch to it automatically. The prior auto-discovered route `api/POST/webhooks/transcription/tldv.ts` is NOT introduced.
+3. Tests TC-TLDV-005..008, 013..015.
 
-**Result**: real tl;dv `TranscriptReady` webhooks land transcripts automatically end-to-end.
+**Result**: real tl;dv `TranscriptReady` webhooks land transcripts automatically end-to-end through the shared pipeline.
 
 ### Phase 3 — Polling fallback
 
-1. `workers/poll-tldv.ts` cron worker: iterates `TldvUserCredentials` rows per tenant, loads `TldvPollCursor` per user, calls provider, upserts the cursor.
+1. `workers/poll-tldv.ts` cron worker: iterates `TldvUserCredentials` rows per tenant, loads `TldvPollCursor` per user, calls provider, submits via `commandBus.execute('call_transcripts.ingest', ...)`, upserts the cursor.
 2. Tests TC-TLDV-010, 011.
 
 **Result**: tenants behind firewalls (no inbound webhooks) get the same automatic ingest with a polling lag.
 
 ### Phase 4 — UI hardening + i18n + docs
 
-1. Provider-specific notice on `<CallTranscriptCard>` for tl;dv-sourced calls (key `customers.call_transcripts.tldv.organizer_only_notice` added to the customers i18n bundle).
+1. Provider-specific notice on `<CallTranscriptCard>` for tl;dv-sourced transcripts (key `call_transcripts.provider_notices.tldv.organizer_only_notice` added to this package's i18n bundle and merged into the `call_transcripts` runtime namespace).
 2. Onboarding screenshots in `packages/transcription-tldv/docs/setup-screenshots/`.
 3. Polish translation pass.
 4. README in the package root with the limitations section copy.
@@ -818,3 +862,12 @@ Each phase = a working app increment.
   - **R3** Stale pre-redesign wording removed: TLDR credential-storage line now correctly cites `transcription_tldv_user_credentials` + the tenant-level enablement marker; architecture diagram webhook-steps block rewritten to match the fingerprint-indexed lookup; connect flow's "personal integrations page" copy replaced with the shared `/backend/integrations` card description.
   - **R4** Index shape aligned with the lookup description: `TldvUserCredentials` now declares `UNIQUE (webhook_secret_fingerprint)` globally (replacing the prior `(organizationId, tenantId, webhookSecretFingerprint)` composite), matching the webhook handler's no-tenant-context lookup. Added an index-rationale block explaining why the three indexes exist (fingerprint uniqueness for webhook lookup, tenant+user uniqueness for connect flow, tenant-scoped composite for polling iteration). §Ingestion lookup description updated to cite "global UNIQUE" rather than the tenant-qualified composite.
   - Status remains **Draft — Proposed** (revised three times).
+- **2026-04-22** — Adopted parent spec's module-boundary redesign (PR #1645 feedback). Concrete changes:
+  - Webhook intake retargeted from provider-owned auto-discovered route (`POST /api/webhooks/transcription/tldv`) to the shared `@open-mercato/webhooks` inbound pipeline via a `WebhookEndpointAdapter` implementation registered through `registerWebhookEndpointAdapter`. The URL the user configures in tl;dv becomes `https://<om-host>/api/webhooks/inbound/tldv`. Shared-secret header verification, fingerprint-indexed lookup, decrypt + constant-time compare all moved into `verifyWebhook`; transcript enrichment + ingest moved into `processInbound`. Raw-body preservation, rate limiting, and dedup are now inherited from the shared pipeline.
+  - Provider registry moved from the retired `callTranscriptProviders` DI multi-provider token to the module-level `registerCallTranscriptProvider` registry (matches the verified `registerGatewayAdapter` / `registerDataSyncAdapter` pattern). Provider contract re-exported from `@open-mercato/shared/modules/call_transcripts/provider`.
+  - Event namespace change: all references to `customers.call_transcript.*` events updated to `call_transcripts.transcript.*`. The ingest target command renamed from `customers.call_transcripts.ingest` to `call_transcripts.ingest` (owned by the new transcript module).
+  - UI hint key renamed from `customers.call_transcripts.tldv.organizer_only_notice` (parent-namespace addition in customers package) to `call_transcripts.provider_notices.tldv.organizer_only_notice` (owned by this package, merged into the `call_transcripts` runtime namespace).
+  - §Files to create: retired the `api/POST/webhooks/transcription/tldv.ts` route file; added `webhook-adapter.ts` at the module root.
+  - §Backward Compatibility, §Integration Test Coverage, §Implementation Phases updated to reflect the new wiring.
+  - Status remains **Proposed** (revised).
+- **2026-04-22** — Follow-up review `ANALYSIS-2026-04-22-crm-call-transcriptions-review.md` applied (tl;dv-relevant finding #5): TLDR polling bullet was internally inconsistent — claimed `GET /meetings?since=lastPolledAt` but the actual tl;dv API is page-based with client-side `happenedAt` filtering (documented in §Provider profile table). TLDR rewritten to "Scheduled polling via page-based `GET /meetings?page=&pageSize=50` per connected user, filtered client-side by `happenedAt > lastPolledAt`." No implementation impact — the polling worker section already described this correctly; only the TLDR was stale. Status remains **Proposed**.
