@@ -153,7 +153,7 @@ export function AddressEditor({
   const inputClass = (field: AddressEditorField) =>
     [
       'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-      errors[field] ? 'border-red-500 focus:ring-red-500' : 'border-input bg-background',
+      errors[field] ? 'border-status-error-border focus:ring-status-error-border' : 'border-input bg-background',
     ].join(' ')
 
   return (

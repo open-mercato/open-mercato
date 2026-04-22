@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { LoadingMessage } from '../detail/LoadingMessage'
 import { useMarkdownRemarkPlugins } from '../markdown/useMarkdownRemarkPlugins'
+import { useTheme } from '../../theme'
 
 export type SwitchableMarkdownInputProps = {
   value: string
@@ -69,6 +70,7 @@ export function SwitchableMarkdownInput({
   remarkPlugins,
 }: SwitchableMarkdownInputProps) {
   const resolvedPlugins = useMarkdownRemarkPlugins(remarkPlugins)
+  const { resolvedTheme } = useTheme()
   const editorWrapperClasses =
     editorWrapperClassName ?? 'w-full rounded-lg border border-muted-foreground/20 bg-background p-2'
   const editorClasses = editorClassName ?? 'w-full'
@@ -79,7 +81,7 @@ export function SwitchableMarkdownInput({
   if (isMarkdownEnabled && !disableMarkdown) {
     return (
       <div className={editorWrapperClasses}>
-        <div data-color-mode="light" className={editorClasses}>
+        <div data-color-mode={resolvedTheme} className={editorClasses}>
           <UiMarkdownEditor
             value={value}
             height={height}

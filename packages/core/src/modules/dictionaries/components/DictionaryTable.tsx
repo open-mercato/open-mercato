@@ -11,6 +11,7 @@ export type DictionaryTableEntry = {
   label: string
   color: string | null
   icon: string | null
+  usageCount?: number
   organizationId?: string | null
   tenantId?: string | null
   isInherited?: boolean
@@ -30,6 +31,7 @@ export type DictionaryTableTranslations = {
   inheritedLabel: string
   inheritedTooltip: string
   emptyLabel: string
+  usageCountLabel?: string
   searchPlaceholder?: string
 }
 
@@ -83,12 +85,19 @@ export function DictionaryTable({
       header: translations.valueColumn,
       meta: { priority: 1 },
       cell: ({ getValue, row }) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{String(getValue())}</span>
-          {row.original.isInherited ? (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={translations.inheritedTooltip}>
-              {translations.inheritedLabel}
-            </span>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{String(getValue())}</span>
+            {row.original.isInherited ? (
+              <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={translations.inheritedTooltip}>
+                {translations.inheritedLabel}
+              </span>
+            ) : null}
+          </div>
+          {typeof row.original.usageCount === 'number' && row.original.usageCount > 0 && translations.usageCountLabel ? (
+            <div className="text-xs text-muted-foreground">
+              {translations.usageCountLabel.replace('{{count}}', String(row.original.usageCount))}
+            </div>
           ) : null}
         </div>
       ),

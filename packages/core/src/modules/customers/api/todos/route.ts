@@ -181,6 +181,8 @@ async function ensureCanonicalTodoBridge(
   await commandBus.execute('customers.interactions.create', {
     input: {
       id: link.todoId,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
       entityId,
       interactionType: 'task',
       title: detail?.title ?? null,
@@ -344,6 +346,8 @@ export async function POST(request: Request): Promise<Response> {
 
     const { result } = await commandBus.execute('customers.interactions.create', {
       input: {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId ?? auth.orgId,
         entityId: body.entityId,
         interactionType: 'task',
         title: body.title,

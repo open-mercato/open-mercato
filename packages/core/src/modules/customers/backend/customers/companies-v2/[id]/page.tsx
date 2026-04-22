@@ -4,75 +4,87 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { Building2, Hash, Users, BarChart3, StickyNote } from 'lucide-react'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { E } from '#generated/entities.ids.generated'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { ErrorMessage, LoadingMessage, NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
-import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
-import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
-import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { E } from '#generated/entities.ids.generated'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DealsSection } from '../../../../components/detail/DealsSection'
+import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
-import { AddressesSection } from '../../../../components/detail/AddressesSection'
-import { TasksSection } from '../../../../components/detail/TasksSection'
-import { TagsSection } from '../../../../components/detail/TagsSection'
 import type { TagSummary } from '../../../../components/detail/types'
-import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
-import { formatTemplate } from '../../../../components/detail/utils'
-import { CompanyHighlightsSummary } from '../../../../components/detail/CustomerFormHighlights'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
+import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
+import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
+import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
+import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
+import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
+import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import {
   buildCompanyEditPayload,
   createCompanyEditFields,
-  createCompanyEditGroups,
+  createCompanyDaneFiremyGroups,
   createCompanyEditSchema,
   mapCompanyOverviewToFormValues,
   type CompanyEditFormValues,
   type CompanyOverview,
 } from '../../../../components/formConfig'
 
-type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks' | string
-
-const stableNoopCallback = () => {}
-
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { organizationId } = useOrganizationScopeDetail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
-
-  const formSchema = React.useMemo(() => createCompanyEditSchema(), [])
-  const fields = React.useMemo(() => createCompanyEditFields(t), [t])
-  const groups = React.useMemo(() => createCompanyEditGroups(t), [t])
 
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  // Tab state
   const initialTab = React.useMemo(() => {
-    const raw = searchParams?.get('tab')
-    if (raw === 'notes' || raw === 'activities' || raw === 'deals' || raw === 'people' || raw === 'addresses' || raw === 'tasks') {
-      return raw
-    }
-    return 'notes'
+    return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
+  const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+
+  // Form state
+  const [isDirty, setIsDirty] = React.useState(false)
+  const [isSaving, setIsSaving] = React.useState(false)
+  const formWrapperRef = React.useRef<HTMLDivElement>(null)
+  const { organizationId } = useOrganizationScopeDetail()
+  const formSchema = React.useMemo(() => createCompanyEditSchema(), [])
+  const formFields = React.useMemo(() => createCompanyEditFields(t), [t])
+  const formGroups = React.useMemo(() => createCompanyDaneFiremyGroups(t), [t])
+  const initialValues = React.useMemo(
+    () => (data ? mapCompanyOverviewToFormValues(data) : undefined),
+    [data],
+  )
+  const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
+    { id: 'identity', icon: Building2, label: t('customers.companies.form.sections.identity', 'Identity') },
+    { id: 'contact', icon: Hash, label: t('customers.companies.form.sections.contact', 'Contact') },
+    { id: 'classification', icon: Users, label: t('customers.companies.form.sections.classification', 'Classification') },
+    { id: 'businessProfile', icon: BarChart3, label: t('customers.companies.form.sections.businessProfile', 'Business profile') },
+    { id: 'notes', icon: StickyNote, label: t('customers.companies.form.groups.notes', 'Notes') },
+    { id: 'customFields', icon: Hash, label: t('customers.companies.form.groups.customAttributes', 'Custom attributes') },
+  ], [t])
+  const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
+  const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
+  const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
+  const [dealCount, setDealCount] = React.useState(0)
 
   const currentCompanyId = data?.company?.id ?? null
   const mutationContextId = React.useMemo(
@@ -90,34 +102,13 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+
   const companyName =
     data?.company?.displayName && data.company.displayName.trim().length
       ? data.company.displayName
       : t('customers.companies.list.deleteFallbackName', 'this company')
 
-  const translateCompanyDetail = React.useCallback(
-    (key: string, fallback?: string, params?: Record<string, string | number>) => {
-      const mappedKey = key.startsWith('customers.people.detail.')
-        ? key.replace('customers.people.detail.', 'customers.companies.detail.')
-        : key
-      const adjustedFallback =
-        key.startsWith('customers.people.detail.') && fallback
-          ? fallback
-              .replace(/\bPerson\b/g, 'Company')
-              .replace(/\bperson\b/g, 'company')
-              .replace(/\bPeople\b/g, 'Companies')
-              .replace(/\bpeople\b/g, 'companies')
-          : fallback
-      const translated = t(mappedKey, params)
-      if (translated !== mappedKey || mappedKey === key) return translated
-      const fallbackValue = t(key, params)
-      if (fallbackValue !== key) return fallbackValue
-      if (!adjustedFallback) return mappedKey
-      return formatTemplate(adjustedFallback, params)
-    },
-    [t],
-  )
-
+  // Data loading
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
@@ -130,12 +121,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     }
     setError(null)
     try {
-      const search = new URLSearchParams()
-      search.append('include', 'todos')
-      search.append('include', 'people')
-      search.append('include', 'interactions')
       const payload = await readApiResultOrThrow<CompanyOverview>(
-        `/api/customers/companies/${encodeURIComponent(id)}?${search.toString()}`,
+        `/api/customers/companies/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
       )
@@ -151,10 +138,24 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch(() => {})
+    loadData().catch((err) => console.warn('[companies-v2] loadData failed', err))
   }, [loadData])
 
-  // Zone 2: Injection widgets for custom tabs
+  React.useEffect(() => {
+    setDealCount(data?.counts?.deals ?? 0)
+  }, [data?.counts?.deals])
+
+  const handleActivityCreated = React.useCallback(() => {
+    setActivityRefreshKey((k) => k + 1)
+    loadData().catch((err) => console.warn('[companies-v2] reload after activity failed', err))
+  }, [loadData])
+
+  // Planned activities for the activity-log tab
+  const plannedActivities = React.useMemo(() => {
+    return data?.plannedActivitiesPreview ?? []
+  }, [data?.plannedActivitiesPreview])
+
+  // Injection context for UMES
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -177,6 +178,47 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [injectionContext, runMutation],
   )
 
+  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
+    runMutationWithContext,
+    onAfterChange: handleActivityCreated,
+    logContext: 'customers.companies-v2',
+  })
+
+  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+    const raw = activity as Record<string, unknown>
+    const durationValue = typeof raw.duration === 'number'
+      ? raw.duration
+      : typeof raw.durationMinutes === 'number'
+        ? raw.durationMinutes as number
+        : null
+    setScheduleEditData({
+      id: activity.id,
+      interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
+      title: typeof activity.title === 'string' ? activity.title : null,
+      body: typeof activity.body === 'string' ? activity.body : null,
+      scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
+      durationMinutes: durationValue,
+      location: typeof raw.location === 'string' ? raw.location as string : null,
+      allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
+      recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
+      recurrenceEnd: typeof raw.recurrenceEnd === 'string' ? raw.recurrenceEnd as string : null,
+      participants: Array.isArray(raw.participants) ? raw.participants as ScheduleActivityEditData['participants'] : null,
+      reminderMinutes: typeof raw.reminderMinutes === 'number' ? raw.reminderMinutes as number : null,
+      visibility: typeof raw.visibility === 'string' ? raw.visibility as string : null,
+      linkedEntities: Array.isArray(raw.linkedEntities) ? raw.linkedEntities as ScheduleActivityEditData['linkedEntities'] : null,
+      guestPermissions: raw.guestPermissions && typeof raw.guestPermissions === 'object'
+        ? raw.guestPermissions as ScheduleActivityEditData['guestPermissions']
+        : null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
+
+  const openNewScheduleDialog = React.useCallback(() => {
+    setScheduleEditData(null)
+    setScheduleDialogOpen(true)
+  }, [])
+
+  // Injected tabs from UMES
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.company:tabs', {
     context: injectionContext,
     triggerOnLoad: true,
@@ -188,7 +230,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -205,19 +247,13 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
-  const tabs = React.useMemo(
-    () => [
-      { id: 'notes' as const, label: t('customers.companies.detail.tabs.notes', 'Notes') },
-      { id: 'activities' as const, label: t('customers.companies.detail.tabs.activities', 'Activities') },
-      { id: 'deals' as const, label: t('customers.companies.detail.tabs.deals', 'Deals') },
-      { id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') },
-      { id: 'addresses' as const, label: t('customers.companies.detail.tabs.addresses', 'Addresses') },
-      { id: 'tasks' as const, label: t('customers.companies.detail.tabs.tasks', 'Tasks') },
-      ...injectedTabs.map((tab) => ({ id: tab.id as SectionKey, label: tab.label })),
-    ],
-    [injectedTabs, t],
-  )
+  // Tags
+  const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
+    setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
+  }, [])
+  const tagsSectionControllerRef = React.useRef<TagsSectionController | null>(null)
 
+  // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
   }, [])
@@ -231,63 +267,70 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setSectionAction(null)
   }, [activeTab])
 
-  const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
-    setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
-  }, [])
-  const tagsSectionControllerRef = React.useRef<TagsSectionController | null>(null)
-
+  // Deals scope
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
     [currentCompanyId],
   )
 
-  const initialValues = React.useMemo(
-    () => (data ? mapCompanyOverviewToFormValues(data) : undefined),
-    [data],
-  )
+  // Delete handler (shared between header and form)
+  const handleDelete = React.useCallback(async () => {
+    const companyId = data?.company?.id ?? ''
+    if (!companyId) return
+    const approved = await confirm({
+      title: t('customers.companies.detail.deleteConfirmTitle', 'Delete company?'),
+      description: t('customers.companies.detail.deleteConfirmDescription', 'This action cannot be undone.'),
+      confirmText: t('customers.companies.detail.actions.delete', 'Delete company'),
+      cancelText: t('customers.companies.detail.actions.cancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!approved) return
+    await runMutationWithContext(
+      () => deleteCrud('customers/companies', { id: companyId }),
+      { id: companyId, operation: 'deleteCompany' },
+    )
+    flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
+    router.push('/backend/customers/companies')
+  }, [confirm, data?.company?.id, router, runMutationWithContext, t])
 
-  const contentHeader = React.useMemo(
-    () => (data ? <CompanyHighlightsSummary data={data} /> : undefined),
-    [data],
-  )
-
+  // Form submit handler (lifted from CompanyDataTab)
   const handleFormSubmit = React.useCallback(
     async (values: CompanyEditFormValues) => {
-      await tagsSectionControllerRef.current?.flush()
-
-      let payload: Record<string, unknown>
+      setIsSaving(true)
       try {
-        payload = buildCompanyEditPayload(values, organizationId)
-      } catch (err) {
-        if (err instanceof Error) {
-          if (err.message === 'DISPLAY_NAME_REQUIRED') {
-            const message = t('customers.companies.form.displayName.error')
-            throw createCrudFormError(message, { displayName: message })
+        let payload: Record<string, unknown>
+        try {
+          payload = buildCompanyEditPayload(values, organizationId)
+        } catch (err) {
+          if (err instanceof Error) {
+            if (err.message === 'DISPLAY_NAME_REQUIRED') {
+              const message = t('customers.companies.form.displayName.error')
+              throw createCrudFormError(message, { displayName: message })
+            }
+            if (err.message === 'ANNUAL_REVENUE_INVALID') {
+              const message = t('customers.companies.form.annualRevenue.error')
+              throw createCrudFormError(message, { annualRevenue: message })
+            }
           }
-          if (err.message === 'ANNUAL_REVENUE_INVALID') {
-            const message = t('customers.companies.form.annualRevenue.error')
-            throw createCrudFormError(message, { annualRevenue: message })
-          }
+          throw err
         }
-        throw err
+        await updateCrud('customers/companies', payload)
+        flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
+        await loadData()
+      } finally {
+        setIsSaving(false)
       }
-
-      await updateCrud('customers/companies', payload)
-      flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
-      await loadData()
     },
     [loadData, organizationId, t],
   )
 
-  const handleFormDelete = React.useCallback(
-    async () => {
-      await deleteCrud('customers/companies', { id: data?.company?.id ?? '' })
-      flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
-      router.push('/backend/customers/companies')
-    },
-    [data?.company?.id, router, t],
-  )
+  // Save handler (triggers form submit via ref)
+  const handleHeaderSave = React.useCallback(() => {
+    const form = formWrapperRef.current?.querySelector('form')
+    if (form) form.requestSubmit()
+  }, [])
 
+  // Loading / error states
   if (isLoading) {
     return (
       <Page>
@@ -298,7 +341,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     )
   }
 
-  if (error || !data?.company?.id || !initialValues) {
+  if (error || !data?.company?.id) {
     return (
       <Page>
         <PageBody>
@@ -323,103 +366,90 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   return (
     <Page>
       <PageBody>
-        <div className="space-y-8">
+        <div className="space-y-4">
           {/* UMES header injection */}
           <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
           <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
 
-          {/* Zone 1: CrudForm */}
-          <CrudForm<CompanyEditFormValues>
-            title={data.company.displayName}
-            backHref="/backend/customers/companies"
-            versionHistory={{
-              resourceKind: 'customers.company',
-              resourceId: companyId,
-            }}
-            injectionSpotId="customers.company"
-            entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-            schema={formSchema}
-            fields={fields}
-            groups={groups}
-            initialValues={initialValues}
-            contentHeader={contentHeader}
-            onSubmit={handleFormSubmit}
-            onDelete={handleFormDelete}
+          {/* Persistent company header */}
+          <CompanyDetailHeader
+            data={data}
+            onTagsChange={handleTagsChange}
+            tagsSectionControllerRef={tagsSectionControllerRef}
+            onSave={handleHeaderSave}
+            onDelete={handleDelete}
+            isDirty={isDirty}
+            isSaving={isSaving}
+            onDataReload={() => { loadData().catch((err) => console.warn('[companies-v2] onDataReload failed', err)) }}
           />
 
-          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            {t(
-              'customers.detail.saveGuide',
-              'Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.',
-            )}
-          </div>
+          {/* KPI bar — always visible above zones */}
+          <CompanyKpiBar data={data} />
 
-          {/* Tags (independent save) */}
-          <TagsSection
-            entityId={companyId}
-            tags={data.tags}
-            onChange={handleTagsChange}
-            isSubmitting={false}
-            controllerRef={tagsSectionControllerRef}
-          />
-
-          {/* Zone 2: Related Data Tabs */}
-          <DetailTabsLayout
-            className="space-y-6"
-            tabs={tabs}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            sectionAction={sectionAction}
-            onSectionAction={handleSectionAction}
-            navAriaLabel={t('customers.companies.detail.tabs.label', 'Company detail sections')}
-            navClassName="gap-4"
-          >
-            {(() => {
-              const injected = injectedTabMap.get(activeTab)
-              if (injected) return injected()
-              if (activeTab === 'notes') {
-                return (
-                  <NotesSection
-                    entityId={companyId}
-                    emptyLabel={t('customers.companies.detail.empty.comments', 'No notes yet.')}
-                    viewerUserId={data.viewer?.userId ?? null}
-                    viewerName={data.viewer?.name ?? null}
-                    viewerEmail={data.viewer?.email ?? null}
-                    addActionLabel={t('customers.companies.detail.notes.addLabel', 'Add note')}
+          {/* Two-zone layout: zone1 = form, zone2 = tabs */}
+          <CollapsibleZoneLayout
+            pageType="company-v2"
+            entityName={companyName}
+            isDirty={isDirty}
+            sections={zoneSections}
+            zone1={
+              <div ref={formWrapperRef}>
+                <CrudForm<CompanyEditFormValues>
+                  embedded
+                  trackDirtyWhenEmbedded
+                  injectionSpotId="customers.company"
+                  entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+                  schema={formSchema}
+                  fields={formFields}
+                  groups={formGroups}
+                  initialValues={initialValues}
+                  onSubmit={handleFormSubmit}
+                  onDelete={handleDelete}
+                  hideFooterActions
+                  collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'left' }}
+                  sortableGroups={{ pageType: 'company-v2' }}
+                  onDirtyChange={setIsDirty}
+                />
+              </div>
+            }
+            zone2={
+              <CompanyDetailTabs
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                peopleCount={data.counts?.people ?? 0}
+                dealsCount={dealCount}
+                activitiesCount={data.counts?.activities ?? 0}
+              >
+                {activeTab === 'people' && (
+                  <CompanyPeopleSection
+                    companyId={companyId}
+                    companyName={data.company?.displayName ?? ''}
+                    initialPeople={[]}
+                    addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
+                    emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
                     emptyState={{
-                      title: t('customers.companies.detail.emptyState.notes.title', 'Keep everyone in the loop'),
-                      actionLabel: t('customers.companies.detail.emptyState.notes.action', 'Create a note'),
+                      title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
+                      actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    translator={translateCompanyDetail}
-                    dataAdapter={notesAdapter}
-                    renderIcon={renderDictionaryIcon}
-                    renderColor={renderDictionaryColor}
-                    iconSuggestions={ICON_SUGGESTIONS}
-                    readMarkdownPreference={readMarkdownPreferenceCookie}
-                    writeMarkdownPreference={writeMarkdownPreferenceCookie}
-                  />
-                )
-              }
-              if (activeTab === 'activities') {
-                return (
-                  <ActivitiesSection
-                    entityId={companyId}
-                    useCanonicalInteractions={useCanonicalInteractions}
+                    translator={detailTranslator}
                     runGuardedMutation={runMutationWithContext}
-                    onDataRefresh={loadData}
-                    addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
-                    emptyState={{
-                      title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
-                      actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
+                    onPeopleChange={(next) => {
+                      setData((prev) => {
+                        if (!prev) return prev
+                        const nextCount = next.length
+                        return {
+                          ...prev,
+                          people: next,
+                          counts: prev.counts ? { ...prev.counts, people: nextCount } : prev.counts,
+                        }
+                      })
                     }}
-                    onActionChange={handleSectionActionChange}
-                    onLoadingChange={stableNoopCallback}
                   />
-                )
-              }
-              if (activeTab === 'deals') {
-                return (
+                )}
+
+                {activeTab === 'deals' && (
                   <DealsSection
                     scope={dealsScope}
                     emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
@@ -431,73 +461,58 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
                     runGuardedMutation={runMutationWithContext}
+                    onCountDelta={(delta) => setDealCount((current) => Math.max(0, current + delta))}
                   />
-                )
-              }
-              if (activeTab === 'people') {
-                return (
-                  <CompanyPeopleSection
-                    companyId={companyId}
-                    initialPeople={data.people ?? []}
-                    addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
-                    emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
-                    emptyState={{
-                      title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
-                      actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
-                    }}
-                    onActionChange={handleSectionActionChange}
-                    translator={detailTranslator}
-                    onDataRefresh={loadData}
+                )}
+
+                {activeTab === 'activity-log' && (
+                  <ActivityLogTab
+                    entityId={companyId}
+                    plannedActivities={plannedActivities}
+                    onActivityCreated={handleActivityCreated}
+                    onScheduleRequested={openNewScheduleDialog}
+                    onMarkDone={handleMarkDone}
+                    onEditActivity={handleEditActivity}
+                    onCancelActivity={handleCancelActivity}
                     runGuardedMutation={runMutationWithContext}
-                    onPeopleChange={(next) => {
-                      setData((prev) => (prev ? { ...prev, people: next } : prev))
-                    }}
-                  />
-                )
-              }
-              if (activeTab === 'addresses') {
-                return (
-                  <AddressesSection
-                    entityId={companyId}
-                    emptyLabel={t('customers.companies.detail.empty.addresses', 'No addresses recorded.')}
-                    addActionLabel={t('customers.companies.detail.addresses.add', 'Add address')}
-                    emptyState={{
-                      title: t('customers.companies.detail.emptyState.addresses.title', 'No addresses yet'),
-                      actionLabel: t('customers.companies.detail.emptyState.addresses.action', 'Add address'),
-                    }}
-                    onActionChange={handleSectionActionChange}
-                    translator={detailTranslator}
-                  />
-                )
-              }
-              if (activeTab === 'tasks') {
-                return (
-                  <TasksSection
-                    entityId={companyId}
-                    initialTasks={data.todos}
+                    refreshKey={activityRefreshKey}
                     useCanonicalInteractions={useCanonicalInteractions}
-                    runGuardedMutation={runMutationWithContext}
-                    onDataRefresh={loadData}
-                    emptyLabel={t('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
-                    addActionLabel={t('customers.companies.detail.tasks.add', 'Add task')}
-                    emptyState={{
-                      title: t('customers.companies.detail.emptyState.tasks.title', 'Plan what happens next'),
-                      actionLabel: t('customers.companies.detail.emptyState.tasks.action', 'Create task'),
-                    }}
-                    onActionChange={handleSectionActionChange}
-                    translator={translateCompanyDetail}
-                    entityName={companyName}
-                    dialogContextKey="customers.companies.detail.tasks.dialog.context"
-                    dialogContextFallback="This task will be linked to {{name}}"
                   />
-                )
-              }
-              return null
-            })()}
-          </DetailTabsLayout>
+                )}
+
+                {activeTab === 'changelog' && companyId && (
+                  <ChangelogTab entityId={companyId} entityType="company" />
+                )}
+
+                {activeTab === 'files' && (
+                  <AttachmentsSection
+                    entityId={E.customers.customer_entity}
+                    recordId={companyId}
+                    title={t('customers.companies.detail.tabs.files', 'Files')}
+                    description={t('customers.companies.detail.files.subtitle', 'Upload and manage files linked to this company.')}
+                  />
+                )}
+
+                {/* Injected tabs from UMES */}
+                {injectedTabMap.has(activeTab) && injectedTabMap.get(activeTab)!()}
+              </CompanyDetailTabs>
+            }
+          />
 
           {/* UMES footer injection */}
           <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+
+          {/* Schedule Activity Dialog */}
+          <ScheduleActivityDialog
+            open={scheduleDialogOpen}
+            onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
+            entityId={companyId}
+            entityName={companyName}
+            entityType="company"
+            onActivityCreated={handleActivityCreated}
+            editData={scheduleEditData}
+          />
+          {ConfirmDialogElement}
         </div>
       </PageBody>
     </Page>

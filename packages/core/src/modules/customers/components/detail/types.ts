@@ -77,6 +77,8 @@ export type DealSummary = {
   title: string
   status?: string | null
   pipelineStage?: string | null
+  pipelineId?: string | null
+  pipelineStageId?: string | null
   valueAmount?: number | string | null
   valueCurrency?: string | null
   probability?: number | string | null
@@ -84,6 +86,9 @@ export type DealSummary = {
   description?: string | null
   ownerUserId?: string | null
   source?: string | null
+  closureOutcome?: string | null
+  lossReasonId?: string | null
+  lossNotes?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   customValues?: Record<string, unknown> | null
@@ -126,6 +131,10 @@ export type InteractionSummary = {
   appearanceIcon?: string | null
   appearanceColor?: string | null
   source?: string | null
+  location?: string | null
+  allDay?: boolean | null
+  recurrenceRule?: string | null
+  recurrenceEnd?: string | null
   entityId?: string | null
   dealId?: string | null
   organizationId?: string | null
@@ -134,12 +143,19 @@ export type InteractionSummary = {
   authorEmail?: string | null
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
+  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  reminderMinutes?: number | null
+  visibility?: string | null
+  linkedEntities?: Array<{ id: string; type: string; label: string }> | null
+  guestPermissions?: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   customer?: {
     id: string | null
     displayName: string | null
     kind: string | null
   } | null
   _integrations?: Record<string, unknown>
+  pinned?: boolean
+  duration?: number | null
   createdAt: string
   updatedAt: string
 }

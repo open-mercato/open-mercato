@@ -75,6 +75,12 @@ export class CustomerEntity {
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null
 
+  @Property({ name: 'temperature', type: 'text', nullable: true })
+  temperature?: string | null
+
+  @Property({ name: 'renewal_quarter', type: 'text', nullable: true })
+  renewalQuarter?: string | null
+
   @Property({ name: 'next_interaction_at', type: Date, nullable: true })
   nextInteractionAt?: Date | null
 
@@ -131,6 +137,12 @@ export class CustomerEntity {
 
   @OneToMany(() => CustomerDealCompanyLink, (link) => link.company)
   dealCompanyLinks = new Collection<CustomerDealCompanyLink>(this)
+
+  @OneToMany(() => CustomerPersonCompanyLink, (link) => link.person)
+  personCompanyLinks = new Collection<CustomerPersonCompanyLink>(this)
+
+  @OneToMany(() => CustomerPersonCompanyLink, (link) => link.company)
+  linkedPeople = new Collection<CustomerPersonCompanyLink>(this)
 
   @OneToMany(() => CustomerPersonProfile, (person) => person.company)
   companyMembers = new Collection<CustomerPersonProfile>(this)
@@ -201,6 +213,46 @@ export class CustomerPersonProfile {
   company?: CustomerEntity | null
 }
 
+@Entity({ tableName: 'customer_person_company_links' })
+@Index({ name: 'customer_person_company_links_person_idx', properties: ['person'] })
+@Index({ name: 'customer_person_company_links_company_idx', properties: ['company'] })
+@Index({ name: 'customer_person_company_links_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_person_company_links_active_unique',
+  expression:
+    `create unique index "customer_person_company_links_active_unique" on "customer_person_company_links" ("person_entity_id", "company_entity_id") where "deleted_at" is null`,
+})
+export class CustomerPersonCompanyLink {
+  [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'is_primary', type: 'boolean', default: false })
+  isPrimary: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
+  person!: CustomerEntity
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'company_entity_id' })
+  company!: CustomerEntity
+}
+
 @Entity({ tableName: 'customer_companies' })
 @Index({ name: 'customer_companies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({
@@ -257,6 +309,10 @@ export class CustomerCompanyProfile {
 
 @Entity({ tableName: 'customer_deals' })
 @Index({ name: 'customer_deals_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_deals_closure_stats_idx',
+  properties: ['organizationId', 'tenantId', 'closureOutcome', 'updatedAt'],
+})
 export class CustomerDeal {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -305,6 +361,15 @@ export class CustomerDeal {
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null
 
+  @Property({ name: 'closure_outcome', type: 'text', nullable: true })
+  closureOutcome?: string | null
+
+  @Property({ name: 'loss_reason_id', type: 'uuid', nullable: true })
+  lossReasonId?: string | null
+
+  @Property({ name: 'loss_notes', type: 'text', nullable: true })
+  lossNotes?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -325,6 +390,59 @@ export class CustomerDeal {
 
   @OneToMany(() => CustomerComment, (comment) => comment.deal)
   comments = new Collection<CustomerComment>(this)
+
+  @OneToMany(() => CustomerDealStageTransition, (transition) => transition.deal)
+  stageTransitions = new Collection<CustomerDealStageTransition>(this)
+}
+
+@Entity({ tableName: 'customer_deal_stage_transitions' })
+@Index({ name: 'customer_deal_stage_transitions_deal_idx', properties: ['deal'] })
+@Index({ name: 'customer_deal_stage_transitions_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_deal_stage_transitions_deal_stage_uq', properties: ['deal', 'stageId'] })
+export class CustomerDealStageTransition {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'transitionedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'pipeline_id', type: 'uuid' })
+  pipelineId!: string
+
+  @Property({ name: 'stage_id', type: 'uuid' })
+  stageId!: string
+
+  @Property({ name: 'stage_label', type: 'text' })
+  stageLabel!: string
+
+  @Property({ name: 'stage_order', type: 'int' })
+  stageOrder!: number
+
+  @Property({ name: 'transitioned_at', type: Date, onCreate: () => new Date() })
+  transitionedAt: Date = new Date()
+
+  @Property({ name: 'transitioned_by_user_id', type: 'uuid', nullable: true })
+  transitionedByUserId?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => CustomerDeal, { fieldName: 'deal_id' })
+  deal!: CustomerDeal
 }
 
 @Entity({ tableName: 'customer_deal_people' })
@@ -434,7 +552,7 @@ export class CustomerActivity {
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -483,6 +601,39 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'duration_minutes', type: 'int', nullable: true })
+  durationMinutes?: number | null
+
+  @Property({ name: 'location', type: 'text', nullable: true })
+  location?: string | null
+
+  @Property({ name: 'all_day', type: 'boolean', nullable: true })
+  allDay?: boolean | null
+
+  @Property({ name: 'recurrence_rule', type: 'text', nullable: true })
+  recurrenceRule?: string | null
+
+  @Property({ name: 'recurrence_end', type: Date, nullable: true })
+  recurrenceEnd?: Date | null
+
+  @Property({ name: 'participants', type: 'jsonb', nullable: true })
+  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+
+  @Property({ name: 'reminder_minutes', type: 'int', nullable: true })
+  reminderMinutes?: number | null
+
+  @Property({ name: 'visibility', type: 'text', nullable: true })
+  visibility?: string | null
+
+  @Property({ name: 'linked_entities', type: 'jsonb', nullable: true })
+  linkedEntities?: Array<{ id: string; type: string; label: string }> | null
+
+  @Property({ name: 'guest_permissions', type: 'jsonb', nullable: true })
+  guestPermissions?: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
+
+  @Property({ name: 'pinned', type: 'boolean', default: false })
+  pinned: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -820,4 +971,205 @@ export class CustomerTodoLink {
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
+}
+
+@Entity({ tableName: 'customer_entity_roles' })
+@Index({ name: 'customer_entity_roles_entity_idx', properties: ['entityType', 'entityId'] })
+@Index({ name: 'customer_entity_roles_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_entity_roles_active_unique',
+  expression:
+    'create unique index "customer_entity_roles_active_unique" on "customer_entity_roles" ("entity_type", "entity_id", "role_type") where "deleted_at" is null',
+})
+export class CustomerEntityRole {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'uuid' })
+  entityId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'role_type', type: 'text' })
+  roleType!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_dictionary_kind_settings' })
+@Index({ name: 'customer_dict_kind_settings_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_dict_kind_settings_unique', properties: ['organizationId', 'tenantId', 'kind'] })
+export class CustomerDictionaryKindSetting {
+  [OptionalProps]?: 'selectionMode' | 'visibleInTags' | 'sortOrder' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  kind!: string
+
+  @Property({ name: 'selection_mode', type: 'text', default: 'single' })
+  selectionMode: string = 'single'
+
+  @Property({ name: 'visible_in_tags', type: 'boolean', default: true })
+  visibleInTags: boolean = true
+
+  @Property({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_labels' })
+@Index({ name: 'customer_labels_scope_idx', properties: ['organizationId', 'tenantId', 'userId'] })
+@Unique({ name: 'customer_labels_unique', properties: ['userId', 'tenantId', 'organizationId', 'slug'] })
+export class CustomerLabel {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_label_assignments' })
+@Index({ name: 'customer_label_assignments_entity_idx', properties: ['entity'] })
+@Unique({ name: 'customer_label_assignments_unique', properties: ['label', 'entity'] })
+export class CustomerLabelAssignment {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @ManyToOne(() => CustomerLabel, { fieldName: 'label_id' })
+  label!: CustomerLabel
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+  entity!: CustomerEntity
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_company_billing' })
+@Index({ name: 'customer_company_billing_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_company_billing_entity_unique', properties: ['entity'] })
+export class CustomerCompanyBilling {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+  entity!: CustomerEntity
+
+  @Property({ name: 'bank_name', type: 'text', nullable: true })
+  bankName?: string | null
+
+  @Property({ name: 'bank_account_masked', type: 'text', nullable: true })
+  bankAccountMasked?: string | null
+
+  @Property({ name: 'payment_terms', type: 'text', nullable: true })
+  paymentTerms?: string | null
+
+  @Property({ name: 'preferred_currency', type: 'text', nullable: true })
+  preferredCurrency?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_person_company_roles' })
+@Index({ name: 'customer_pcr_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_pcr_person_company_idx', properties: ['personEntity', 'companyEntity'] })
+@Unique({ name: 'customer_pcr_unique', properties: ['personEntity', 'companyEntity', 'roleValue'] })
+export class CustomerPersonCompanyRole {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
+  personEntity!: CustomerEntity
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'company_entity_id' })
+  companyEntity!: CustomerEntity
+
+  @Property({ name: 'role_value', type: 'text' })
+  roleValue!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

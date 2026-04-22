@@ -234,6 +234,42 @@ export function applyEntityIdRestriction(
   filters.id = ids.length > 0 ? { $in: ids } : { $eq: NO_MATCH_ID }
 }
 
+export function applyEntityIdExclusion(
+  filters: Record<string, unknown>,
+  ids: string[],
+): void {
+  const uniqueIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0)))
+  if (!uniqueIds.length) return
+
+  const currentIdFilter =
+    filters.id && typeof filters.id === 'object' && !Array.isArray(filters.id)
+      ? (filters.id as { $eq?: unknown; $in?: unknown; $nin?: unknown })
+      : null
+  const currentEq = typeof currentIdFilter?.$eq === 'string' ? currentIdFilter.$eq : null
+  const currentIn = Array.isArray(currentIdFilter?.$in)
+    ? currentIdFilter.$in.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : null
+  const currentNotIn = Array.isArray(currentIdFilter?.$nin)
+    ? currentIdFilter.$nin.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : []
+
+  if (currentEq) {
+    filters.id = uniqueIds.includes(currentEq) ? { $eq: NO_MATCH_ID } : { $eq: currentEq }
+    return
+  }
+
+  if (currentIn) {
+    const nextIds = currentIn.filter((id) => !uniqueIds.includes(id))
+    filters.id = nextIds.length > 0 ? { $in: nextIds } : { $eq: NO_MATCH_ID }
+    return
+  }
+
+  filters.id = {
+    ...(currentIdFilter ?? {}),
+    $nin: Array.from(new Set([...currentNotIn, ...uniqueIds])),
+  }
+}
+
 export function consumeAdvancedFilterState(query: Record<string, unknown>) {
   const state = deserializeAdvancedFilter(query)
   if (!state) return null

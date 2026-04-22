@@ -88,6 +88,8 @@
   "dictionaries.customFields.selector.placeholder": "Eintrag auswählen",
   "dictionaries.entries.audit.create": "Wörterbucheintrag hinzufügen",
   "dictionaries.entries.audit.delete": "Wörterbucheintrag löschen",
+  "dictionaries.entries.audit.reorder": "Wörterbucheinträge neu ordnen",
+  "dictionaries.entries.audit.set_default": "Standard-Wörterbucheintrag festlegen",
   "dictionaries.entries.audit.update": "Wörterbucheintrag aktualisieren",
   "dictionaries.entries.create": "Wörterbucheintrag hinzufügen",
   "dictionaries.entries.delete": "Wörterbucheintrag löschen",
