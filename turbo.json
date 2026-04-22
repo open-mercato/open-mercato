@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "concurrency": "32",
   "globalEnv": ["NODE_ENV"],
   "tasks": {
     "build": {

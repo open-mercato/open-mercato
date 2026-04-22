@@ -15,7 +15,9 @@ export type { MessageObjectRecordPickerProps } from './MessageObjectRecordPicker
 export { MessagesIcon } from './MessagesIcon'
 export type { MessagesIconProps } from './MessagesIcon'
 
+export { useMessages } from './useMessages'
 export { useMessagesPoll } from './useMessagesPoll'
+export { useMessagesSse } from './useMessagesSse'
 export type { MessagePollItem, UseMessagesPollResult } from './useMessagesPoll'
 
 export { MessageObjectPreview } from './MessageObjectPreview'

@@ -249,18 +249,42 @@ function MyPage({ orgSlug }) {
 | `section:portal:sidebar` | Navigation sidebar |
 | `section:portal:user-menu` | User dropdown |
 
-### Declarative Customer Auth in Page Metadata
+### Portal Page Metadata (REQUIRED)
 
-Portal pages can declare `requireCustomerAuth: true` and `requireCustomerFeatures` in their page metadata:
+Every portal page (any page under `frontend/[orgSlug]/portal/...`) MUST ship a sibling `page.meta.ts`. The `(frontend)` catch-all server-side enforces `requireCustomerAuth` and `requireCustomerFeatures` from the route manifest, so omitting metadata silently disables access control on a page that should be guarded.
+
+Authoring checklist for each portal page:
+- Public pages (`login`, `signup`, `verify`, anonymous landing): set `navHidden: true`. Do not set `requireCustomerAuth`.
+- Authenticated pages: set `requireCustomerAuth: true`.
+- Pages that need feature gating: add `requireCustomerFeatures: ['portal.<feature>']`. Wildcard grants like `portal.*` are honored by the shared matcher.
+- Pages that should appear in the portal sidebar: add a `nav` block (label + group). Pages without `nav` are routable but not auto-listed (correct for detail/edit pages).
 
 ```typescript
 // frontend/[orgSlug]/portal/orders/page.meta.ts
-export const metadata = {
+import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+
+export const metadata: PageMetadata = {
   requireCustomerAuth: true,
   requireCustomerFeatures: ['portal.orders.view'],
-  navHidden: true,
+  titleKey: 'orders.nav.title',
+  title: 'Orders',
+  nav: {
+    label: 'Orders',
+    labelKey: 'orders.nav.title',
+    group: 'main', // 'main' | 'account'
+    order: 20,
+    icon: 'shopping-bag',
+  },
 }
+
+export default metadata
 ```
+
+The portal sidebar is built from these `nav` declarations by `/api/customer_accounts/portal/nav`, filtered by `CustomerRbacService` against the same `requireCustomerFeatures` that gates access. Granting the feature to a customer role is sufficient for the entry to appear — no separate menu-injection widget required.
+
+For external links or items without a backing portal page, keep using `usePortalInjectedMenuItems` widgets.
+
+Reference: see `packages/core/src/modules/portal/frontend/[orgSlug]/portal/{dashboard,profile,login,signup,verify}/page.meta.ts` for examples.
 
 ### Declarative Customer Role Features in setup.ts
 

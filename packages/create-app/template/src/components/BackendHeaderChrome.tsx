@@ -67,13 +67,13 @@ export function BackendHeaderChrome({
     () => hasFeature(grantedFeatures, 'ai_assistant.view'),
     [grantedFeatures],
   )
-  const showMessages = React.useMemo(
-    () => hasFeature(grantedFeatures, 'messages.view'),
-    [grantedFeatures],
-  )
   const showSearch = React.useMemo(
     () => hasFeature(grantedFeatures, 'search.global'),
     [grantedFeatures],
+  )
+  const showMessages = React.useMemo(
+    () => hasVisibleRoute(payload?.groups, '/backend/messages'),
+    [payload?.groups],
   )
 
   return (

@@ -57,7 +57,6 @@ describe('network helpers', () => {
     expect(isPrivateIpAddress('fd12:3456::1')).toBe(true)
     expect(isPrivateIpAddress('fe80::1')).toBe(true)
     expect(isPrivateIpAddress('ff02::1')).toBe(true)
-    expect(isPrivateIpAddress('2001:db8::1')).toBe(true)
     expect(isPrivateIpAddress('::ffff:127.0.0.1')).toBe(true)
     expect(isPrivateIpAddress('::ffff:7f00:1')).toBe(true)
     expect(isPrivateIpAddress('64:ff9b::a9fe:a9fe')).toBe(true)

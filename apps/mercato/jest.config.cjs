@@ -41,5 +41,9 @@ module.exports = {
     'node_modules/(?!(@mikro-orm)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
+  transformIgnorePatterns: [
+    '/node_modules/(?!meilisearch)/',
+    '\\.pnp\\.[^\\/]+$',
+  ],
   passWithNoTests: true,
 }

@@ -177,6 +177,12 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
   )
 
+  copyFile(
+    srcDir,
+    'ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
+  )
+
   copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
   if (existsSync(GUIDES_DIR)) {

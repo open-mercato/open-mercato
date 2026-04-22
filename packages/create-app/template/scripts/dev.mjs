@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import spawn from 'cross-spawn'
 import {
   attachLoggedProcessStreams,
   createDevLogSession,
@@ -1482,7 +1482,6 @@ function startPackageWatch() {
     'run',
     'watch',
     '--filter=./packages/*',
-    '--parallel',
     '--output-logs=errors-only',
     '--log-order=grouped',
     '--log-prefix=none',

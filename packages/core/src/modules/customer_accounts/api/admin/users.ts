@@ -9,6 +9,10 @@ import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+
+const EMAIL_LIKE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const metadata = {}
 
@@ -61,10 +65,17 @@ export async function GET(req: Request) {
 
   if (search) {
     const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
-    const searchFilter = [
+    // email/displayName are stored encrypted, so SQL ILIKE on the ciphertext
+    // never matches a plaintext search term. Match the deterministic emailHash
+    // (used by CustomerUser as a blind index) when the query looks like an
+    // email so administrators can still look users up by exact address.
+    const searchFilter: Record<string, unknown>[] = [
       { email: { $ilike: `%${escapedSearch}%` } },
       { displayName: { $ilike: `%${escapedSearch}%` } },
     ]
+    if (EMAIL_LIKE_PATTERN.test(search)) {
+      searchFilter.push({ emailHash: hashForLookup(search) })
+    }
     if (where.$or) {
       where.$and = [{ $or: where.$or }, { $or: searchFilter }]
       delete where.$or
@@ -75,10 +86,13 @@ export async function GET(req: Request) {
 
   let userIds: string[] | null = null
   if (roleId) {
-    const roleLinks = await em.find(CustomerUserRole, {
-      role: roleId as any,
-      deletedAt: null,
-    })
+    const roleLinks = await findWithDecryption(
+      em,
+      CustomerUserRole,
+      { role: roleId as any, deletedAt: null } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     userIds = roleLinks.map((link) => (link.user as any)?.id || (link.user as unknown as string))
     if (userIds.length === 0) {
       return NextResponse.json({
@@ -93,36 +107,51 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [users, total] = await em.findAndCount(CustomerUser, where as any, {
-    orderBy: { createdAt: 'DESC' },
-    limit: pageSize,
-    offset,
-  })
+  const [users, total] = await findAndCountWithDecryption(
+    em,
+    CustomerUser,
+    where as any,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: pageSize,
+      offset,
+    },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
 
-  const items = await Promise.all(users.map(async (user) => {
-    const userRoles = await em.find(CustomerUserRole, {
-      user: user.id as any,
-      deletedAt: null,
-    }, { populate: ['role'] })
-    const roles = userRoles.map((ur) => ({
-      id: (ur.role as any).id,
-      name: (ur.role as any).name,
-      slug: (ur.role as any).slug,
-    }))
+  const pageUserIds = users.map((user) => user.id)
+  const userRoleLinks = pageUserIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerUserRole,
+        { user: { $in: pageUserIds } as any, deletedAt: null } as any,
+        { populate: ['role'] },
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+    : []
 
-    return {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      emailVerified: !!user.emailVerifiedAt,
-      isActive: user.isActive,
-      lockedUntil: user.lockedUntil || null,
-      lastLoginAt: user.lastLoginAt || null,
-      customerEntityId: user.customerEntityId || null,
-      personEntityId: user.personEntityId || null,
-      createdAt: user.createdAt,
-      roles,
-    }
+  const rolesByUserId = new Map<string, Array<{ id: string; name: string; slug: string }>>()
+  for (const link of userRoleLinks) {
+    const linkUserId = (link.user as any)?.id ?? (link.user as unknown as string)
+    const role = link.role as any
+    const bucket = rolesByUserId.get(linkUserId)
+    const entry = { id: role.id, name: role.name, slug: role.slug }
+    if (bucket) bucket.push(entry)
+    else rolesByUserId.set(linkUserId, [entry])
+  }
+
+  const items = users.map((user) => ({
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    emailVerified: !!user.emailVerifiedAt,
+    isActive: user.isActive,
+    lockedUntil: user.lockedUntil || null,
+    lastLoginAt: user.lastLoginAt || null,
+    customerEntityId: user.customerEntityId || null,
+    personEntityId: user.personEntityId || null,
+    createdAt: user.createdAt,
+    roles: rolesByUserId.get(user.id) ?? [],
   }))
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -184,11 +213,17 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const validRoles: InstanceType<typeof CustomerRole>[] = []
-    for (const roleId of parsed.data.roleIds) {
-      const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
-      if (role) validRoles.push(role)
-    }
+    const validRoles = await findWithDecryption(
+      em,
+      CustomerRole,
+      {
+        id: { $in: parsed.data.roleIds } as any,
+        tenantId: auth.tenantId,
+        deletedAt: null,
+      } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     for (const role of validRoles) {
       const userRole = em.create(CustomerUserRole, {
         user,

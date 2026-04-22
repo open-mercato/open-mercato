@@ -5,6 +5,14 @@ module.exports = {
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  moduleNameMapper: {
+    '^@open-mercato/onboarding/(.*)$': '<rootDir>/src/$1',
+    '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/search$': '<rootDir>/../search/src/index',
+    '^@open-mercato/search/(.*)$': '<rootDir>/../search/src/$1',
+    '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
+  },
   transform: {
     '^.+\\.(t|j)sx?$': [
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
