@@ -49,7 +49,7 @@ function normalizeHostname(hostname: string): string {
   return normalized
 }
 
-function isPrivateIPv4(address: string): boolean {
+export function isPrivateIPv4(address: string): boolean {
   const parts = address.split('.')
   if (parts.length !== 4) return false
   const octets = parts.map((part) => Number(part))
@@ -71,7 +71,7 @@ function isPrivateIPv4(address: string): boolean {
   return false
 }
 
-function isPrivateIPv6(address: string): boolean {
+export function isPrivateIPv6(address: string): boolean {
   const segments = expandIPv6(address)
   if (!segments) return false
 

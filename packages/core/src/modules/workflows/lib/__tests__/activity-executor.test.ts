@@ -884,6 +884,54 @@ describe('Activity Executor (Unit Tests)', () => {
         }
       }
     })
+
+    test('should allow private URLs when WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14c',
+        activityName: 'Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(global.fetch).toHaveBeenCalledWith(
+          'http://10.255.255.1/health',
+          expect.any(Object)
+        )
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated')
+        )
+      } finally {
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+        }
+      }
+    })
   })
 
   // ============================================================================

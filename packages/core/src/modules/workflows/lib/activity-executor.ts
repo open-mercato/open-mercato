@@ -28,7 +28,18 @@ import { logWorkflowEvent } from './event-logger'
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
-  return parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)
+  if (parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)) {
+    return true
+  }
+
+  if (parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)) {
+    console.warn(
+      '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.'
+    )
+    return true
+  }
+
+  return false
 }
 
 // ============================================================================
