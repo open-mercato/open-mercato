@@ -195,6 +195,61 @@ Practical consequences:
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
 
+## Feature Grants: New Features MUST Be Visible Immediately
+
+Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also:
+
+1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so admin and superadmin roles receive it on every new tenant setup:
+
+   ```ts
+   // src/modules/<module>/setup.ts
+   export const setup = {
+     defaultRoleFeatures: {
+       admin:      ['my_module.view', 'my_module.manage'],
+       superadmin: ['my_module.view', 'my_module.manage'],
+     },
+     // ...
+   }
+   ```
+
+2. **Reconcile existing tenants** by running the ACL apply command so existing installs pick up the new feature without a reinstall:
+
+   ```bash
+   yarn mercato acl apply --all-tenants
+   ```
+
+Do this automatically unless the user has explicitly said otherwise. If the current user is an admin or superadmin, they should see the feature you just built — not stare at a blank admin because their role is missing the grant.
+
+Feature IDs are FROZEN once shipped (they are stored in the DB as `role_features.feature_id`). If a rename is required, add the new ID, grant it, and keep the old one alongside as a deprecated alias until downstream data can be migrated.
+
+## Design System (Strict — applies to every UI change)
+
+All UI added or edited in `src/modules/<module>/backend/**` or `src/modules/<module>/frontend/**` MUST follow the Open Mercato design system. Non-compliant code will be blocked in `auto-review-pr`.
+
+**Colors.** NEVER hardcode Tailwind status colors (`text-red-500`, `bg-green-100`, `text-amber-*`, `text-emerald-*`, `bg-blue-*`). Use semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`, `text-status-info-icon`. For destructive actions (buttons) use the `destructive` token (`text-destructive`, `bg-destructive`). All status tokens have dedicated dark-mode values — no `dark:` overrides needed.
+
+**Typography.** NEVER use arbitrary text sizes (`text-[11px]`, `text-[13px]`, `text-[15px]`). Use the Tailwind scale: `text-xs` (12), `text-sm` (14), `text-base` (16), `text-lg` (18), `text-xl` (20), `text-2xl` (24). For 11px uppercase labels use the `text-overline` token.
+
+**Components to use instead of raw HTML.**
+
+| I need to… | Use |
+|---|---|
+| Show inline error / success / warning / info | `<Alert variant="destructive\|success\|warning\|info">` |
+| Show a toast | `flash('message', 'success\|error\|warning\|info')` |
+| Confirm a destructive action | `useConfirmDialog()` |
+| Display entity status (active / draft / archived) | `<StatusBadge variant={statusMap[status]} dot>` |
+| Wrap a form input with label + error | `<FormField label="…" error={…}>` |
+| Section header with count + action | `<SectionHeader title="…" count={n} action={…}>` |
+| Collapsible section | `<CollapsibleSection title="…">…</CollapsibleSection>` |
+| Loading state | `<LoadingMessage />`, `<Spinner />`, or `<DataLoader />` |
+| Empty state | `<EmptyState>` (or `emptyState` prop on `DataTable`) |
+
+**Icons.** Use `lucide-react` for every icon — never inline `<svg>`. Sizes: `size-3`, `size-4` (default), `size-5`, `size-6`. Do not override `strokeWidth` per-instance. Icon-only buttons MUST have `aria-label`.
+
+**Dialogs.** Every dialog MUST submit on `Cmd/Ctrl+Enter` and cancel on `Escape`.
+
+**Boy Scout rule.** When modifying a file that still has hardcoded status colors or arbitrary text sizes, migrate at minimum the lines you touched to semantic tokens.
+
 ## Agent Automation / Auto-Skills
 
 This project ships four auto-* Claude Code skills under `.ai/skills/` that let you delegate whole units of work to an autonomous agent. They work inside your own repository (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts).
@@ -205,6 +260,7 @@ This project ships four auto-* Claude Code skills under `.ai/skills/` that let y
 | `auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/auto-continue-pr <PR#>"` |
 | `auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/auto-review-pr <PR#>"` |
 | `auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/auto-fix-github <issue#>"` |
+| `trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) | `claude "/trim-unused-modules"` |
 
 Notes:
 

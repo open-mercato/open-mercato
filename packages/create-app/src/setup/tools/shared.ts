@@ -169,6 +169,13 @@ export function generateShared(config: AgenticConfig): void {
     )
   }
 
+  // Classic-mode slimdown skill — offered after the user adds a new module
+  // so unused built-in modules can be disabled from src/modules.ts.
+  copyFile(
+    'ai/skills/trim-unused-modules/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'trim-unused-modules', 'SKILL.md'),
+  )
+
   // .ai/qa/tests/ — Playwright config for integration tests
   copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
