@@ -4,7 +4,7 @@
 |---|---|
 | **Date** | 2026-04-21 |
 | **Status** | Proposed |
-| **Author** | Piotr (om-cto) + om-spec-writing |
+| **Author** | Maciej Gren (with om-superpowers + Claude) |
 | **Scope** | OSS |
 | **Module(s)** | `customers`, `attachments`, `webhooks`, `integrations`, new `packages/transcription-zoom` |
 | **Related specs** | `.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md`, `.ai/specs/SPEC-030-2026-02-24-deal-attachments.md`, `.ai/specs/implemented/SPEC-045-2026-02-24-integration-marketplace.md`, `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` |

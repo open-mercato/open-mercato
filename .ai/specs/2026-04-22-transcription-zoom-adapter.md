@@ -4,7 +4,7 @@
 |---|---|
 | **Date** | 2026-04-22 |
 | **Status** | Draft — Proposed |
-| **Author** | Piotr (om-cto) + om-spec-writing |
+| **Author** | Maciej Gren (with om-superpowers + Claude) |
 | **Scope** | OSS |
 | **Module(s)** | new `packages/transcription-zoom` |
 | **Parent spec** | `.ai/specs/2026-04-21-crm-call-transcriptions.md` (CRM Call Transcriptions) |
