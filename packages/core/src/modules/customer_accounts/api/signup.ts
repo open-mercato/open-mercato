@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { compare as bcryptCompare } from 'bcryptjs'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -23,6 +24,10 @@ import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
+// Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
+// response latency between the existing-user and new-user signup branches so the endpoint's
+// 202-for-both contract is not undone by a timing side channel.
+const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
     ? `${baseUrl}/${organizationSlug}/portal/login`
@@ -88,7 +93,9 @@ export async function POST(req: Request) {
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    const loginUrl = resolvePortalLoginUrl(baseUrl, orgRow.slug)
+    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
+    const loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
     const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
     const copy = {
       preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),

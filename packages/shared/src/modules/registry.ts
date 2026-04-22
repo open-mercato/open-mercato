@@ -8,6 +8,22 @@ import type { IntegrationBundle, IntegrationDefinition } from './integrations/ty
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
 
+/**
+ * Portal sidebar navigation hint. When declared on a portal page's metadata,
+ * the page is auto-listed in the portal sidebar (subject to RBAC) by the
+ * `/api/customer_accounts/portal/nav` endpoint.
+ *
+ * Absence of `nav` means the page is routable but not auto-listed (useful for
+ * detail pages, create forms, etc.).
+ */
+export type PortalNavMetadata = {
+  label: string
+  labelKey?: string
+  group?: 'main' | 'account'
+  order?: number
+  icon?: string
+}
+
 // Metadata you can export from page.meta.ts or directly from a server page
 export type PageMetadata = {
   requireAuth?: boolean
@@ -19,6 +35,8 @@ export type PageMetadata = {
   requireCustomerAuth?: boolean
   // Portal: require customer-specific features (checked against CustomerRbacService)
   requireCustomerFeatures?: readonly string[]
+  // Portal: optional sidebar presentation hint (auto-listed by portal nav endpoint)
+  nav?: PortalNavMetadata
   // Titles and grouping (aliases supported)
   title?: string
   titleKey?: string
@@ -75,6 +93,8 @@ export type ModuleRoute = {
   requireCustomerAuth?: boolean
   // Portal: require customer-specific features (checked against CustomerRbacService)
   requireCustomerFeatures?: string[]
+  // Portal: optional sidebar presentation hint (auto-listed by portal nav endpoint)
+  nav?: PortalNavMetadata
   title?: string
   titleKey?: string
   group?: string
@@ -341,6 +361,16 @@ export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[
 
 export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
   return _backendRouteManifests ?? []
+}
+
+let _frontendRouteManifests: FrontendRouteManifestEntry[] | null = null
+
+export function registerFrontendRouteManifests(routes: FrontendRouteManifestEntry[]) {
+  _frontendRouteManifests = routes
+}
+
+export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
+  return _frontendRouteManifests ?? []
 }
 
 // CLI modules registry - shared between CLI and module workers
