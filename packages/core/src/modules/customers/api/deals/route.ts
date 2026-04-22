@@ -6,13 +6,7 @@ import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '.
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import {
-  applyEntityIdRestriction,
-  consumeAdvancedFilterState,
-  findMatchingEntityIdsWithQueryEngine,
-  findMatchingEntityIdsBySearchTokensAcrossSources,
-  parseScopedCommandInput,
-} from '../utils'
+import { parseScopedCommandInput } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   createCustomersCrudOpenApi,
@@ -21,7 +15,6 @@ import {
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -129,42 +122,10 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       title: 'title',
       value: 'value_amount',
     },
-    buildFilters: async (query: any, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+    buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.search) {
-        const matchingIds = ctx
-          ? await findMatchingEntityIdsBySearchTokensAcrossSources({
-              ctx,
-              query: query.search,
-              sources: [
-                {
-                  entityType: E.customers.customer_deal,
-                  fields: [
-                    'title',
-                    'description',
-                    'status',
-                    'pipeline_stage',
-                    'source',
-                    'value_amount',
-                    'value_currency',
-                    'cf:competitive_risk',
-                    'cf:implementation_complexity',
-                  ],
-                },
-              ],
-            })
-          : null
-        if (matchingIds !== null && matchingIds.length > 0) {
-          applyEntityIdRestriction(filters, matchingIds)
-        } else {
-          const searchPattern = `%${escapeLikePattern(query.search)}%`
-          filters.$or = [
-            { title: { $ilike: searchPattern } },
-            { description: { $ilike: searchPattern } },
-          ]
-        }
+        filters.title = { $ilike: `%${escapeLikePattern(query.search)}%` }
       }
       if (query.status) {
         filters.status = { $eq: query.status }
@@ -177,18 +138,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       }
       if (query.pipelineStageId) {
         filters.pipeline_stage_id = { $eq: query.pipelineStageId }
-      }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
-        const matchedIds = await findMatchingEntityIdsWithQueryEngine({
-          ctx,
-          entityId: E.customers.customer_deal,
-          filters: advancedFilters,
-        })
-        applyEntityIdRestriction(filters, matchedIds)
       }
       return filters
     },

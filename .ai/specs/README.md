@@ -90,7 +90,6 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Webhooks](2026-03-23-inbound-webhook-handlers.md) | 2026-03-23 | Inbound Webhook Handlers | Inbound webhook handler architecture and registration |
 | [Build Check](2026-03-25-safe-build-dev-coexistence.md) | 2026-03-25 | Safe Package Verification Build | Isolated `build:check` output so verification builds never touch live `dist/` artifacts |
 | [Not Found](2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
-| [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
 
 ### Implemented Specifications
 

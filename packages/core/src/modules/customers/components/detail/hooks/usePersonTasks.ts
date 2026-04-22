@@ -6,9 +6,8 @@ import { resolveTodoApiPath } from '../utils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../../../lib/interactionCompatibility'
 
-const DEFAULT_TODO_SOURCE = CUSTOMER_INTERACTION_TASK_SOURCE
+const DEFAULT_TODO_SOURCE = 'example:todo'
 
 type CustomerTodoRow = {
   id: string

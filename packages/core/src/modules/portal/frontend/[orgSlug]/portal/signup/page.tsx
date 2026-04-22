@@ -44,7 +44,7 @@ export default function PortalSignupPage({ params }: Props) {
           body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
         })
 
-        if (result.status === 202 && result.result?.ok) {
+        if (result.status === 201 && result.result?.ok) {
           setSuccess(true)
           return
         }

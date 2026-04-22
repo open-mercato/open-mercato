@@ -204,15 +204,7 @@ export class ToolSearchService {
 
     // Bulk index using available strategies
     if (records.length > 0) {
-      try {
-        await this.searchService.bulkIndex(records)
-      } catch (error) {
-        throw new Error(
-          `Failed to index ${records.length} tools: ${
-            error instanceof Error ? error.message : error
-          }`
-        )
-      }
+      await this.searchService.bulkIndex(records)
     }
 
     // Update checksum

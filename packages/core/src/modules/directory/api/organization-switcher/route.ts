@@ -171,7 +171,7 @@ export async function GET(req: NextRequest) {
         tenantId,
         orgId: scopedOrgId,
       },
-      selectedId: rawSelected,
+      selectedId: requestedAll ? null : rawSelected,
       tenantId,
     })
     const accessible = scope.allowedIds

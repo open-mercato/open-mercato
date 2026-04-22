@@ -1,0 +1,1077 @@
+==> Bumping patch version...
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 7ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 388ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 717ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 644ms
+[93m➤[39m YN0000: · Done with warnings in 2s 34ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mcache[39m[38;5;111m@[39m[38;5;111mworkspace:packages/cache[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 2ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 253ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 677ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 557ms
+[93m➤[39m YN0000: · Done with warnings in 1s 760ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mcli[39m[38;5;111m@[39m[38;5;111mworkspace:packages/cli[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 2ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 224ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 673ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 523ms
+[93m➤[39m YN0000: · Done with warnings in 1s 687ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mcontent[39m[38;5;111m@[39m[38;5;111mworkspace:packages/content[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 2ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 232ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 657ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 531ms
+[93m➤[39m YN0000: · Done with warnings in 1s 679ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173msearch[39m[38;5;111m@[39m[38;5;111mworkspace:packages/search[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 2ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 219ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 659ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 509ms
+[93m➤[39m YN0000: · Done with warnings in 1s 649ms
+[94m➤[39m YN0000: [38;5;173mcreate-mercato-app[39m[38;5;111m@[39m[38;5;111mworkspace:packages/create-app[39m: Bumped to 0.4.5
+
+[94m➤[39m YN0000: Done in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 218ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 659ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 496ms
+[93m➤[39m YN0000: · Done with warnings in 1s 635ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m: Bumped to 0.4.5
+
+[94m➤[39m YN0000: Done in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 204ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 637ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 501ms
+[93m➤[39m YN0000: · Done with warnings in 1s 607ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mevents[39m[38;5;111m@[39m[38;5;111mworkspace:packages/events[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mscheduler[39m[38;5;111m@[39m[38;5;111mworkspace:packages/scheduler[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 214ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 649ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 504ms
+[93m➤[39m YN0000: · Done with warnings in 1s 625ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173monboarding[39m[38;5;111m@[39m[38;5;111mworkspace:packages/onboarding[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 209ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 641ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 506ms
+[93m➤[39m YN0000: · Done with warnings in 1s 619ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mqueue[39m[38;5;111m@[39m[38;5;111mworkspace:packages/queue[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mevents[39m[38;5;111m@[39m[38;5;111mworkspace:packages/events[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mscheduler[39m[38;5;111m@[39m[38;5;111mworkspace:packages/scheduler[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173msearch[39m[38;5;111m@[39m[38;5;111mworkspace:packages/search[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 221ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 648ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 548ms
+[93m➤[39m YN0000: · Done with warnings in 1s 709ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mscheduler[39m[38;5;111m@[39m[38;5;111mworkspace:packages/scheduler[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 2ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 207ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 644ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 498ms
+[93m➤[39m YN0000: · Done with warnings in 1s 606ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173msearch[39m[38;5;111m@[39m[38;5;111mworkspace:packages/search[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 209ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 646ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 496ms
+[93m➤[39m YN0000: · Done with warnings in 1s 613ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mshared[39m[38;5;111m@[39m[38;5;111mworkspace:packages/shared[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mcli[39m[38;5;111m@[39m[38;5;111mworkspace:packages/cli[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mcontent[39m[38;5;111m@[39m[38;5;111mworkspace:packages/content[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173monboarding[39m[38;5;111m@[39m[38;5;111mworkspace:packages/onboarding[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mscheduler[39m[38;5;111m@[39m[38;5;111mworkspace:packages/scheduler[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173msearch[39m[38;5;111m@[39m[38;5;111mworkspace:packages/search[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 3ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 208ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 643ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 494ms
+[93m➤[39m YN0000: · Done with warnings in 1s 605ms
+[94m➤[39m YN0000: [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m: Bumped to 0.4.5
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mapp[39m[38;5;111m@[39m[38;5;111mworkspace:apps/mercato[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m)
+[93m➤[39m YN0000: Couldn't auto-upgrade range * (in [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m)
+
+[93m➤[39m YN0000: Done with warnings in 0s 1ms
+[94m➤[39m YN0000: · Yarn 4.12.0
+[94m➤[39m [90mYN0000[39m: ┌ Resolution step
+::group::Resolution step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 215ms
+[94m➤[39m [90mYN0000[39m: ┌ Post-resolution validation
+::group::Post-resolution validation
+[93m➤[39m YN0060: │ [38;5;173mzod[39m is listed by your project with version [38;5;111m4.1.13[39m ([38;5;111mp4183ea[39m), which doesn't satisfy what [38;5;166m@ai-sdk/[39m[38;5;173mgoogle[39m (via [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m) and other dependencies request ([38;5;37m^3.25.76[39m).
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp482e0c[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact[39m ([38;5;111mp1bdf6e[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant [7c70c][39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpb75e2d[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp7140d8[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp28f7d7[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp7860ae[39m), requested by [38;5;173mcmdk[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m doesn't provide [38;5;173mzod[39m ([38;5;111mpa95061[39m), requested by [38;5;166m@ai-sdk/[39m[38;5;173manthropic[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp73c67a[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mpa2ef70[39m), requested by [38;5;166m@testing-library/[39m[38;5;173mreact[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mcore[39m[38;5;111m@[39m[38;5;111mworkspace:packages/core[39m doesn't provide [38;5;173mzod[39m ([38;5;111mp28b776[39m), requested by [38;5;173mai[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp29f9ed[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173menterprise[39m[38;5;111m@[39m[38;5;111mworkspace:packages/enterprise[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp0f7f59[39m), requested by [38;5;166m@open-mercato/[39m[38;5;173mui[39m.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact[39m ([38;5;111mp5f7d6d[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;166m@open-mercato/[39m[38;5;173mui[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ui[39m doesn't provide [38;5;173mreact-dom[39m ([38;5;111mp36505c[39m), requested by [38;5;166m@radix-ui/[39m[38;5;173mreact-popover[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@docusaurus/[39m[38;5;173mtheme-common[39m ([38;5;111mp77f11b[39m), requested by [38;5;166m@easyops-cn/[39m[38;5;173mdocusaurus-search-local[39m.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;166m@types/[39m[38;5;173mreact[39m ([38;5;111mp447e32[39m), requested by [38;5;166m@docusaurus/[39m[38;5;173mcore[39m and other dependencies.
+[93m➤[39m YN0002: │ [38;5;173mopen-mercato-docs[39m[38;5;111m@[39m[38;5;111mworkspace:apps/docs[39m doesn't provide [38;5;173mmermaid[39m ([38;5;111mp787664[39m), requested by [38;5;166m@mermaid-js/[39m[38;5;173mlayout-elk[39m.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by your project; run [38;5;111myarn explain peer-requirements <hash>[39m for details, where [38;5;111m<hash>[39m is the six-letter p-prefixed code.
+[93m➤[39m YN0086: │ Some peer dependencies are incorrectly met by dependencies; run [38;5;111myarn explain peer-requirements[39m for details.
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed
+[94m➤[39m [90mYN0000[39m: ┌ Fetch step
+::group::Fetch step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 642ms
+[94m➤[39m [90mYN0000[39m: ┌ Link step
+::group::Link step
+::endgroup::
+[94m➤[39m [90mYN0000[39m: └ Completed in 0s 505ms
+[93m➤[39m YN0000: · Done with warnings in 1s 634ms
+Done in 30s 291ms
+==> Building packages...
+
+Attention:
+Turborepo now collects completely anonymous telemetry regarding usage.
+This information is used to shape the Turborepo roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://turborepo.dev/docs/telemetry
+
+• Packages in scope: @open-mercato/ai-assistant, @open-mercato/cache, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/ui, create-mercato-app
+• Running build in 14 packages
+• Remote caching disabled
+::group::create-mercato-app:build
+cache bypass, force executing 7c41cda167893db9
+Build complete: dist/index.js
+::endgroup::
+::group::@open-mercato/enterprise:build
+cache bypass, force executing 001c80ba36dab3f2
+Found 55 entry points
+enterprise package built successfully
+::endgroup::
+::group::@open-mercato/ai-assistant:build
+cache bypass, force executing a7232830cb7cc263
+Found 81 entry points
+ai-assistant built successfully
+::endgroup::
+::group::@open-mercato/scheduler:build
+cache bypass, force executing ec2375b1078bac77
+scheduler built successfully
+::endgroup::
+::group::@open-mercato/cache:build
+cache bypass, force executing 1791db2a06671267
+Found 9 entry points
+cache built successfully
+::endgroup::
+::group::@open-mercato/onboarding:build
+cache bypass, force executing 237bcc6f1d85836b
+Found 13 entry points
+onboarding built successfully
+::endgroup::
+::group::@open-mercato/events:build
+cache bypass, force executing 6338356e0d657059
+Found 6 entry points
+events built successfully
+::endgroup::
+::group::@open-mercato/content:build
+cache bypass, force executing 6537b73894db6824
+Found 7 entry points
+content built successfully
+::endgroup::
+::group::@open-mercato/queue:build
+cache bypass, force executing 318b6983b3837fdb
+Found 7 entry points
+queue built successfully
+::endgroup::
+::group::@open-mercato/ui:build
+cache bypass, force executing b562d30af70cc88a
+Found 188 entry points
+ui built successfully
+::endgroup::
+::group::@open-mercato/cli:build
+cache bypass, force executing 28ca92a687905628
+Found 20 entry points
+CLI built successfully
+::endgroup::
+::group::@open-mercato/shared:build
+cache bypass, force executing 74f797880f291895
+Found 145 entry points
+shared built successfully
+::endgroup::
+::group::@open-mercato/search:build
+cache bypass, force executing 0d3d5e9fcab53a5f
+Found 75 entry points
+search built successfully
+::endgroup::
+::group::@open-mercato/core:build
+cache bypass, force executing 572b1b4c157873b3
+Found 1674 source entry points
+core built successfully
+::endgroup::
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    6.414s 
+
+==> Generating...
+• Packages in scope: @open-mercato/app
+• Running generate in 1 packages
+• Remote caching disabled
+::group::@open-mercato/app:generate
+cache bypass, force executing 8c2138559f1297b1
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running generate:all 
+Running all generators...
+Generated .mercato/generated/entities.ids.generated.ts
+Generated .mercato/generated/modules.generated.ts
+Generated .mercato/generated/dashboard-widgets.generated.ts
+Generated .mercato/generated/injection-widgets.generated.ts
+Generated .mercato/generated/injection-tables.generated.ts
+Generated .mercato/generated/search.generated.ts
+Generated .mercato/generated/ai-tools.generated.ts
+Generated .mercato/generated/notifications.generated.ts
+Generated .mercato/generated/notifications.client.generated.ts
+Generated .mercato/generated/message-types.generated.ts
+Generated .mercato/generated/message-objects.generated.ts
+Generated .mercato/generated/messages.client.generated.ts
+Generated .mercato/generated/events.generated.ts
+Generated .mercato/generated/analytics.generated.ts
+Generated .mercato/generated/translations-fields.generated.ts
+Generated .mercato/generated/enrichers.generated.ts
+Generated .mercato/generated/inbox-actions.generated.ts
+Generated .mercato/generated/modules.cli.generated.ts
+Generated .mercato/generated/entities.generated.ts
+Generated .mercato/generated/di.generated.ts
+[OpenAPI] Found 228 API route files
+Generated /home/runner/work/open-mercato/open-mercato/apps/mercato/.mercato/generated/openapi.generated.json
+[OpenAPI] Generated 224 API paths
+All generators completed.
+⏱️ Done in 1461ms
+::endgroup::
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    2.968s 
+
+==> Rebuilding packages with generated files...
+• Packages in scope: @open-mercato/ai-assistant, @open-mercato/cache, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/ui, create-mercato-app
+• Running build in 14 packages
+• Remote caching disabled
+::group::@open-mercato/scheduler:build
+cache bypass, force executing ec2375b1078bac77
+scheduler built successfully
+::endgroup::
+::group::@open-mercato/cli:build
+cache bypass, force executing 28ca92a687905628
+Found 20 entry points
+CLI built successfully
+::endgroup::
+::group::@open-mercato/queue:build
+cache bypass, force executing 318b6983b3837fdb
+Found 7 entry points
+queue built successfully
+::endgroup::
+::group::@open-mercato/events:build
+cache bypass, force executing 6338356e0d657059
+Found 6 entry points
+events built successfully
+::endgroup::
+::group::@open-mercato/enterprise:build
+cache bypass, force executing 001c80ba36dab3f2
+Found 55 entry points
+enterprise package built successfully
+::endgroup::
+::group::@open-mercato/content:build
+cache bypass, force executing 6537b73894db6824
+Found 7 entry points
+content built successfully
+::endgroup::
+::group::@open-mercato/ui:build
+cache bypass, force executing b562d30af70cc88a
+Found 188 entry points
+ui built successfully
+::endgroup::
+::group::@open-mercato/shared:build
+cache bypass, force executing 74f797880f291895
+Found 145 entry points
+shared built successfully
+::endgroup::
+::group::@open-mercato/ai-assistant:build
+cache bypass, force executing a7232830cb7cc263
+Found 81 entry points
+ai-assistant built successfully
+::endgroup::
+::group::@open-mercato/cache:build
+cache bypass, force executing 1791db2a06671267
+Found 9 entry points
+cache built successfully
+::endgroup::
+::group::create-mercato-app:build
+cache bypass, force executing 7c41cda167893db9
+Build complete: dist/index.js
+::endgroup::
+::group::@open-mercato/onboarding:build
+cache bypass, force executing 237bcc6f1d85836b
+Found 13 entry points
+onboarding built successfully
+::endgroup::
+::group::@open-mercato/search:build
+cache bypass, force executing 0d3d5e9fcab53a5f
+Found 75 entry points
+search built successfully
+::endgroup::
+::group::@open-mercato/core:build
+cache bypass, force executing 572b1b4c157873b3
+Found 1674 source entry points
+core built successfully
+::endgroup::
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    6.987s 
+
+==> Publishing with @latest tag...
+[94m➤[39m [90mYN0000[39m: AGENTS.md
+[94m➤[39m [90mYN0000[39m: CLAUDE.md
+[94m➤[39m [90mYN0000[39m: README.md
+[94m➤[39m [90mYN0000[39m: build.mjs
+[94m➤[39m [90mYN0000[39m: dist/di.js
+[94m➤[39m [90mYN0000[39m: dist/di.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiAssistantIntegration.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiAssistantIntegration.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiChatButton.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiChatButton.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiChatHeaderButton.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiChatHeaderButton.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiDot/AiDot.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiDot/AiDot.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiDot/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/AiDot/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/AgentStatusIndicator.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/AgentStatusIndicator.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandFooter.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandFooter.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandHeader.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandHeader.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandInput.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandInput.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandItem.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandItem.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPalette.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPalette.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPaletteProvider.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPaletteProvider.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPaletteWrapper.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/CommandPaletteWrapper.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/DebugPanel.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/DebugPanel.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/MessageBubble.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/MessageBubble.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolCallConfirmation.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolCallConfirmation.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolCallDisplay.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolCallDisplay.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolChatPage.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/ToolChatPage.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/CommandPalette/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/DockableChat/DockableChat.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/DockableChat/DockableChat.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/DockableChat/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/components/DockableChat/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/constants.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/constants.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useAiAssistantVisibility.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useAiAssistantVisibility.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useCommandPalette.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useCommandPalette.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useDockPosition.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useDockPosition.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useMcpTools.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useMcpTools.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/usePageContext.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/usePageContext.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useRecentActions.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useRecentActions.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useRecentTools.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/hooks/useRecentTools.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/types.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/types.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/utils/index.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/utils/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/frontend/utils/toolMatcher.js
+[94m➤[39m [90mYN0000[39m: dist/frontend/utils/toolMatcher.js.map
+[94m➤[39m [90mYN0000[39m: dist/index.js
+[94m➤[39m [90mYN0000[39m: dist/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/acl.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/acl.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/chat/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/chat/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/health/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/health/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/route/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/route/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/session-key/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/session-key/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/settings/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/settings/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/tools/execute/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/tools/execute/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/tools/route.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/api/tools/route.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/backend/config/ai-assistant/page.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/backend/config/ai-assistant/page.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/backend/config/ai-assistant/page.meta.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/backend/config/ai-assistant/page.meta.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/cli.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/cli.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/AiAssistantSettingsPageClient.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/AiAssistantSettingsPageClient.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/McpConfigDialog.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/McpConfigDialog.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/SessionKeyDialog.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/components/SessionKeyDialog.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/di.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/di.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/frontend/components/AiAssistantSettingsPageClient.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/frontend/components/AiAssistantSettingsPageClient.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/i18n/de.json
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/i18n/en.json
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/i18n/es.json
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/i18n/pl.json
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/index.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/index.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/ai-sdk.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/ai-sdk.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-discovery-tools.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-discovery-tools.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-endpoint-index-config.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-endpoint-index-config.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-endpoint-index.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/api-endpoint-index.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/auth.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/auth.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/chat-config.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/chat-config.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/client-factory.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/client-factory.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-graph-tools.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-graph-tools.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-graph.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-graph.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-index-config.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-index-config.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-index.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/entity-index.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/http-server.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/http-server.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/in-process-client.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/in-process-client.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-client.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-client.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-dev-server.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-dev-server.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-server-config.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-server-config.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-server.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-server.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-tool-adapter.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/mcp-tool-adapter.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/opencode-client.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/opencode-client.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/opencode-handlers.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/opencode-handlers.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/schema-utils.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/schema-utils.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-executor.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-executor.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-index-config.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-index-config.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-loader.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-loader.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-registry.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-registry.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-search.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/tool-search.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/types.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/lib/types.js.map
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/setup.js
+[94m➤[39m [90mYN0000[39m: dist/modules/ai_assistant/setup.js.map
+[94m➤[39m [90mYN0000[39m: package.json
+[94m➤[39m [90mYN0000[39m: src/di.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/components/AiAssistantIntegration.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/AiChatButton.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/AiChatHeaderButton.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/AiDot/AiDot.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/AiDot/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/AgentStatusIndicator.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandFooter.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandHeader.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandInput.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandItem.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandPalette.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandPaletteProvider.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/CommandPaletteWrapper.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/DebugPanel.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/MessageBubble.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/ToolCallConfirmation.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/ToolCallDisplay.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/ToolChatPage.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/CommandPalette/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/components/DockableChat/DockableChat.tsx
+[94m➤[39m [90mYN0000[39m: src/frontend/components/DockableChat/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/constants.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useAiAssistantVisibility.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useCommandPalette.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useDockPosition.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useMcpTools.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/usePageContext.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useRecentActions.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/hooks/useRecentTools.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/types.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/utils/index.ts
+[94m➤[39m [90mYN0000[39m: src/frontend/utils/toolMatcher.ts
+[94m➤[39m [90mYN0000[39m: src/index.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/acl.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/chat/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/health/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/route/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/session-key/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/settings/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/tools/execute/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/api/tools/route.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/backend/config/ai-assistant/page.meta.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/backend/config/ai-assistant/page.tsx
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/cli.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/components/AiAssistantSettingsPageClient.tsx
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/components/McpConfigDialog.tsx
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/components/SessionKeyDialog.tsx
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/di.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/frontend/components/AiAssistantSettingsPageClient.tsx
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/i18n/de.json
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/i18n/en.json
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/i18n/es.json
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/i18n/pl.json
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/index.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/ai-sdk.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/api-discovery-tools.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/api-endpoint-index-config.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/api-endpoint-index.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/auth.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/chat-config.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/client-factory.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/entity-graph-tools.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/entity-graph.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/entity-index-config.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/entity-index.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/http-server.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/in-process-client.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/mcp-client.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/mcp-dev-server.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/mcp-server-config.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/mcp-server.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/mcp-tool-adapter.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/opencode-client.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/opencode-handlers.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/schema-utils.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/tool-executor.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/tool-index-config.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/tool-loader.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/tool-registry.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/tool-search.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/lib/types.ts
+[94m➤[39m [90mYN0000[39m: src/modules/ai_assistant/setup.ts
+[94m➤[39m [90mYN0000[39m: test-schema.ts
+[94m➤[39m [90mYN0000[39m: tsconfig.json
+[94m➤[39m [90mYN0000[39m: watch.mjs
+[91m➤[39m YN0035: You cannot publish over the previously published versions: 0.4.5.
+[91m➤[39m YN0035:   [38;5;111mResponse Code[39m: [38;5;220m403[39m (Forbidden)
+[91m➤[39m YN0035:   [38;5;111mRequest Method[39m: PUT
+[91m➤[39m YN0035:   [38;5;111mRequest URL[39m: [38;5;170mhttps://registry.npmjs.org/@open-mercato%2fai-assistant[39m
+[91m➤[39m YN0000: Failed with errors in 1s 346ms
+The command failed in workspace [38;5;166m@open-mercato/[39m[38;5;173mai-assistant[39m[38;5;111m@[39m[38;5;111mworkspace:packages/ai-assistant[39m with exit code 1
+Failed with errors in 1s 577ms

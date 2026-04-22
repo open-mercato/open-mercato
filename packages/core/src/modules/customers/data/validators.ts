@@ -282,7 +282,7 @@ export const tagAssignmentSchema = scopedSchema.extend({
 export const todoLinkCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   todoId: uuid(),
-  todoSource: z.string().min(1).max(120).default('customers:interaction'),
+  todoSource: z.string().min(1).max(120).default('example:todo'),
   createdByUserId: uuid().optional(),
 })
 
@@ -291,7 +291,7 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
   title: z.string().min(1).max(200),
   isDone: z.boolean().optional(),
   is_done: z.boolean().optional(),
-  todoSource: z.string().min(1).max(120).default('customers:interaction'),
+  todoSource: z.string().min(1).max(120).default('example:todo'),
   createdByUserId: uuid().optional(),
   todoCustom: z.record(z.string(), z.any()).optional(),
   custom: z.record(z.string(), z.any()).optional(),

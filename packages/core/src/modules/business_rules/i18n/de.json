@@ -214,7 +214,6 @@
   "business_rules.rules.form.effectiveTo": "Gültig bis",
   "business_rules.rules.form.enabled": "Aktiviert",
   "business_rules.rules.form.entityType": "Entitätstyp",
-  "business_rules.rules.form.errors.effectiveToBeforeFrom": "„Gültig bis“ muss später sein als „Gültig ab“",
   "business_rules.rules.form.eventType": "Ereignistyp",
   "business_rules.rules.form.metadata.title": "Metadaten",
   "business_rules.rules.form.placeholders.description": "Optional: Beschreiben Sie den Zweck dieser Regel",

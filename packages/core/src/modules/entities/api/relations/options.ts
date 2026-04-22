@@ -13,29 +13,11 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
 
-const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
-
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   let labelField = url.searchParams.get('labelField') || ''
   const q = url.searchParams.get('q') || ''
-  const ids = Array.from(
-    new Set(
-      (url.searchParams.get('ids') || '')
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    ),
-  )
-  const routeContextFields = Array.from(
-    new Set(
-      (url.searchParams.get('routeContextFields') || '')
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => ALLOWED_ROUTE_CONTEXT_FIELDS.has(entry)),
-    ),
-  )
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!entityId) return NextResponse.json({ items: [] })
@@ -65,31 +47,16 @@ export async function GET(req: Request) {
     }
     if (!labelField) labelField = 'id'
   }
-  const filters: Record<string, unknown> = {}
-  if (ids.length === 1) filters.id = ids[0]
-  else if (ids.length > 1) filters.id = { $in: ids }
+  const filters: any = {}
   if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
-  const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
   const res = await qe.query(entityId, {
     tenantId: auth.tenantId ?? undefined,
     ...(auth.orgId ? { organizationId: auth.orgId } : {}),
-    fields,
+    fields: ['id', labelField],
     filters,
-    page: { page: 1, pageSize: Math.min(ids.length || 50, 200) },
+    page: { page: 1, pageSize: 50 },
   })
-  const items = (res.items || []).map((it: any) => {
-    const routeContext = routeContextFields.reduce<Record<string, unknown>>((acc, field) => {
-      if (it[field] !== undefined) {
-        acc[field] = it[field]
-      }
-      return acc
-    }, {})
-    return {
-      value: String(it.id),
-      label: String(it[labelField] ?? it.id),
-      ...(Object.keys(routeContext).length > 0 ? { routeContext } : {}),
-    }
-  })
+  const items = (res.items || []).map((it: any) => ({ value: String(it.id), label: String(it[labelField] ?? it.id) }))
   return NextResponse.json({ items })
 }
 
@@ -97,8 +64,6 @@ const relationOptionsQuerySchema = z.object({
   entityId: z.string().min(1),
   labelField: z.string().optional(),
   q: z.string().optional(),
-  ids: z.string().optional(),
-  routeContextFields: z.string().optional(),
 })
 
 const relationOptionsResponseSchema = z.object({
@@ -106,7 +71,6 @@ const relationOptionsResponseSchema = z.object({
     z.object({
       value: z.string(),
       label: z.string(),
-      routeContext: z.record(z.string(), z.unknown()).optional(),
     })
   ),
 })
@@ -117,7 +81,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List relation options',
-      description: 'Returns up to 200 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
+      description: 'Returns up to 50 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
       query: relationOptionsQuerySchema,
       responses: [
         {

@@ -5,7 +5,6 @@ import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/aut
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
-import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -389,13 +388,8 @@ export class RbacService {
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isSuperAdmin) {
-      const enabledIds = getEnabledModuleIds()
-      if (!enabledIds.length) return true
-      const enabledSet = new Set(enabledIds)
-      return required.every((feature) => enabledSet.has(getOwningModuleId(feature)))
-    }
+    if (acl.isSuperAdmin) return true
     if (acl.organizations && scope.organizationId && !acl.organizations.includes(scope.organizationId) && !acl.organizations.includes('__all__')) return false
-    return this.hasAllFeatures(required, filterGrantsByEnabledModules(acl.features))
+    return this.hasAllFeatures(required, acl.features)
   }
 }

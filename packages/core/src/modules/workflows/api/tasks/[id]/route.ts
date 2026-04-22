@@ -11,7 +11,6 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { UserTask } from '../../../data/entities'
 import {
   workflowsTag,
@@ -44,11 +43,11 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = scope?.selectedId ?? auth.orgId
 
-    if (!tenantId) {
+    if (!tenantId || !organizationId) {
       return NextResponse.json(
-        { error: 'Missing tenant context' },
+        { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
     }
@@ -56,7 +55,7 @@ export async function GET(
     const task = await em.findOne(UserTask, {
       id: params.id,
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     })
 
     if (!task) {

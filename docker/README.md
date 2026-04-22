@@ -38,7 +38,7 @@ docker compose restart
 
 ## Services
 
-- **PostgreSQL 17** with pgvector extension (port 5432)
+- **PostgreSQL 15** with pgvector extension (port 5432)
 - **Redis 7** for caching and event persistence (port 6379)
 
 ## Database Initialization

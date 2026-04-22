@@ -109,7 +109,6 @@ export type TodoLinkSummary = {
   dueAt?: string | null
   todoOrganizationId?: string | null
   customValues?: Record<string, unknown> | null
-  externalHref?: string | null
 }
 
 export type InteractionSummary = {
@@ -134,11 +133,6 @@ export type InteractionSummary = {
   authorEmail?: string | null
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
-  customer?: {
-    id: string | null
-    displayName: string | null
-    kind: string | null
-  } | null
   _integrations?: Record<string, unknown>
   createdAt: string
   updatedAt: string

@@ -1,6 +1,4 @@
 /** @jest-environment jsdom */
-jest.setTimeout(15000)
-
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
   usePathname: () => '/',
@@ -8,19 +6,9 @@ jest.mock('next/navigation', () => ({
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
-jest.mock('../injection/InjectionSpot', () => ({
-  __esModule: true,
-  InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
-  useInjectionSpotEvents: () => ({ triggerEvent: jest.fn() }),
-}))
-jest.mock('../injection/useInjectionDataWidgets', () => ({
-  __esModule: true,
-  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
-}))
 
 import * as React from 'react'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 import { z } from 'zod'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
@@ -50,32 +38,22 @@ describe('CrudForm validation state', () => {
     )
 
     const form = container.querySelector('form')
-    const nameField = container.querySelector('[data-crud-field-id="name"]')
-    const gatewayField = container.querySelector('[data-crud-field-id="gatewayProviderKey"]')
     const nameInput = container.querySelector('[data-crud-field-id="name"] input[type="text"]')
 
     expect(form).not.toBeNull()
-    expect(nameField).not.toBeNull()
-    expect(gatewayField).not.toBeNull()
     expect(nameInput).not.toBeNull()
 
     await act(async () => {
       fireEvent.submit(form as HTMLFormElement)
     })
 
-    await waitFor(() => {
-      expect(nameField?.querySelector('.text-xs.text-red-600')).toHaveTextContent('This field is required')
-      expect(gatewayField?.querySelector('.text-xs.text-red-600')).toHaveTextContent('This field is required')
-    })
+    expect(container.querySelectorAll('.text-xs.text-red-600')).toHaveLength(2)
 
     await act(async () => {
       fireEvent.change(nameInput as HTMLInputElement, { target: { value: 'QA test link' } })
     })
 
-    await waitFor(() => {
-      expect(nameField?.querySelector('.text-xs.text-red-600')).toBeNull()
-      expect(gatewayField?.querySelector('.text-xs.text-red-600')).toHaveTextContent('This field is required')
-    })
+    expect(container.querySelectorAll('.text-xs.text-red-600')).toHaveLength(1)
     expect(container.textContent).toContain('Gateway provider')
   })
 
@@ -119,9 +97,7 @@ describe('CrudForm validation state', () => {
       fireEvent.submit(form as HTMLFormElement)
     })
 
-    await waitFor(() => {
-      expect(getByText('Use camelCase starting with a letter.')).toBeInTheDocument()
-    })
+    expect(getByText('Use camelCase starting with a letter.')).toBeInTheDocument()
   })
 
   it('validates number fields on blur', async () => {

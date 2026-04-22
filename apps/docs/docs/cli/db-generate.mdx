@@ -24,14 +24,12 @@ The command requires a valid `DATABASE_URL` pointing to the Postgres database us
 2. For each module (in alphabetical order), resolves entity definitions (`data/entities.ts` or `schema.ts`) and spins up a temporary MikroORM instance.
 3. Writes migrations into `packages/<module>/src/modules/<module>/migrations`. App overrides fall back to `src/modules/<module>/migrations`.
 4. Renames generated files and migration classes to include the module suffix (e.g. `_auth`) to keep names unique across modules.
-5. Updates the module snapshot file (`.snapshot-<project>.json`) used by MikroORM as the diff baseline for the next generation run.
-6. Prints a summary such as `• auth: generated Migration20240214_auth` or `• directory: no changes`.
+5. Prints a summary such as `• auth: generated Migration20240214_auth` or `• directory: no changes`.
 
 ## Typical Workflow
 
 - Run `yarn db:generate` after modifying entity definitions.
 - Inspect the generated TypeScript migration and adjust it if necessary.
-- Keep the generated snapshot JSON files committed. They are migration metadata, not runtime artifacts, and avoid database-name-specific snapshot churn between environments.
 - Commit the migration alongside your entity changes.
 - Apply migrations with [`yarn db:migrate`](./db-migrate) or `yarn mercato db migrate`.
 

@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -75,28 +74,25 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     }
   }
 
-  const messageId = resolveInboundReceiptMessageId({
-    endpointId: params.endpointId,
-    providerKey: adapter.providerKey,
-    headers,
-    body,
-  })
-  try {
-    em.persist(em.create(WebhookInboundReceiptEntity, {
-      endpointId: params.endpointId,
-      messageId,
-      providerKey: adapter.providerKey,
-      eventType: verified.eventType,
-      tenantId: verified.tenantId ?? null,
-      organizationId: verified.organizationId ?? null,
-      createdAt: new Date(),
-    }))
-    await em.flush()
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      return json({ ok: true, duplicate: true })
+  const messageId = headers['webhook-id'] ?? headers['svix-id'] ?? null
+  if (messageId) {
+    try {
+      em.persist(em.create(WebhookInboundReceiptEntity, {
+        endpointId: params.endpointId,
+        messageId,
+        providerKey: adapter.providerKey,
+        eventType: verified.eventType,
+        tenantId: verified.tenantId ?? null,
+        organizationId: verified.organizationId ?? null,
+        createdAt: new Date(),
+      }))
+      await em.flush()
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return json({ ok: true, duplicate: true })
+      }
+      throw error
     }
-    throw error
   }
 
   await emitWebhooksEvent('webhooks.inbound.received', {
@@ -145,49 +141,4 @@ function isUniqueViolation(error: unknown): boolean {
   if (maybeError.code === '23505') return true
   if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
   return (maybeError.cause as { code?: string }).code === '23505'
-}
-
-type ResolveInboundReceiptMessageIdInput = {
-  endpointId: string
-  providerKey: string
-  headers: Record<string, string>
-  body: string
-}
-
-export function resolveInboundReceiptMessageId(
-  input: ResolveInboundReceiptMessageIdInput
-): string {
-  const explicitMessageId = input.headers['webhook-id'] ?? input.headers['svix-id'] ?? null
-  if (typeof explicitMessageId === 'string' && explicitMessageId.trim().length > 0) {
-    return explicitMessageId.trim()
-  }
-
-  const timestamp =
-    input.headers['webhook-timestamp'] ??
-    input.headers['svix-timestamp'] ??
-    null
-
-  if (typeof timestamp === 'string' && timestamp.trim().length > 0) {
-    const digest = createHash('sha256')
-      .update(input.providerKey)
-      .update(':')
-      .update(input.endpointId)
-      .update(':')
-      .update(timestamp.trim())
-      .update(':')
-      .update(input.body)
-      .digest('hex')
-
-    return `derived:${timestamp.trim()}:${digest}`
-  }
-
-  const digest = createHash('sha256')
-    .update(input.providerKey)
-    .update(':')
-    .update(input.endpointId)
-    .update(':')
-    .update(input.body)
-    .digest('hex')
-
-  return `derived:no-timestamp:${digest}`
 }

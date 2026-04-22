@@ -214,7 +214,6 @@
   "business_rules.rules.form.effectiveTo": "Obowiązuje Do",
   "business_rules.rules.form.enabled": "Włączona",
   "business_rules.rules.form.entityType": "Typ Encji",
-  "business_rules.rules.form.errors.effectiveToBeforeFrom": "Data „Obowiązuje Do” musi być późniejsza niż „Obowiązuje Od”",
   "business_rules.rules.form.eventType": "Typ Zdarzenia",
   "business_rules.rules.form.metadata.title": "Metadane",
   "business_rules.rules.form.placeholders.description": "Opcjonalnie: Opisz cel tej reguły",

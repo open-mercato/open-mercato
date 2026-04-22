@@ -3,11 +3,7 @@ import nextCoreWebVitals from 'eslint-config-next/core-web-vitals'
 const ignores = [
   'node_modules/**',
   '.next/**',
-  '**/.next/**',
-  '.mercato/**',
-  '**/.mercato/**',
   'dist/**',
-  '**/dist/**',
   'packages/**/dist/**',
   'packages/**/src/**/*.jsx',
   'out/**',

@@ -165,8 +165,8 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
         name: activeRecord.name,
         companyName: activeRecord.companyName ?? '',
         description: activeRecord.description ?? '',
-        startDate: toDateInputValue(activeRecord.startDate) ?? '',
-        endDate: toDateInputValue(activeRecord.endDate) ?? '',
+        startDate: toDateInputValue(activeRecord.startDate),
+        endDate: toDateInputValue(activeRecord.endDate),
       }
     : {
         name: '',
@@ -306,7 +306,12 @@ function buildJobHistoryPayload(values: JobHistoryFormValues) {
   return payload
 }
 
-import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
+function toDateInputValue(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 10)
+}
 
 function formatDateRange(
   record: JobHistoryRecord,

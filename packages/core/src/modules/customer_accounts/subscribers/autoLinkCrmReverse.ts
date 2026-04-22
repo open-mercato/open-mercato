@@ -68,8 +68,7 @@ export default async function handle(
       if (companyEntityId && !customerUser.customerEntityId) {
         updates.customerEntityId = companyEntityId
       }
-      const affected = await em.nativeUpdate(CustomerUser, { id: customerUser.id, personEntityId: null }, updates)
-      if (affected === 0) return
+      await em.nativeUpdate(CustomerUser, { id: customerUser.id }, updates)
     }
   } catch (err) {
     console.error('[customer_accounts:auto-link-crm-reverse] Failed to link CRM person to customer user:', err)

@@ -95,7 +95,6 @@ describe('scanModuleDir', () => {
       touch('subscribers/handler.ts', 'pkg')
       touch('subscribers/handler.test.ts', 'pkg')
       touch('subscribers/handler.spec.ts', 'pkg')
-      touch('subscribers/handler.test.js', 'pkg')
 
       const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
 
@@ -127,27 +126,6 @@ describe('scanModuleDir', () => {
       expect(sendEmail!.fromApp).toBe(true)
       const syncData = files.find((f) => f.relPath === 'sync-data.ts')
       expect(syncData!.fromApp).toBe(false)
-    })
-
-    it('treats app ts overrides and package js output as the same logical worker', () => {
-      touch('workers/send-email.js', 'pkg')
-      touch('workers/send-email.ts', 'app')
-
-      const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
-
-      expect(files).toHaveLength(1)
-      expect(files[0].fromApp).toBe(true)
-      expect(files[0].relPath).toBe('send-email.ts')
-    })
-
-    it('includes compiled js workers from package output', () => {
-      touch('workers/send-email.js', 'pkg')
-      touch('workers/sync-data.js', 'pkg')
-
-      const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
-
-      expect(files).toHaveLength(2)
-      expect(files.map((file) => file.relPath)).toEqual(['send-email.js', 'sync-data.js'])
     })
   })
 
@@ -229,15 +207,6 @@ describe('scanModuleDir', () => {
       const paths = files.map((f) => f.relPath)
 
       expect(paths.indexOf('list/route.ts')).toBeLessThan(paths.indexOf('[id]/route.ts'))
-    })
-
-    it('finds compiled route.js files', () => {
-      touch('api/route.js', 'pkg')
-      touch('api/list/route.js', 'pkg')
-
-      const files = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
-
-      expect(files.map((file) => file.relPath)).toEqual(['list/route.js', 'route.js'])
     })
 
     it('plain files skip method dirs and route.ts', () => {
@@ -328,17 +297,6 @@ describe('resolveModuleFile', () => {
 
     expect(result).not.toBeNull()
     expect(result!.fromApp).toBe(false)
-    expect(result!.importPath).toBe('@open-mercato/core/modules/test_mod/search')
-  })
-
-  it('resolves compiled package file when the generator asks for a ts convention path', () => {
-    touch('search.js', 'pkg')
-
-    const result = resolveModuleFile(roots, imps, 'search.ts')
-
-    expect(result).not.toBeNull()
-    expect(result!.fromApp).toBe(false)
-    expect(result!.absolutePath).toBe(path.join(roots.pkgBase, 'search.js'))
     expect(result!.importPath).toBe('@open-mercato/core/modules/test_mod/search')
   })
 

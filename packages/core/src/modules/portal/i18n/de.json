@@ -89,13 +89,5 @@
   "portal.signup.success.title": "Konto erstellt",
   "portal.signup.title": "Konto erstellen",
   "portal.subtitle": "Ihr Self-Service-Hub",
-  "portal.title": "Kundenportal",
-  "portal.verify.description": "Bitte warten Sie, während wir Ihre E-Mail-Adresse verifizieren.",
-  "portal.verify.error.backToLogin": "Zurück zur Anmeldung",
-  "portal.verify.error.generic": "Die E-Mail-Bestätigung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
-  "portal.verify.error.invalidToken": "Das Bestätigungs-Token fehlt.",
-  "portal.verify.success.description": "Ihre E-Mail-Adresse wurde bestätigt. Sie können sich jetzt im Portal anmelden.",
-  "portal.verify.success.loginLink": "Anmelden",
-  "portal.verify.success.title": "E-Mail bestätigt",
-  "portal.verify.title": "E-Mail wird bestätigt"
+  "portal.title": "Kundenportal"
 }

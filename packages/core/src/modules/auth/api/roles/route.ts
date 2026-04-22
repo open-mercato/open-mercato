@@ -9,7 +9,6 @@ import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/en
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -24,13 +23,13 @@ const querySchema = z.object({
 
 const roleCreateSchema = z.object({
   name: z.string().min(2).max(100),
-  tenantId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().nullable().optional(),
 })
 
 const roleUpdateSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2).max(100).optional(),
-  tenantId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().nullable().optional(),
 })
 
 const roleListItemSchema = z.object({
@@ -127,7 +126,7 @@ export async function GET(req: Request) {
   }
   let superAdminRoleIds: Set<string> | null = null
   if (!isSuperAdmin && actorTenantId) {
-    const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true }, {}, { tenantId: actorTenantId, organizationId: null })
+    const superAdminAcls = await em.find(RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true })
     if (superAdminAcls.length) {
       superAdminRoleIds = new Set(
         superAdminAcls
@@ -148,13 +147,13 @@ export async function GET(req: Request) {
   if (id) filters.push({ id })
   if (search) filters.push({ name: { $ilike: `%${escapeLikePattern(search)}%` } })
   if (!isSuperAdmin && actorTenantId) {
-    filters.push({ tenantId: actorTenantId })
+    filters.push({ $or: [{ tenantId: actorTenantId }, { tenantId: null }] })
     filters.push({ name: { $ne: 'superadmin' } })
     if (superAdminRoleIds && superAdminRoleIds.size) {
       filters.push({ id: { $nin: Array.from(superAdminRoleIds) } })
     }
   } else if (tenantFilter) {
-    filters.push({ tenantId: tenantFilter })
+    filters.push({ $or: [{ tenantId: tenantFilter }, { tenantId: null }] })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })
@@ -162,7 +161,7 @@ export async function GET(req: Request) {
   const counts: Record<string, number> = {}
   if (roleIds.length) {
     const userRoleFilter: FilterQuery<UserRole> = { role: { $in: roleIds }, deletedAt: null }
-    const links = await findWithDecryption(em, UserRole, userRoleFilter, {}, { tenantId: null, organizationId: null })
+    const links = await em.find(UserRole, userRoleFilter)
     for (const l of links) {
       const rid = String((l as any).role?.id || (l as any).role)
       counts[rid] = (counts[rid] || 0) + 1
@@ -174,7 +173,7 @@ export async function GET(req: Request) {
   const uniqueTenantIds = Array.from(new Set(roleTenantIds))
   let tenantMap: Record<string, string> = {}
   if (uniqueTenantIds.length) {
-    const tenants = await findWithDecryption(em, Tenant, { id: { $in: uniqueTenantIds as any }, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const tenants = await em.find(Tenant, { id: { $in: uniqueTenantIds as any }, deletedAt: null })
     tenantMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
       const tid = tenant?.id ? String(tenant.id) : null
       if (!tid) return acc

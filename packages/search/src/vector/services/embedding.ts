@@ -234,7 +234,6 @@ export class EmbeddingService {
     const providerOptions = this.getProviderOptions()
     const timeoutMs = resolveEmbeddingTimeoutMs()
 
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
     try {
       const result = await Promise.race([
         embed({
@@ -243,10 +242,7 @@ export class EmbeddingService {
           ...(providerOptions && { providerOptions }),
         }),
         new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(
-            () => reject(timeoutError(this.config.providerId, timeoutMs)),
-            timeoutMs,
-          )
+          setTimeout(() => reject(timeoutError(this.config.providerId, timeoutMs)), timeoutMs)
         }),
       ])
       const emb = Array.isArray(result.embedding)
@@ -303,10 +299,6 @@ export class EmbeddingService {
       }
       wrapped.cause = err
       throw wrapped
-    } finally {
-      if (timeoutHandle !== null) {
-        clearTimeout(timeoutHandle)
-      }
     }
   }
 }

@@ -57,7 +57,7 @@ packages/webhooks/src/modules/webhooks/
 
 ## Checklist: Adding a New Delivery Capability
 
-1. Add or update the contract in `.ai/specs/implemented/SPEC-057-2026-03-04-webhooks-module.md` if behavior changes materially
+1. Add or update the contract in `.ai/specs/SPEC-057-2026-03-04-webhooks-module.md` if behavior changes materially
 2. Modify shared types or helpers in `packages/shared/src/lib/webhooks/` first when the contract changes
 3. Add or update webhook package code in `lib/`, `api/`, `subscribers/`, or `workers/`
 4. Run `yarn generate` if you add module files that rely on auto-discovery
@@ -70,4 +70,4 @@ packages/webhooks/src/modules/webhooks/
 - **Event subscribers and persistent delivery**: `packages/events/AGENTS.md`
 - **Backend forms, tables, and detail pages**: `packages/ui/AGENTS.md`
 - **Integration marketplace tabs, settings, and logs**: `packages/core/src/modules/integrations/AGENTS.md`
-- **Webhook spec and phase tracking**: `.ai/specs/implemented/SPEC-057-2026-03-04-webhooks-module.md`
+- **Webhook spec and phase tracking**: `.ai/specs/SPEC-057-2026-03-04-webhooks-module.md`

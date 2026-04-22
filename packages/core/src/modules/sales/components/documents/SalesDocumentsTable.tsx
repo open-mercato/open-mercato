@@ -25,7 +25,7 @@ import {
 
 type SalesDocumentKind = 'order' | 'quote'
 
-type FilterOption = { value: string; label: string; description?: string | null }
+type FilterOption = { value: string; label: string }
 
 type CustomerSnapshot = {
   customer?: {
@@ -200,8 +200,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           const id = typeof item?.id === 'string' ? item.id : null
           const label = typeof item?.label === 'string' ? item.label : null
           if (!id || !label) return null
-          const description = typeof item?.description === 'string' ? item.description : null
-          return { value: id, label, description }
+          return { value: id, label }
         })
         .filter((opt): opt is FilterOption => opt !== null)
     } catch {
@@ -354,10 +353,8 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       type: 'tags',
       options: tagOptions,
       loadOptions: loadTagOptions,
-      formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
-      formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
     },
-  ], [channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
+  ], [channelOptions, loadChannelOptions, loadTagOptions, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -660,7 +657,6 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
-          stickyActionsColumn
           title={(
             <div className="flex flex-col">
               <span>{title}</span>

@@ -33,73 +33,8 @@ type AkeneoMediaFile = {
 
 type AkeneoClient = ReturnType<typeof createAkeneoClient>
 
-const DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS = ['*.cloud.akeneo.com', '*.akeneo.cloud'] as const
-const ALLOWED_AKENEO_HOSTS_ENV_KEYS = [
-  'OM_INTEGRATION_AKENEO_ALLOWED_HOSTS',
-  'OPENMERCATO_AKENEO_ALLOWED_HOSTS',
-  'AKENEO_ALLOWED_HOSTS',
-] as const
-
 function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/g, '')
-}
-
-function readAllowedAkeneoHostPatterns(env: NodeJS.ProcessEnv = process.env): string[] {
-  for (const key of ALLOWED_AKENEO_HOSTS_ENV_KEYS) {
-    const raw = env[key]
-    if (typeof raw !== 'string') continue
-    const patterns = raw
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => entry.length > 0)
-    if (patterns.length > 0) {
-      return patterns
-    }
-  }
-
-  return [...DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS]
-}
-
-function matchesAkeneoHostPattern(hostname: string, pattern: string): boolean {
-  if (pattern.startsWith('*.')) {
-    const suffix = pattern.slice(2)
-    return hostname === suffix || hostname.endsWith(`.${suffix}`)
-  }
-
-  return hostname === pattern
-}
-
-export function validateAkeneoApiUrl(rawUrl: string, env: NodeJS.ProcessEnv = process.env): string {
-  let parsed: URL
-  try {
-    parsed = new URL(rawUrl.trim())
-  } catch {
-    throw new Error('Akeneo URL must be a valid absolute URL')
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new Error('Akeneo URL must use https')
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error('Akeneo URL must not include embedded credentials')
-  }
-  if (parsed.port && parsed.port !== '443') {
-    throw new Error('Akeneo URL must not use a custom port')
-  }
-  if (parsed.pathname !== '/' && parsed.pathname !== '') {
-    throw new Error('Akeneo URL must not include a path')
-  }
-  if (parsed.search || parsed.hash) {
-    throw new Error('Akeneo URL must not include query parameters or fragments')
-  }
-
-  const hostname = parsed.hostname.toLowerCase()
-  const allowedPatterns = readAllowedAkeneoHostPatterns(env)
-  if (!allowedPatterns.some((pattern) => matchesAkeneoHostPattern(hostname, pattern))) {
-    throw new Error(`Akeneo URL host is not allowed: ${hostname}`)
-  }
-
-  return normalizeBaseUrl(parsed.origin)
 }
 
 export function normalizeAkeneoDateTime(value: string | null | undefined): string | null {
@@ -188,7 +123,7 @@ function coerceCredentials(credentials: Record<string, unknown>): AkeneoCredenti
     throw new Error('Akeneo credentials are incomplete')
   }
   return {
-    apiUrl: validateAkeneoApiUrl(apiUrl),
+    apiUrl: normalizeBaseUrl(apiUrl),
     clientId,
     clientSecret,
     username,
@@ -202,8 +137,6 @@ function sleep(ms: number): Promise<void> {
 
 export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   const credentials = coerceCredentials(credentialsInput)
-  const akeneoBaseUrl = new URL(`${credentials.apiUrl}/`)
-  const tokenEndpointUrl = new URL('/api/oauth/v1/token', akeneoBaseUrl).toString()
   let tokenState: TokenState | null = null
   let lastAttributeOptionRequestAt = 0
   const familyCache = new Map<string, Promise<AkeneoFamily | null>>()
@@ -213,20 +146,8 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   const categoryCache = new Map<string, Promise<AkeneoCategory | null>>()
   const mediaFileCache = new Map<string, Promise<AkeneoMediaFile | null>>()
 
-  function resolveAkeneoRequestUrl(pathOrUrl: string): string {
-    const resolved = new URL(pathOrUrl, akeneoBaseUrl)
-    if (resolved.origin !== akeneoBaseUrl.origin) {
-      throw new Error(`Akeneo request URL must stay on the configured host: ${resolved.origin}`)
-    }
-    return resolved.toString()
-  }
-
-  function normalizeAkeneoNextUrl(nextUrl: string): string {
-    return resolveAkeneoRequestUrl(nextUrl)
-  }
-
   async function acquirePasswordGrantToken(): Promise<TokenState> {
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetch(`${credentials.apiUrl}/api/oauth/v1/token`, {
       method: 'POST',
       headers: {
         accept: 'application/json',
@@ -264,7 +185,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
   async function refreshAccessToken(current: TokenState): Promise<TokenState> {
     if (!current.refreshToken) return acquirePasswordGrantToken()
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetch(`${credentials.apiUrl}/api/oauth/v1/token`, {
       method: 'POST',
       headers: {
         accept: 'application/json',
@@ -308,8 +229,10 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     init: RequestInit = {},
     retried = false,
   ): Promise<T> {
-    const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
+    const url = pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')
+      ? pathOrUrl
+      : `${credentials.apiUrl}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`
 
     const response = await fetch(url, {
       ...init,
@@ -352,8 +275,10 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     contentType: string | null
     contentLength: number | null
   }> {
-    const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
+    const url = pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')
+      ? pathOrUrl
+      : `${credentials.apiUrl}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`
 
     const response = await fetch(url, {
       ...init,
@@ -388,7 +313,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   }
 
   function buildUrl(path: string, params: Record<string, string | number | boolean | undefined | null>): string {
-    const url = new URL(resolveAkeneoRequestUrl(path))
+    const url = new URL(`${credentials.apiUrl}${path}`)
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined || value === null || value === '') continue
       url.searchParams.set(key, String(value))
@@ -406,9 +331,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     )
     return {
       items: Array.isArray(payload?._embedded?.items) ? payload._embedded.items : [],
-      nextUrl: typeof payload?._links?.next?.href === 'string'
-        ? normalizeAkeneoNextUrl(payload._links.next.href)
-        : null,
+      nextUrl: typeof payload?._links?.next?.href === 'string' ? payload._links.next.href : null,
       totalEstimate: typeof payload?.items_count === 'number' ? payload.items_count : null,
     }
   }
@@ -456,10 +379,10 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     updatedAfter?: string | null
   }): Promise<{ items: AkeneoProduct[]; nextUrl: string | null; totalEstimate: number | null }> {
     if (options.nextUrl) {
-      const page = await readList<AkeneoProduct>(normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(options.nextUrl)))
+      const page = await readList<AkeneoProduct>(sanitizeAkeneoProductNextUrl(options.nextUrl))
       return {
         ...page,
-        nextUrl: page.nextUrl ? normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(page.nextUrl)) : null,
+        nextUrl: page.nextUrl ? sanitizeAkeneoProductNextUrl(page.nextUrl) : null,
       }
     }
     const params: Record<string, string | number | boolean | undefined | null> = {
@@ -485,7 +408,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     return {
       ...page,
       totalEstimate: totalEstimate ?? page.totalEstimate,
-      nextUrl: page.nextUrl ? normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(page.nextUrl)) : null,
+      nextUrl: page.nextUrl ? sanitizeAkeneoProductNextUrl(page.nextUrl) : null,
     }
   }
 

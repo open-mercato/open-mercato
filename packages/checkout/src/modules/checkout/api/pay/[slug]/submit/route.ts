@@ -307,15 +307,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       }
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)
+    validateDescriptorCurrencies(link.gatewayProviderKey, [resolvedAmount.currencyCode])
     const existingTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
       linkId: link.id,
       idempotencyKey,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
     }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
-    validateDescriptorCurrencies(link.gatewayProviderKey, [
-      existingTransaction?.currencyCode ?? resolvedAmount.currencyCode,
-    ])
     if (existingTransaction?.gatewayTransactionId) {
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
@@ -385,11 +383,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!transaction) {
       throw new CrudHttpError(404, { error: 'Transaction not found' })
     }
-    const sessionAmount = Number(transaction.amount)
-    if (!Number.isFinite(sessionAmount)) {
-      throw new CrudHttpError(500, { error: 'Invalid checkout transaction amount' })
-    }
-    const sessionCurrencyCode = transaction.currencyCode
     if (!transaction.gatewayTransactionId) {
       const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
         ? link.gatewaySettings.paymentTypes.filter(
@@ -413,8 +406,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         const sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
-          amount: sessionAmount,
-          currencyCode: sessionCurrencyCode,
+          amount: resolvedAmount.amount,
+          currencyCode: resolvedAmount.currencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
           description: link.title ?? link.name,
           successUrl,

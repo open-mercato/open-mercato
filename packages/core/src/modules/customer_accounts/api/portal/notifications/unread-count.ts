@@ -5,7 +5,7 @@ import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

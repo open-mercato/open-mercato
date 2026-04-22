@@ -5,11 +5,6 @@ module.exports = {
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
-  moduleNameMapper: {
-    '^@open-mercato/events/(.*)$': '<rootDir>/src/$1',
-    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
-    '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
-  },
   transform: {
     '^.+\\.(t|j)sx?$': [
       'ts-jest',

@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from 'react'
 import type { CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
@@ -104,15 +103,10 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
     return { user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: true, error: null }
   })
 
-  // Guard against re-fetching when the provider persists across navigations
-  // and `initialAuth` arrives as a new object reference on each server render.
-  const profileEnrichedRef = useRef(false)
-
   // Client-side profile fetch — only runs when NO server data was provided,
   // or to enrich server-provided auth with full profile (roles, etc.)
   useEffect(() => {
     if (hasServerData && !initialAuth) return // Server said: not authenticated, nothing to fetch
-    if (profileEnrichedRef.current) return
     let cancelled = false
 
     async function fetchProfile() {
@@ -127,7 +121,6 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
           setAuthState((prev) => ({ ...prev, loading: false }))
           return
         }
-        profileEnrichedRef.current = true
         setAuthState({
           user: data!.user,
           roles: data!.roles || [],
@@ -153,7 +146,6 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
     } catch {
       // Best-effort logout — redirect regardless
     }
-    profileEnrichedRef.current = false
     setAuthState({ user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: false, error: null })
     window.location.assign(`/${orgSlug}/portal/login`)
   }, [orgSlug])

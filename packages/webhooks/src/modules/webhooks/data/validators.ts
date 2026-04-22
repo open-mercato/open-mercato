@@ -1,21 +1,9 @@
 import { z } from 'zod'
-import { assertStaticallySafeWebhookUrl, UnsafeWebhookUrlError } from '../lib/url-safety'
-
-const safeWebhookUrl = z.string().url().superRefine((value, ctx) => {
-  try {
-    assertStaticallySafeWebhookUrl(value)
-  } catch (error) {
-    const message = error instanceof UnsafeWebhookUrlError
-      ? error.message
-      : 'Webhook URL is not allowed'
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-  }
-})
 
 export const webhookCreateSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional().nullable(),
-  url: safeWebhookUrl,
+  url: z.string().url(),
   subscribedEvents: z.array(z.string().min(1)).min(1),
   httpMethod: z.enum(['POST', 'PUT', 'PATCH'] as const).default('POST'),
   customHeaders: z.record(z.string(), z.string()).optional().nullable(),

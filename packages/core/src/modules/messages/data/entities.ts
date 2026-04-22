@@ -28,7 +28,6 @@ export type MessageActionData = {
 @Index({ name: 'messages_thread_idx', properties: ['threadId'] })
 @Index({ name: 'messages_type_idx', properties: ['type', 'tenantId'] })
 @Index({ name: 'messages_tenant_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'messages_external_email_hash_idx', properties: ['externalEmailHash'] })
 export class Message {
   [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'createdAt' | 'updatedAt'
 
@@ -112,9 +111,6 @@ export class Message {
 
   @Property({ name: 'external_email', type: 'text', nullable: true })
   externalEmail?: string | null
-
-  @Property({ name: 'external_email_hash', type: 'text', nullable: true })
-  externalEmailHash?: string | null
 
   @Property({ name: 'external_name', type: 'text', nullable: true })
   externalName?: string | null

@@ -78,7 +78,7 @@ export function AppearanceDialog({
             onColorChange={onColorChange}
             disabled={isSaving}
           />
-          {errorMessage ? <p className="text-sm text-status-error-text">{errorMessage}</p> : null}
+          {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>

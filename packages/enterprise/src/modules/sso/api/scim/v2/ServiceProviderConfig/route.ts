@@ -1,7 +1,7 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { scimJson } from '../../../../lib/scim-response'
 
-export const metadata = { requireAuth: false }
+export const metadata = {}
 
 export async function GET() {
   return scimJson({

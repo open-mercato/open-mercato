@@ -7,8 +7,6 @@ The **Cache** page gives operators a tenant-scoped view of CRUD response caches 
 
 ![Cache management table with purge controls](/screenshots/open-mercato-cache-management.png)
 
-For terminal-driven work, the matching CLI is [`yarn mercato configs cache`](../cli/configs-cache). It covers the same segment stats/purge path as the admin page and adds targeted purge modes for tags, exact keys, identifier tokens, patterns, and structural navigation cleanup.
-
 ## Access
 
 - Navigate to **Backend → Configuration → Cache**.
@@ -25,20 +23,3 @@ For terminal-driven work, the matching CLI is [`yarn mercato configs cache`](../
 - **Purge selected** buttons clear only the highlighted segment and immediately refresh statistics so you can monitor the impact.
 - **Purge all** clears every cached entry for the active tenant after a confirmation prompt. The action runs through the shared `/api/configs/cache` endpoint and respects the underlying cache backend (Redis, SQLite, etc.).
 - If the cache backend does not support an operation, the UI surfaces a descriptive error and leaves the existing entries untouched.
-
-## CLI alternative
-
-Use the CLI when you need repeatable or cross-tenant cleanup:
-
-```bash
-# same segment view as the page
-yarn mercato configs cache stats --tenant <tenantId>
-
-# clear one segment
-yarn mercato configs cache purge --segment admin-nav --tenant <tenantId>
-
-# clear navigation cache after structural app changes
-yarn mercato configs cache structural --all-tenants
-```
-
-For internals, see the [cache CLI architecture](../architecture/cache-cli).

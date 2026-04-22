@@ -214,7 +214,6 @@
   "business_rules.rules.form.effectiveTo": "Effective To",
   "business_rules.rules.form.enabled": "Enabled",
   "business_rules.rules.form.entityType": "Entity Type",
-  "business_rules.rules.form.errors.effectiveToBeforeFrom": "Effective To must be later than Effective From",
   "business_rules.rules.form.eventType": "Event Type",
   "business_rules.rules.form.metadata.title": "Metadata",
   "business_rules.rules.form.placeholders.description": "Optional: Describe the purpose of this rule",

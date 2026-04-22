@@ -19,6 +19,5 @@ const route = makeSalesLineRoute({
   },
 });
 
-export const metadata = route.metadata;
 export const { GET, POST, PUT, DELETE } = route;
 export const openApi = route.openApi;

@@ -28,6 +28,22 @@ function readSessionIdFromEvent(event: WebhookEvent): string | null {
   return null
 }
 
+function readScopeFromEvent(event: WebhookEvent): { organizationId: string; tenantId: string } | null {
+  const metadata = event.data.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const metadataRecord = metadata as Record<string, unknown>
+  const organizationId = typeof metadataRecord.organizationId === 'string'
+    ? metadataRecord.organizationId.trim()
+    : ''
+  const tenantId = typeof metadataRecord.tenantId === 'string'
+    ? metadataRecord.tenantId.trim()
+    : ''
+
+  if (!organizationId || !tenantId) return null
+  return { organizationId, tenantId }
+}
+
 async function writeTransactionLog(
   integrationLogService: IntegrationLogService,
   providerKey: string,
@@ -53,19 +69,15 @@ export async function processPaymentGatewayWebhookJob(
 ): Promise<void> {
   const { em, paymentGatewayService, integrationLogService } = deps
   const { providerKey, event } = payload
-  // Scope MUST come from the trusted route layer (derived from a verified GatewayTransaction).
-  // Never fall back to attacker-controlled metadata on `event.data.metadata` — that was the
-  // vector that allowed forged mock webhooks to mutate another tenant's payment state.
-  const scopedPayload = payload.scope ?? null
-  if (!scopedPayload) return
+  const scopedPayload = payload.scope ?? readScopeFromEvent(event)
 
-  let transaction = payload.transactionId
+  let transaction = payload.transactionId && scopedPayload
     ? await paymentGatewayService.findTransaction(payload.transactionId, scopedPayload)
     : null
 
   if (!transaction) {
     const sessionId = readSessionIdFromEvent(event)
-    if (sessionId) {
+    if (sessionId && scopedPayload) {
       transaction = await paymentGatewayService.findTransactionBySessionId(sessionId, scopedPayload, providerKey)
     }
   }

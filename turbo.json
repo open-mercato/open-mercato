@@ -1,11 +1,9 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "concurrency": "32",
-  "globalEnv": ["NODE_ENV"],
+  "globalPassThroughEnv": ["*"],
   "tasks": {
     "build": {
-      "cache": true,
-      "inputs": ["$TURBO_DEFAULT$", "generated/**"],
+      "cache": false,
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "start": {
@@ -29,7 +27,7 @@
       "persistent": true
     },
     "typecheck": {
-      "cache": true,
+      "cache": false,
       "outputs": []
     },
     "test": {
@@ -60,10 +58,6 @@
       "outputs": []
     },
     "initialize": {
-      "cache": false,
-      "outputs": []
-    },
-    "seed:defaults": {
       "cache": false,
       "outputs": []
     }

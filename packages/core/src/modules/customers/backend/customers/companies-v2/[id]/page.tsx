@@ -430,7 +430,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
-                    runGuardedMutation={runMutationWithContext}
                   />
                 )
               }

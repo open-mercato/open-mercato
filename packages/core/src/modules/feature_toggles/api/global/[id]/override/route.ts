@@ -64,7 +64,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['feature_toggles.view'] },
+  GET: { requireAuth: true, requireRoles: ['superadmin'] },
 }
 
 export const metadata = routeMetadata

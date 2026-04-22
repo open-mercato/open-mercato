@@ -11,10 +11,10 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { resolveTodoHref } from './detail/utils'
 
 type CustomerTodoItem = {
   id: string
@@ -31,8 +31,6 @@ type CustomerTodoItem = {
   organizationId: string
   tenantId: string
   createdAt: string
-  externalHref?: string | null
-  _integrations?: Record<string, unknown>
   customer: {
     id: string | null
     displayName: string | null
@@ -49,7 +47,6 @@ type CustomerTodosResponse = {
 }
 
 const TASKS_TAB_QUERY = 'tab=tasks'
-const CUSTOMER_TASKS_API_PATH = '/api/customers/interactions/tasks'
 
 function buildCustomerHref(item: CustomerTodoItem): string | null {
   const customerId = item.customer?.id
@@ -62,31 +59,25 @@ function buildCustomerHref(item: CustomerTodoItem): string | null {
   return `${base}?${TASKS_TAB_QUERY}`
 }
 
-function buildCustomerTasksQueryString(input: {
-  page: number
-  pageSize: number
-  search: string
-  all?: boolean
-}): string {
-  const usp = new URLSearchParams({
-    page: String(input.page),
-    pageSize: String(input.pageSize),
-  })
-  if (input.search.trim().length > 0) usp.set('search', input.search.trim())
-  if (input.all) usp.set('all', 'true')
-  return usp.toString()
-}
-
-function readValueAtPath(record: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.').filter((segment) => segment.length > 0)
-  let current: unknown = record
-  for (const segment of segments) {
-    if (!current || typeof current !== 'object') return null
-    current = (current as Record<string, unknown>)[segment]
-  }
-  return current ?? null
-}
-
+// SPEC-046b: To enable canonical interactions mode, switch this table to
+// /api/customers/interactions?status=planned&pageSize=N&page=N&search=...
+//
+// Column mapping (InteractionSummary → CustomerTodoItem shape):
+//   interaction.id        → todoId (also use as id)
+//   interaction.title     → todoTitle
+//   interaction.status    → todoIsDone: status === 'done'
+//   interaction.entityId  → requires a separate lookup or API enricher
+//                           to resolve customer displayName/kind
+//
+// The main gap is the `customer` sub-object: the interactions API does not
+// embed customer details. Options:
+//   a) Add a response enricher to the interactions API that populates
+//      customer displayName/kind from entityId
+//   b) Fetch customer details client-side for visible rows
+//   c) Add an /api/customers/interactions/table endpoint that joins entities
+//
+// Export config would switch from 'customers/todos' to 'customers/interactions'
+// with exportScope: 'full' and an adjusted column mapping.
 export function CustomerTodosTable(): React.JSX.Element {
   const t = useT()
   const router = useRouter()
@@ -96,11 +87,14 @@ export function CustomerTodosTable(): React.JSX.Element {
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
 
-  const params = React.useMemo(() => buildCustomerTasksQueryString({
-    page,
-    pageSize,
-    search,
-  }), [page, pageSize, search])
+  const params = React.useMemo(() => {
+    const usp = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+    })
+    if (search.trim().length > 0) usp.set('search', search.trim())
+    return usp.toString()
+  }, [page, pageSize, search])
 
   const columns = React.useMemo<ColumnDef<CustomerTodoItem>[]>(() => [
     {
@@ -124,10 +118,10 @@ export function CustomerTodosTable(): React.JSX.Element {
       header: t('customers.workPlan.customerTodos.table.column.todo'),
       cell: ({ row }) => {
         const title = row.original.todoTitle ?? t('customers.workPlan.customerTodos.table.column.todo.unnamed')
-        const todoHref = row.original.externalHref ?? resolveTodoHref(row.original.todoSource, row.original.todoId)
-        if (!todoHref) return <span className="text-muted-foreground">{title}</span>
+        const todoId = row.original.todoId
+        if (!todoId) return <span className="text-muted-foreground">{title}</span>
         return (
-          <Link href={todoHref} className="underline-offset-2 hover:underline">
+          <Link href={`/backend/todos/${todoId}/edit`} className="underline-offset-2 hover:underline">
             {title}
           </Link>
         )
@@ -156,30 +150,15 @@ export function CustomerTodosTable(): React.JSX.Element {
       .filter((col): col is { field: string; header: string } => !!col)
   }, [columns])
 
-  const buildPreparedExport = React.useCallback((
-    exportRows: CustomerTodoItem[],
-    exportColumns: Array<{ field: string; header: string }>,
-  ): PreparedExport => ({
-    columns: exportColumns.map((col) => ({ field: col.field, header: col.header })),
-    rows: exportRows.map((row) => {
-      const record = row as Record<string, unknown>
-      return Object.fromEntries(
-        exportColumns.map((col) => [col.field, readValueAtPath(record, col.field)]),
-      )
-    }),
-  }), [])
-
-  const fetchTasks = React.useCallback(async (queryString: string): Promise<CustomerTodosResponse> => {
-    return readApiResultOrThrow<CustomerTodosResponse>(
-      `${CUSTOMER_TASKS_API_PATH}?${queryString}`,
-      undefined,
-      { errorMessage: t('customers.workPlan.customerTodos.table.error.load') },
-    )
-  }, [t])
-
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
-    queryKey: ['customers-interactions-tasks', params, scopeVersion],
-    queryFn: async () => fetchTasks(params),
+    queryKey: ['customers-todos', params, scopeVersion],
+    queryFn: async () => {
+      return readApiResultOrThrow<CustomerTodosResponse>(
+        `/api/customers/todos?${params}`,
+        undefined,
+        { errorMessage: t('customers.workPlan.customerTodos.table.error.load') },
+      )
+    },
     placeholderData: keepPreviousData,
   })
 
@@ -189,28 +168,27 @@ export function CustomerTodosTable(): React.JSX.Element {
     view: {
       description: t('customers.workPlan.customerTodos.table.export.view'),
       prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
-        return {
-          prepared: buildPreparedExport(rows, viewExportColumns),
-          filename: 'customer_todos_view',
+        const rowsForExport = rows.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows: rowsForExport,
         }
+        return { prepared, filename: 'customer_todos_view' }
       },
     },
     full: {
       description: t('customers.workPlan.customerTodos.table.export.full'),
-      prepare: async (_format: DataTableExportFormat): Promise<{ prepared: PreparedExport; filename: string }> => {
-        const fullData = await fetchTasks(buildCustomerTasksQueryString({
-          page: 1,
-          pageSize,
-          search,
-          all: true,
-        }))
-        return {
-          prepared: buildPreparedExport(fullData.items, viewExportColumns),
-          filename: 'customer_todos_full',
-        }
-      },
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/todos', { exportScope: 'full', all: 'true' }, format),
+      filename: () => 'customer_todos_full',
     },
-  }), [buildPreparedExport, fetchTasks, pageSize, rows, search, t, viewExportColumns])
+  }), [rows, t, viewExportColumns])
 
   const handleRefresh = React.useCallback(async () => {
     try {
@@ -256,21 +234,18 @@ export function CustomerTodosTable(): React.JSX.Element {
       perspective={{ tableId: 'customers.todos.list' }}
       rowActions={(row) => {
         const customerLink = buildCustomerHref(row)
-        const todoHref = row.externalHref ?? resolveTodoHref(row.todoSource, row.todoId)
-        const items = [
-          customerLink ? {
-            id: 'open-customer',
-            label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
-            href: customerLink,
-          } : null,
-          todoHref ? {
-            id: 'open-task',
-            label: t('customers.workPlan.customerTodos.table.actions.openTask'),
-            href: todoHref,
-          } : null,
-        ].filter((item): item is { id: string; label: string; href: string } => !!item)
-        if (!items.length) return null
-        return <RowActions items={items} />
+        if (!customerLink) return null
+        return (
+          <RowActions
+            items={[
+              {
+                id: 'open-customer',
+                label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
+                href: customerLink,
+              },
+            ]}
+          />
+        )
       }}
       onRowClick={handleNavigate}
       pagination={{

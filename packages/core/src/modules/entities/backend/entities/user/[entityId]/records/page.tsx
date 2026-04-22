@@ -328,7 +328,6 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           </div>
         </ContextHelp>
         <DataTable
-          stickyActionsColumn
           title={`Records: ${entityId}`}
           entityId={entityId}
           actions={actions}

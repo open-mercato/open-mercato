@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
-import { addOfficialModule, enableOfficialModule } from '../module-install'
+import { enableOfficialModule } from '../module-install'
 
 function buildPackageFixture(
   packageRoot: string,
@@ -218,21 +218,5 @@ describe('enableOfficialModule', () => {
     await expect(
       enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
     ).rejects.toThrow('--eject requires open-mercato.ejectable === true')
-  })
-
-  it('rejects unsupported package specs before invoking the package manager', async () => {
-    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
-    const appDir = path.join(tmpDir, 'app')
-    buildPackageFixture(packageRoot, 'test_package')
-
-    const resolver = buildResolver(
-      appDir,
-      packageRoot,
-      "export const enabledModules = []\n",
-    )
-
-    await expect(
-      addOfficialModule(resolver, '@open-mercato/test-package@npm:evil', false),
-    ).rejects.toThrow('Unsupported package spec suffix')
   })
 })

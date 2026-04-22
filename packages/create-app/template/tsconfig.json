@@ -29,9 +29,6 @@
       "@/*": [
         "./src/*"
       ],
-      "@/.mercato/generated/entities/*": [
-        "./.mercato/generated/entities/*/index.ts"
-      ],
       "@/.mercato/*": [
         "./.mercato/*"
       ]

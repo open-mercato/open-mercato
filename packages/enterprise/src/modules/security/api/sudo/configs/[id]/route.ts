@@ -57,10 +57,7 @@ export async function GET(req: Request, ctx?: RouteContext) {
   }
 
   try {
-    const config = await context.sudoChallengeService.getConfigById(
-      parsedParams.data.id,
-      context.scope,
-    )
+    const config = await context.sudoChallengeService.getConfigById(parsedParams.data.id)
     if (!config) {
       return securityApiError(404, 'Sudo config not found')
     }

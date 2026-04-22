@@ -21,7 +21,7 @@
  */
 
 export * from './types'
-export { createQueue, createModuleQueue, resolveQueueStrategy } from './factory'
+export { createQueue } from './factory'
 
 // Worker utilities
 export * from './worker/registry'

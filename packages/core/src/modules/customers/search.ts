@@ -6,7 +6,6 @@ import type {
   SearchResultLink,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
-import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 
 // =============================================================================
 // Context Types
@@ -347,9 +346,9 @@ async function getLinkedTodo(ctx: SearchContext) {
   if (todoCache.has(ctx.record)) {
     return todoCache.get(ctx.record)
   }
-  const sourceRaw = typeof ctx.record.todo_source === 'string' ? ctx.record.todo_source : EXAMPLE_TODO_SOURCE
+  const sourceRaw = typeof ctx.record.todo_source === 'string' ? ctx.record.todo_source : 'example:todo'
   const [moduleId, entityName] = sourceRaw.split(':')
-  const entityId = moduleId && entityName ? `${moduleId}:${entityName}` : CUSTOMER_INTERACTION_TASK_SOURCE
+  const entityId = moduleId && entityName ? `${moduleId}:${entityName}` : 'example:todo'
   const todo = await loadRecord(ctx, entityId, ctx.record.todo_id as string ?? ctx.record.todoId as string)
   todoCache.set(ctx.record, todo ?? null)
   return todo ?? null

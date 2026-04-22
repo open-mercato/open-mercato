@@ -28,24 +28,6 @@ jest.mock('../../detail/AttachmentsSection', () => ({
   AttachmentsSection: () => null,
 }))
 
-jest.mock('../../injection/useInjectionDataWidgets', () => ({
-  useInjectionDataWidgets: () => ({
-    widgets: [],
-    isLoading: false,
-  }),
-}))
-
-jest.mock('../../injection/InjectionSpot', () => ({
-  InjectionSpot: () => null,
-  useInjectionWidgets: () => ({
-    widgets: [],
-    isLoading: false,
-  }),
-  useInjectionSpotEvents: () => ({
-    triggerEvent: jest.fn(async () => ({ ok: true })),
-  }),
-}))
-
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }),
   usePathname: () => '/',

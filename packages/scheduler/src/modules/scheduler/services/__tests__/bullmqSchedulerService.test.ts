@@ -15,9 +15,6 @@ jest.mock('bullmq', () => ({
   Queue: mockQueueConstructor,
 }))
 
-jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
-  getRedisUrlOrThrow: jest.fn(() => 'redis://localhost:6379'),
-}))
 
 
 describe('BullMQSchedulerService', () => {

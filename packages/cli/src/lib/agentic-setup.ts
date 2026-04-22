@@ -6,7 +6,7 @@
  * This module reads those files at runtime — no embedded string constants.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,7 +14,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // In the built output (dist/lib/agentic-setup.js), __dirname is dist/lib/.
 // agentic/ is copied to dist/agentic/ by build.mjs.
 const AGENTIC_DIR = join(__dirname, '..', 'agentic')
-const GUIDES_DIR = join(AGENTIC_DIR, 'guides')
 
 type AskFn = (question: string) => Promise<string>
 
@@ -109,92 +108,6 @@ function generateShared(config: AgenticConfig): void {
     'ai/skills/integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'integration-builder', 'references', 'adapter-contracts.md'),
   )
-
-  copyFile(
-    srcDir,
-    'ai/skills/system-extension/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/system-extension/references/extension-contracts.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'references', 'extension-contracts.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/module-scaffold/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/module-scaffold/references/naming-conventions.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/module-scaffold/references/navigation-patterns.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'navigation-patterns.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/troubleshooter/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/troubleshooter/references/diagnostic-commands.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'references', 'diagnostic-commands.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/eject-and-customize/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'eject-and-customize', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/data-model-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/implement-spec/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'implement-spec', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
-  )
-
-  copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
-
-  if (existsSync(GUIDES_DIR)) {
-    const guidesDestDir = join(targetDir, '.ai', 'guides')
-    for (const file of readdirSync(GUIDES_DIR)) {
-      if (!file.endsWith('.md')) continue
-      const srcPath = join(GUIDES_DIR, file)
-      const destPath = join(guidesDestDir, file)
-      ensureDir(destPath)
-      copyFileSync(srcPath, destPath)
-    }
-  }
 }
 
 function generateClaudeCode(config: AgenticConfig): void {

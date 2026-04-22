@@ -1,6 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { buildForwardPreview } from '../../../lib/forwarding'
 import { hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
@@ -17,17 +16,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const { ctx, scope } = await resolveMessageContext(req)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-  const message = await findOneWithDecryption(
-    em,
-    Message,
-    {
-      id: params.id,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
+  const message = await em.findOne(Message, {
+    id: params.id,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
 
   if (!message) {
     return Response.json({ error: 'Message not found' }, { status: 404 })

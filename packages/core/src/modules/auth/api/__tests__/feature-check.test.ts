@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (k: string) => (k === 'rbacService' ? mockRbac : null) }),
 }))
 
-function makeReq(body: unknown) {
+function makeReq(body: any) {
   return new Request('http://localhost/api/auth/feature-check', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -60,56 +60,6 @@ describe('POST /api/auth/feature-check', () => {
     expect(data.ok).toBe(false)
     expect(Array.isArray(data.granted)).toBe(true)
   })
-
-  describe('input validation — returns 400', () => {
-    beforeEach(async () => {
-      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
-      ;(getAuthFromRequest as jest.Mock).mockReturnValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
-    })
-
-    it('rejects request with more than 50 features', async () => {
-      const features = Array.from({ length: 51 }, (_, i) => `module.feature${i}`)
-      const res = await POST(makeReq({ features }))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false, error: expect.any(String) })
-    })
-
-    it('rejects feature string longer than 128 characters', async () => {
-      const res = await POST(makeReq({ features: ['a'.repeat(129)] }))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false })
-    })
-
-    it('rejects non-string elements in features array', async () => {
-      const res = await POST(makeReq({ features: [123, true] }))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false })
-    })
-
-    it('rejects missing features field', async () => {
-      const res = await POST(makeReq({}))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false })
-    })
-
-    it('rejects non-object body', async () => {
-      const res = await POST(new Request('http://localhost/api/auth/feature-check', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify('invalid'),
-      }))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false })
-    })
-
-    it('rejects malformed JSON body', async () => {
-      const res = await POST(new Request('http://localhost/api/auth/feature-check', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: 'not-json{{{',
-      }))
-      expect(res.status).toBe(400)
-      await expect(res.json()).resolves.toMatchObject({ ok: false })
-    })
-  })
 })
+
+

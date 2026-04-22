@@ -44,12 +44,6 @@ In the create form:
 - Keep the default retry and timeout values unless your receiver is known to be slow.
 - Add **Custom Headers** only for static metadata such as environment or source identifiers.
 
-## Outbound URL safety
-
-Open Mercato rejects webhook URLs that point at localhost, private networks, reserved IP ranges, or internal hostnames. This protects the delivery worker from sending server-side requests to services that only the Open Mercato host can reach.
-
-For local development or CI, set `OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1` to allow endpoints such as `http://localhost:3000/webhooks`. Keep this disabled in production. Use a public HTTPS endpoint or a temporary public tunnel when testing a production-like environment.
-
 ## Step 3 — Store the signing secret immediately
 
 After creating a webhook, Open Mercato reveals the signing secret only once. The same one-time reveal appears again after a secret rotation.

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/scheduler",
-  "version": "0.5.0",
+  "version": "0.4.10",
   "description": "Database-managed scheduled jobs with admin UI",
   "type": "module",
   "main": "./dist/index.js",
@@ -60,7 +60,7 @@
   "dependencies": {
     "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
-    "cron-parser": "^5.5.0"
+    "cron-parser": "^4.9.0"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^6.6.10",
@@ -80,16 +80,11 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.0",
-    "jest": "^30.3.0",
-    "ts-jest": "^29.4.9"
+    "@types/node": "^20.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/open-mercato/open-mercato",
-    "directory": "packages/scheduler"
   }
 }

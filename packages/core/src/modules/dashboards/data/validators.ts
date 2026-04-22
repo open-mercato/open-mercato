@@ -23,11 +23,15 @@ export const dashboardLayoutItemPatchSchema = z.object({
 
 export const roleWidgetSettingsSchema = z.object({
   roleId: z.string().uuid(),
+  tenantId: z.string().uuid().optional().nullable(),
+  organizationId: z.string().uuid().optional().nullable(),
   widgetIds: z.array(dashboardWidgetIdSchema),
 })
 
 export const userWidgetSettingsSchema = z.object({
   userId: z.string().uuid(),
+  tenantId: z.string().uuid().optional().nullable(),
+  organizationId: z.string().uuid().optional().nullable(),
   mode: z.enum(['inherit', 'override']).default('inherit'),
   widgetIds: z.array(dashboardWidgetIdSchema),
 })

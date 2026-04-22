@@ -418,7 +418,6 @@ Workers are idempotent: they delete rows matching `expires_at < now()` or `used_
 | `failed_login_attempts` | integer | NOT NULL, DEFAULT 0 | Reset on successful login |
 | `locked_until` | timestamptz | NULL | NULL = not locked |
 | `last_login_at` | timestamptz | NULL | Updated on each successful login |
-| `sessions_revoked_at` | timestamptz | NULL | Set by `revokeAllUserSessions`. JWTs with `iat` before this timestamp are rejected. |
 | `person_entity_id` | uuid | NULL, INDEX | FK to `customer_entities.id` (kind='person'). Who this user IS in CRM |
 | `customer_entity_id` | uuid | NULL, INDEX | FK to `customer_entities.id` (kind='company'). Which company they represent. NULL for B2C |
 | `is_active` | boolean | NOT NULL, DEFAULT true | Soft disable by staff |
@@ -1637,12 +1636,6 @@ The following capabilities are explicitly deferred from the current scope. They 
 - **No changes to `customer_accounts` RBAC needed**: Purchase limits are separate from feature-based RBAC. They operate on financial thresholds, not access permissions.
 
 ## Changelog
-
-### 2026-04-11 (v4 — Immediate JWT Invalidation via `sessions_revoked_at`)
-- **Added `sessions_revoked_at` column** to `CustomerUser`: nullable timestamp set by `revokeAllUserSessions()`. When set, any JWT whose `iat` (issued-at) precedes this timestamp is rejected by `getCustomerAuthFromRequest()`.
-- **Modified `getCustomerAuthFromRequest()`**: After JWT signature verification, performs a lightweight DB lookup (`em.findOne(CustomerUser, { id }, { fields: ['sessionsRevokedAt'] })`) to compare `jwt.iat` against `sessions_revoked_at`. Follows the staff auth pattern (`resolveCanonicalInteractiveAuthContext` in `server.ts`). Fail-closed: container or DB errors return `null` (unauthenticated).
-- **Modified `revokeAllUserSessions()`**: In addition to soft-deleting session rows, stamps `sessions_revoked_at = now()` on the `CustomerUser` record. Both operations use the same `Date` instance for timestamp consistency.
-- **Security impact**: Closes the window where a revoked session's already-issued JWT remained valid until expiry (up to 8 hours). After this change, JWTs issued before session revocation are immediately rejected on next API call.
 
 ### 2026-03-05 (v3 — Enterprise Architecture Review)
 - **Enterprise architecture review**: Evaluated against SAP Commerce Cloud (B2BCustomer/B2BUnit hierarchy, purchase-threshold RBAC, OAuth 2.0), OroCommerce (Customer/CustomerUser composition, 4-level entity ACL, `selfManaged`/`public` role flags), and Magento 2 / Adobe Commerce (company linkage model, per-company resource-permission roles, company registration approval).

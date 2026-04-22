@@ -34,15 +34,7 @@ export function checkAttachmentAccess(
     return { ok: false, status: 403 }
   }
 
-  if (!auth) {
-    const isTenantScoped = !!attachment.tenantId || !!attachment.organizationId
-    if (isTenantScoped) {
-      return { ok: false, status: 401 }
-    }
-    return { ok: true }
-  }
-
-  if (!superAdmin && !isSameScope(auth, attachment)) {
+  if (auth && !superAdmin && !isSameScope(auth, attachment)) {
     return { ok: false, status: 403 }
   }
   return { ok: true }

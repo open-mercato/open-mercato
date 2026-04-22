@@ -2,11 +2,7 @@
 
 import * as React from 'react'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-// Use the `/pure` entry so that Stripe.js is only fetched when `loadStripe`
-// is actually called (i.e., when the embedded payment form renders on a
-// checkout page), instead of as an import side effect that leaks onto every
-// admin route that bootstraps payment renderer registrations.
-import { loadStripe } from '@stripe/stripe-js/pure'
+import { loadStripe } from '@stripe/stripe-js'
 import type { StripePaymentElementOptions } from '@stripe/stripe-js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {

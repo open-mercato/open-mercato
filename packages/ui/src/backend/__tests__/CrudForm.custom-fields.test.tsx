@@ -1,12 +1,7 @@
 /** @jest-environment jsdom */
-jest.setTimeout(15000)
 
 const fetchCustomFieldFormStructureMock = jest.fn()
 const buildFormFieldFromCustomFieldDefMock = jest.fn()
-const triggerInjectionEventMock = jest.fn(async (_event: string, data: Record<string, unknown>) => ({
-  ok: true,
-  data,
-}))
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -20,16 +15,6 @@ jest.mock('../confirm-dialog', () => ({
     confirm: jest.fn().mockResolvedValue(true),
     ConfirmDialogElement: null,
   }),
-}))
-jest.mock('../injection/InjectionSpot', () => ({
-  __esModule: true,
-  InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
-  useInjectionSpotEvents: () => ({ triggerEvent: triggerInjectionEventMock }),
-}))
-jest.mock('../injection/useInjectionDataWidgets', () => ({
-  __esModule: true,
-  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
 }))
 jest.mock('../custom-fields/FieldDefinitionsManager', () => {
   const React = require('react')
@@ -46,7 +31,7 @@ jest.mock('../utils/customFieldForms', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 
@@ -68,7 +53,6 @@ describe('CrudForm custom field loading', () => {
   beforeEach(() => {
     fetchCustomFieldFormStructureMock.mockReset()
     buildFormFieldFromCustomFieldDefMock.mockReset()
-    triggerInjectionEventMock.mockClear()
     buildFormFieldFromCustomFieldDefMock.mockReturnValue(null)
     fetchCustomFieldFormStructureMock.mockResolvedValue({
       fields: [],
@@ -165,14 +149,9 @@ describe('CrudForm custom field loading', () => {
       },
     )
 
-    await waitFor(() => {
-      expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
-    })
-    const manageButton = await screen.findByRole('button', { name: 'Manage fields' }, { timeout: 3000 })
+    const manageButton = await screen.findByRole('button', { name: 'Manage fields' })
 
-    await act(async () => {
-      fireEvent.click(manageButton)
-    })
+    fireEvent.click(manageButton)
 
     expect(handleSubmit).not.toHaveBeenCalled()
     expect(await screen.findByText('Edit custom fields')).toBeInTheDocument()

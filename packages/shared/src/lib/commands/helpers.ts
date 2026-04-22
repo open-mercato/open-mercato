@@ -50,16 +50,14 @@ export async function emitCrudSideEffects<TEntity>(opts: {
   action: 'created' | 'updated' | 'deleted'
   entity: TEntity
   identifiers: CrudEmitContext<TEntity>['identifiers']
-  syncOrigin?: string | null
   events?: CrudEventsConfig<any>
   indexer?: CrudIndexerConfig<any>
 }) {
-  const { dataEngine, action, entity, identifiers, syncOrigin, events, indexer } = opts
+  const { dataEngine, action, entity, identifiers, events, indexer } = opts
   dataEngine.markOrmEntityChange({
     action,
     entity,
     identifiers,
-    syncOrigin,
     events,
     indexer,
   })
@@ -70,17 +68,15 @@ export async function emitCrudUndoSideEffects<TEntity>(opts: {
   action: 'created' | 'updated' | 'deleted'
   entity: TEntity | null | undefined
   identifiers: CrudEmitContext<TEntity>['identifiers']
-  syncOrigin?: string | null
   events?: CrudEventsConfig<any>
   indexer?: CrudIndexerConfig<any>
 }) {
-  const { dataEngine, action, entity, identifiers, syncOrigin, events, indexer } = opts
+  const { dataEngine, action, entity, identifiers, events, indexer } = opts
   if (!entity) return
   dataEngine.markOrmEntityChange({
     action,
     entity,
     identifiers,
-    syncOrigin,
     events,
     indexer,
   })

@@ -6,7 +6,7 @@ import { parseScimPatchOperations } from '../../../../../lib/scim-patch'
 import { scimJson } from '../../../../../lib/scim-response'
 import { handleScimApiError } from '../../../../error-handler'
 
-export const metadata = { requireAuth: false }
+export const metadata = {}
 
 type RouteContext = { params: Promise<{ id: string }> }
 

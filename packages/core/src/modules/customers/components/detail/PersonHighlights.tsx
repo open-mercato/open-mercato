@@ -270,7 +270,7 @@ export function PersonHighlights({
                   loadingLabel: t('customers.people.form.company.loading'),
                 }}
               />
-              {companyError ? <p className="text-xs text-status-error-text">{companyError}</p> : null}
+              {companyError ? <p className="text-xs text-red-600">{companyError}</p> : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={handleCompanySave} disabled={companySaving}>
                   {companySaving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -300,7 +300,7 @@ export function PersonHighlights({
                   {t('customers.people.detail.company.current', undefined, { company: company.name })}
                 </span>
               ) : companyError ? (
-                <span className="text-xs text-status-error-text">{companyError}</span>
+                <span className="text-xs text-red-600">{companyError}</span>
               ) : (
                 <span className="text-muted-foreground">
                   {t('customers.people.detail.company.empty', 'No company assigned')}

@@ -14,17 +14,9 @@ export const metadata: WorkerMeta = {
 type EventJobPayload = {
   event: string
   payload: unknown
-  options?: {
-    tenantId?: string | null
-    organizationId?: string | null
-  }
 }
 
-type HandlerContext = {
-  resolve: <T = unknown>(name: string) => T
-  tenantId?: string | null
-  organizationId?: string | null
-}
+type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
 type SubscriberEntry = {
   id: string
@@ -73,36 +65,31 @@ export default async function handle(
   job: QueuedJob<EventJobPayload>,
   ctx: JobContext & HandlerContext
 ): Promise<void> {
-  const { event, payload, options } = job.payload
+  const { event, payload } = job.payload
   const listeners = getListenerMap()
   const subscribers = listeners.get(event)
 
   if (!subscribers || subscribers.length === 0) return
 
-  const handlerCtx = {
-    resolve: ctx.resolve,
-    tenantId: options?.tenantId ?? null,
-    organizationId: options?.organizationId ?? null,
-  }
-
-  const results = await Promise.allSettled(
-    subscribers.map((sub) => Promise.resolve(sub.handler(payload, handlerCtx)))
-  )
-
   const errors: Array<{ subscriberId: string; error: unknown }> = []
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i]
-    if (result.status === 'rejected') {
-      const sub = subscribers[i]
-      console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, result.reason)
-      errors.push({ subscriberId: sub.id, error: result.reason })
+
+  for (const sub of subscribers) {
+    try {
+      await sub.handler(payload, { resolve: ctx.resolve })
+    } catch (error) {
+      // Log error but continue processing other subscribers
+      console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, error)
+      errors.push({ subscriberId: sub.id, error })
     }
   }
 
+  // If all subscribers failed, throw to trigger retry
+  if (errors.length === subscribers.length) {
+    throw new Error(`All ${errors.length} subscriber(s) failed for event "${event}"`)
+  }
+
+  // Log partial failures but don't fail the job
   if (errors.length > 0) {
-    const failedIds = errors.map((e) => e.subscriberId).join(', ')
-    throw new Error(
-      `${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}": ${failedIds}`
-    )
+    console.warn(`[events] ${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}"`)
   }
 }

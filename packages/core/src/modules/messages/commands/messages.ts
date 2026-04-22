@@ -2,7 +2,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -12,7 +11,7 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
@@ -51,45 +50,7 @@ async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload
   tenantId: string
   organizationId: string | null
 }) {
-  await emitMessagesEvent(
-    'messages.message.deleted',
-    { ...payload, recipientUserId: payload.actorUserId },
-    { persistent: true },
-  )
-}
-
-async function emitMessageIndexUpsert(
-  container: ContainerWithResolve,
-  payload: {
-    messageId: string
-    tenantId: string
-    organizationId: string | null
-  },
-) {
-  let bus: { emitEvent: (name: string, body: unknown, options?: unknown) => Promise<void> } | null = null
-  try {
-    bus = container.resolve('eventBus') as { emitEvent: (name: string, body: unknown, options?: unknown) => Promise<void> }
-  } catch {
-    bus = null
-  }
-
-  if (!bus) return
-
-  await bus.emitEvent(
-    'query_index.upsert_one',
-    {
-      entityType: MESSAGE_ENTITY_ID,
-      recordId: payload.messageId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId,
-      crudAction: 'updated',
-      coverageBaseDelta: 1,
-    },
-    {
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId,
-    },
-  ).catch(() => undefined)
+  await emitMessagesEvent('messages.message.deleted', payload, { persistent: true })
 }
 
 const scopeSchema = z.object({
@@ -165,20 +126,11 @@ async function requireMessageById(
   scope: MessageScopeInput,
   messageId: string,
 ) {
-  const message = await findOneWithDecryption(
-    em,
-    Message,
-    {
-      id: messageId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    undefined,
-    {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    },
-  )
+  const message = await em.findOne(Message, {
+    id: messageId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
   if (!message) throw new Error('Message not found')
   assertOrganizationAccess(scope, message)
   return message
@@ -302,12 +254,6 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         organizationId: input.organizationId,
       })
     }
-
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
 
     return {
       id: messageId,
@@ -455,11 +401,6 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     }
 
     await em.flush()
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId: message.id,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
     return { ok: true, id: message.id }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -609,11 +550,6 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       tenantId: input.tenantId,
       organizationId: input.organizationId,
     })
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
 
     return {
       id: messageId,
@@ -751,11 +687,6 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       sendViaEmail: input.sendViaEmail,
       externalEmail: responseExternalEmail,
       forwardedFrom: original.id,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId: newMessageId,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
     })

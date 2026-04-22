@@ -1,6 +1,5 @@
 {
   "webhooks.deliveries.actions.retry": "Retry",
-  "webhooks.deliveries.actions.viewDetails": "Ver detalles",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
   "webhooks.deliveries.columns.attempts": "Attempts",
   "webhooks.deliveries.columns.createdAt": "Time",

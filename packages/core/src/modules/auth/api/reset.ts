@@ -13,7 +13,6 @@ import { z } from 'zod'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
-import { mapSecurityEmailUrlError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
@@ -37,23 +36,14 @@ export async function POST(req: Request) {
     const fieldErrors = parsed.error.flatten().fieldErrors
     return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 422 })
   }
-  let resetUrlTemplate: string
-  try {
-    resetUrlTemplate = toSecurityEmailUrl(req, '/reset/__token__')
-  } catch (error) {
-    const mapped = mapSecurityEmailUrlError(error, {
-      scope: 'auth.reset',
-      configMessage: 'Password reset is not configured',
-    })
-    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
-    throw error
-  }
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')
   const resReq = await auth.requestPasswordReset(parsed.data.email)
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
-  const resetUrl = resetUrlTemplate.replace('__token__', token)
+  const url = new URL(req.url)
+  const base = process.env.APP_URL || `${url.protocol}//${url.host}`
+  const resetUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
@@ -65,11 +55,7 @@ export async function POST(req: Request) {
     hint: translate('auth.email.resetPassword.hint', "If you didn't request this, you can safely ignore this email."),
   }
 
-  try {
-    await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
-  } catch (err) {
-    console.error('[auth.reset] Failed to send reset email:', err)
-  }
+  await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {
@@ -93,7 +79,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const metadata = { requireAuth: false }
+export const metadata = {}
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email(),
@@ -101,10 +87,6 @@ const passwordResetRequestSchema = z.object({
 
 const passwordResetResponseSchema = z.object({
   ok: z.literal(true),
-})
-
-const passwordResetErrorSchema = z.object({
-  error: z.string(),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -122,9 +104,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Reset email dispatched (or ignored for unknown accounts)', schema: passwordResetResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid request origin', schema: passwordResetErrorSchema },
         { status: 429, description: 'Too many password reset requests', schema: rateLimitErrorSchema },
-        { status: 500, description: 'Password reset email origin is not configured', schema: passwordResetErrorSchema },
       ],
     },
   },

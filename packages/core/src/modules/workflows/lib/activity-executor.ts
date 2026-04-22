@@ -13,34 +13,14 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
-import { createModuleQueue, Queue } from '@open-mercato/queue'
+import { createQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import {
-  assertSafeOutboundUrl,
-  UnsafeOutboundUrlError,
-  type HostLookup,
-} from '@open-mercato/shared/lib/url-safety'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
-
-function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
-  if (parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)) {
-    return true
-  }
-
-  if (parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)) {
-    console.warn(
-      '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.'
-    )
-    return true
-  }
-
-  return false
-}
 
 // ============================================================================
 // Types and Interfaces
@@ -117,10 +97,23 @@ let activityQueue: Queue<WorkflowActivityJob> | null = null
  */
 function getActivityQueue(): Queue<WorkflowActivityJob> {
   if (!activityQueue) {
-    activityQueue = createModuleQueue<WorkflowActivityJob>(
-      WORKFLOW_ACTIVITIES_QUEUE_NAME,
-      { concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5') },
-    )
+    if (process.env.QUEUE_STRATEGY === 'async') {
+      activityQueue = createQueue<WorkflowActivityJob>(
+        WORKFLOW_ACTIVITIES_QUEUE_NAME,
+        'async',
+        {
+          connection: {
+            url: getRedisUrl('QUEUE'),
+          },
+          concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
+        }
+      )
+    } else {
+      activityQueue = createQueue<WorkflowActivityJob>(
+        WORKFLOW_ACTIVITIES_QUEUE_NAME,
+        'local'
+      )
+    }
   }
 
   return activityQueue
@@ -243,11 +236,6 @@ export async function executeActivity(
       lastError = error
       retryCount = attempt + 1
 
-      // Log activity retry attempt with context
-      if (attempt < retryPolicy.maxAttempts - 1) {
-        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
-      }
-
       // If not the last attempt, apply backoff and retry
       if (attempt < retryPolicy.maxAttempts - 1) {
         const backoff = calculateBackoff(
@@ -264,10 +252,6 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
-  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
-  if (lastError instanceof Error && lastError.stack) {
-    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
-  }
 
   return {
     activityId: activity.activityId,
@@ -458,10 +442,7 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload, {
-    tenantId: context.workflowInstance.tenantId,
-    organizationId: context.workflowInstance.organizationId,
-  })
+  await eventBus.emitEvent(eventName, enrichedPayload)
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
@@ -618,69 +599,37 @@ async function resolveDictionaryEntryId(
 /**
  * CALL_WEBHOOK activity handler
  *
- * Makes HTTP request to an external URL. Applies shared SSRF guard
- * (protocol / credentials / blocked host / private IP literal / DNS rebinding)
- * before issuing the request and rejects any 3xx redirect rather than following.
+ * Makes HTTP request to external URL
  */
-export type CallWebhookDeps = {
-  lookupHost?: HostLookup
-  allowPrivate?: boolean
-  fetchImpl?: typeof fetch
-  signal?: AbortSignal
-}
-
 export async function executeCallWebhook(
-  config: unknown,
-  context: ActivityContext,
-  deps: CallWebhookDeps = {}
+  config: any,
+  context: ActivityContext
 ): Promise<any> {
-  const parsed = callWebhookConfigSchema.safeParse(config)
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
-      .join('; ')
-    throw new Error(`CALL_WEBHOOK config invalid: ${issues}`)
-  }
-  const { url, method, headers: rawHeaders, body } = parsed.data
-  const headers = rawHeaders ?? {}
+  const { url, method = 'POST', headers = {}, body } = config
 
-  const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
-
-  try {
-    await assertSafeOutboundUrl(url, {
-      subject: 'Workflow webhook URL',
-      allowPrivate,
-      lookupHost: deps.lookupHost,
-    })
-  } catch (error) {
-    if (error instanceof UnsafeOutboundUrlError) {
-      throw new Error(
-        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
-      )
-    }
-    throw error
+  if (!url) {
+    throw new Error('CALL_WEBHOOK requires "url" field')
   }
 
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const response = await fetchImpl(url, {
+  const allowPrivate = parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)
+  if (allowPrivate) {
+    console.warn('[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is enabled — SSRF protection is bypassed')
+  }
+  if (!allowPrivate && isPrivateUrl(url)) {
+    throw new Error(
+      `CALL_WEBHOOK blocked: "${url}" resolves to a private/internal address (SSRF prevention). Set WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true to allow.`
+    )
+  }
+
+  // Make HTTP request
+  const response = await fetch(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-    redirect: 'manual',
-    signal: deps.signal,
+    body: body ? JSON.stringify(body) : undefined,
   })
-
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get('location')
-    throw new Error(
-      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
-        location ?? '(no Location header)'
-      }`
-    )
-  }
 
   // Parse response
   let result: any
@@ -760,8 +709,7 @@ export async function executeCallApi(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer,
-  signal?: AbortSignal
+  container: AwilixContainer
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
@@ -788,37 +736,23 @@ export async function executeCallApi(
   // 4. Get EntityManager from container (for correct type)
   const apiKeyEm = container.resolve('em')
 
-  // 5. Resolve the roles that the one-time API key will inherit.
-  //
-  // SECURITY: The key must never exceed the permissions of the human who
-  //   triggered (or authored) this workflow. Previously this code looked up
-  //   a role named "admin"/"superadmin" for the tenant and assigned it to
-  //   the key — which allowed any non-admin workflow author with
-  //   `workflows.definitions.edit` + `workflows.instances.create` to issue
-  //   arbitrary administrative API calls via a CALL_API activity. See the
-  //   SECURITY.md changelog entry for this fix.
-  //
-  //   The resolution strategy is:
-  //     1. Use the workflow instance's `metadata.initiatedBy` user (whoever
-  //        manually started the instance), when available. Only this user's
-  //        current active roles are used — we never fall back to the author
-  //        when the initiator is known, because that would escalate the
-  //        initiator's privileges.
-  //     2. Fall back to the workflow definition's `createdBy` (author) only
-  //        when the instance was started by an event trigger with no user.
-  //     3. If no traceable principal exists, the activity refuses to run —
-  //        there is no "system" fallback that bypasses RBAC.
-  const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
+  // 5. Look up an admin role for the tenant to assign to the one-time key
+  // CRITICAL: rolesJson must contain role IDs (UUIDs), not role names!
+  const { Role } = await import('../../auth/data/entities')
+  const adminRole = await apiKeyEm.findOne(Role, {
+    tenantId: context.workflowInstance.tenantId,
+    name: { $in: ['superadmin', 'admin', 'administrator'] }  // Try common admin role names
+  })
 
-  if (resolvedRoleIds.length === 0) {
+  if (!adminRole) {
     throw new Error(
-      `[CALL_API] Refusing to execute CALL_API for workflow instance ${context.workflowInstance.id}: ` +
-      `no traceable user roles could be resolved from the workflow instance or definition. ` +
-      `CALL_API activities must run under the identity of the user who triggered them.`
+      `[CALL_API] No admin role found for tenant ${context.workflowInstance.tenantId}. ` +
+      `Cannot create one-time API key without role assignment. ` +
+      `Ensure 'mercato init' has been run to create default roles.`
     )
   }
 
-  // 6. Execute request with one-time API key scoped to the resolved user's roles
+  // 6. Execute request with one-time API key (using role ID, not name)
   return await withOnetimeApiKey(
     apiKeyEm,
     {
@@ -826,7 +760,7 @@ export async function executeCallApi(
       description: `One-time key for workflow ${context.workflowInstance.workflowId} instance ${context.workflowInstance.id}`,
       tenantId: context.workflowInstance.tenantId,
       organizationId: context.workflowInstance.organizationId,
-      roles: resolvedRoleIds,
+      roles: [adminRole.id], // ✅ FIX: Use role ID (UUID), not role name
       expiresAt: null,
     },
     async (apiKeySecret) => {
@@ -845,7 +779,6 @@ export async function executeCallApi(
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
-        signal,
       })
 
       // Parse response body (JSON-safe)
@@ -893,85 +826,6 @@ export async function executeCallApi(
 // ============================================================================
 // CALL_API Helper Functions
 // ============================================================================
-
-export type CallApiInstanceLike = {
-  id: string
-  tenantId: string
-  organizationId: string
-  definitionId: string
-  metadata?: { initiatedBy?: string | null } | null
-}
-
-async function resolveActiveRoleIdsForUser(
-  em: any,
-  userId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<string[]> {
-  const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
-  const { User, UserRole, Role } = await import('../../auth/data/entities')
-
-  const user = await findOneWithDecryption(em, User, {
-    id: userId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  }, {}, scope)
-  if (!user) return []
-
-  const userRoles = await findWithDecryption(
-    em,
-    UserRole,
-    { user: user.id, deletedAt: null },
-    { populate: ['role'] },
-    scope,
-  )
-  const roleIds = userRoles
-    .map((ur: any) => (typeof ur.role === 'string' ? ur.role : ur.role?.id))
-    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
-
-  if (roleIds.length === 0) return []
-
-  const scopedRoles = await findWithDecryption(em, Role, {
-    id: { $in: roleIds },
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  }, {}, scope)
-  return scopedRoles.map((r: any) => r.id as string)
-}
-
-export async function resolveCallApiRoleIds(
-  em: any,
-  instance: CallApiInstanceLike
-): Promise<string[]> {
-  if (!instance.definitionId) return []
-
-  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
-  const { WorkflowDefinition } = await import('../data/entities')
-
-  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
-
-  // 1. Prefer the triggering user (whoever manually started this instance).
-  //    WorkflowInstance.metadata.initiatedBy is the canonical record of that
-  //    principal for user-started instances; use their current role set so
-  //    CALL_API never exceeds the initiator's permissions. Refuse if the
-  //    initiator has no active scoped roles — do not fall back to the
-  //    definition author, which would escalate the initiator's privileges.
-  const initiatorUserId = instance.metadata?.initiatedBy ?? null
-  if (initiatorUserId) {
-    return resolveActiveRoleIdsForUser(em, initiatorUserId, scope)
-  }
-
-  // 2. Event-triggered instance with no human initiator: fall back to the
-  //    definition author. Soft-deleted definitions must not mint keys.
-  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
-    id: instance.definitionId,
-    tenantId: instance.tenantId,
-    deletedAt: null,
-  }, {}, scope)
-  const authorUserId = definition?.createdBy
-  if (!authorUserId) return []
-
-  return resolveActiveRoleIdsForUser(em, authorUserId, scope)
-}
 
 /**
  * Build full API URL from endpoint

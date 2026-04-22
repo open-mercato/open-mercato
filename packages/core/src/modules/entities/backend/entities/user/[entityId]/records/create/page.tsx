@@ -50,6 +50,7 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
       customEntity
       submitLabel={t('entities.userEntities.records.form.submitCreate', 'Create')}
       cancelHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
+      successRedirect={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       onSubmit={async (values) => {
         await submitCustomEntityRecord({
           entityId,

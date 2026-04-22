@@ -6,14 +6,12 @@ import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
-import { hashAuthToken } from "../../../../../auth/lib/tokenHash";
 import {
   SalesQuote,
   SalesQuoteLine,
   SalesQuoteAdjustment,
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
-import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -23,30 +21,17 @@ export const metadata = {
   GET: { requireAuth: false },
 };
 
-export async function GET(req: Request, ctx: { params: { token: string } }) {
+export async function GET(_req: Request, ctx: { params: { token: string } }) {
   try {
     const { token } = paramsSchema.parse(ctx.params ?? {});
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
-    const hashedToken = hashAuthToken(token);
-    const quote =
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: hashedToken,
-        deletedAt: null,
-      })) ??
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: token,
-        deletedAt: null,
-      }));
+    const quote = await findOneWithDecryption(em, SalesQuote, {
+      acceptanceToken: token,
+      deletedAt: null,
+    });
     const { translate } = await resolveTranslations();
     if (!quote) {
-      throw new CrudHttpError(404, {
-        error: translate("sales.quotes.public.notFound", "Quote not found."),
-      });
-    }
-
-    const auth = await getAuthFromRequest(req);
-    if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
       throw new CrudHttpError(404, {
         error: translate("sales.quotes.public.notFound", "Quote not found."),
       });

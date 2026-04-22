@@ -253,11 +253,7 @@ describe('Activity Executor (Unit Tests)', () => {
             workflowInstanceId: testInstanceId,
             tenantId: testTenantId,
           }),
-        }),
-        {
-          organizationId: testOrgId,
-          tenantId: testTenantId,
-        },
+        })
       )
     })
 
@@ -507,22 +503,6 @@ describe('Activity Executor (Unit Tests)', () => {
   // ============================================================================
 
   describe('CALL_WEBHOOK activity', () => {
-    const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
-
-    beforeAll(() => {
-      // Bypass DNS lookup for public host tests below; SSRF guard behavior
-      // is exercised in its own describe block with injected lookupHost.
-      process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
-    })
-
-    afterAll(() => {
-      if (originalAllowPrivate === undefined) {
-        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
-      } else {
-        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
-      }
-    })
-
     test('should execute CALL_WEBHOOK activity successfully', async () => {
       ;(global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
@@ -645,138 +625,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('config invalid')
-    })
-  })
-
-  // ============================================================================
-  // CALL_WEBHOOK SSRF guard tests
-  // ============================================================================
-
-  describe('CALL_WEBHOOK SSRF guard', () => {
-    const makeFetchMock = () =>
-      jest.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      }) as unknown as typeof fetch
-
-    test('rejects loopback IPv4 literal without calling fetch', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'http://127.0.0.1:8080/test', method: 'POST' },
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*private_ip_literal/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects AWS metadata endpoint 169.254.169.254', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'http://169.254.169.254/latest/meta-data/', method: 'GET' },
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*private_ip_literal/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects localhost hostname', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'http://localhost:3000/admin' },
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*blocked_hostname/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects URLs with embedded credentials', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'https://user:pass@example.test/hook' },
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*credentials_in_url/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects file:// scheme', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'file:///etc/passwd' },
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*forbidden_protocol/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects hostnames that DNS-resolve to private IPs (rebinding guard)', async () => {
-      const fetchImpl = makeFetchMock()
-      const lookupHost = jest.fn(async () => [{ address: '10.0.0.5', family: 4 }])
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'https://rebind.evil.example/steal' },
-          mockContext,
-          { fetchImpl, lookupHost, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/unsafe URL.*private_ip_resolved/)
-      expect(fetchImpl).not.toHaveBeenCalled()
-    })
-
-    test('rejects 3xx redirects instead of following them', async () => {
-      const fetchImpl = jest.fn().mockResolvedValue({
-        ok: false,
-        status: 302,
-        statusText: 'Found',
-        headers: new Headers({ location: 'http://127.0.0.1:8080/steal' }),
-      }) as unknown as typeof fetch
-      const lookupHost = jest.fn(async () => [{ address: '93.184.216.34', family: 4 }])
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { url: 'https://good.example/hook' },
-          mockContext,
-          { fetchImpl, lookupHost, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/refused to follow redirect 302/)
-    })
-
-    test('passes public host with safe DNS mock and sets redirect:"manual"', async () => {
-      const fetchImpl = makeFetchMock()
-      const lookupHost = jest.fn(async () => [{ address: '93.184.216.34', family: 4 }])
-      const result = await activityExecutor.executeCallWebhook(
-        { url: 'https://good.example/hook', method: 'POST', body: { ok: 1 } },
-        mockContext,
-        { fetchImpl, lookupHost, allowPrivate: false },
-      )
-      expect(result.status).toBe(200)
-      expect(fetchImpl).toHaveBeenCalledTimes(1)
-      const callArgs = (fetchImpl as unknown as jest.Mock).mock.calls[0][1]
-      expect(callArgs.redirect).toBe('manual')
-    })
-
-    test('rejects config without url via zod schema before touching fetch', async () => {
-      const fetchImpl = makeFetchMock()
-      await expect(
-        activityExecutor.executeCallWebhook(
-          { body: {} } as any,
-          mockContext,
-          { fetchImpl, allowPrivate: false },
-        ),
-      ).rejects.toThrow(/config invalid/)
-      expect(fetchImpl).not.toHaveBeenCalled()
+      expect(result.error).toContain('requires "url"')
     })
 
     test('should block private IPv4 URLs by default (SSRF prevention)', async () => {
@@ -797,7 +646,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+      expect(result.error).toContain('private/internal address')
     })
 
     test('should block IPv6 loopback [::1] by default (SSRF prevention)', async () => {
@@ -818,7 +667,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+      expect(result.error).toContain('private/internal address')
     })
 
     test('should block IPv4-mapped IPv6 [::ffff:192.168.1.1] by default (SSRF prevention)', async () => {
@@ -839,50 +688,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
-    })
-
-    test('should allow private URLs when OM_WORKFLOWS_ALLOW_PRIVATE_URLS=true', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      })
-
-      const activity: ActivityDefinition = {
-        activityId: 'activity-14c',
-        activityName: 'Internal Webhook',
-        activityType: 'CALL_WEBHOOK',
-        config: {
-          url: 'http://10.255.255.1/health',
-        },
-      }
-
-      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
-      try {
-        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
-
-        const result = await activityExecutor.executeActivity(
-          mockEm,
-          mockContainer,
-          activity,
-          mockContext
-        )
-
-        expect(result.success).toBe(true)
-        expect(global.fetch).toHaveBeenCalledWith(
-          'http://10.255.255.1/health',
-          expect.any(Object)
-        )
-      } finally {
-        if (prev === undefined) {
-          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
-        } else {
-          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
-        }
-      }
+      expect(result.error).toContain('private/internal address')
     })
 
     test('should allow private URLs when WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true', async () => {
@@ -921,7 +727,7 @@ describe('Activity Executor (Unit Tests)', () => {
           expect.any(Object)
         )
         expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('deprecated')
+          expect.stringContaining('SSRF protection is bypassed')
         )
       } finally {
         warnSpy.mockRestore()

@@ -11,8 +11,6 @@ import {
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 
-const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
-
 type AvailabilityRuleSnapshot = {
   id: string
   tenantId: string
@@ -285,7 +283,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.dateSpecific.replace', 'Replace date-specific availability'),
-      resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
+      resourceKind: 'planner.availability',
       resourceId: null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,

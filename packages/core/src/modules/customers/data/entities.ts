@@ -809,8 +809,8 @@ export class CustomerTodoLink {
   @Property({ name: 'todo_id', type: 'uuid' })
   todoId!: string
 
-  @Property({ name: 'todo_source', type: 'text', default: 'customers:interaction' })
-  todoSource: string = 'customers:interaction'
+  @Property({ name: 'todo_source', type: 'text', default: 'example:todo' })
+  todoSource: string = 'example:todo'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

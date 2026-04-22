@@ -253,7 +253,7 @@ export function AnnualRevenueField({
               showLabelInput={false}
             />
           </div>
-          {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
+          {error ? <p className="text-xs text-red-600">{error}</p> : null}
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}

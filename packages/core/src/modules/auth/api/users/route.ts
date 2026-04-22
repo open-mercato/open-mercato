@@ -32,14 +32,10 @@ const passwordSchema = buildPasswordSchema()
 
 const userCreateSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema.optional(),
-  sendInviteEmail: z.boolean().optional(),
+  password: passwordSchema,
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
-}).refine(
-  (data) => data.password || data.sendInviteEmail,
-  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
-)
+})
 
 const userUpdateSchema = z.object({
   id: z.string().uuid(),
@@ -103,10 +99,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         }
         return parsed
       },
-      response: ({ result }) => ({
-        id: String(result.user.id),
-        ...(result.warning ? { _warning: result.warning } : {}),
-      }),
+      response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
@@ -277,7 +270,6 @@ export async function GET(req: Request) {
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
-      hasPassword: !!u.passwordHash,
       ...(cfByUser[uid] || {}),
     }
   })

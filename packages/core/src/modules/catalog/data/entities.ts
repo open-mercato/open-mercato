@@ -536,12 +536,6 @@ export class CatalogProductVariant {
   @Property({ name: 'option_values', type: 'jsonb', nullable: true })
   optionValues?: Record<string, string> | null
 
-  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
-  defaultMediaId?: string | null
-
-  @Property({ name: 'default_media_url', type: 'text', nullable: true })
-  defaultMediaUrl?: string | null
-
   @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
   customFieldsetCode?: string | null
 

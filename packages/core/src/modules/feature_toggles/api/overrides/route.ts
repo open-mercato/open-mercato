@@ -134,8 +134,8 @@ export async function PUT(req: Request) {
 }
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['feature_toggles.view'] },
-  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
+  GET: { requireAuth: true, requireRoles: ['superadmin'] },
+  PUT: { requireAuth: true, requireRoles: ['superadmin'] },
 }
 
 export const metadata = routeMetadata

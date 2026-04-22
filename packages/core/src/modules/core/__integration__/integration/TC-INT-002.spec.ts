@@ -66,12 +66,12 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await page.getByRole('button', { name: 'Create deal' }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i);
 
-      await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
+      await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
       await page.locator('tr').filter({ hasText: dealTitle }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
-      await createSalesDocument(page, { kind: 'order', customerQuery: companyName, preferApi: true, token });
+      await createSalesDocument(page, { kind: 'order', customerQuery: companyName });
       await expect(page).toHaveURL(/kind=order$/i);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);

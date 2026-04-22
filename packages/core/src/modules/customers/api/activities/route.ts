@@ -68,12 +68,6 @@ const ADAPTER_HEADERS = {
   Link: '</api/customers/interactions>; rel="successor-version"',
 }
 
-// Caps the per-source fetch window used by the deprecated merged (legacy +
-// canonical bridge) read path. Keeps memory bounded on tenants with large
-// activity history; deep-pagination beyond this window is not supported here —
-// use /api/customers/interactions instead.
-const MERGED_ACTIVITY_FETCH_CAP = 2000
-
 type ActivityItem = {
   id: string
   activityType: string
@@ -274,7 +268,7 @@ async function ensureCanonicalActivityBridge(
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   activity: CustomerActivity,
 ): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: activity.id, tenantId: activity.tenantId })
+  const existing = await em.findOne(CustomerInteraction, { id: activity.id })
   if (existing) return existing.id
 
   const entityId = typeof activity.entity === 'string' ? activity.entity : activity.entity.id
@@ -310,12 +304,11 @@ async function resolveCanonicalActivityTargetId(
   commandBus: CommandBus,
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   targetId: string,
-  tenantId: string,
 ): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: targetId, tenantId })
+  const existing = await em.findOne(CustomerInteraction, { id: targetId })
   if (existing) return existing.id
 
-  const legacy = await em.findOne(CustomerActivity, { id: targetId, tenantId }, { populate: ['entity', 'deal'] })
+  const legacy = await em.findOne(CustomerActivity, { id: targetId }, { populate: ['entity', 'deal'] })
   if (!legacy) return targetId
 
   return ensureCanonicalActivityBridge(
@@ -467,36 +460,23 @@ export async function GET(request: Request): Promise<Response> {
           organizationIds,
           query,
         )
-      : await (async () => {
-        const windowSize = Math.min(
-          MERGED_ACTIVITY_FETCH_CAP,
-          Math.max(query.pageSize, query.page * query.pageSize + query.pageSize),
-        )
-        const windowedQuery = { ...query, page: 1, pageSize: windowSize }
-        const [legacy, canonical] = await Promise.all([
-          listLegacyActivities(
-            em,
-            auth.tenantId,
-            organizationIds,
-            windowedQuery,
-            { paginate: true },
-            selectedOrganizationId,
-          ),
-          listCanonicalActivities(
-            em,
-            container,
-            auth,
-            selectedOrganizationId,
-            auth.tenantId,
-            organizationIds,
-            windowedQuery,
-            {
-              includeDeleted: true,
-              paginate: true,
-              source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
-            },
-          ),
-        ])
+      : await Promise.all([
+        listLegacyActivities(em, auth.tenantId, organizationIds, query, { paginate: false }, selectedOrganizationId),
+        listCanonicalActivities(
+          em,
+          container,
+          auth,
+          selectedOrganizationId,
+          auth.tenantId,
+          organizationIds,
+          query,
+          {
+            includeDeleted: true,
+            paginate: false,
+            source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+          },
+        ),
+      ]).then(([legacy, canonical]) => {
         const merged = sortActivityItems(
           [
             ...legacy.items.filter((item) => !canonical.bridgeIds.has(item.id)),
@@ -510,7 +490,7 @@ export async function GET(request: Request): Promise<Response> {
           items: paged.items,
           total: paged.total,
         }
-      })()
+      })
 
     return withAdapterHeaders(
       NextResponse.json({
@@ -656,7 +636,7 @@ export async function PUT(request: Request): Promise<Response> {
     const commandBus = container.resolve('commandBus') as CommandBus
     const interactionId = flags.unified
       ? parsed.id
-      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
 
     await commandBus.execute('customers.interactions.update', {
       input: {
@@ -733,7 +713,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const commandBus = container.resolve('commandBus') as CommandBus
     const interactionId = flags.unified
       ? parsed.id
-      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
     await commandBus.execute('customers.interactions.delete', {
       input: { id: interactionId },
       ctx: commandContext,

@@ -10,10 +10,8 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../data/entities'
-import { workflowEventListItemSchema } from '../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -37,11 +35,11 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = scope?.selectedId ?? auth.orgId
 
-    if (!tenantId) {
+    if (!tenantId || !organizationId) {
       return NextResponse.json(
-        { error: 'Missing tenant context' },
+        { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
     }
@@ -51,7 +49,7 @@ export async function GET(request: NextRequest) {
     const hasPermission = await rbacService.userHasAllFeatures(
       auth.sub,
       ['workflows.instances.view'],
-      { tenantId, organizationId: orgFilter.rbacOrganizationId }
+      { tenantId, organizationId }
     )
 
     if (!hasPermission) {
@@ -82,7 +80,7 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: any = {
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     }
 
     if (eventType) {
@@ -123,7 +121,7 @@ export async function GET(request: NextRequest) {
     const instances = await em.find(WorkflowInstance, {
       id: { $in: instanceIds },
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     })
 
     const instanceMap = new Map(instances.map(i => [i.id, i]))
@@ -185,7 +183,7 @@ export const openApi = {
           status: 200,
           description: 'List of workflow events',
           schema: z.object({
-            items: z.array(workflowEventListItemSchema),
+            items: z.array(z.any()),
             total: z.number(),
             page: z.number(),
             pageSize: z.number(),

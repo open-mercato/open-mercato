@@ -5,7 +5,6 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
   test('should accept valid inbound webhooks, mark duplicates, and reject invalid endpoints or signatures', async ({ request }) => {
     const messageId = `msg-${Date.now()}`;
-    const replayTimestamp = String(Math.floor(Date.now() / 1000));
     const payload = {
       type: 'mock.inbound.received',
       timestamp: new Date().toISOString(),
@@ -20,7 +19,7 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
         'content-type': 'application/json',
         'x-mock-webhook-signature': 'valid',
         'webhook-id': messageId,
-        'webhook-timestamp': replayTimestamp,
+        'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
         'webhook-signature': 'v1,mock',
       },
       data: JSON.stringify(payload),
@@ -34,39 +33,13 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
         'content-type': 'application/json',
         'x-mock-webhook-signature': 'valid',
         'webhook-id': messageId,
-        'webhook-timestamp': replayTimestamp,
+        'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
         'webhook-signature': 'v1,mock',
       },
       data: JSON.stringify(payload),
     });
     expect(duplicateResponse.status()).toBe(200);
     await expect(duplicateResponse.json()).resolves.toEqual({ ok: true, duplicate: true });
-
-    const replayWithoutMessageIdResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
-        'webhook-timestamp': replayTimestamp,
-        'webhook-signature': 'v1,mock',
-      },
-      data: JSON.stringify(payload),
-    });
-    expect(replayWithoutMessageIdResponse.status()).toBe(200);
-    await expect(replayWithoutMessageIdResponse.json()).resolves.toEqual({ ok: true });
-
-    const replayWithoutMessageIdDuplicateResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
-        'webhook-timestamp': replayTimestamp,
-        'webhook-signature': 'v1,mock',
-      },
-      data: JSON.stringify(payload),
-    });
-    expect(replayWithoutMessageIdDuplicateResponse.status()).toBe(200);
-    await expect(replayWithoutMessageIdDuplicateResponse.json()).resolves.toEqual({ ok: true, duplicate: true });
 
     const invalidSignatureResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
       method: 'POST',

@@ -2,9 +2,6 @@ name: CI for Develop&Main
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 on:
   push:
     branches:
@@ -15,189 +12,8 @@ on:
       - main
       - develop
 
-# Cancel any in-progress run on the same branch when a new push arrives.
-# Prevents multiple long runs queuing up from rapid pushes.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  # ── Shared build ────────────────────────────────────────────────────────────
-  # Installs deps, compiles all packages, runs the code generator, and builds
-  # the Next.js app. Also computes integration scope so shards can start the
-  # moment this job finishes — without waiting for typecheck or unit tests.
-  #
-  # Uploads two artifacts:
-  #   build-artifacts  — packages/*/dist/ + generated files (needed by test)
-  #   app-build        — apps/mercato/.mercato/next/ (needed by integration shards)
-  #                      Only uploaded when integration tests will actually run;
-  #                      skipped for CI/docs-only PRs to save ~2 min.
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      skip_integration: ${{ steps.integration-scope.outputs.skip }}
-      affected_modules: ${{ steps.integration-scope.outputs.modules }}
-      shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Fetch base branch for change detection
-        # Needed so the scope step can diff against the PR base.
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
-
-      - name: Compute integration scope
-        # Determines which integration tests to run and whether to shard them.
-        # Full-suite runs (push OR PR touching shared packages) use 15 shards.
-        # Affected-only runs (PR touching specific modules) use a single runner.
-        # CI/docs/scripts-only PRs skip integration entirely.
-        # Runs in prepare so shards can start the moment the build is ready,
-        # without waiting for typecheck or unit tests to complete.
-        id: integration-scope
-        run: |
-          FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
-          SINGLE_SHARD='["none"]'
-
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
-
-          # These paths affect behaviour across all modules — run the full sharded suite.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
-          if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Extract module folder names from module-specific paths.
-          # Match any workspace package or app that follows the src/modules/ convention.
-          MODULES=$(echo "$CHANGED" | \
-            grep -oP '(?:packages/[^/]+|apps/[^/]+)/src/modules/\K[^/]+' | \
-            sort -u | paste -sd,)
-
-          if [ -z "$MODULES" ]; then
-            # Only non-module files changed (CI, docs, scripts) — skip integration.
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
-          else
-            # Module-specific changes — single runner with affected-only filter.
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn packages
-        uses: actions/cache@v5
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache node_modules
-        # With nodeLinker:node-modules, yarn extracts zips into node_modules even
-        # when .yarn/cache hits — the extraction alone is ~85s. Caching node_modules
-        # directly and skipping install on hit eliminates that cost.
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Cache Turbo build outputs
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ github.ref_name }}-
-            turbo-${{ runner.os }}-
-
-      - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
-
-      - name: Build packages
-        # Always builds all packages — no filter. Turbo cache handles the speedup:
-        # unchanged packages are cache hits and restored to disk in milliseconds.
-        # Filtering here would produce an incomplete artifact, breaking downstream
-        # jobs that need every package's dist/ output.
-        run: yarn build:packages
-        env:
-          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-
-      - name: Prepare generated modules
-        # Always run fully — generator discovers all modules regardless of what
-        # changed, and its output is consumed by the app, not packages.
-        run: yarn generate
-
-      - name: Rebuild packages with generated files
-        run: yarn build:packages
-        env:
-          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-
-      - name: Build app
-        # Build the Next.js app once here so all 15 integration shards can reuse
-        # it — avoids ~96s x 15 = ~24 min of redundant per-shard rebuilds.
-        # distDir is .mercato/next (set in apps/mercato/next.config.ts).
-        # Skipped for CI/docs-only PRs where integration is also skipped — no
-        # shard will download the artifact, so there is nothing to produce.
-        if: steps.integration-scope.outputs.skip != 'true'
-        run: yarn build:app
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-artifacts
-          path: |
-            packages/*/dist/
-            packages/*/generated/
-            apps/mercato/.mercato/generated/
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Archive app build
-        # upload-artifact rejects filenames containing colons — Next.js chunk
-        # files include colons (e.g. [externals]_node:fs_promises_*.js).
-        # Tar the directory first so the artifact is a single clean file.
-        if: steps.integration-scope.outputs.skip != 'true'
-        run: tar -czf app-build.tar.gz -C apps/mercato .mercato/next
-
-      - name: Upload app build
-        # Separate artifact so the test job (typecheck/unit tests) does not need
-        # to download the large Next.js output unnecessarily.
-        if: steps.integration-scope.outputs.skip != 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-build
-          path: app-build.tar.gz
-          retention-days: 1
-          if-no-files-found: error
-
-  # ── Security audit ──────────────────────────────────────────────────────────
-  # Runs in parallel with 'prepare' — only needs yarn install, not the full build.
-  audit:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -211,155 +27,23 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Cache Yarn packages
-        uses: actions/cache@v5
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache audit result
-        # Keyed on yarn.lock — if the lockfile is unchanged the dependency
-        # graph is identical and a prior passing audit is still valid.
-        id: audit-cache
-        uses: actions/cache@v5
-        with:
-          path: .audit-passed
-          key: audit-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Cache node_modules
-        # Only needed when audit-cache misses (i.e. yarn.lock changed).
-        # Shared key with other jobs — whichever runs first saves it.
-        if: steps.audit-cache.outputs.cache-hit != 'true'
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Install dependencies
-        if: steps.audit-cache.outputs.cache-hit != 'true' && steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
-
-      - name: Audit dependencies for known CVEs
-        if: steps.audit-cache.outputs.cache-hit != 'true'
-        run: |
-          yarn npm audit --all --recursive --severity high
-          echo "passed" > .audit-passed
-
-  # ── Lint ─────────────────────────────────────────────────────────────────────
-  # Fast static analysis — runs in parallel with prepare and audit.
-  # ESLint does not need compiled packages, so it can fail fast before heavy jobs.
-  # @open-mercato/app is excluded: its next lint script requires an ESLint config
-  # that is not yet present in the repo.
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn packages
-        uses: actions/cache@v5
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
-
-      - name: Lint
-        run: yarn turbo run lint --filter=!@open-mercato/app
-
-  # ── Quality checks ──────────────────────────────────────────────────────────
-  # Typechecking and unit tests. Runs in parallel with ephemeral-integration
-  # so typecheck cost does not add to the integration wall time.
-  # merge-coverage and docker-build both wait for this job to complete.
-  test:
-    runs-on: ubuntu-latest
-    needs: [prepare, audit, lint]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Fetch base branch for change detection
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn packages
-        uses: actions/cache@v5
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Cache pip packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: pip-markitdown-v1
-          restore-keys: pip-markitdown-
-
       - name: Install markitdown CLI
         run: python3 -m pip install --upgrade pip markitdown
 
       - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
-      - name: Cache Turbo build outputs
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ github.ref_name }}-
-            turbo-${{ runner.os }}-
+      - name: Audit dependencies for known CVEs
+        run: yarn npm audit --all --recursive --severity high
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
 
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
@@ -372,161 +56,60 @@ jobs:
         continue-on-error: true
 
       - name: Checking types
-        # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
-          else
-            yarn typecheck
-          fi
-        env:
-          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+        run: yarn typecheck
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
-          else
-            yarn test
-          fi
+        run: yarn test
 
-      - name: Test scripts
-        # Turbo never picks up root-level scripts — run explicitly.
-        run: yarn test:scripts
+      - name: Build
+        run: yarn build:app
 
-  # ── Integration tests ───────────────────────────────────────────────────────
-  # Boots an ephemeral app server and runs the Playwright suite.
-  # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
-  # typecheck/unit-test time does not add to the integration wall time.
-  # 'merge-coverage' is the final gate and waits for both jobs.
-  #
-  # On PRs: a single runner executes only affected modules (OM_INTEGRATION_MODULES).
-  #         If no module-level code changed the job is skipped entirely.
-  # On pushes to main/develop: 15 parallel shards run the full suite, cutting
-  #         wall time from ~45 min to ~6 min. A merge-coverage job then
-  #         combines per-shard coverage reports.
   ephemeral-integration:
     runs-on: ubuntu-latest
-    needs: [prepare, audit, lint]
-    if: needs.prepare.outputs.skip_integration != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
+    needs: test
     env:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
-      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
     steps:
-      - name: Compute shard metadata
-        id: shard-meta
-        run: |
-          SHARD="${{ matrix.shard }}"
-          if [ "$SHARD" = "none" ]; then
-            echo "artifact_name=integration-test-results" >> "$GITHUB_OUTPUT"
-            echo "shard_flag=" >> "$GITHUB_OUTPUT"
-            echo "shard_index=none" >> "$GITHUB_OUTPUT"
-          else
-            INDEX="${SHARD%%/*}"
-            echo "artifact_name=integration-test-results-${INDEX}" >> "$GITHUB_OUTPUT"
-            echo "shard_flag=--shard ${SHARD}" >> "$GITHUB_OUTPUT"
-            echo "shard_index=${INDEX}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Cache Yarn packages
-        uses: actions/cache@v5
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
       - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
+      - name: Build packages
+        run: yarn build:packages
 
-      - name: Download app build
-        # Reuses the Next.js build produced by prepare — avoids rebuilding
-        # (~96s) in each of the 15 parallel shards (~24 min saved total).
-        uses: actions/download-artifact@v8
-        with:
-          name: app-build
+      - name: Prepare generated modules
+        run: yarn generate
 
-      - name: Extract app build
-        # Restore the tarball into apps/mercato/ so .mercato/next/ exists
-        # at the path expected by the Next.js server.
-        run: tar -xzf app-build.tar.gz -C apps/mercato/
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-v1.50.0
+      - name: Build app
+        run: yarn workspace @open-mercato/app build
 
       - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run ephemeral integration tests with code coverage
         env:
           OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
-          OM_INTEGRATION_MODULES: ${{ needs.prepare.outputs.affected_modules }}
-        run: |
-          SHARD_FLAG="${{ steps.shard-meta.outputs.shard_flag }}"
-          if [ -n "$SHARD_FLAG" ]; then
-            yarn test:integration:coverage $SHARD_FLAG
-          else
-            yarn test:integration:coverage
-          fi
-
-      - name: Stage coverage for shard merge
-        # Only needed for sharded push runs — copies per-shard summary to a
-        # named subdirectory so merge-coverage can collect all shards at once.
-        if: always() && matrix.shard != 'none'
-        run: |
-          INDEX="${{ steps.shard-meta.outputs.shard_index }}"
-          DEST=".ai/qa/test-results/coverage-shard-${INDEX}/code"
-          mkdir -p "$DEST"
-          SRC=".ai/qa/test-results/coverage/code/coverage-summary.json"
-          if [ -f "$SRC" ]; then
-            cp "$SRC" "$DEST/coverage-summary.json"
-          fi
+        run: yarn test:integration:coverage
 
       - name: Display integration coverage summary
-        # PR only (shard=none) — push coverage is merged and displayed by merge-coverage job.
-        if: always() && matrix.shard == 'none'
+        if: always()
         run: |
           SUMMARY_FILE=".ai/qa/test-results/coverage/code/coverage-summary.json"
           if [ ! -f "$SUMMARY_FILE" ]; then
@@ -566,123 +149,38 @@ jobs:
             \`| Functions | \${t.functions?.covered ?? 0}/\${t.functions?.total ?? 0} | \${t.functions?.pct ?? 0}% |\`,
             \`| Branches | \${t.branches?.covered ?? 0}/\${t.branches?.total ?? 0} | \${t.branches?.pct ?? 0}% |\`,
             '',
-            'Source: \`.ai/qa/test-results/coverage/code/coverage-summary.json\`',
+            'Source: `.ai/qa/test-results/coverage/code/coverage-summary.json`',
             '',
           ].join('\n'));
           " "$SUMMARY_FILE"
 
       - name: Upload integration test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.shard-meta.outputs.artifact_name }}
+          name: integration-test-results
           path: |
             .ai/qa/test-results/html/
             .ai/qa/test-results/artifacts/
             .ai/qa/test-results/results.json
-            .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
 
-  # ── Merge shard coverage ─────────────────────────────────────────────────────
-  # Final gate — runs after all integration shards AND the test job complete.
-  # Ensures both typecheck/units and integration must pass before reporting green.
-  # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
-  merge-coverage:
-    runs-on: ubuntu-latest
-    needs: [prepare, test, ephemeral-integration]
-    if: needs.prepare.outputs.shard_matrix != '["none"]'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Download shard artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: integration-test-results-*
-          merge-multiple: true
-
-      - name: Merge shard coverage reports
-        run: node scripts/merge-coverage.mjs .ai/qa/test-results
-
-      - name: Display merged integration coverage
-        if: always()
-        run: |
-          SUMMARY_FILE=".ai/qa/test-results/coverage/code/coverage-summary.json"
-          if [ ! -f "$SUMMARY_FILE" ]; then
-            echo "Merged coverage summary not found at $SUMMARY_FILE"
-            echo "## Integration Coverage (Merged)" >> "$GITHUB_STEP_SUMMARY"
-            echo "Coverage summary file was not generated." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          node -e "
-          const fs = require('fs');
-          const p = process.argv[1];
-          const summary = JSON.parse(fs.readFileSync(p, 'utf8'));
-          const t = summary.total || {};
-          const f = (name) => {
-            const m = t[name] || {};
-            const covered = m.covered ?? 0;
-            const total = m.total ?? 0;
-            const pct = m.pct ?? 0;
-            return \`\${name}: \${covered}/\${total} (\${pct}%)\`;
-          };
-          const lines = [
-            '[coverage] Merged integration coverage summary',
-            f('lines'),
-            f('statements'),
-            f('functions'),
-            f('branches'),
-          ];
-          console.log(lines.join('\n'));
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
-            '## Integration Coverage (Merged)',
-            '',
-            '| Metric | Covered/Total | Percent |',
-            '|---|---:|---:|',
-            \`| Lines | \${t.lines?.covered ?? 0}/\${t.lines?.total ?? 0} | \${t.lines?.pct ?? 0}% |\`,
-            \`| Statements | \${t.statements?.covered ?? 0}/\${t.statements?.total ?? 0} | \${t.statements?.pct ?? 0}% |\`,
-            \`| Functions | \${t.functions?.covered ?? 0}/\${t.functions?.total ?? 0} | \${t.functions?.pct ?? 0}% |\`,
-            \`| Branches | \${t.branches?.covered ?? 0}/\${t.branches?.total ?? 0} | \${t.branches?.pct ?? 0}% |\`,
-            '',
-            'Source: \`.ai/qa/test-results/coverage/code/coverage-summary.json\`',
-            '',
-          ].join('\n'));
-          " "$SUMMARY_FILE"
-
-  # ── Docker image builds ──────────────────────────────────────────────────────
-  # Validates all Dockerfiles build cleanly. Runs in parallel with test and
-  # integration — no longer sequenced after test — so it does not add to wall
-  # time on PRs where Docker rebuilds are fast (GHA cache hit).
-  #
-  # Skipped for CI/docs/scripts-only PRs (skip_integration == 'true'): those
-  # changes do not affect app source or Dockerfiles, so the Docker image is
-  # identical to the last build and there is nothing to validate. This avoids
-  # a 10+ min rebuild caused by Docker layer cache busting when files like
-  # turbo.json or scripts/ are the only things that changed.
   docker-build:
     runs-on: ubuntu-latest
-    needs: prepare
-    # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache).
-    # Also skip for CI/docs-only PRs — no app code changed, image is unchanged.
+    needs: test
+    # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache)
     if: |
-      needs.prepare.outputs.skip_integration != 'true' &&
-      (github.event_name == 'push' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build docs Dockerfile
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/docs/Dockerfile
@@ -691,7 +189,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build fullapp (main app)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -700,7 +198,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build opencode container
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: ./docker/opencode
           push: false

@@ -54,14 +54,14 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
   const em = container.resolve('em') as EntityManager
-  const authTenantId = auth.tenantId ?? null
-  const roleFilter: Record<string, unknown> = { id: parsed.data.roleId }
-  if (!isSuperAdmin && authTenantId) {
-    roleFilter.$or = [{ tenantId: authTenantId }, { tenantId: null }]
-  }
-  const role = await em.findOne(Role, roleFilter)
+  const role = await em.findOne(Role, { id: parsed.data.roleId })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const roleTenantId = role?.tenantId ? String(role.tenantId) : null
+  const authTenantId = auth.tenantId ?? null
+
+  if (!isSuperAdmin && roleTenantId && authTenantId && roleTenantId !== authTenantId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   let tenantScope = parsed.data.tenantId ?? roleTenantId ?? authTenantId ?? null
   if (parsed.data.tenantId && parsed.data.tenantId !== tenantScope) {
@@ -107,15 +107,15 @@ export async function PUT(req: Request) {
   const em = container.resolve('em') as EntityManager
   const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
   const rbacService = container.resolve('rbacService') as RbacService
-  const authTenantId = auth.tenantId ?? null
-  const putRoleFilter: Record<string, unknown> = { id: parsed.data.roleId }
-  if (!isSuperAdmin && authTenantId) {
-    putRoleFilter.$or = [{ tenantId: authTenantId }, { tenantId: null }]
-  }
-  const role = await em.findOne(Role, putRoleFilter)
+  const role = await em.findOne(Role, { id: parsed.data.roleId })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const roleTenantId = role?.tenantId ? String(role.tenantId) : null
+  const authTenantId = auth.tenantId ?? null
+
+  if (!isSuperAdmin && roleTenantId && authTenantId && roleTenantId !== authTenantId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   let targetTenantId = parsed.data.tenantId ?? roleTenantId ?? authTenantId ?? null
   if (parsed.data.tenantId && parsed.data.tenantId !== targetTenantId) {

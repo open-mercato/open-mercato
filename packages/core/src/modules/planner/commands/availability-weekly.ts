@@ -11,8 +11,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
-const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
-
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
 type AvailabilityRuleSnapshot = {
@@ -225,7 +223,7 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.weekly.replace', 'Replace weekly availability'),
-      resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
+      resourceKind: 'planner.availability',
       resourceId: null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,

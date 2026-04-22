@@ -5,43 +5,6 @@ import {
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
-import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
-
-export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
-
-const optionalPhoneField = (max = 50) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY })
-    .optional()
-
-const optionalNullablePhoneField = (max = 50) =>
-  z
-    .union([
-      z
-        .string()
-        .trim()
-        .max(max)
-        .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY }),
-      z.literal(''),
-      z.null(),
-    ])
-    .optional()
-
-export const customerSnapshotSchema = z
-  .object({
-    customer: z
-      .object({
-        primaryPhone: optionalNullablePhoneField(),
-      })
-      .passthrough()
-      .nullable()
-      .optional(),
-    contact: z.unknown().optional(),
-  })
-  .passthrough()
 
 const uuid = () => z.string().uuid()
 
@@ -112,7 +75,7 @@ export const channelCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   websiteUrl: z.string().trim().url().max(300).optional(),
   contactEmail: z.string().trim().email().max(320).optional(),
-  contactPhone: optionalPhoneField(),
+  contactPhone: z.string().trim().max(50).optional(),
   addressLine1: z.string().trim().max(255).optional(),
   addressLine2: z.string().trim().max(255).optional(),
   city: z.string().trim().max(120).optional(),
@@ -499,7 +462,7 @@ export const orderCreateSchema = scoped.extend({
   customerReference: z.string().trim().max(191).optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
-  customerSnapshot: customerSnapshotSchema.optional(),
+  customerSnapshot: jsonRecord.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
@@ -547,7 +510,7 @@ export const quoteCreateSchema = scoped.extend({
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
   channelId: uuid().optional(),
-  customerSnapshot: customerSnapshotSchema.optional(),
+  customerSnapshot: jsonRecord.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
@@ -642,7 +605,7 @@ export const shipmentCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).int('Quantity must be a whole number.'),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         metadata,
       })
     )
@@ -655,12 +618,6 @@ export const shipmentUpdateSchema = z
   })
   .merge(shipmentCreateSchema.partial())
 
-const returnLineQuantitySchema = z.coerce
-  .number()
-  .int('Return quantity must be a whole number.')
-  .min(1, 'Return quantity must be at least 1.')
-  .max(MAX_QUANTITY, 'Quantity is too large.')
-
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
@@ -670,7 +627,7 @@ export const returnCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: returnLineQuantitySchema,
+        quantity: decimal({ min: 0 }),
       })
     )
     .min(1),
@@ -678,7 +635,7 @@ export const returnCreateSchema = scoped.extend({
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
-  invoiceNumber: z.string().trim().min(1).max(191).optional(),
+  invoiceNumber: z.string().trim().min(1).max(191),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
   dueDate: z.coerce.date().optional(),
@@ -691,8 +648,6 @@ export const invoiceCreateSchema = scoped.extend({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
         kind: lineKindSchema.optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),
@@ -731,10 +686,9 @@ export const invoiceUpdateSchema = z
 export const creditMemoCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceId: uuid().optional(),
-  creditMemoNumber: z.string().trim().min(1).max(191).optional(),
+  creditMemoNumber: z.string().trim().min(1).max(191),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
-  reason: z.string().trim().max(4000).optional(),
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
@@ -743,8 +697,6 @@ export const creditMemoCreateSchema = scoped.extend({
       z.object({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),
@@ -848,7 +800,7 @@ export const noteUpdateSchema = z
   )
 
 export const documentNumberRequestSchema = scoped.extend({
-  kind: z.enum(['order', 'quote', 'invoice', 'credit_memo']),
+  kind: z.enum(['order', 'quote']),
   format: numberFormatSchema.optional(),
 })
 

@@ -33,13 +33,9 @@ describe('Events Worker', () => {
   })
 
   describe('handle', () => {
-    const createMockJob = (
-      event: string,
-      payload: unknown,
-      options?: { tenantId?: string | null; organizationId?: string | null },
-    ): QueuedJob<{ event: string; payload: unknown; options?: { tenantId?: string | null; organizationId?: string | null } }> => ({
+    const createMockJob = (event: string, payload: unknown): QueuedJob<{ event: string; payload: unknown }> => ({
       id: 'test-job-id',
-      payload: { event, payload, options },
+      payload: { event, payload },
       createdAt: new Date().toISOString(),
     })
 
@@ -188,66 +184,6 @@ describe('Events Worker', () => {
       expect((capturedContext as { resolve: unknown }).resolve).toBeDefined()
     })
 
-    it('should pass trusted tenant and organization scope to subscriber context', async () => {
-      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
-
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'test.event',
-            handler: async (_payload: unknown, ctx: unknown) => {
-              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
-              capturedContext = {
-                tenantId: typed.tenantId,
-                organizationId: typed.organizationId,
-              }
-            },
-          },
-        ],
-      }
-
-      registerCliModules([mockModule])
-
-      const job = createMockJob('test.event', {}, { tenantId: 'tenant-1', organizationId: 'org-1' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      expect(capturedContext).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
-    })
-
-    it('should not trust payload scope when trusted scope is omitted', async () => {
-      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
-
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'test.event',
-            handler: async (_payload: unknown, ctx: unknown) => {
-              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
-              capturedContext = {
-                tenantId: typed.tenantId,
-                organizationId: typed.organizationId,
-              }
-            },
-          },
-        ],
-      }
-
-      registerCliModules([mockModule])
-
-      const job = createMockJob('test.event', { tenantId: 'payload-tenant', organizationId: 'payload-org' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      expect(capturedContext).toEqual({ tenantId: null, organizationId: null })
-    })
-
     it('should handle modules without subscribers', async () => {
       const mockModule: Module = {
         id: 'module-without-subscribers',
@@ -289,7 +225,7 @@ describe('Events Worker', () => {
       expect(called).toBe(true)
     })
 
-    it('should run all subscribers even when one fails, then throw to trigger retry', async () => {
+    it('should isolate errors - continue processing other subscribers when one fails', async () => {
       const subscriber1Calls: unknown[] = []
       const subscriber2Calls: unknown[] = []
 
@@ -326,67 +262,13 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      // Should not throw - partial failures are logged but don't fail the job
+      await expect(handle(job, ctx)).resolves.toBeUndefined()
 
-      await expect(handle(job, ctx)).rejects.toThrow(
-        '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
-      )
-
+      // Both subscribers should have been called
       expect(subscriber1Calls.length).toBe(1)
       expect(subscriber2Calls.length).toBe(1)
       expect(subscriber2Calls[0]).toEqual({ data: 'test' })
-
-      errorSpy.mockRestore()
-    })
-
-    it('should dispatch subscribers in parallel, not sequentially', async () => {
-      const executionLog: Array<{ id: string; phase: 'start' | 'end'; time: number }> = []
-
-      const createDelayedHandler = (id: string, delayMs: number) => async () => {
-        executionLog.push({ id, phase: 'start', time: Date.now() })
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
-        executionLog.push({ id, phase: 'end', time: Date.now() })
-      }
-
-      const mockModules: Module[] = [
-        {
-          id: 'module-a',
-          subscribers: [
-            { id: 'a:slow', event: 'test.parallel', handler: createDelayedHandler('a:slow', 100) },
-          ],
-        },
-        {
-          id: 'module-b',
-          subscribers: [
-            { id: 'b:slow', event: 'test.parallel', handler: createDelayedHandler('b:slow', 100) },
-          ],
-        },
-        {
-          id: 'module-c',
-          subscribers: [
-            { id: 'c:slow', event: 'test.parallel', handler: createDelayedHandler('c:slow', 100) },
-          ],
-        },
-      ]
-
-      registerCliModules(mockModules)
-
-      const job = createMockJob('test.parallel', {})
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      const starts = executionLog.filter((e) => e.phase === 'start')
-      const ends = executionLog.filter((e) => e.phase === 'end')
-      expect(starts).toHaveLength(3)
-      expect(ends).toHaveLength(3)
-
-      const lastStart = Math.max(...starts.map((e) => e.time))
-      const firstEnd = Math.min(...ends.map((e) => e.time))
-      // Parallel dispatch: every subscriber must have started before any finished.
-      // Sequential would produce firstEnd < lastStart. This structural check is
-      // robust to CI timing jitter, unlike a wall-clock total-duration assertion.
-      expect(lastStart).toBeLessThanOrEqual(firstEnd)
     })
 
     it('should throw when all subscribers fail', async () => {
@@ -422,13 +304,8 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-
-      await expect(handle(job, ctx)).rejects.toThrow(
-        '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
-      )
-
-      errorSpy.mockRestore()
+      // Should throw when all subscribers fail
+      await expect(handle(job, ctx)).rejects.toThrow('All 2 subscriber(s) failed for event "test.event"')
     })
   })
 })

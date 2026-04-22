@@ -64,8 +64,14 @@ const addUser: ModuleCli = {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
         let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+        if (!role && normalizedTenantId !== null) {
+          role = await em.findOne(Role, { name, tenantId: null })
+        }
         if (!role) {
-          role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
+        role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
+          await em.persistAndFlush(role)
+        } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
+          role.tenantId = normalizedTenantId
           await em.persistAndFlush(role)
         }
         const link = em.create(UserRole, { user: u, role })

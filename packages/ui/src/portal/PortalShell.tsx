@@ -1,5 +1,5 @@
 "use client"
-import { type ReactNode, useEffect, useState, useCallback, useMemo, useContext } from 'react'
+import { type ReactNode, useState, useCallback, useMemo, useContext } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -12,8 +12,6 @@ import { mergeMenuItems } from '../backend/injection/mergeMenuItems'
 import type { MergedMenuItem } from '../backend/injection/mergeMenuItems'
 import { PortalNotificationBell } from './components/PortalNotificationBell'
 import { usePortalContext } from './PortalContext'
-import { apiCall } from '../backend/utils/apiCall'
-import type { PortalNavGroup } from './utils/nav'
 
 // Component replacement handle IDs (FROZEN once shipped)
 export const PORTAL_SHELL_HANDLE = 'page:portal:layout'
@@ -176,59 +174,29 @@ export function PortalShell({
   const portalHome = orgSlug ? `/${orgSlug}/portal` : '/portal'
   const loginHref = orgSlug ? `/${orgSlug}/portal/login` : '/portal/login'
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
+  const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
+  const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
   // Always use the resolved organization name from the database.
   // Fall back to the generic portal title — never display the raw slug.
   const headerTitle = orgName || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
-  const [autoNavGroups, setAutoNavGroups] = useState<PortalNavGroup[]>([])
-  useEffect(() => {
-    if (!authenticated) {
-      setAutoNavGroups([])
-      return
-    }
-    let cancelled = false
-    const load = async () => {
-      try {
-        const { ok, result } = await apiCall<{ ok: boolean; groups?: PortalNavGroup[] }>(
-          '/api/customer_accounts/portal/nav',
-        )
-        if (cancelled || !ok || !result?.ok) return
-        setAutoNavGroups(Array.isArray(result.groups) ? result.groups : [])
-      } catch {
-        if (!cancelled) setAutoNavGroups([])
-      }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [authenticated])
-
   const mergedNavItems = useMemo(() => {
     if (!authenticated) return []
-    const discovered = autoNavGroups.find((g) => g.id === 'main')?.items ?? []
-    const builtIn = discovered.map((item) => ({
-      id: item.id,
-      labelKey: item.labelKey,
-      label: item.label,
-      href: item.href,
-    }))
+    const builtIn = [
+      { id: 'portal-dashboard', labelKey: 'portal.nav.dashboard', href: dashboardHref },
+    ]
     return mergeMenuItems(builtIn, injectedMainItems)
-  }, [authenticated, autoNavGroups, injectedMainItems])
+  }, [authenticated, dashboardHref, injectedMainItems])
 
   const mergedAccountItems = useMemo(() => {
     if (!authenticated) return []
-    const discovered = autoNavGroups.find((g) => g.id === 'account')?.items ?? []
-    const builtIn = discovered.map((item) => ({
-      id: item.id,
-      labelKey: item.labelKey,
-      label: item.label,
-      href: item.href,
-    }))
+    const builtIn = [
+      { id: 'portal-profile', labelKey: 'portal.nav.profile', href: profileHref },
+    ]
     return mergeMenuItems(builtIn, injectedAccountItems)
-  }, [authenticated, autoNavGroups, injectedAccountItems])
+  }, [authenticated, profileHref, injectedAccountItems])
 
   /* ---- PUBLIC LAYOUT ---- */
   if (!authenticated) {

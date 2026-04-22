@@ -30,30 +30,6 @@ describe('Event bus', () => {
     expect(calls[0].resolved).toEqual('em')
   })
 
-  test('passes trusted scope through subscriber context', async () => {
-    const calls: Array<{ tenantId?: string | null; organizationId?: string | null }> = []
-    const bus = createEventBus({ resolve: ((name: string) => name) as any })
-    bus.on('demo', async (_payload, ctx) => {
-      calls.push({ tenantId: ctx.tenantId, organizationId: ctx.organizationId })
-    })
-
-    await bus.emit('demo', { a: 1 }, { tenantId: 'tenant-1', organizationId: 'org-1' })
-
-    expect(calls).toEqual([{ tenantId: 'tenant-1', organizationId: 'org-1' }])
-  })
-
-  test('does not trust payload scope when trusted scope is omitted', async () => {
-    const calls: Array<{ tenantId?: string | null; organizationId?: string | null }> = []
-    const bus = createEventBus({ resolve: ((name: string) => name) as any })
-    bus.on('demo', async (_payload, ctx) => {
-      calls.push({ tenantId: ctx.tenantId, organizationId: ctx.organizationId })
-    })
-
-    await bus.emit('demo', { a: 1, tenantId: 'tenant-from-payload', organizationId: 'org-from-payload' } as any)
-
-    expect(calls).toEqual([{ tenantId: null, organizationId: null }])
-  })
-
   test('emitEvent alias works for backward compatibility', async () => {
     const calls: any[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as any })

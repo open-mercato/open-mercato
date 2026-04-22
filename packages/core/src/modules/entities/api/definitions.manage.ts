@@ -21,31 +21,25 @@ export async function GET(req: Request) {
   const em = resolve('em') as any
   // Load all scoped records (active/inactive/deleted) so that per-scope tombstones
   // can shadow global definitions. We'll filter out deleted winners later.
-  const [defs, tombstones, configMap] = await Promise.all([
-    em.find(CustomFieldDef, {
-      entityId,
-      deletedAt: null,
-      isActive: true,
-      $and: [
-        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
-        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-      ],
-    }, { orderBy: { key: 'asc' } as any }),
-    em.find(CustomFieldDef, {
-      entityId,
-      deletedAt: { $ne: null } as any,
-      $and: [
-        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
-        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-      ],
-    }),
-    loadEntityFieldsetConfigs(em, {
-      entityIds: [entityId],
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
-      mode: 'manage',
-    }),
-  ])
+  const defs = await em.find(CustomFieldDef, {
+    entityId,
+    deletedAt: null,
+    isActive: true,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  }, { orderBy: { key: 'asc' } as any })
+
+  // Also load tombstones to shadow lower-scope/global entries with the same key
+  const tombstones = await em.find(CustomFieldDef, {
+    entityId,
+    deletedAt: { $ne: null } as any,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  })
   const tombstonedKeys = new Set<string>((tombstones as any[]).map((d: any) => d.key))
 
   // Deduplicate by key, with clear precedence that allows higher-scope tombstones
@@ -83,6 +77,12 @@ export async function GET(req: Request) {
     tenantId: d.tenantId ?? null,
   }))
   const deletedKeys = Array.from(tombstonedKeys)
+  const configMap = await loadEntityFieldsetConfigs(em, {
+    entityIds: [entityId],
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    mode: 'manage',
+  })
   const cfg = configMap.get(entityId) ?? { fieldsets: [], singleFieldsetPerRecord: true }
   return NextResponse.json({
     items,

@@ -143,13 +143,7 @@ function FlashMessagesInner() {
 
   if (!msg) return null
 
-  const colorMap: Record<FlashKind, string> = {
-    success: 'bg-status-success-icon',
-    error: 'bg-status-error-icon',
-    warning: 'bg-status-warning-icon',
-    info: 'bg-status-info-icon',
-  }
-  const color = colorMap[kind]
+  const color = kind === 'success' ? 'bg-emerald-600' : kind === 'error' ? 'bg-red-600' : kind === 'warning' ? 'bg-amber-500' : 'bg-blue-600'
 
   return (
     <div className="pointer-events-none fixed left-3 right-3 top-3 z-[1200] sm:left-auto sm:right-4 sm:w-[380px]">

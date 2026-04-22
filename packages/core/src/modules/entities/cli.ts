@@ -1,4 +1,4 @@
-import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
@@ -9,6 +9,7 @@ import {
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { DEFAULT_ENCRYPTION_MAPS } from './lib/encryptionDefaults'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
@@ -248,19 +249,8 @@ const addField: ModuleCli = {
   },
 }
 
-function resolveEncryptionMapModules(): Module[] {
-  const cliModules = getCliModules()
-  if (cliModules.length > 0) return cliModules
-  try {
-    const { getModules } = require('@open-mercato/shared/lib/modules/registry')
-    return getModules()
-  } catch {
-    return []
-  }
-}
-
 async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
-  for (const spec of getDefaultEncryptionMaps(resolveEncryptionMapModules())) {
+  for (const spec of DEFAULT_ENCRYPTION_MAPS) {
     const existing = await em.findOne(EncryptionMap, {
       entityId: spec.entityId,
       tenantId,

@@ -149,28 +149,25 @@ export async function uploadAttachmentToMessage(
 export async function selectRecipientFromComposer(root: Page | Locator, email: string): Promise<void> {
   const page = 'waitForResponse' in root ? (root as Page) : null;
   const recipientInput = root.getByPlaceholder('Search recipients...');
-  const suggestion = root.getByRole('button', { name: new RegExp(escapeRegex(email), 'i') }).first();
 
-  const waitForSuggestionsResponse = () => page?.waitForResponse(
+  // Set up response watcher before clicking so we don't miss the API response.
+  // We use an empty query (no fill/type) because:
+  //   - The search API may not index users by email (returns 0 results for any query)
+  //   - An empty query returns all users (up to pageSize=20)
+  //   - onMouseDown sets touched=true, which triggers loadSuggestions('') after 200ms debounce
+  const responsePromise = page?.waitForResponse(
     (response) => response.url().includes('/api/auth/users') && response.status() === 200,
     { timeout: 10_000 },
   );
 
   await recipientInput.click();
-  const emptyQueryResponse = waitForSuggestionsResponse();
 
-  if (emptyQueryResponse) {
-    await emptyQueryResponse.catch(() => null);
+  // Wait for suggestions API to return before looking for the option button
+  if (responsePromise) {
+    await responsePromise;
   }
 
-  if (!(await suggestion.isVisible().catch(() => false))) {
-    await recipientInput.fill(email);
-    const typedQueryResponse = waitForSuggestionsResponse();
-    if (typedQueryResponse) {
-      await typedQueryResponse.catch(() => null);
-    }
-  }
-
+  const suggestion = root.getByRole('button', { name: new RegExp(escapeRegex(email), 'i') }).first();
   await expect(suggestion).toBeVisible({ timeout: 10_000 });
   await suggestion.click();
   await expect(root.getByRole('button', { name: new RegExp(escapeRegex(email), 'i') })).toHaveCount(0);

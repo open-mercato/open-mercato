@@ -3,7 +3,6 @@
 import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 /**
  * Form Values Type
@@ -15,8 +14,8 @@ export type WorkflowDefinitionFormValues = {
   description?: string | null
   version: number
   enabled: boolean
-  effectiveFrom?: string | null
-  effectiveTo?: string | null
+  effectiveFrom?: Date | null
+  effectiveTo?: Date | null
   metadata?: {
     tags?: string[]
     category?: string
@@ -24,7 +23,6 @@ export type WorkflowDefinitionFormValues = {
   } | null
   steps: any[]
   transitions: any[]
-  triggers: WorkflowDefinitionTrigger[]
 }
 
 /**
@@ -45,8 +43,8 @@ export const workflowDefinitionFormSchema = z.object({
     .nullable(),
   version: z.number().int().min(1),
   enabled: z.boolean(),
-  effectiveFrom: z.string().optional().nullable(),
-  effectiveTo: z.string().optional().nullable(),
+  effectiveFrom: z.date().optional().nullable(),
+  effectiveTo: z.date().optional().nullable(),
   metadata: z.object({
     tags: z.array(z.string()).optional(),
     category: z.string().max(50).optional(),
@@ -54,7 +52,6 @@ export const workflowDefinitionFormSchema = z.object({
   }).optional().nullable(),
   steps: z.array(z.any()),
   transitions: z.array(z.any()),
-  triggers: z.array(z.any()).default([]),
 })
 
 /**
@@ -75,7 +72,6 @@ export const defaultFormValues: WorkflowDefinitionFormValues = {
   },
   steps: [],
   transitions: [],
-  triggers: [],
 }
 
 /**
@@ -228,8 +224,6 @@ export function createFormGroups(
   ]
 }
 
-import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
-
 /**
  * Parse workflow definition to form values
  */
@@ -240,12 +234,11 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     description: workflow.description || null,
     version: workflow.version || 1,
     enabled: workflow.enabled ?? true,
-    effectiveFrom: toDateInputValue(workflow.effectiveFrom),
-    effectiveTo: toDateInputValue(workflow.effectiveTo),
+    effectiveFrom: workflow.effectiveFrom ? new Date(workflow.effectiveFrom) : null,
+    effectiveTo: workflow.effectiveTo ? new Date(workflow.effectiveTo) : null,
     metadata: workflow.metadata || { tags: [], category: '', icon: '' },
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
-    triggers: workflow.definition?.triggers || [],
   }
 }
 
@@ -253,20 +246,18 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
  * Build API payload from form values
  */
 export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
-  const triggers = values.triggers ?? []
   return {
     workflowId: values.workflowId,
     workflowName: values.workflowName,
     description: values.description || null,
     version: values.version,
     enabled: values.enabled,
-    effectiveFrom: values.effectiveFrom || null,
-    effectiveTo: values.effectiveTo || null,
+    effectiveFrom: values.effectiveFrom ? values.effectiveFrom.toISOString() : null,
+    effectiveTo: values.effectiveTo ? values.effectiveTo.toISOString() : null,
     metadata: values.metadata || null,
     definition: {
       steps: values.steps,
       transitions: values.transitions,
-      ...(triggers.length > 0 ? { triggers } : {}),
     },
   }
 }

@@ -5,7 +5,6 @@ import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
 import { enqueueWebhookDelivery } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
-import { assertSafeWebhookDeliveryUrl, UnsafeWebhookUrlError } from './url-safety'
 
 export interface WebhookDeliveryJob {
   deliveryId: string
@@ -120,33 +119,6 @@ export async function processWebhookDeliveryJob(
     return { status: delivery.status, deliveryId: delivery.id }
   }
 
-  try {
-    await assertSafeWebhookDeliveryUrl(webhook.url)
-  } catch (error) {
-    const message = error instanceof UnsafeWebhookUrlError
-      ? error.message
-      : 'Webhook URL rejected by safety check'
-    delivery.status = 'failed'
-    delivery.errorMessage = message
-    delivery.nextRetryAt = null
-    delivery.lastAttemptAt = new Date()
-    delivery.attemptNumber += 1
-    webhook.consecutiveFailures += 1
-    webhook.lastFailureAt = new Date()
-    await em.flush()
-    await emitWebhooksEvent('webhooks.delivery.failed', {
-      deliveryId: delivery.id,
-      webhookId: webhook.id,
-      eventType: delivery.eventType,
-      errorMessage: message,
-      durationMs: 0,
-      organizationId: delivery.organizationId,
-      tenantId: delivery.tenantId,
-      willRetry: false,
-    })
-    return { status: delivery.status, deliveryId: delivery.id }
-  }
-
   const bodyPayload = normalizeWebhookBody(delivery.eventType, delivery.payload)
   delivery.payload = bodyPayload
   delivery.status = 'sending'
@@ -172,7 +144,6 @@ export async function processWebhookDeliveryJob(
 
     const response = await fetch(webhook.url, {
       method: webhook.httpMethod,
-      redirect: 'manual',
       headers: {
         'content-type': 'application/json',
         ...headers,

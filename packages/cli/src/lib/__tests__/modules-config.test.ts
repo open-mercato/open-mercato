@@ -101,35 +101,4 @@ describe('modules-config', () => {
     expect(result).toEqual({ changed: true })
     expect(fs.readFileSync(filePath, 'utf8')).toContain("{ id: 'test_package', from: '@app' }")
   })
-
-  it('preserves enabledModules.some() guarded registrations when appending a module', () => {
-    const filePath = path.join(tmpDir, 'modules.ts')
-    fs.writeFileSync(
-      filePath,
-      [
-        "export const enabledModules = [",
-        "  { id: 'customers', from: '@open-mercato/core' },",
-        "  { id: 'example', from: '@app' },",
-        "]",
-        '',
-        "if (enabledModules.some((entry) => entry.id === 'example')) {",
-        "  enabledModules.push({ id: 'example_customers_sync', from: '@app' })",
-        '}',
-      ].join('\n'),
-    )
-
-    const result = ensureModuleRegistration(filePath, {
-      id: 'test_package',
-      from: '@open-mercato/test-package',
-    })
-
-    expect(result).toEqual({
-      changed: true,
-      registeredAs: '@open-mercato/test-package',
-    })
-
-    const updated = fs.readFileSync(filePath, 'utf8')
-    expect(updated).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
-    expect(updated).toContain("enabledModules.push({ id: 'example_customers_sync', from: '@app' })")
-  })
 })

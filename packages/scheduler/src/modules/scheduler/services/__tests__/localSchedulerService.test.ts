@@ -17,7 +17,8 @@ jest.mock('@open-mercato/shared/modules/events', () => ({
 // Mock LocalLockStrategy
 jest.mock('../../lib/localLockStrategy', () => ({
   LocalLockStrategy: jest.fn().mockImplementation(() => ({
-    runWithLock: jest.fn(),
+    tryLock: jest.fn(),
+    unlock: jest.fn(),
   })),
 }))
 
@@ -36,7 +37,7 @@ describe('LocalSchedulerService', () => {
   let mockQueue: jest.Mocked<Queue>
   let mockQueueFactory: jest.Mock
   let mockRbacService: { tenantHasFeature: jest.Mock }
-  let mockLockStrategy: { runWithLock: jest.Mock }
+  let mockLockStrategy: { tryLock: jest.Mock; unlock: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -195,10 +196,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -258,7 +257,7 @@ describe('LocalSchedulerService', () => {
       const schedule = createSchedule()
 
       mockForkedEm.find.mockResolvedValue([schedule])
-      mockLockStrategy.runWithLock.mockResolvedValue({ acquired: false })
+      mockLockStrategy.tryLock.mockResolvedValue(false)
 
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
@@ -277,10 +276,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -303,10 +300,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockCommandBusInstance.execute.mockResolvedValue({ success: true })
 
       await service.start()
@@ -327,10 +322,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -350,10 +343,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -373,10 +364,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -401,10 +390,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue(freshSchedule)
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -414,23 +401,21 @@ describe('LocalSchedulerService', () => {
       expect(mockForkedEm.flush).toHaveBeenCalled()
     })
 
-    it('should execute inside lock wrapper', async () => {
+    it('should always release lock', async () => {
       const schedule = createSchedule()
       const error = new Error('Execution failed')
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       jest.spyOn(console, 'error').mockImplementation()
 
       await service.start()
 
-      expect(mockLockStrategy.runWithLock).toHaveBeenCalledWith('schedule:test-1', expect.any(Function))
+      expect(mockLockStrategy.unlock).toHaveBeenCalledWith('schedule:test-1')
     })
 
     it('should check feature flag if required', async () => {
@@ -442,10 +427,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockRbacService.tenantHasFeature.mockResolvedValue(true)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
@@ -469,10 +452,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockRbacService.tenantHasFeature.mockResolvedValue(false)
 
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -502,10 +483,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -521,10 +500,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue(freshSchedule)
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       jest.spyOn(console, 'error').mockImplementation()
@@ -540,10 +517,8 @@ describe('LocalSchedulerService', () => {
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
@@ -567,10 +542,8 @@ describe('LocalSchedulerService', () => {
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
@@ -593,10 +566,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
       await service.start()
@@ -621,10 +592,8 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
-      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
-        await fn()
-        return { acquired: true }
-      })
+      mockLockStrategy.tryLock.mockResolvedValue(true)
+      mockLockStrategy.unlock.mockResolvedValue(undefined as any)
       mockCommandBusInstance.execute.mockResolvedValue({ success: true })
 
       await service.start()

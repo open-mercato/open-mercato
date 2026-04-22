@@ -4,8 +4,7 @@ import { readFileSync, writeFileSync, existsSync, watch as fsWatch } from 'node:
 import { dirname, join, basename } from 'node:path'
 import { platform } from 'node:os'
 
-const currentPlatform = platform()
-const useManualWatcher = currentPlatform === 'win32' || currentPlatform === 'darwin'
+const isWindows = platform() === 'win32'
 
 /**
  * Add .js extensions to relative imports in a compiled file
@@ -114,13 +113,14 @@ export async function watch(packageDir) {
 
   console.log(`[watch] ${packageName}: watching for changes...`)
 
-  if (useManualWatcher) {
-    // On macOS and Windows, esbuild's ctx.watch() can trigger an initial rebuild whose
-    // onEnd hook (adding .js extensions) races with the dev server loading modules.
-    // Use a manual fs.watch so we rebuild only after real source changes.
+  if (isWindows) {
+    // On Windows, esbuild's ctx.watch() triggers an initial rebuild whose onEnd hook
+    // (adding .js extensions) races with the dev server loading modules. Use a manual
+    // fs.watch so that we only rebuild when source files actually change.
     await watchWithFsWatcher(ctx, packageDir, packageName)
   } else {
-    // Keep esbuild's native watch mode on Linux.
+    // On Linux/macOS, ctx.watch() works reliably — the initial rebuild completes
+    // before the dev server tries to load modules.
     await ctx.watch()
   }
 
@@ -136,7 +136,7 @@ export async function watch(packageDir) {
 }
 
 /**
- * Manual watcher using Node.js fs.watch instead of esbuild's built-in watch.
+ * Windows-specific watcher using Node.js fs.watch instead of esbuild's built-in watch.
  * Avoids the initial-rebuild race condition where the dev server loads modules before
  * the onEnd hook has finished adding .js extensions.
  */

@@ -1,5 +1,5 @@
 import { GenericContainer } from 'testcontainers'
-import type { ChildProcess, StdioOptions } from 'node:child_process'
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -7,9 +7,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import spawn from 'cross-spawn'
 import { resolveEnvironment } from '../resolver'
-import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
@@ -75,7 +73,6 @@ type IntegrationCoverageOptions = {
   verbose: boolean
   workers: number | null
   retries: number | null
-  shard: string | null
   json: boolean
   keepRawV8: boolean
   forceRebuild: boolean
@@ -143,14 +140,12 @@ type EphemeralEnvironmentState = {
   startedAt: string
 }
 
-type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'> & {
-  shard?: string | null
-}
+type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'>
 
 const DEFAULT_APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
-const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 5 * 60_000
+const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
@@ -173,7 +168,6 @@ const projectRootDirectory = env.rootDir
 const appDirectory = env.appDir
 const corePackageRootDirectory = env.packageRoot('@open-mercato/core')
 const uiPackageRootDirectory = env.packageRoot('@open-mercato/ui')
-const EPHEMERAL_RUNTIME_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-runtime.lock')
 
 function resolveFirstExistingPath(...candidates: string[]): string | null {
   for (const candidate of candidates) {
@@ -220,17 +214,12 @@ const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
-const NEXT_BUILD_OUTPUT_DIRECTORIES = [
-  path.join(appDirectory, '.mercato', 'next'),
-  path.join(appDirectory, '.next'),
-]
-const APP_BUILD_ARTIFACTS = collectExistingPaths([
+const APP_BUILD_ARTIFACTS = [
   path.join(appDirectory, '.mercato', 'next', 'BUILD_ID'),
-  path.join(appDirectory, '.next', 'BUILD_ID'),
   path.join(appDirectory, '.mercato', 'generated', 'modules.generated.ts'),
   path.join(corePackageRootDirectory, 'dist', 'index.js'),
   path.join(uiPackageRootDirectory, 'dist', 'index.js'),
-])
+]
 const APP_BUILD_INPUT_PATHS = collectExistingPaths([
   path.join(appDirectory, 'src'),
   path.join(appDirectory, 'package.json'),
@@ -256,13 +245,7 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   api: 'API',
   integration: 'INT',
 }
-const BUILD_CACHE_STATE_VERSION = 2
-const BUILD_CACHE_ENV_KEYS = [
-  'NODE_ENV',
-  'OM_ENABLE_ENTERPRISE_MODULES',
-  'OM_ENABLE_ENTERPRISE_MODULES_SSO',
-  'OM_ENABLE_ENTERPRISE_MODULES_SECURITY',
-] as const
+const BUILD_CACHE_STATE_VERSION = 1
 const IGNORED_EPHEMERAL_BUILD_CACHE_DIRS = new Set([
   'node_modules',
   '.next',
@@ -281,7 +264,6 @@ type BuildCacheState = {
   version: number
   builtAt: number
   sourceFingerprint: string
-  environmentFingerprint: string
   artifactPaths: string[]
   projectRoot: string
 }
@@ -292,7 +274,6 @@ type BuildCacheOptions = {
   cacheStatePath?: string
   projectRoot?: string
   precomputedSourceFingerprint?: string
-  environmentFingerprint?: string
 }
 
 type CommandOutputMonitoringResult = {
@@ -324,18 +305,10 @@ type BackendLoginProbeResult = {
   detail: string
 }
 
-type AuthenticatedApiProbeResult = {
-  loginStatus: number | null
-  apiStatus: number | null
-  healthy: boolean
-  detail: string
-}
-
 type ApplicationReadinessProbeResult = {
   ready: boolean
   frontend: LoginPageProbeResult
   backend: BackendLoginProbeResult
-  authenticated: AuthenticatedApiProbeResult
 }
 
 type PlaywrightFailureHealthCheckOptions = {
@@ -358,25 +331,6 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...overrides,
-  }
-}
-
-function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
-  const publicKeys = Object.keys(environment)
-    .filter((key) => key.startsWith('NEXT_PUBLIC_'))
-    .sort((left, right) => left.localeCompare(right))
-  const keys = Array.from(new Set([...BUILD_CACHE_ENV_KEYS, ...publicKeys]))
-  const fingerprintParts = keys.map((key) => `${key}=${environment[key] ?? ''}`)
-  return createHash('sha256').update(fingerprintParts.join('\n'), 'utf8').digest('hex')
-}
-
-async function resetNextBuildOutputDirectories(logPrefix: string): Promise<void> {
-  for (const outputDirectory of NEXT_BUILD_OUTPUT_DIRECTORIES) {
-    if (!existsSync(outputDirectory)) {
-      continue
-    }
-    await rm(outputDirectory, { recursive: true, force: true })
-    console.log(`[${logPrefix}] Reset Next build output directory at ${outputDirectory}.`)
   }
 }
 
@@ -459,12 +413,10 @@ async function runCommandWithOutputMonitoring(
   opts: CommandMonitoringOptions = {},
 ): Promise<CommandOutputMonitoringResult> {
   return new Promise((resolve, reject) => {
-    const resolvedSpawn = resolveSpawnCommand(command, commandArgs)
-    const commandHandle = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+    const commandHandle = spawn(command, commandArgs, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: ['ignore', 'pipe', 'pipe'],
-      ...resolvedSpawn.spawnOptions,
     })
 
     let output = ''
@@ -639,12 +591,10 @@ function runYarnRawCommand(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-    const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs)
-    const command: ChildProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+    const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
       cwd,
       env: environment,
       stdio: outputMode,
-      ...resolvedSpawn.spawnOptions,
     })
     let bufferedOutput = ''
     if (opts.silent) {
@@ -672,12 +622,10 @@ function runYarnRawCommand(
 function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   return new Promise((resolve, reject) => {
-    const resolvedSpawn = resolveSpawnCommand(binary, args)
-    const command = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+    const command = spawn(binary, args, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: 'inherit',
-      ...resolvedSpawn.spawnOptions,
     })
     command.on('error', reject)
     command.on('exit', (code) => {
@@ -697,12 +645,10 @@ function startYarnRawCommand(
   cwd: string = projectRootDirectory,
 ): ChildProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-  const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs)
-  const processHandle: ChildProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+  const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
     cwd,
     env: environment,
     stdio: outputMode,
-    ...resolvedSpawn.spawnOptions,
   })
   if (opts.silent) {
     processHandle.stdout?.on('data', () => {})
@@ -959,9 +905,6 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
   if (typeof maybeState.sourceFingerprint !== 'string' || maybeState.sourceFingerprint.length === 0) {
     return null
   }
-  if (typeof maybeState.environmentFingerprint !== 'string' || maybeState.environmentFingerprint.length === 0) {
-    return null
-  }
   if (!Array.isArray(maybeState.artifactPaths) || maybeState.artifactPaths.length === 0) {
     return null
   }
@@ -973,7 +916,6 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
     version: BUILD_CACHE_STATE_VERSION,
     builtAt: maybeState.builtAt,
     sourceFingerprint: maybeState.sourceFingerprint,
-    environmentFingerprint: maybeState.environmentFingerprint,
     artifactPaths: maybeState.artifactPaths.filter((entry): entry is string => typeof entry === 'string'),
     projectRoot: maybeState.projectRoot,
   }
@@ -984,10 +926,6 @@ async function writeBuildCacheState(
   options: BuildCacheOptions = {},
 ): Promise<void> {
   const defaults = buildCacheDefaults(options)
-  const environmentFingerprint = options.environmentFingerprint ?? ''
-  if (!environmentFingerprint) {
-    throw new Error('Build cache state requires an environment fingerprint.')
-  }
   await mkdir(path.dirname(defaults.cacheStatePath), { recursive: true })
   await writeFile(
     defaults.cacheStatePath,
@@ -996,7 +934,6 @@ async function writeBuildCacheState(
         version: BUILD_CACHE_STATE_VERSION,
         builtAt: Date.now(),
         sourceFingerprint,
-        environmentFingerprint,
         artifactPaths: defaults.artifactPaths,
         projectRoot: defaults.projectRoot,
       },
@@ -1031,15 +968,10 @@ export async function shouldReuseBuildArtifacts(
 
   const defaults = buildCacheDefaults(options)
   const currentSourceFingerprint = options.precomputedSourceFingerprint ?? (await buildSourceFingerprint(defaults))
-  const currentEnvironmentFingerprint = options.environmentFingerprint ?? ''
   if (!currentSourceFingerprint) {
     console.log(
       `[${logPrefix}] Build cache disabled: unable to collect source fingerprints from tracked sources.`,
     )
-    return false
-  }
-  if (!currentEnvironmentFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: missing environment fingerprint for cache validation.`)
     return false
   }
 
@@ -1064,10 +996,6 @@ export async function shouldReuseBuildArtifacts(
 
   if (state.sourceFingerprint !== currentSourceFingerprint) {
     console.log(`[${logPrefix}] Build cache disabled: source files changed since last build.`)
-    return false
-  }
-  if (state.environmentFingerprint !== currentEnvironmentFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: build-shaping environment changed since last build.`)
     return false
   }
 
@@ -1312,80 +1240,16 @@ async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginP
   }
 }
 
-async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiProbeResult> {
-  try {
-    const form = new URLSearchParams()
-    form.set('email', 'admin@acme.com')
-    form.set('password', 'secret')
-    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
-      method: 'POST',
-      redirect: 'manual',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: form.toString(),
-    })
-
-    const rawBody = await loginResponse.text().catch(() => '')
-    let token: string | null = null
-    if (rawBody) {
-      try {
-        const parsed = JSON.parse(rawBody) as { token?: unknown }
-        token = typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null
-      } catch {
-        token = null
-      }
-    }
-
-    if (!loginResponse.ok || !token) {
-      return {
-        loginStatus: loginResponse.status,
-        apiStatus: null,
-        healthy: false,
-        detail: loginResponse.ok
-          ? 'POST /api/auth/login did not return an auth token'
-          : `POST /api/auth/login returned ${loginResponse.status}`,
-      }
-    }
-
-    const apiResponse = await fetch(`${baseUrl}/api/customers/people?pageSize=1`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-
-    const healthy = apiResponse.status === 200
-    return {
-      loginStatus: loginResponse.status,
-      apiStatus: apiResponse.status,
-      healthy,
-      detail: healthy
-        ? 'Authenticated GET /api/customers/people returned 200'
-        : `Authenticated GET /api/customers/people returned ${apiResponse.status}`,
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      loginStatus: null,
-      apiStatus: null,
-      healthy: false,
-      detail: `Authenticated readiness probe failed: ${message}`,
-    }
-  }
-}
-
 async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
-  const [frontend, backend, authenticated] = await Promise.all([
+  const [frontend, backend] = await Promise.all([
     probeLoginPage(baseUrl),
     probeBackendLoginEndpoint(baseUrl),
-    probeAuthenticatedApi(baseUrl),
   ])
 
   return {
-    ready: frontend.healthy && backend.healthy && authenticated.healthy,
+    ready: frontend.healthy && backend.healthy,
     frontend,
     backend,
-    authenticated,
   }
 }
 
@@ -1490,122 +1354,7 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
   return true
 }
 
-type EphemeralRuntimeLockOptions = {
-  lockPath?: string
-  isProcessRunning?: (processId: number) => boolean
-}
-
-type EphemeralRuntimeLockOwner = {
-  pid: number
-  source?: string
-  acquiredAt?: string
-}
-
-async function readEphemeralRuntimeLockOwner(lockPath: string): Promise<EphemeralRuntimeLockOwner | null> {
-  const ownerPath = path.join(lockPath, 'owner.json')
-  let ownerSource = ''
-  try {
-    ownerSource = await readFile(ownerPath, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null
-    }
-    throw error
-  }
-
-  let parsed: unknown = null
-  try {
-    parsed = JSON.parse(ownerSource)
-  } catch {
-    return null
-  }
-
-  if (!parsed || typeof parsed !== 'object') {
-    return null
-  }
-
-  const record = parsed as Partial<EphemeralRuntimeLockOwner>
-  if (typeof record.pid !== 'number' || !Number.isInteger(record.pid) || record.pid < 1) {
-    return null
-  }
-
-  return {
-    pid: record.pid,
-    source: typeof record.source === 'string' ? record.source : undefined,
-    acquiredAt: typeof record.acquiredAt === 'string' ? record.acquiredAt : undefined,
-  }
-}
-
-async function clearStaleEphemeralRuntimeLock(
-  logPrefix: string,
-  options: Required<EphemeralRuntimeLockOptions>,
-): Promise<boolean> {
-  const owner = await readEphemeralRuntimeLockOwner(options.lockPath)
-  const lockAge = await getPathAgeMilliseconds(options.lockPath)
-  if (!owner) {
-    if (lockAge !== null && lockAge > EPHEMERAL_ENV_LOCK_TIMEOUT_MS) {
-      await rm(options.lockPath, { recursive: true, force: true })
-      console.log(`[${logPrefix}] Removed stale ephemeral runtime lock with invalid owner metadata.`)
-      return true
-    }
-    return false
-  }
-
-  if (options.isProcessRunning(owner.pid)) {
-    return false
-  }
-
-  await rm(options.lockPath, { recursive: true, force: true })
-  console.log(`[${logPrefix}] Removed stale ephemeral runtime lock from exited process ${owner.pid}.`)
-  return true
-}
-
-export async function acquireEphemeralRuntimeLock(
-  logPrefix: string,
-  options: EphemeralRuntimeLockOptions = {},
-): Promise<{ release: () => Promise<void> }> {
-  const resolvedOptions: Required<EphemeralRuntimeLockOptions> = {
-    lockPath: options.lockPath ?? EPHEMERAL_RUNTIME_LOCK_PATH,
-    isProcessRunning: options.isProcessRunning ?? isProcessRunning,
-  }
-
-  await mkdir(path.dirname(resolvedOptions.lockPath), { recursive: true })
-
-  try {
-    await mkdir(resolvedOptions.lockPath)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-      throw error
-    }
-
-    if (await clearStaleEphemeralRuntimeLock(logPrefix, resolvedOptions)) {
-      return acquireEphemeralRuntimeLock(logPrefix, resolvedOptions)
-    }
-
-    const owner = await readEphemeralRuntimeLockOwner(resolvedOptions.lockPath)
-    const ownerSource = owner?.source ? ` started by "${owner.source}"` : ''
-    const ownerPid = owner?.pid ? ` (pid ${owner.pid})` : ''
-    throw new Error(
-      `[${logPrefix}] Another ephemeral environment is already active${ownerSource}${ownerPid}. Reuse the running environment or stop it before starting a fresh ephemeral run, because a second build/generate pipeline would overwrite shared workspace artifacts.`,
-    )
-  }
-
-  const ownerPath = path.join(resolvedOptions.lockPath, 'owner.json')
-  await writeFile(
-    ownerPath,
-    `${JSON.stringify({ pid: process.pid, source: logPrefix, acquiredAt: new Date().toISOString() }, null, 2)}\n`,
-    'utf8',
-  )
-
-  return {
-    release: async () => {
-      await rm(resolvedOptions.lockPath, { recursive: true, force: true })
-    },
-  }
-}
-
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
-  const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   return buildEnvironment({
     BASE_URL: baseUrl,
     APP_URL: baseUrl,
@@ -1613,15 +1362,11 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
-    OM_INTEGRATION_TEST: 'true',
-    OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
-    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
-    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
+    OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
+    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
     OM_TEST_MODE: '1',
-    OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
     ENABLE_CRUD_API_CACHE: 'true',
-    MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
-    MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
@@ -1728,10 +1473,8 @@ async function waitForApplicationReadiness(
 
   const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
   const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
-  const lastAuthenticatedDetail = lastProbe?.authenticated.detail ?? 'Authenticated API probe was never observed'
   throw new Error(
-    `Application did not become ready within ${options.timeoutMs / 1000} seconds. ` +
-    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}`,
+    `Application did not become ready within ${options.timeoutMs / 1000} seconds. Last probe: ${lastFrontendDetail}; ${lastBackendDetail}`,
   )
 }
 
@@ -1939,7 +1682,6 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
   let verbose = false
   let workers: number | null = null
   let retries: number | null = null
-  let shard: string | null = null
   let json = false
   let keepRawV8 = false
   let forceRebuild = false
@@ -2024,26 +1766,6 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
       retries = parsed
       continue
     }
-    if (argument === '--shard') {
-      const value = rawArgs[index + 1]
-      if (!value || value.startsWith('--')) {
-        throw new Error('Missing value for --shard')
-      }
-      if (!/^\d+\/\d+$/.test(value)) {
-        throw new Error(`Invalid --shard value: ${value}. Expected format: N/M`)
-      }
-      shard = value
-      index += 1
-      continue
-    }
-    if (argument.startsWith('--shard=')) {
-      const value = argument.slice('--shard='.length)
-      if (!/^\d+\/\d+$/.test(value)) {
-        throw new Error(`Invalid --shard value: ${value}. Expected format: N/M`)
-      }
-      shard = value
-      continue
-    }
     if (argument === '--json') {
       json = true
       continue
@@ -2070,7 +1792,6 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
     verbose,
     workers,
     retries,
-    shard,
     json,
     keepRawV8,
     forceRebuild,
@@ -2507,7 +2228,6 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
           captureScreenshots: options.captureScreenshots,
           workers: options.workers,
           retries: options.retries,
-          shard: options.shard,
         },
       )
       return null
@@ -2628,9 +2348,6 @@ async function runPlaywrightSelection(
   }
   if (options.retries !== null) {
     args.push('--retries', String(options.retries))
-  }
-  if (options.shard) {
-    args.push('--shard', options.shard)
   }
   if (Array.isArray(selection) && selection.length > 0) {
     args.push(...selection)
@@ -2797,6 +2514,7 @@ async function promptAfterRun(
 
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
+  await assertContainerRuntimeAvailable()
 
   // Auto-detect Docker socket from active context for non-standard setups (e.g., Colima)
   const dockerConfig = await resolveDockerHostFromContext(options.logPrefix)
@@ -2804,8 +2522,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     process.env.DOCKER_HOST = dockerConfig.dockerHost
     process.env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = dockerConfig.socketOverride
   }
-
-  await assertContainerRuntimeAvailable()
 
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
@@ -2855,7 +2571,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
-    const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
@@ -2870,17 +2585,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DB_POOL_ACQUIRE_TIMEOUT: '10000',
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
-      OM_INTEGRATION_TEST: 'true',
-      OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
-      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
-      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
+      OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
+      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
-      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
       ENABLE_CRUD_API_CACHE: 'true',
-      MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
-      MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
@@ -2895,27 +2606,21 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       ...(options.environmentOverrides ?? {}),
     })
 
-    const runtimeLock = await acquireEphemeralRuntimeLock(options.logPrefix)
     let applicationProcess: ChildProcess | null = null
     let isStopped = false
     const stop = async (): Promise<void> => {
       if (isStopped) return
       isStopped = true
-      try {
-        if (applicationProcess && !applicationProcess.killed) {
-          applicationProcess.kill('SIGTERM')
-        }
-        await databaseContainer.stop()
-        await clearEphemeralEnvironmentState()
-      } finally {
-        await runtimeLock.release()
+      if (applicationProcess && !applicationProcess.killed) {
+        applicationProcess.kill('SIGTERM')
       }
+      await databaseContainer.stop()
+      await clearEphemeralEnvironmentState()
     }
 
     try {
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
-      const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -2925,7 +2630,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         needsBuild = options.forceRebuild
           ? true
           : await shouldRebuildBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
-              environmentFingerprint,
               precomputedSourceFingerprint: sourceFingerprintValue ?? undefined,
             })
       } catch (error) {
@@ -2983,7 +2687,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         }
 
         console.log(`[${options.logPrefix}] Building application...`)
-        await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
           runYarnCommand(['build'], commandEnvironment, {
             silent: !options.verbose,
@@ -2991,7 +2694,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
 
       if (shouldPersistBuildCache && sourceFingerprintValue) {
-        await writeBuildCacheState(sourceFingerprintValue, { environmentFingerprint })
+        await writeBuildCacheState(sourceFingerprintValue)
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)

@@ -9,7 +9,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { PackageResolver } from '../resolver'
-import { isModuleRouteFile } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -62,7 +61,7 @@ async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]>
         if (e.isDirectory()) {
           if (e.name === '__tests__' || e.name === '__mocks__') continue
           walkDir(path.join(dir, e.name), [...rel, e.name])
-        } else if (e.isFile() && isModuleRouteFile(e.name)) {
+        } else if (e.isFile() && e.name === 'route.ts') {
           routeFiles.push({
             relativePath: [...rel].join('/'),
             fullPath: path.join(dir, e.name),
@@ -75,13 +74,11 @@ async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]>
     if (fs.existsSync(apiPkg)) walkDir(apiPkg)
     if (fs.existsSync(apiApp)) walkDir(apiApp)
 
-    // Process unique routes (later app files overwrite earlier package files)
-    const filesByRelativePath = new Map<string, string>()
+    // Process unique routes (app overrides package)
+    const seen = new Set<string>()
     for (const { relativePath, fullPath } of routeFiles) {
-      filesByRelativePath.set(relativePath, fullPath)
-    }
-
-    for (const [relativePath, fullPath] of filesByRelativePath) {
+      if (seen.has(relativePath)) continue
+      seen.add(relativePath)
 
       // Build API path
       const routeSegs = relativePath ? relativePath.split('/') : []
@@ -390,7 +387,6 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     name: 'external-non-workspace',
     setup(build: any) {
       build.onResolve({ filter: /^[^./]/ }, (args: any) => {
-        if (path.isAbsolute(args.path)) return undefined
         if (args.path.startsWith('@open-mercato/')) return undefined
         if (args.path.startsWith('@/')) return undefined
         if (args.path.startsWith('#generated/')) return undefined

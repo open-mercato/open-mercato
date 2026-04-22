@@ -39,24 +39,6 @@ export async function requireCustomerEntity(
   return entity
 }
 
-export async function requireTimelineParentEntity(
-  em: EntityManager,
-  id: string,
-): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
-  if (entity) {
-    if (entity.kind !== 'person' && entity.kind !== 'company') {
-      throw new CrudHttpError(422, { error: 'entityId must reference a person or company' })
-    }
-    return entity
-  }
-  const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
-  if (deal) {
-    throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
-  }
-  throw new CrudHttpError(404, { error: 'Customer not found' })
-}
-
 export async function syncEntityTags(
   em: EntityManager,
   entity: CustomerEntity,
@@ -267,10 +249,6 @@ async function emitQueryIndexEvents(
             organizationId: entry.organizationId ?? null,
             tenantId: entry.tenantId ?? null,
             crudAction,
-          },
-          {
-            tenantId: entry.tenantId ?? null,
-            organizationId: entry.organizationId ?? null,
           },
         )
         .catch(() => undefined),

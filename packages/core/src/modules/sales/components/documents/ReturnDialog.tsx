@@ -10,7 +10,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { computeAvailableReturnQuantity } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 
 export type ReturnOrderLine = {
   id: string
@@ -49,7 +48,7 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
   const availableLines = React.useMemo(() => {
     return lines
       .map((line) => {
-        const available = computeAvailableReturnQuantity(line)
+        const available = Math.max(0, line.quantity - line.returnedQuantity)
         return { ...line, available }
       })
       .filter((line) => line.available > 0)
@@ -65,27 +64,17 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
   const submit = React.useCallback(async () => {
     if (saving) return
     let hasInvalidQuantity = false
-    let hasNonInteger = false
     const linesForRequest: Array<{ orderLineId: string; quantity: string }> = []
     availableLines.forEach((line) => {
       const raw = quantities[line.id]
       const qty = normalizeNumber(raw)
       if (!Number.isFinite(qty) || qty <= 0) return
-      if (!Number.isInteger(qty)) {
-        hasNonInteger = true
-        return
-      }
-      if (qty > line.available) {
+      if (qty - 1e-6 > line.available) {
         hasInvalidQuantity = true
         return
       }
       linesForRequest.push({ orderLineId: line.id, quantity: qty.toString() })
     })
-
-    if (hasNonInteger) {
-      flash(t('sales.returns.errors.quantityNotInteger', 'Return quantity must be a whole number.'), 'error')
-      return
-    }
 
     if (hasInvalidQuantity) {
       flash(t('sales.returns.errors.quantityExceeded', 'Cannot return more than available quantity.'), 'error')
@@ -175,17 +164,10 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
                           </Label>
                           <Input
                             id={`return-qty-${line.id}`}
-                            type="number"
-                            inputMode="numeric"
-                            min={1}
-                            max={line.available}
-                            step={1}
+                            inputMode="decimal"
                             placeholder="0"
                             value={value}
-                            onChange={(e) => {
-                              const next = e.target.value.replace(/[^0-9]/g, '')
-                              setQuantities((prev) => ({ ...prev, [line.id]: next }))
-                            }}
+                            onChange={(e) => setQuantities((prev) => ({ ...prev, [line.id]: e.target.value }))}
                           />
                         </div>
                       </div>

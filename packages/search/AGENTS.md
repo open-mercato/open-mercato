@@ -676,7 +676,7 @@ buildSource: async (ctx) => {
 - [ ] Define `resolveUrl` and `resolveLinks` for result navigation
 - [ ] Set `priority` to control ordering in mixed results
 - [ ] Verify CRUD routes include `indexer: { entityType }` for auto-indexing
-- [ ] Run `yarn generate` after adding the file
+- [ ] Run `npm run modules:prepare` after adding the file
 - [ ] Test with `yarn mercato search query -q "test" --tenant <id>`
 
 ## Checklist: Debug Search Issues

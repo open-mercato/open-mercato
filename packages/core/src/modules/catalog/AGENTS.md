@@ -42,7 +42,7 @@ The default pipeline emits `catalog.pricing.resolve.before|after` events.
 3. Add CRUD routes in `api/` with `openApi` export
 4. Add events to `events.ts`
 5. Create backend admin pages in `backend/`
-6. Run `yarn db:generate` for migrations, then `yarn generate`
+6. Run `yarn db:generate` for migrations, then `npm run modules:prepare`
 
 ## Key Directories
 

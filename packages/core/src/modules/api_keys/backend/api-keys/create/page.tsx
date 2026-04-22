@@ -24,7 +24,6 @@ type FormValues = {
 export default function CreateApiKeyPage() {
   const [createdSecret, setCreatedSecret] = React.useState<{ secret: string; keyPrefix: string } | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
-  const [actorResolved, setActorResolved] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const router = useRouter()
   const scopeDetail = useOrganizationScopeDetail()
@@ -48,8 +47,6 @@ export default function CreateApiKeyPage() {
         setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch {
         if (!cancelled) setActorIsSuperAdmin(false)
-      } finally {
-        if (!cancelled) setActorResolved(true)
       }
     }
     loadInitialScope()
@@ -66,18 +63,14 @@ export default function CreateApiKeyPage() {
     })
   }, [scopeDetail.tenantId, scopeVersion])
 
-  // Block role loading until we know whether the actor is a super admin. Without this guard the
-  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
-  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string) => {
-    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null
       if (!tenant) return []
       return fetchRoleOptions(query, { tenantId: tenant })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
+  }, [actorIsSuperAdmin, selectedTenantId])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('api_keys.form.name'), type: 'text', required: true },

@@ -105,11 +105,11 @@ describe('deliver notification subscriber', () => {
     resolveNotificationDeliveryConfig.mockResolvedValue(baseConfig)
     resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
     getNotificationDeliveryStrategies.mockReturnValue([])
-    findOneWithDecryption
-      .mockResolvedValueOnce(notification)
-      .mockResolvedValueOnce({ email: 'user@example.com', name: 'User' })
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
 
-    const em = {}
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notification),
+    }
 
     const { default: handle } = await import('../subscribers/deliver-notification')
 
@@ -161,11 +161,11 @@ describe('deliver notification subscriber', () => {
     })
     resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
     getNotificationDeliveryStrategies.mockReturnValue([customStrategy])
-    findOneWithDecryption
-      .mockResolvedValueOnce(notification)
-      .mockResolvedValueOnce({ email: 'user@example.com', name: 'User' })
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
 
-    const em = {}
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notification),
+    }
 
     const { default: handle } = await import('../subscribers/deliver-notification')
 
@@ -207,11 +207,11 @@ describe('deliver notification subscriber', () => {
     resolveNotificationDeliveryConfig.mockResolvedValue(baseConfig)
     resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
     getNotificationDeliveryStrategies.mockReturnValue([])
-    findOneWithDecryption
-      .mockResolvedValueOnce(notificationWithActionHref)
-      .mockResolvedValueOnce({ email: 'user@example.com', name: 'User' })
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
 
-    const em = {}
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notificationWithActionHref),
+    }
 
     const { default: handle } = await import('../subscribers/deliver-notification')
 
@@ -256,11 +256,11 @@ describe('deliver notification subscriber', () => {
     resolveNotificationDeliveryConfig.mockResolvedValue(configWithoutAppUrl)
     resolveNotificationPanelUrl.mockReturnValue(null)
     getNotificationDeliveryStrategies.mockReturnValue([])
-    findOneWithDecryption
-      .mockResolvedValueOnce(notification)
-      .mockResolvedValueOnce({ email: 'user@example.com', name: 'User' })
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
 
-    const em = {}
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notification),
+    }
 
     const { default: handle } = await import('../subscribers/deliver-notification')
 

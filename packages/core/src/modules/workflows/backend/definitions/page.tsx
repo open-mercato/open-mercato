@@ -229,7 +229,6 @@ export default function WorkflowDefinitionsListPage() {
       id: 'workflowId',
       header: t('workflows.fields.workflowId'),
       accessorKey: 'workflowId',
-      meta: { truncate: false },
       cell: ({ row }) => (
         <span className="font-mono text-sm">{row.original.workflowId}</span>
       ),
@@ -238,12 +237,11 @@ export default function WorkflowDefinitionsListPage() {
       id: 'workflowName',
       header: t('workflows.fields.workflowName'),
       accessorKey: 'workflowName',
-      meta: { truncate: false },
       cell: ({ row }) => (
         <div>
           <div className="font-medium">{row.original.workflowName}</div>
           {row.original.description && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 line-clamp-1">
               {row.original.description}
             </div>
           )}
@@ -259,7 +257,6 @@ export default function WorkflowDefinitionsListPage() {
       id: 'version',
       header: t('workflows.fields.version'),
       accessorKey: 'version',
-      meta: { truncate: false },
       cell: ({ row }) => (
         <Badge variant="secondary" className="font-mono">
           v{row.original.version}

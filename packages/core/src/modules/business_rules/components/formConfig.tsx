@@ -5,8 +5,6 @@ import { z } from 'zod'
 import type { CrudField, CrudFormGroup, CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import {
   createBusinessRuleSchema,
-  refineEffectiveDateRange,
-  EFFECTIVE_DATE_RANGE_DEFAULT_MESSAGE,
   ruleTypeSchema,
   type RuleType,
 } from '../data/validators'
@@ -34,33 +32,31 @@ export type BusinessRuleFormValues = {
   enabled: boolean
   priority: number
   version: number
-  effectiveFrom?: string | null
-  effectiveTo?: string | null
+  effectiveFrom?: Date | null
+  effectiveTo?: Date | null
 }
 
 /**
  * Form Validation Schema
  * Extends the API schema with additional client-side validation
  */
-export const businessRuleFormSchema = z
-  .object({
-    ruleId: z.string().min(1, 'Rule ID is required').max(50, 'Rule ID must be 50 characters or less'),
-    ruleName: z.string().min(1, 'Rule name is required').max(200, 'Rule name must be 200 characters or less'),
-    description: z.string().max(5000, 'Description must be 5000 characters or less').optional().nullable(),
-    ruleType: ruleTypeSchema,
-    ruleCategory: z.string().max(50, 'Category must be 50 characters or less').optional().nullable(),
-    entityType: z.string().min(1, 'Entity type is required').max(50, 'Entity type must be 50 characters or less'),
-    eventType: z.string().max(50, 'Event type must be 50 characters or less').optional().nullable(),
-    conditionExpression: z.any(), // Validated by custom validator
-    successActions: z.array(z.any()).optional().nullable(),
-    failureActions: z.array(z.any()).optional().nullable(),
-    enabled: z.boolean(),
-    priority: z.number().int().min(0).max(9999),
-    version: z.number().int().min(1),
-    effectiveFrom: z.string().optional().nullable(),
-    effectiveTo: z.string().optional().nullable(),
-  })
-  .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx, EFFECTIVE_DATE_RANGE_DEFAULT_MESSAGE))
+export const businessRuleFormSchema = z.object({
+  ruleId: z.string().min(1, 'Rule ID is required').max(50, 'Rule ID must be 50 characters or less'),
+  ruleName: z.string().min(1, 'Rule name is required').max(200, 'Rule name must be 200 characters or less'),
+  description: z.string().max(5000, 'Description must be 5000 characters or less').optional().nullable(),
+  ruleType: ruleTypeSchema,
+  ruleCategory: z.string().max(50, 'Category must be 50 characters or less').optional().nullable(),
+  entityType: z.string().min(1, 'Entity type is required').max(50, 'Entity type must be 50 characters or less'),
+  eventType: z.string().max(50, 'Event type must be 50 characters or less').optional().nullable(),
+  conditionExpression: z.any(), // Validated by custom validator
+  successActions: z.array(z.any()).optional().nullable(),
+  failureActions: z.array(z.any()).optional().nullable(),
+  enabled: z.boolean(),
+  priority: z.number().int().min(0).max(9999),
+  version: z.number().int().min(1),
+  effectiveFrom: z.date().optional().nullable(),
+  effectiveTo: z.date().optional().nullable(),
+})
 
 /**
  * Get Rule Type Options

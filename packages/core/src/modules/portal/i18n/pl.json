@@ -89,13 +89,5 @@
   "portal.signup.success.title": "Konto utworzone",
   "portal.signup.title": "Utwórz konto",
   "portal.subtitle": "Twoje centrum samoobsługi",
-  "portal.title": "Portal Klienta",
-  "portal.verify.description": "Poczekaj, aż zweryfikujemy Twój adres e-mail.",
-  "portal.verify.error.backToLogin": "Wróć do logowania",
-  "portal.verify.error.generic": "Weryfikacja adresu e-mail nie powiodła się. Spróbuj ponownie.",
-  "portal.verify.error.invalidToken": "Brakuje tokenu weryfikacyjnego.",
-  "portal.verify.success.description": "Twój adres e-mail został zweryfikowany. Możesz teraz zalogować się do portalu.",
-  "portal.verify.success.loginLink": "Zaloguj się",
-  "portal.verify.success.title": "Adres e-mail zweryfikowany",
-  "portal.verify.title": "Weryfikowanie adresu e-mail"
+  "portal.title": "Portal Klienta"
 }

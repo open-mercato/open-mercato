@@ -9,8 +9,6 @@ export type ResolvedIntegrationState = {
   reauthRequired: boolean
   lastHealthStatus: string | null
   lastHealthCheckedAt: Date | null
-  lastHealthLatencyMs: number | null
-  enabledAt: Date | null
 }
 
 export function createIntegrationStateService(em: EntityManager) {
@@ -23,8 +21,6 @@ export function createIntegrationStateService(em: EntityManager) {
       reauthRequired: false,
       lastHealthStatus: null,
       lastHealthCheckedAt: null,
-      lastHealthLatencyMs: null,
-      enabledAt: null,
     }
   }
 
@@ -54,8 +50,6 @@ export function createIntegrationStateService(em: EntityManager) {
         reauthRequired: state?.reauthRequired ?? false,
         lastHealthStatus: state?.lastHealthStatus ?? null,
         lastHealthCheckedAt: state?.lastHealthCheckedAt ?? null,
-        lastHealthLatencyMs: state?.lastHealthLatencyMs ?? null,
-        enabledAt: state?.enabledAt ?? null,
       }
     },
 
@@ -66,34 +60,16 @@ export function createIntegrationStateService(em: EntityManager) {
 
     async upsert(
       integrationId: string,
-      input: Partial<
-        Pick<
-          IntegrationState,
-          | 'isEnabled'
-          | 'apiVersion'
-          | 'reauthRequired'
-          | 'lastHealthStatus'
-          | 'lastHealthCheckedAt'
-          | 'lastHealthLatencyMs'
-          | 'enabledAt'
-        >
-      >,
+      input: Partial<Pick<IntegrationState, 'isEnabled' | 'apiVersion' | 'reauthRequired' | 'lastHealthStatus' | 'lastHealthCheckedAt'>>,
       scope: IntegrationScope,
     ): Promise<IntegrationState> {
       const current = await this.get(integrationId, scope)
-      const resolvedBefore = await this.resolveState(integrationId, scope)
-      const enableTransition =
-        input.isEnabled === true && resolvedBefore.isEnabled === false
-
       if (current) {
         if (input.isEnabled !== undefined) current.isEnabled = input.isEnabled
         if (input.apiVersion !== undefined) current.apiVersion = input.apiVersion
         if (input.reauthRequired !== undefined) current.reauthRequired = input.reauthRequired
         if (input.lastHealthStatus !== undefined) current.lastHealthStatus = input.lastHealthStatus
         if (input.lastHealthCheckedAt !== undefined) current.lastHealthCheckedAt = input.lastHealthCheckedAt
-        if (input.lastHealthLatencyMs !== undefined) current.lastHealthLatencyMs = input.lastHealthLatencyMs
-        if (input.enabledAt !== undefined) current.enabledAt = input.enabledAt
-        else if (enableTransition) current.enabledAt = new Date()
         await em.flush()
         return current
       }
@@ -105,8 +81,6 @@ export function createIntegrationStateService(em: EntityManager) {
         reauthRequired: input.reauthRequired ?? false,
         lastHealthStatus: input.lastHealthStatus,
         lastHealthCheckedAt: input.lastHealthCheckedAt,
-        lastHealthLatencyMs: input.lastHealthLatencyMs,
-        enabledAt: input.enabledAt !== undefined ? input.enabledAt : enableTransition ? new Date() : undefined,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })

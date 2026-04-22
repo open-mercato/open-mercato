@@ -28,7 +28,6 @@ module.exports = {
     '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/packages/ai-assistant/src/$1',
     '^@open-mercato/ai-assistant$': '<rootDir>/packages/ai-assistant/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
-    '^@open-mercato/ui/(.*)$': '<rootDir>/packages/ui/src/$1',
     '^@/\\.mercato/generated/(.*)$': '<rootDir>/apps/mercato/.mercato/generated/$1',
     '^@/generated/(.*)$': '<rootDir>/apps/mercato/.mercato/generated/$1',
     '^@/(.*)$': '<rootDir>/apps/mercato/src/$1',

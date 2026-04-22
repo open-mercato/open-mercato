@@ -1,4 +1,5 @@
 import * as React from 'react'
+import crypto from 'node:crypto'
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -10,7 +11,6 @@ import type { Message, MessageObject } from '../data/entities'
 import { MessageAccessToken } from '../data/entities'
 import MessageEmail from '../emails/MessageEmail'
 import { resolveAttachmentAbsolutePath } from '../../attachments/lib/storage'
-import { generateAuthToken, hashAuthToken } from '../../auth/lib/tokenHash'
 import type { MessageEmailAttachment } from './attachments'
 
 const ACCESS_TOKEN_EXPIRY_HOURS = 24 * 7
@@ -44,6 +44,10 @@ function buildSenderLabel(sender: SenderIdentity): string {
   const email = sender.email?.trim()
   if (email) return email
   return 'System'
+}
+
+function generateAccessToken(): string {
+  return crypto.randomBytes(32).toString('hex')
 }
 
 function resolveObjectLabels(objects: MessageObject[]): string[] {
@@ -145,12 +149,12 @@ export async function createMessageAccessToken(
   messageId: string,
   recipientUserId: string,
 ): Promise<string> {
-  const rawToken = generateAuthToken()
+  const token = generateAccessToken()
   const expiresAt = new Date(Date.now() + ACCESS_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000)
   const record = em.create(MessageAccessToken, {
     messageId,
     recipientUserId,
-    token: hashAuthToken(rawToken),
+    token,
     expiresAt,
     useCount: 0,
   })
@@ -160,7 +164,7 @@ export async function createMessageAccessToken(
     recipientUserId,
     expiresAt: expiresAt.toISOString(),
   })
-  return rawToken
+  return token
 }
 
 export async function sendMessageEmailToRecipient(params: {

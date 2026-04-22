@@ -90,22 +90,6 @@ const setupBaseMocks = (orderId: string | null = null) => {
   return { routerPush }
 }
 
-const createPendingPromise = <T,>() => new Promise<T>(() => {})
-
-const runConfigureNext = async (result: { current: ReturnType<typeof useShipmentWizard> }) => {
-  await act(async () => {
-    result.current.handleConfigureNext()
-    await Promise.resolve()
-  })
-}
-
-const runSubmit = async (result: { current: ReturnType<typeof useShipmentWizard> }) => {
-  await act(async () => {
-    result.current.handleSubmit()
-    await Promise.resolve()
-  })
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('useShipmentWizard', () => {
@@ -114,21 +98,19 @@ describe('useShipmentWizard', () => {
   describe('initial state', () => {
     it('starts on the provider step', async () => {
       setupBaseMocks()
-      mockFetchProviders.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.step).toBe('provider')
     })
 
     it('starts with isLoadingProviders:true', async () => {
       setupBaseMocks()
-      mockFetchProviders.mockReturnValue(createPendingPromise())
+      mockFetchProviders.mockReturnValue(new Promise(() => {})) // never resolves
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.isLoadingProviders).toBe(true)
     })
 
     it('sets backHref to orders list when no orderId', async () => {
       setupBaseMocks(null)
-      mockFetchProviders.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.backHref).toBe('/backend/sales/orders')
     })
@@ -136,8 +118,6 @@ describe('useShipmentWizard', () => {
     it('sets backHref to order detail when orderId is present', async () => {
       const orderId = chance.guid()
       setupBaseMocks(orderId)
-      mockFetchProviders.mockReturnValue(createPendingPromise())
-      mockFetchOrderAddresses.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.backHref).toBe(`/backend/sales/orders/${orderId}`)
     })
@@ -228,7 +208,7 @@ describe('useShipmentWizard', () => {
 
       const providerKey = chance.word()
       act(() => result.current.handleProviderSelect(providerKey))
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
 
       await waitFor(() => expect(result.current.step).toBe('confirm'))
       expect(result.current.rates).toEqual(rates)
@@ -244,7 +224,7 @@ describe('useShipmentWizard', () => {
       await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
 
       act(() => result.current.handleProviderSelect(chance.word()))
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
 
       await waitFor(() => expect(result.current.selectedRate).toEqual(rates[0]))
     })
@@ -258,7 +238,7 @@ describe('useShipmentWizard', () => {
       await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
 
       act(() => result.current.handleProviderSelect(chance.word()))
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
 
       await waitFor(() => expect(result.current.step).toBe('confirm'))
       expect(result.current.ratesError).toBe(errorMessage)
@@ -277,7 +257,7 @@ describe('useShipmentWizard', () => {
       await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
 
       act(() => result.current.handleProviderSelect(chance.word()))
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
       await waitFor(() => expect(result.current.step).toBe('confirm'))
 
       return { result, routerPush, orderId, rate }
@@ -286,7 +266,7 @@ describe('useShipmentWizard', () => {
     it('calls createShipment and navigates on success', async () => {
       const { result, routerPush, orderId } = await setupReadyToSubmit()
 
-      await runSubmit(result)
+      act(() => result.current.handleSubmit())
 
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith(`/backend/sales/orders/${orderId}`))
       expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'success')
@@ -303,9 +283,9 @@ describe('useShipmentWizard', () => {
       await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
 
       act(() => result.current.handleProviderSelect(chance.word()))
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
       await waitFor(() => expect(result.current.step).toBe('confirm'))
-      await runSubmit(result)
+      act(() => result.current.handleSubmit())
 
       await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(errorMessage, 'error'))
       const routerPush = mockUseRouter.mock.results[0].value.push
@@ -318,7 +298,9 @@ describe('useShipmentWizard', () => {
       const { result } = renderHook(() => useShipmentWizard())
       await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
 
-      await runSubmit(result)
+      act(() => result.current.handleSubmit())
+
+      await new Promise((r) => setTimeout(r, 20))
       expect(mockCreateShipment).not.toHaveBeenCalled()
     })
   })
@@ -375,7 +357,7 @@ describe('useShipmentWizard', () => {
         result.current.setReceiverContact({ phone: '500000000', email: 'recv@example.com' })
         result.current.handleProviderSelect(chance.word())
       })
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
 
       await waitFor(() => expect(mockFetchRates).toHaveBeenCalled())
       const callArgs = mockFetchRates.mock.calls[0][0]
@@ -399,9 +381,9 @@ describe('useShipmentWizard', () => {
         result.current.setTargetPoint('KRA010')
         result.current.handleProviderSelect(chance.word())
       })
-      await runConfigureNext(result)
+      act(() => result.current.handleConfigureNext())
       await waitFor(() => expect(result.current.step).toBe('confirm'))
-      await runSubmit(result)
+      act(() => result.current.handleSubmit())
 
       await waitFor(() => expect(mockCreateShipment).toHaveBeenCalled())
       const callArgs = mockCreateShipment.mock.calls[0][0]

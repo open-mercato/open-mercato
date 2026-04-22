@@ -1,15 +1,11 @@
 import type { Module } from '../registry'
 import {
-  createLazyModuleSubscriber,
-  createLazyModuleWorker,
   registerCliModules,
   getCliModules,
-  getDefaultEncryptionMaps,
   hasCliModules,
   findFrontendMatch,
   findBackendMatch,
   findApi,
-  matchRoutePattern,
 } from '../registry'
 
 describe('CLI Modules Registry', () => {
@@ -79,43 +75,6 @@ describe('CLI Modules Registry', () => {
     it('should return true when modules are registered', () => {
       registerCliModules([{ id: 'some-module' }])
       expect(hasCliModules()).toBe(true)
-    })
-  })
-
-  describe('getDefaultEncryptionMaps', () => {
-    it('collects per-module encryption maps', () => {
-      const maps = getDefaultEncryptionMaps([
-        {
-          id: 'auth',
-          defaultEncryptionMaps: [
-            { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
-          ],
-        },
-        {
-          id: 'customers',
-          defaultEncryptionMaps: [
-            { entityId: 'customers:customer_comment', fields: [{ field: 'body' }] },
-          ],
-        },
-      ])
-
-      expect(maps).toEqual([
-        { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
-        { entityId: 'customers:customer_comment', fields: [{ field: 'body', hashField: null }] },
-      ])
-    })
-
-    it('throws on duplicate entity registrations', () => {
-      expect(() => getDefaultEncryptionMaps([
-        {
-          id: 'module-a',
-          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email' }] }],
-        },
-        {
-          id: 'module-b',
-          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email_hash' }] }],
-        },
-      ])).toThrow('Duplicate default encryption map')
     })
   })
 
@@ -189,62 +148,6 @@ describe('CLI Modules Registry', () => {
 
       const result = findFrontendMatch(modules, '/settings')
       expect(result).toBeUndefined()
-    })
-
-    it('should match static segments case-insensitively (issue #1559)', () => {
-      const modules: Module[] = [
-        {
-          id: 'auth',
-          frontendRoutes: [
-            {
-              pattern: '/login',
-              Component: () => null,
-            },
-          ],
-        },
-      ]
-
-      expect(findFrontendMatch(modules, '/lOgin')).toBeDefined()
-      expect(findFrontendMatch(modules, '/LOGIN')).toBeDefined()
-      expect(findFrontendMatch(modules, '/Login')).toBeDefined()
-    })
-
-    it('should preserve dynamic param case', () => {
-      const modules: Module[] = [
-        {
-          id: 'test',
-          frontendRoutes: [
-            {
-              pattern: '/users/[id]',
-              Component: () => null,
-            },
-          ],
-        },
-      ]
-
-      const result = findFrontendMatch(modules, '/Users/JohnSmith')
-      expect(result).toBeDefined()
-      expect(result?.params).toEqual({ id: 'JohnSmith' })
-    })
-  })
-
-  describe('matchRoutePattern', () => {
-    it('matches multi-segment static patterns case-insensitively', () => {
-      expect(matchRoutePattern('/backend/customers/people', '/Backend/Customers/PEOPLE')).toEqual({})
-    })
-
-    it('matches mixed static + dynamic patterns and preserves dynamic case', () => {
-      expect(matchRoutePattern('/users/[id]/edit', '/USERS/AbC123/Edit')).toEqual({ id: 'AbC123' })
-    })
-
-    it('preserves catch-all segment case', () => {
-      expect(matchRoutePattern('/docs/[...slug]', '/Docs/API/Getting-Started')).toEqual({
-        slug: ['API', 'Getting-Started'],
-      })
-    })
-
-    it('returns undefined when static segments do not match even case-insensitively', () => {
-      expect(matchRoutePattern('/login', '/sign-in')).toBeUndefined()
     })
   })
 
@@ -393,31 +296,5 @@ describe('Module type with workers', () => {
     expect(module.subscribers).toBeDefined()
     expect(module.subscribers?.length).toBe(1)
     expect(module.subscribers?.[0].event).toBe('user.created')
-  })
-})
-
-describe('Lazy module handlers', () => {
-  it('loads subscriber handlers lazily and caches the module', async () => {
-    const handler = jest.fn(async () => undefined)
-    const loadModule = jest.fn(async () => ({ default: handler }))
-    const lazyHandler = createLazyModuleSubscriber(loadModule, 'subscriber:test')
-
-    await lazyHandler({ value: 1 }, { ctx: true })
-    await lazyHandler({ value: 2 }, { ctx: true })
-
-    expect(loadModule).toHaveBeenCalledTimes(1)
-    expect(handler).toHaveBeenCalledTimes(2)
-  })
-
-  it('loads worker handlers lazily and caches the module', async () => {
-    const handler = jest.fn(async () => undefined)
-    const loadModule = jest.fn(async () => ({ default: handler }))
-    const lazyHandler = createLazyModuleWorker(loadModule, 'worker:test')
-
-    await lazyHandler({ payload: 1 }, { ctx: true })
-    await lazyHandler({ payload: 2 }, { ctx: true })
-
-    expect(loadModule).toHaveBeenCalledTimes(1)
-    expect(handler).toHaveBeenCalledTimes(2)
   })
 })

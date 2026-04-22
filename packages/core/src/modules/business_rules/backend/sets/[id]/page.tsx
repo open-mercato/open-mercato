@@ -93,7 +93,7 @@ export default function EditRuleSetPage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.error || error.message || t('business_rules.sets.errors.updateFailed'))
+      throw new Error(error.message || t('business_rules.sets.errors.updateFailed'))
     }
 
     flash(t('business_rules.sets.messages.updated'), 'success')

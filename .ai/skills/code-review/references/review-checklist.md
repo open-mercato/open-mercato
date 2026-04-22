@@ -71,7 +71,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] Events declared in the emitting module's `events.ts`
 - [ ] `createModuleEvents()` used with `as const` for type safety
 - [ ] Event fields include `id` (required), `label` (required), `category`
-- [ ] `yarn generate` run after creating/modifying `events.ts`
+- [ ] `npm run modules:prepare` run after creating/modifying `events.ts`
 - [ ] No undeclared events emitted
 - [ ] Subscribers export `metadata` with `{ event, persistent?, id? }`
 - [ ] One side effect per subscriber file
@@ -223,7 +223,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 ## 19. Generated Files & Build
 
 - [ ] Files in `apps/mercato/.mercato/generated/` never edited manually
-- [ ] `yarn generate` run after adding/modifying module files
+- [ ] `npm run modules:prepare` run after adding/modifying module files
 - [ ] No imports from generated files in packages (only app bootstrap imports)
 - [ ] Project still builds after changes (`yarn build`)
 - [ ] Template parity check passes: `yarn template:sync` (for `apps/mercato/src/{app,modules}` vs `packages/create-app/template/src/{app,modules}`)

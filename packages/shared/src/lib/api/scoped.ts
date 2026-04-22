@@ -53,6 +53,7 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   options: ScopedPayloadOptions = {}
 ): T & { tenantId: string; organizationId?: string } {
   const requireOrganization = options.requireOrganization !== false
+  const hasGlobalOrgAccess = ctx.organizationScope?.allowedIds === null
   const source = payload ? { ...payload } : {}
   const tenantId = (source as { tenantId?: string })?.tenantId ?? ctx.auth?.tenantId ?? null
   if (!tenantId) {
@@ -66,7 +67,7 @@ export function withScopedPayload<T extends Record<string, unknown>>(
     ctx.auth?.orgId ??
     null
 
-  if (requireOrganization && !resolvedOrg) {
+  if (requireOrganization && !hasGlobalOrgAccess && !resolvedOrg) {
     const msg = resolveMessage(options.messages, 'organizationRequired')
     throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
   }

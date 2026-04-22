@@ -1,7 +1,5 @@
 # Decentralize Module Registry Generator
 
-> **Companion spec**: [Module Registry AST-Based Code Generation with ts-morph](2026-04-06-module-registry-ast-codegen-ts-morph.md) — defines the ts-morph AST migration. These two specs are designed to be implemented together: extensions are extracted from the monolith AND built with ts-morph from the start, avoiding a double-refactor. The AST spec contains the combined implementation plan (Phase 3).
-
 ## TLDR
 **Key Points:**
 - The `module-registry.ts` generator is a ~1540-line monolith that produces 22+ generated files. Every new convention file type (messages, payments, inbox, guards, etc.) requires modifying this single function.
@@ -263,29 +261,6 @@ No BC impact. This is a pure internal refactoring of the CLI generator:
 ### Verdict
 - **Fully compliant**: Approved — ready for implementation
 
-## Implementation Status
-
-| Phase | Status | Date | Notes |
-|-------|--------|------|-------|
-| Phase 1 — Extension Interface + First Batch | Done | 2026-04-07 | `extension.ts` was added and the first standalone registries now route through extension modules. |
-| Phase 2 — Remaining Standalone Extensions | Done | 2026-04-07 | Notifications, messages, middleware, dashboard widgets, injection widgets/tables, and the other standalone registry outputs were extracted into `packages/cli/src/lib/generators/extensions/` and now emit through ts-morph writers. |
-| Phase 3 — Dual-Purpose Extensions | In Progress | 2026-04-07 | Events, analytics, and translatable-fields now live in extension modules; their `getModuleDeclContribution()` hook is scaffolded, but `modules.generated.ts` still does not consume extension contributions. |
-| Phase 4 — UMES Conflict Detection | Not Started | — | Conflict detection still runs inside `module-registry.ts`. |
-
-### Detailed Progress
-- [x] Added `GeneratorExtension` and `ModuleScanContext`.
-- [x] Introduced a deterministic `loadGeneratorExtensions()` registry.
-- [x] Routed standalone output files through extension-owned `generateOutput()` maps.
-- [x] Preserved generator plugin output generation and bootstrap-registration aggregation.
-- [ ] Move UMES conflict detection into a dedicated post-processing unit fed by extension results.
-
 ## Changelog
-### 2026-04-06
-- Added companion spec cross-reference to [AST codegen spec](2026-04-06-module-registry-ast-codegen-ts-morph.md). Both specs are now designed for combined implementation.
-- Note: the `GeneratorExtension` interface is refined in the AST spec with `outputFiles: string[]` and `generateOutput(): Map<string, string>` to support multi-file extensions (e.g., notifications produces 3 files). The combined implementation plan lives in the AST spec's Phase 3.
-
-### 2026-04-07
-- Implemented the plugin-style standalone registry extraction in `packages/cli/src/lib/generators/extensions/`, rewired `module-registry.ts` to delegate those generated outputs through `GeneratorExtension`, and switched generator verification from formatting snapshots to structural/idempotence checks.
-
 ### 2026-03-20
 - Initial specification drafted

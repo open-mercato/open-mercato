@@ -537,27 +537,3 @@ export function buildVariantCombinations(
     return combos;
   }, initial);
 }
-
-export type VariantMediaFallbackInput = {
-  isDefault: boolean;
-  defaultMediaId: string | null;
-  name: string;
-};
-
-export type VariantMediaFallbackResult = {
-  defaultMediaId: string;
-  variantName: string;
-} | null;
-
-export function resolveVariantMediaFallback(
-  variants: VariantMediaFallbackInput[],
-): VariantMediaFallbackResult {
-  const defaultVariant = variants.find(
-    (v) => v.isDefault && v.defaultMediaId,
-  );
-  const fallback = defaultVariant ?? variants.find((v) => v.defaultMediaId);
-  if (fallback?.defaultMediaId) {
-    return { defaultMediaId: fallback.defaultMediaId, variantName: fallback.name };
-  }
-  return null;
-}

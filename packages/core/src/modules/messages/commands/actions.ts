@@ -289,7 +289,6 @@ const executeActionCommand: CommandHandler<
           messageId: message.id,
           actionId: action.id,
           userId: input.userId,
-          recipientUserId: input.userId,
           result,
           tenantId: input.tenantId,
           organizationId: input.organizationId,

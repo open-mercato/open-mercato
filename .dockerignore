@@ -50,19 +50,13 @@ apps/docs/.docusaurus
 Dockerfile
 docker-compose*.yml
 
-# Test files and testing utilities (not used in production builds)
+# Test files
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx
 **/__tests__
 **/tests
-**/testing/
-
-# CI-only scripts (not used during Docker builds)
-scripts/merge-coverage.mjs
-scripts/i18n-check-sync.ts
-scripts/i18n-check-usage.ts
 
 # Development certificates
 certs

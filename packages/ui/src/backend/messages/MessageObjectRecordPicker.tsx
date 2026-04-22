@@ -45,30 +45,6 @@ export function MessageObjectRecordPicker({
   const t = useT()
   const messageUiRegistry = getMessageUiComponentRegistry()
 
-  const itemComponents = React.useMemo(() => {
-    return items.map((item) => {
-      const resolvedModule = item.entityModule || entityModule
-      const resolvedEntityType = item.entityType || entityType
-      const componentKey = resolvedModule && resolvedEntityType
-        ? `${resolvedModule}:${resolvedEntityType}`
-        : null
-      const PreviewComponent = (componentKey
-        ? messageUiRegistry.objectPreviewComponents[componentKey]
-        : null) ?? messageUiRegistry.objectPreviewComponents['messages:default'] ?? null
-      const objectType = resolvedModule && resolvedEntityType
-        ? getMessageObjectType(resolvedModule, resolvedEntityType)
-        : null
-
-      return {
-        item,
-        PreviewComponent,
-        objectType,
-        resolvedModule,
-        resolvedEntityType,
-      }
-    })
-  }, [items, entityModule, entityType, messageUiRegistry])
-
   return (
     <div className="space-y-2">
       <Label htmlFor="messages-object-record-search">
@@ -106,46 +82,60 @@ export function MessageObjectRecordPicker({
           </p>
         )}
         <div className="space-y-2 max-h-64 overflow-y-auto">
-          {itemComponents.map(({ item, PreviewComponent, objectType, resolvedModule, resolvedEntityType }) => (
-            <div
-              key={item.id}
-              className={`cursor-pointer rounded-md border p-2 transition-colors ${
-                selectedId === item.id
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:bg-muted/50'
-              }`}
-              onClick={() => onSelectedIdChange(item.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onSelectedIdChange(item.id)
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              {PreviewComponent ? (
-                <PreviewComponent
-                  entityId={item.id}
-                  entityModule={item.entityModule || entityModule || ''}
-                  entityType={item.entityType || entityType || ''}
-                  snapshot={item.snapshot}
-                  previewData={{
-                    title: item.label,
-                    subtitle: item.subtitle || undefined,
-                  }}
-                  icon={objectType?.icon}
-                />
-              ) : (
-                <div className="text-sm">
-                  <p className="font-medium">{item.label}</p>
-                  {item.subtitle && (
-                    <p className="text-muted-foreground text-xs">{item.subtitle}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {items.map((item) => {
+            const resolvedModule = item.entityModule || entityModule
+            const resolvedEntityType = item.entityType || entityType
+            const componentKey = resolvedModule && resolvedEntityType
+              ? `${resolvedModule}:${resolvedEntityType}`
+              : null
+            const PreviewComponent = (componentKey
+              ? messageUiRegistry.objectPreviewComponents[componentKey]
+              : null) ?? messageUiRegistry.objectPreviewComponents['messages:default'] ?? null
+            const objectType = resolvedModule && resolvedEntityType
+              ? getMessageObjectType(resolvedModule, resolvedEntityType)
+              : null
+
+            return (
+              <div
+                key={item.id}
+                className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                  selectedId === item.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted/50'
+                }`}
+                onClick={() => onSelectedIdChange(item.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onSelectedIdChange(item.id)
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                {PreviewComponent ? (
+                  <PreviewComponent
+                    entityId={item.id}
+                    entityModule={item.entityModule || entityModule || ''}
+                    entityType={item.entityType || entityType || ''}
+                    snapshot={item.snapshot}
+                    previewData={{
+                      title: item.label,
+                      subtitle: item.subtitle || undefined,
+                    }}
+                    icon={objectType?.icon}
+                  />
+                ) : (
+                  <div className="text-sm">
+                    <p className="font-medium">{item.label}</p>
+                    {item.subtitle && (
+                      <p className="text-muted-foreground text-xs">{item.subtitle}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

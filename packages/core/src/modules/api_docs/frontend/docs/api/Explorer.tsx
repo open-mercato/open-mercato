@@ -173,7 +173,6 @@ type Category = {
 }
 
 const PLACEHOLDER_BASE_URL = 'https://api.your-service.com'
-const CATEGORY_PAGE_SIZE = 20
 
 type RequestPreview = {
   method: string
@@ -256,7 +255,6 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [isTesterOpen, setIsTesterOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
   const [baseUrl, setBaseUrl] = useState<string>(servers[0]?.url ?? '')
   const [apiKey, setApiKey] = useState<string>('')
 
@@ -315,15 +313,6 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
       }
       return next
     })
-    setVisibleCounts((prev) => {
-      const next: Record<string, number> = {}
-      for (const category of categories) {
-        const total = category.operations.length
-        const previous = prev[category.tag] ?? CATEGORY_PAGE_SIZE
-        next[category.tag] = Math.min(total, previous)
-      }
-      return next
-    })
   }, [categories])
 
   useEffect(() => {
@@ -347,23 +336,8 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
 
   const handleSelectOperation = (operationId: string) => {
     setSelectedId(operationId)
-    const targetCategory = categories.find((category) =>
-      category.operations.some((operation) => operation.id === operationId)
-    )
-    if (targetCategory) {
-      const index = targetCategory.operations.findIndex((operation) => operation.id === operationId)
-      if (index >= 0) {
-        setVisibleCounts((prev) => {
-          const currentVisible = prev[targetCategory.tag] ?? CATEGORY_PAGE_SIZE
-          if (index < currentVisible) return prev
-          return { ...prev, [targetCategory.tag]: index + 1 }
-        })
-      }
-    }
-    requestAnimationFrame(() => {
-      const element = document.getElementById(`operation-${operationId}`)
-      if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
-    })
+    const element = document.getElementById(`operation-${operationId}`)
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
     if (shouldOpenTesterOverlay()) setIsTesterOpen(true)
     setIsNavOpen(false)
   }
@@ -543,24 +517,14 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
           </div>
 
           <div className="space-y-8">
-            {categories.map((category) => {
-              const totalCount = category.operations.length
-              const visibleCount = Math.min(
-                totalCount,
-                visibleCounts[category.tag] ?? CATEGORY_PAGE_SIZE
-              )
-              const visibleOperations = category.operations.slice(0, visibleCount)
-              const hiddenCount = totalCount - visibleCount
-              return (
+            {categories.map((category) => (
               <div key={category.tag} className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">{category.tag}</h2>
-                  <div className="text-xs text-muted-foreground">
-                    Showing {visibleCount} of {totalCount} endpoints
-                  </div>
+                  <div className="text-xs text-muted-foreground">{category.operations.length} endpoints</div>
                 </div>
                 <div className="space-y-6">
-                  {visibleOperations.map((operation) => {
+                  {category.operations.map((operation) => {
                     const methodClass = METHOD_STYLES[operation.method] ?? 'border border-border bg-muted text-foreground'
                     const operationId = `operation-${operation.id}`
                     const contentVariant = pickContentVariant(operation.operation?.requestBody?.content)
@@ -750,28 +714,8 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                     )
                   })}
                 </div>
-                {hiddenCount > 0 ? (
-                  <div className="flex justify-center">
-                    <button
-                      type="button"
-                      className="inline-flex items-center rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:border-foreground hover:text-foreground"
-                      onClick={() =>
-                        setVisibleCounts((prev) => ({
-                          ...prev,
-                          [category.tag]: Math.min(
-                            totalCount,
-                            (prev[category.tag] ?? CATEGORY_PAGE_SIZE) + CATEGORY_PAGE_SIZE
-                          ),
-                        }))
-                      }
-                    >
-                      Show {Math.min(CATEGORY_PAGE_SIZE, hiddenCount)} more endpoints
-                    </button>
-                  </div>
-                ) : null}
               </div>
-              )
-            })}
+            ))}
             {!categories.length ? (
               <div className="rounded-lg border border-dashed bg-muted/40 p-6 text-center text-sm text-muted-foreground">
                 No endpoints match your filters. Try adjusting the method filters or clearing the search query.

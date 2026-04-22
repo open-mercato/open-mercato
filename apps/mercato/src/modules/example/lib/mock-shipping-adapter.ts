@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
 import type {
   ShippingAdapter,
   Address,
@@ -10,46 +9,6 @@ import type {
   ShippingWebhookEvent,
   UnifiedShipmentStatus,
 } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
-
-/**
- * Deterministic dev-only secret used when no `credentials.webhookSecret` is configured
- * and `MOCK_CARRIER_WEBHOOK_SECRET` is not set. Exported so integration tests can sign
- * mock webhook payloads. MUST NOT be used in production: the mock adapter refuses to
- * fall back to this constant when `NODE_ENV === 'production'`.
- */
-export const MOCK_CARRIER_DEV_WEBHOOK_SECRET = 'open-mercato-mock-dev-carrier-webhook-secret'
-
-export const MOCK_CARRIER_SIGNATURE_HEADER = 'x-mock-carrier-signature'
-
-function resolveMockCarrierWebhookSecret(credentials: Record<string, unknown> | undefined): string {
-  const fromCredentials = typeof credentials?.webhookSecret === 'string'
-    ? credentials.webhookSecret.trim()
-    : ''
-  if (fromCredentials) return fromCredentials
-
-  const fromEnv = (process.env.MOCK_CARRIER_WEBHOOK_SECRET ?? '').trim()
-  if (fromEnv) return fromEnv
-
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'Mock carrier webhook secret is not configured. Set credentials.webhookSecret or MOCK_CARRIER_WEBHOOK_SECRET.',
-    )
-  }
-
-  return MOCK_CARRIER_DEV_WEBHOOK_SECRET
-}
-
-export function computeMockCarrierWebhookSignature(rawBody: string, secret: string): string {
-  return createHmac('sha256', secret).update(rawBody, 'utf-8').digest('hex')
-}
-
-function readSignatureHeader(headers: Record<string, string | string[] | undefined>): string {
-  const direct = headers[MOCK_CARRIER_SIGNATURE_HEADER]
-    ?? headers[MOCK_CARRIER_SIGNATURE_HEADER.toUpperCase()]
-    ?? headers[MOCK_CARRIER_SIGNATURE_HEADER.replace(/-/g, '_')]
-  if (Array.isArray(direct)) return typeof direct[0] === 'string' ? direct[0] : ''
-  return typeof direct === 'string' ? direct : ''
-}
 
 type StoredShipment = {
   shipmentId: string
@@ -166,27 +125,9 @@ export const mockShippingAdapter: ShippingAdapter = {
     headers: Record<string, string | string[] | undefined>
     credentials: Record<string, unknown>
   }): Promise<ShippingWebhookEvent> {
-    const rawBodyString = typeof input.rawBody === 'string'
-      ? input.rawBody
-      : input.rawBody.toString('utf-8')
-
-    const providedSignature = readSignatureHeader(input.headers)
-    if (!providedSignature) {
-      throw new Error(`Missing ${MOCK_CARRIER_SIGNATURE_HEADER} header`)
-    }
-
-    const secret = resolveMockCarrierWebhookSecret(input.credentials)
-    const expectedSignature = computeMockCarrierWebhookSignature(rawBodyString, secret)
-    const providedBuffer = Buffer.from(providedSignature, 'utf-8')
-    const expectedBuffer = Buffer.from(expectedSignature, 'utf-8')
-    if (
-      providedBuffer.length !== expectedBuffer.length
-      || !timingSafeEqual(providedBuffer, expectedBuffer)
-    ) {
-      throw new Error('Invalid mock carrier webhook signature')
-    }
-
-    const body = JSON.parse(rawBodyString)
+    const body = typeof input.rawBody === 'string'
+      ? JSON.parse(input.rawBody)
+      : JSON.parse(input.rawBody.toString('utf-8'))
 
     return {
       eventType: body.type ?? 'mock_carrier.event',

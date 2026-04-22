@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.5.0",
+  "version": "0.4.10",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -66,12 +66,12 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.0",
-    "@simplewebauthn/types": "^12.0.0",
+    "@simplewebauthn/browser": "^11.0.0",
+    "@simplewebauthn/server": "^11.0.0",
+    "@simplewebauthn/types": "^11.0.0",
     "@types/qrcode": "^1.5.5",
-    "openid-client": "^6.8.3",
-    "otpauth": "9.5.0",
+    "openid-client": "^6.3.3",
+    "otpauth": "9.4.1",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
@@ -80,15 +80,10 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "jest": "^30.3.0",
-    "ts-jest": "^29.4.9"
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   },
   "publishConfig": {
     "access": "restricted"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/open-mercato/open-mercato",
-    "directory": "packages/enterprise"
   }
 }

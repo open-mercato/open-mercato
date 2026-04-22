@@ -5,8 +5,6 @@ import {
   DEFAULT_ORDER_NUMBER_FORMAT,
   DEFAULT_QUOTE_NUMBER_FORMAT,
   DEFAULT_RETURN_NUMBER_FORMAT,
-  DEFAULT_INVOICE_NUMBER_FORMAT,
-  DEFAULT_CREDIT_MEMO_NUMBER_FORMAT,
   type SalesDocumentNumberKind,
 } from '../lib/documentNumberTokens'
 
@@ -102,11 +100,7 @@ export class SalesDocumentNumberGenerator {
         ? settings.orderNumberFormat
         : params.kind === 'quote'
           ? settings.quoteNumberFormat
-          : params.kind === 'invoice'
-            ? DEFAULT_INVOICE_NUMBER_FORMAT
-            : params.kind === 'credit_memo'
-              ? DEFAULT_CREDIT_MEMO_NUMBER_FORMAT
-              : DEFAULT_RETURN_NUMBER_FORMAT)
+          : DEFAULT_RETURN_NUMBER_FORMAT)
     const sequence = await this.claimSequence(params.kind, params)
     const number = this.formatNumber(format, {
       kind: params.kind,

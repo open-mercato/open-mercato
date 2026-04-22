@@ -11,7 +11,7 @@ export const stripeHealthCheck = {
   async check(credentials: Record<string, unknown>): Promise<HealthCheckResult> {
     try {
       const stripe = new Stripe(credentials.secretKey as string)
-      const account = await stripe.accounts.retrieveCurrent()
+      const account = await stripe.accounts.retrieve()
 
       return {
         status: 'healthy',

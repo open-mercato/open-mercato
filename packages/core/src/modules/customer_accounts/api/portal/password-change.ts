@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { passwordChangeSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

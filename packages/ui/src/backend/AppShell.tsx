@@ -27,7 +27,6 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
-import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -54,8 +53,6 @@ export type AppShellProps = {
       title: string
       defaultTitle?: string
       icon?: React.ReactNode
-      iconName?: string
-      iconMarkup?: string
       enabled?: boolean
       hidden?: boolean
       pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -65,8 +62,6 @@ export type AppShellProps = {
         title: string
         defaultTitle?: string
         icon?: React.ReactNode
-        iconName?: string
-        iconMarkup?: string
         enabled?: boolean
         hidden?: boolean
         pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -111,7 +106,6 @@ function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: st
     title,
     defaultTitle: title,
     icon: resolveInjectedIcon(item.icon) ?? undefined,
-    iconName: item.icon,
     enabled: true,
     hidden: false,
     pageContext: 'main',
@@ -301,25 +295,6 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
-function SerializedIcon({ markup }: { markup: string }) {
-  return <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: markup }} />
-}
-
-function renderIcon(
-  icon: React.ReactNode | undefined,
-  iconName: string | undefined,
-  iconMarkup: string | undefined,
-  fallback: React.ReactNode,
-) {
-  if (icon) return icon
-  if (iconName) {
-    const resolved = resolveInjectedIcon(iconName)
-    if (resolved) return resolved
-  }
-  if (iconMarkup) return <SerializedIcon markup={iconMarkup} />
-  return fallback
-}
-
 const HeaderContext = createContext<{
   setBreadcrumb: (b?: Breadcrumb) => void
   setTitle: (t?: string) => void
@@ -388,30 +363,11 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell(props: AppShellProps) {
-  return (
-    <QueryProvider>
-      <BackendChromeProvider adminNavApi={props.adminNavApi}>
-        <AppShellBody {...props} />
-      </BackendChromeProvider>
-    </QueryProvider>
-  )
-}
-
-function AppShellBody({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
-  const { payload: chromePayload, isReady: isChromeReady, isLoading: isChromeLoading } = useBackendChrome()
-  const resolvedGroups = React.useMemo(
-    () => AppShell.cloneGroups(chromePayload?.groups ?? groups),
-    [chromePayload?.groups, groups],
-  )
-  const resolvedSettingsSections = chromePayload?.settingsSections ?? settingsSections
-  const resolvedSettingsPathPrefixes = chromePayload?.settingsPathPrefixes ?? settingsPathPrefixes
-  const resolvedProfileSections = chromePayload?.profileSections ?? profileSections
-  const resolvedProfilePathPrefixes = chromePayload?.profilePathPrefixes ?? profilePathPrefixes
   const { items: mainSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:main')
   const { items: settingsSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:settings')
   const { items: profileSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:profile')
@@ -422,9 +378,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
   // Maintain internal nav state so we can augment it client-side
-  const [navGroups, setNavGroups] = React.useState(resolvedGroups)
+  const [navGroups, setNavGroups] = React.useState(AppShell.cloneGroups(groups))
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
-    Object.fromEntries(resolvedGroups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
+    Object.fromEntries(groups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
   )
   const [customizing, setCustomizing] = React.useState(false)
   const [customDraft, setCustomDraft] = React.useState<SidebarCustomizationDraft | null>(null)
@@ -450,14 +406,14 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
     if (pathname === '/backend/settings') return true
-    return resolvedSettingsPathPrefixes.some((prefix) => pathname.startsWith(prefix))
-  }, [pathname, resolvedSettingsPathPrefixes])
+    return settingsPathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, settingsPathPrefixes])
 
   const isOnProfilePath = React.useMemo(() => {
     if (!pathname) return false
     if (pathname === '/backend/profile') return true
-    return resolvedProfilePathPrefixes.some((prefix) => pathname.startsWith(prefix))
-  }, [pathname, resolvedProfilePathPrefixes])
+    return profilePathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, profilePathPrefixes])
 
   const sidebarMode: 'main' | 'settings' | 'profile' =
     isOnSettingsPath ? 'settings' :
@@ -486,7 +442,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       const parsed = JSON.parse(savedOpen) as Record<string, boolean>
       setOpenGroups((prev) => {
         const next = { ...prev }
-        for (const group of resolvedGroups) {
+        for (const group of groups) {
           const key = resolveGroupKey(group)
           if (key in parsed) next[key] = !!parsed[key]
           else if (group.name in parsed) next[key] = !!parsed[group.name]
@@ -496,7 +452,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
     } catch {
       // ignore localStorage errors to avoid breaking hydration
     }
-  }, [resolvedGroups])
+  }, [groups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
@@ -787,12 +743,128 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
     if (customizing && customDraft && originalNavRef.current) {
-      originalNavRef.current = filterMainSidebarGroups(AppShell.cloneGroups(resolvedGroups))
+      originalNavRef.current = filterMainSidebarGroups(AppShell.cloneGroups(groups))
       setNavGroups(applyCustomizationDraft(originalNavRef.current, customDraft))
       return
     }
-    setNavGroups(AppShell.cloneGroups(resolvedGroups))
-  }, [resolvedGroups, customizing, customDraft])
+    setNavGroups(AppShell.cloneGroups(groups))
+  }, [groups, customizing, customDraft])
+
+  // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
+  React.useEffect(() => {
+    let cancelled = false
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        id: g.id,
+        name: g.name,
+        defaultName: g.defaultName,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          defaultTitle: i.defaultTitle,
+          enabled: i.enabled,
+          hidden: i.hidden,
+          icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            defaultTitle: c.defaultTitle,
+            enabled: c.enabled,
+            hidden: c.hidden,
+            icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
+          })),
+        })),
+      }))
+      return merged
+    }
+    async function refreshFullNav() {
+      if (!adminNavApi) return
+      try {
+        const call = await apiCall<{ groups?: unknown[] }>(adminNavApi, { credentials: 'include' as any })
+        if (!call.ok) return
+        const data = call.result
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
+      } catch {}
+    }
+    // Refresh on window focus
+    const onFocus = () => refreshFullNav()
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
+  }, [adminNavApi])
+
+  // Refresh sidebar when other parts of the app dispatch an explicit event
+  React.useEffect(() => {
+    if (!adminNavApi) return
+    const api = adminNavApi as string
+    let cancelled = false
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        id: g.id,
+        name: g.name,
+        defaultName: g.defaultName,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          defaultTitle: i.defaultTitle,
+          enabled: i.enabled,
+          hidden: i.hidden,
+          icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            defaultTitle: c.defaultTitle,
+            enabled: c.enabled,
+            hidden: c.hidden,
+            icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
+          })),
+        })),
+      }))
+      return merged
+    }
+    async function refreshFullNav() {
+      try {
+        const call = await apiCall<{ groups?: unknown[] }>(api, { credentials: 'include' as any })
+        if (!call.ok) return
+        const data = call.result
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
+      } catch {}
+    }
+    const onRefresh = () => { refreshFullNav() }
+    window.addEventListener('om:refresh-sidebar', onRefresh as any)
+    return () => { cancelled = true; window.removeEventListener('om:refresh-sidebar', onRefresh as any) }
+  }, [adminNavApi])
+
+  // adminNavApi already includes user entities; no extra fetch
 
   function renderSectionSidebar(
     sections: SectionNavGroup[],
@@ -872,12 +944,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                       <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                     )}
                     <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                      {renderIcon(
-                        item.icon,
-                        item.iconName,
-                        item.iconMarkup,
-                        item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
-                      )}
+                      {item.icon ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                     </span>
                     {!compact && <span className="truncate">{label}</span>}
                   </Link>
@@ -913,41 +980,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean) {
-    if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
-      return (
-        <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
-          {!hideHeader ? (
-            <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-              <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-                {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
-              </Link>
-            </div>
-          ) : null}
-          <div className="flex flex-1 flex-col gap-3 pr-1">
-            <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
-              <div className="space-y-2 pl-1">
-                <div className="h-8 rounded bg-muted/50" />
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
-              <div className="space-y-2 pl-1">
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )
-    }
-
-    if (sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
+    if (sidebarMode === 'settings' && settingsSections && settingsSections.length > 0) {
       const mergedSettingsSections = mergeSectionGroupsWithInjected(
-        resolvedSettingsSections,
+        settingsSections,
         settingsSidebarInjectedMenuItems,
         t,
       )
@@ -959,9 +994,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       )
     }
 
-    if (sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
+    if (sidebarMode === 'profile' && profileSections && profileSections.length > 0) {
       const mergedProfileSections = mergeSectionGroupsWithInjected(
-        resolvedProfileSections,
+        profileSections,
         profileSidebarInjectedMenuItems,
         t,
       )
@@ -1186,7 +1221,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             (() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
-                return resolvedSettingsPathPrefixes.some((prefix) => href.startsWith(prefix))
+                return settingsPathPrefixes.some((prefix) => href.startsWith(prefix))
               }
 
               const isMainItem = (item: SidebarItem) => {
@@ -1256,12 +1291,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                         <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                       ) : null}
                                       <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                        {renderIcon(
-                                          i.icon,
-                                          i.iconName,
-                                          i.iconMarkup,
-                                          DefaultIcon,
-                                        )}
+                                        {i.icon ?? DefaultIcon}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
                                     </Link>
@@ -1286,12 +1316,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                                 <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                               ) : null}
                                               <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                                {renderIcon(
-                                                  c.icon,
-                                                  c.iconName,
-                                                  c.iconMarkup,
-                                                  c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
-                                                )}
+                                                {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                                               </span>
                                               {!compact && <span>{c.title}</span>}
                                             </Link>
@@ -1428,6 +1453,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   )
 
   return (
+    <QueryProvider>
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
@@ -1435,11 +1461,6 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
       <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
-          <div
-            data-testid="backend-chrome-ready"
-            data-ready={isChromeReady ? 'true' : 'false'}
-            className="hidden"
-          />
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
             <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
@@ -1572,6 +1593,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
     </div>
     <UmesDevToolsPanel />
     </HeaderContext.Provider>
+    </QueryProvider>
   )
 }
 
@@ -1583,8 +1605,6 @@ AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): Ap
     title: item.title,
     defaultTitle: item.defaultTitle,
     icon: item.icon,
-    iconName: item.iconName,
-    iconMarkup: item.iconMarkup,
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,

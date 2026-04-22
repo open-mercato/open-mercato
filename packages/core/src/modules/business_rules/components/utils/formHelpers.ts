@@ -1,6 +1,5 @@
 import type { BusinessRuleFormValues } from '../formConfig'
 import type { CreateBusinessRuleInput } from '../../data/validators'
-import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
 
 /**
  * Convert form values to API payload
@@ -61,8 +60,8 @@ export function parseRuleToFormValues(rule: any): BusinessRuleFormValues {
     enabled: rule.enabled,
     priority: rule.priority,
     version: rule.version,
-    effectiveFrom: toDateInputValue(rule.effectiveFrom),
-    effectiveTo: toDateInputValue(rule.effectiveTo),
+    effectiveFrom: rule.effectiveFrom ? new Date(rule.effectiveFrom) : null,
+    effectiveTo: rule.effectiveTo ? new Date(rule.effectiveTo) : null,
   }
 }
 

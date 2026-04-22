@@ -3,14 +3,6 @@ import { PROGRESS_EVENTS } from '../lib/events'
 import { calculateEta, calculateProgressPercent } from '../lib/progressService'
 import type { ProgressJob } from '../data/entities'
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(),
-  findWithDecryption: jest.fn(),
-}))
-
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
-
 const baseCtx = {
   tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
   organizationId: null,
@@ -32,7 +24,6 @@ const buildEm = () => {
 describe('progress service', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockFindOneWithDecryption.mockReset()
   })
 
   it('createJob — creates entity, persists, emits JOB_CREATED', async () => {
@@ -359,62 +350,6 @@ describe('progress service', () => {
       PROGRESS_EVENTS.JOB_FAILED,
       expect.objectContaining({ jobId: 'stale-2', stale: true })
     )
-  })
-
-  it('isCancellationRequested — returns true when cancelRequestedAt is set for matching tenant', async () => {
-    const em = buildEm()
-    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
-
-    const job = {
-      id: 'job-1',
-      tenantId: baseCtx.tenantId,
-      cancelRequestedAt: new Date(),
-    } as unknown as ProgressJob
-    mockFindOneWithDecryption.mockResolvedValue(job)
-
-    const service = createProgressService(em as never, eventBus)
-    const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
-
-    expect(result).toBe(true)
-    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
-      expect.anything(),
-      expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId })
-    )
-  })
-
-  it('isCancellationRequested — returns false when job belongs to a different tenant', async () => {
-    const em = buildEm()
-    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
-
-    mockFindOneWithDecryption.mockResolvedValue(null)
-
-    const service = createProgressService(em as never, eventBus)
-    const result = await service.isCancellationRequested('job-1', 'other-tenant-id')
-
-    expect(result).toBe(false)
-    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
-      expect.anything(),
-      expect.objectContaining({ id: 'job-1', tenantId: 'other-tenant-id' })
-    )
-  })
-
-  it('isCancellationRequested — returns false when cancelRequestedAt is null', async () => {
-    const em = buildEm()
-    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
-
-    const job = {
-      id: 'job-1',
-      tenantId: baseCtx.tenantId,
-      cancelRequestedAt: null,
-    } as unknown as ProgressJob
-    mockFindOneWithDecryption.mockResolvedValue(job)
-
-    const service = createProgressService(em as never, eventBus)
-    const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
-
-    expect(result).toBe(false)
   })
 
   it('getRecentlyCompletedJobs — queries completed/failed jobs with tenant scope', async () => {

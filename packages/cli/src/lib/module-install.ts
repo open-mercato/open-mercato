@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import spawn from 'cross-spawn'
+import { spawn } from 'node:child_process'
 import { copyDirRecursive, rewriteCrossModuleImports } from './eject'
 import {
   parsePackageNameFromSpec,
@@ -10,7 +10,6 @@ import {
 } from './module-package'
 import { ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
-import { resolveSpawnCommand } from './spawn'
 
 type ModuleCommandResult = {
   moduleId: string
@@ -23,10 +22,6 @@ type InstallTarget = {
   cwd: string
   args: string[]
 }
-
-const SAFE_PACKAGE_SPEC_PATTERN = /^@open-mercato\/[a-z0-9][a-z0-9-]*(?:@.+)?$/i
-const SAFE_PACKAGE_TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
-const SAFE_PACKAGE_FILE_LOCATOR_PATTERN = /^file:[A-Za-z0-9_./:\\-]+$/
 
 function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
@@ -66,12 +61,10 @@ function runCommand(
   cwd: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const resolvedSpawn = resolveSpawnCommand(command, args)
-    const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+    const child = spawn(command, args, {
       cwd,
       env: process.env,
       stdio: 'inherit',
-      ...resolvedSpawn.spawnOptions,
     })
 
     child.on('error', reject)
@@ -104,14 +97,12 @@ export async function runModuleGenerators(
     generateModuleEntities,
     generateModulePackageSources,
     generateModuleRegistry,
-    generateModuleRegistryApp,
     generateModuleRegistryCli,
     generateOpenApi,
   } = await import('./generators')
 
   await generateEntityIds({ resolver, quiet })
   await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
   await generateModuleRegistryCli({ resolver, quiet })
   await generateModuleEntities({ resolver, quiet })
   await generateModuleDi({ resolver, quiet })
@@ -137,28 +128,6 @@ function assertPackageName(packageName: string | null): asserts packageName is s
   if (!packageName || !packageName.startsWith('@open-mercato/')) {
     throw new Error('Only @open-mercato/* package specs are supported by "mercato module add".')
   }
-}
-
-function assertSupportedPackageSpec(packageSpec: string): string {
-  const trimmed = packageSpec.trim()
-
-  if (!SAFE_PACKAGE_SPEC_PATTERN.test(trimmed)) {
-    throw new Error('Unsupported package spec. Only direct @open-mercato/* package specs are allowed.')
-  }
-
-  const packageName = parsePackageNameFromSpec(trimmed)
-  assertPackageName(packageName)
-
-  if (trimmed === packageName) {
-    return trimmed
-  }
-
-  const suffix = trimmed.slice(packageName.length + 1)
-  if (SAFE_PACKAGE_TAG_PATTERN.test(suffix) || SAFE_PACKAGE_FILE_LOCATOR_PATTERN.test(suffix)) {
-    return trimmed
-  }
-
-  throw new Error('Unsupported package spec suffix. Use a tag/version token or a file: locator.')
 }
 
 function validateBeforeRegistration(
@@ -241,11 +210,10 @@ export async function addOfficialModule(
   eject: boolean,
   moduleId?: string,
 ): Promise<ModuleCommandResult> {
-  const safePackageSpec = assertSupportedPackageSpec(packageSpec)
-  const packageName = parsePackageNameFromSpec(safePackageSpec)
+  const packageName = parsePackageNameFromSpec(packageSpec)
   assertPackageName(packageName)
 
-  await installPackageSpec(resolver, safePackageSpec)
+  await installPackageSpec(resolver, packageSpec)
 
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
   return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)

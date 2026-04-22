@@ -314,26 +314,4 @@ describe('DataTable extensions', () => {
       rendered.cleanupQueryClient()
     }
   })
-
-  it('applies sticky positioning to the actions column when enabled', () => {
-    const rendered = renderTable({
-      columns: [{ accessorKey: 'name', header: 'Name' }],
-      data: [{ id: 'r1', name: 'Alice' }],
-      rowActions: () => <button type="button">Open</button>,
-      stickyActionsColumn: true,
-    })
-
-    try {
-      const actionsHeader = screen.getByRole('columnheader', { name: 'Actions' })
-      expect(actionsHeader.className).toContain('sticky')
-      expect(actionsHeader.className).toContain('right-0')
-
-      const actionsCell = rendered.container.querySelector('[data-actions-cell]')
-      expect(actionsCell).not.toBeNull()
-      expect(actionsCell?.className).toContain('sticky')
-      expect(actionsCell?.className).toContain('right-0')
-    } finally {
-      rendered.cleanupQueryClient()
-    }
-  })
 })

@@ -200,9 +200,6 @@ export async function PUT(req: Request) {
     ...body,
     updatedBy: auth.sub ?? auth.email ?? null,
   }
-  delete (payload as Record<string, unknown>).tenantId
-  delete (payload as Record<string, unknown>).organizationId
-  delete (payload as Record<string, unknown>).createdBy
 
   const parsed = updateRuleSetSchema.safeParse(payload)
   if (!parsed.success) {

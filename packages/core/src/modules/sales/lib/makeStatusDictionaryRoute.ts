@@ -13,68 +13,6 @@ import {
   defaultDeleteRequestSchema,
 } from '../api/openapi'
 
-type ResolveDictionaryContextInput = {
-  em: EntityManager
-  tenantId: string
-  kind: SalesDictionaryKind
-  dictionaryKey: string
-  candidateOrgIds: string[]
-}
-
-export type ResolvedDictionaryContext = {
-  dictionaryId: string
-  organizationId: string | null
-}
-
-/**
- * Resolve the dictionary that governs a sales status request.
- *
- * Prefetches all candidate dictionaries in a single query so per-request
- * latency scales with the slowest DB roundtrip rather than the number of
- * candidate organizations. Creation is deferred to the first candidate org
- * only when no candidate already owns the dictionary, matching the read-only
- * bias of the API (seeding happens in setup/seed paths).
- */
-export async function resolveSalesDictionaryForCandidates(
-  input: ResolveDictionaryContextInput,
-): Promise<ResolvedDictionaryContext | null> {
-  const { em, tenantId, kind, dictionaryKey, candidateOrgIds } = input
-  if (candidateOrgIds.length === 0) return null
-
-  const matches = await em.find(Dictionary, {
-    tenantId,
-    key: dictionaryKey,
-    organizationId: { $in: candidateOrgIds },
-    deletedAt: null,
-  })
-  if (matches.length > 0) {
-    const byOrg = new Map<string, Dictionary>()
-    for (const dict of matches) {
-      if (dict.organizationId && !byOrg.has(dict.organizationId)) {
-        byOrg.set(dict.organizationId, dict)
-      }
-    }
-    for (const orgId of candidateOrgIds) {
-      const dictionary = byOrg.get(orgId)
-      if (dictionary) {
-        return { dictionaryId: dictionary.id, organizationId: orgId }
-      }
-    }
-  }
-
-  const firstOrgId = candidateOrgIds[0]
-  const dictionary = await ensureSalesDictionary({
-    em,
-    tenantId,
-    organizationId: firstOrgId,
-    kind,
-  })
-  if (dictionary) {
-    return { dictionaryId: dictionary.id, organizationId: firstOrgId }
-  }
-  return null
-}
-
 interface StatusDictionaryRouteConfig {
   kind: SalesDictionaryKind
   entityId: string
@@ -152,15 +90,17 @@ export function makeStatusDictionaryRoute(config: StatusDictionaryRouteConfig) {
       }
     }
 
-    const orderedOrgIds = Array.from(candidateOrgIds)
-    const resolved = await resolveSalesDictionaryForCandidates({
-      em,
-      tenantId,
-      kind,
-      dictionaryKey: definition.key,
-      candidateOrgIds: orderedOrgIds,
-    })
-    if (resolved) return resolved
+    for (const orgId of candidateOrgIds) {
+      const dictionary = await ensureSalesDictionary({
+        em,
+        tenantId,
+        organizationId: orgId,
+        kind,
+      })
+      if (dictionary) {
+        return { dictionaryId: dictionary.id, organizationId: orgId }
+      }
+    }
 
     const fallback = await em.findOne(
       Dictionary,

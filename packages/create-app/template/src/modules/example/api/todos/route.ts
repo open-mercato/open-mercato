@@ -2,14 +2,8 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { Todo } from '../../data/entities'
-
-const ENTITY_ID = 'example:todo' as const
-const id = 'id'
-const title = 'title'
-const tenant_id = 'tenant_id'
-const organization_id = 'organization_id'
-const is_done = 'is_done'
-const created_at = 'created_at'
+import { E } from '@/.mercato/generated/entities.ids.generated'
+import { id, title, tenant_id, organization_id, is_done, created_at } from '@/.mercato/generated/entities/todo'
 import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '../../types'
 import ceEntities from '../../ce'
@@ -56,7 +50,7 @@ if (todoEntity?.fields?.length) {
   baseFieldSets.push({ entity: todoEntity.id, fields: todoEntity.fields, source: 'example' })
 }
 
-const cfSel = buildCustomFieldSelectorsForEntity(ENTITY_ID, baseFieldSets)
+const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, baseFieldSets)
 let dynamicCfKeys: string[] = [...cfSel.keys]
 let listFields: any[] = [id, title, tenant_id, organization_id, is_done, created_at, ...cfSel.selectors]
 const sortFieldMapRef: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done, created_at }
@@ -86,10 +80,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   events: { module: 'example', entity: 'todo', persistent: true },
-  indexer: { entityType: ENTITY_ID },
+  indexer: { entityType: E.example.todo },
   list: {
     schema: querySchema,
-    entityId: ENTITY_ID,
+    entityId: E.example.todo,
     fields: listFields,
     sortFieldMap: sortFieldMapRef,
     buildFilters: async (q: Query, ctx): Promise<Where<BaseFields>> => {
@@ -108,7 +102,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       }
       // Dynamic custom field filters via shared helper
       const cfFilterMap = await buildCustomFieldFiltersFromQuery({
-        entityId: ENTITY_ID,
+        entityId: E.example.todo,
         query: q as any,
         em: ctx.container.resolve('em'),
         tenantId: ctx.auth!.tenantId,
@@ -164,7 +158,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
             ? Array.from(new Set(baseOrgIds))
             : ((ctx.selectedOrganizationId ?? ctx.auth!.orgId) ? [ctx.selectedOrganizationId ?? ctx.auth!.orgId] : []))
         const defs = await em.find(CustomFieldDef, {
-          entityId: ENTITY_ID as any,
+          entityId: E.example.todo as any,
           $and: [
             ...(scopedOrgIds === null
               ? []
@@ -194,7 +188,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
           const knex = (em as any).getConnection().getKnex()
           const rows = await knex('custom_field_values')
             .distinct('field_key')
-            .where({ entity_id: ENTITY_ID as any })
+            .where({ entity_id: E.example.todo as any })
             .modify((qb: any) => {
               if (scopedOrgIds === null) {
                 // no organization restriction

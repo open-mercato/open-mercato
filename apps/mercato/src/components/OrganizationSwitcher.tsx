@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
@@ -120,7 +120,6 @@ type OrganizationSwitcherExternalProps = {
 
 export default function OrganizationSwitcher({ compact }: OrganizationSwitcherExternalProps = {}) {
   const router = useRouter()
-  const pathname = usePathname()
   const t = useT()
   const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
   const [cookieState, setCookieState] = React.useState<SelectedCookieState>(() => readSelectedOrganizationCookie())
@@ -290,7 +289,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     const abortRef = { current: false }
     load({ abortRef })
     return () => { abortRef.current = true }
-  }, [load, pathname])
+  }, [load])
 
   const nodes = React.useMemo<OrganizationTreeNode[]>(() => {
     if (state.status !== 'ready') return []

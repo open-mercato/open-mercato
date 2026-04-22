@@ -203,22 +203,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
-  const data = {
-    ...parsed.data,
-    conditionExpression: parsed.data.conditionExpression ?? null,
-  }
-
-  const rule = em.create(BusinessRule, data)
-
-  try {
-    await em.persistAndFlush(rule)
-  } catch (error) {
-    console.error('[business_rules.rules] Failed to persist new rule:', error)
-    return NextResponse.json(
-      { error: t('business_rules.errors.createFailed') },
-      { status: 500 },
-    )
-  }
+  const rule = em.create(BusinessRule, parsed.data)
+  await em.persistAndFlush(rule)
 
   return NextResponse.json({ id: rule.id }, { status: 201 })
 }
@@ -247,9 +233,6 @@ export async function PUT(req: Request) {
     ...body,
     updatedBy: auth.sub ?? auth.email ?? null,
   }
-  delete (payload as Record<string, unknown>).tenantId
-  delete (payload as Record<string, unknown>).organizationId
-  delete (payload as Record<string, unknown>).createdBy
 
   const { t } = await resolveTranslations()
   const schema = createLocalizedUpdateBusinessRuleSchema(t)
@@ -271,16 +254,7 @@ export async function PUT(req: Request) {
   }
 
   em.assign(rule, parsed.data)
-
-  try {
-    await em.persistAndFlush(rule)
-  } catch (error) {
-    console.error('[business_rules.rules] Failed to persist rule update:', error)
-    return NextResponse.json(
-      { error: t('business_rules.errors.updateFailed') },
-      { status: 500 },
-    )
-  }
+  await em.persistAndFlush(rule)
 
   return NextResponse.json({ ok: true })
 }

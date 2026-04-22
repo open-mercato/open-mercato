@@ -49,11 +49,10 @@ export interface PackageResolver {
 
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
+    // Production mode: look in node_modules
+    // Packages ship with src/ included, so we can read TypeScript source files
     const pkgName = from || '@open-mercato/core'
-    const pkgRoot = path.join(rootDir, 'node_modules', pkgName)
-    const distModules = path.join(pkgRoot, 'dist', 'modules')
-    if (fs.existsSync(distModules)) return distModules
-    return path.join(pkgRoot, 'src', 'modules')
+    return path.join(rootDir, 'node_modules', pkgName, 'src', 'modules')
   }
 
   // Monorepo mode - read from src/modules (TypeScript source)
@@ -152,14 +151,6 @@ function evaluateStaticExpressionWithScope(
   const envAccess = parseProcessEnvAccess(node, env)
   if (envAccess.matched) return envAccess.value
 
-  if (ts.isPropertyAccessExpression(node)) {
-    const target = evaluateStaticExpressionWithScope(node.expression, env, scope)
-    if (target && typeof target === 'object' && node.name.text in target) {
-      return (target as Record<string, unknown>)[node.name.text]
-    }
-    return undefined
-  }
-
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
     return !Boolean(evaluateStaticExpressionWithScope(node.operand, env, scope))
   }
@@ -187,32 +178,6 @@ function evaluateStaticExpressionWithScope(
     const rawValue = rawValueNode ? evaluateStaticExpressionWithScope(rawValueNode, env, scope) : undefined
     const fallbackValue = fallbackNode ? evaluateStaticExpressionWithScope(fallbackNode, env, scope) : false
     return parseBooleanWithDefault(typeof rawValue === 'string' ? rawValue : undefined, Boolean(fallbackValue))
-  }
-
-  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'some') {
-    const target = evaluateStaticExpressionWithScope(node.expression.expression, env, scope)
-    const predicate = node.arguments[0]
-    if (!Array.isArray(target) || !predicate) return undefined
-
-    return target.some((entry) => {
-      if (!ts.isArrowFunction(predicate) && !ts.isFunctionExpression(predicate)) return false
-
-      const localScope = new Map(scope)
-      const parameter = predicate.parameters[0]
-      if (parameter && ts.isIdentifier(parameter.name)) {
-        localScope.set(parameter.name.text, entry)
-      }
-
-      if (ts.isBlock(predicate.body)) {
-        const returnStatement = predicate.body.statements.find((statement): statement is ts.ReturnStatement =>
-          ts.isReturnStatement(statement),
-        )
-        if (!returnStatement?.expression) return false
-        return Boolean(evaluateStaticExpressionWithScope(returnStatement.expression, env, localScope))
-      }
-
-      return Boolean(evaluateStaticExpressionWithScope(predicate.body, env, localScope))
-    })
   }
 
   return undefined
@@ -282,7 +247,6 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
             return entry ? [entry] : []
           })
           modules.push(...fromArray)
-          scope.set(variableName, [...modules])
           foundDeclaration = true
           continue
         }
@@ -295,11 +259,7 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
       continue
     }
     if (!foundDeclaration) continue
-    const pushedEntries = collectPushEntriesFromStatement(statement, env, variableName, scope)
-    if (pushedEntries.length > 0) {
-      modules.push(...pushedEntries)
-      scope.set(variableName, [...modules])
-    }
+    modules.push(...collectPushEntriesFromStatement(statement, env, variableName, scope))
   }
 
   return modules
@@ -384,9 +344,8 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
 
     try {
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
-      const distModulesPath = path.join(pkgPath, 'dist', 'modules')
-      const srcModulesPath = path.join(pkgPath, 'src', 'modules')
-      const modulesPath = fs.existsSync(distModulesPath) ? distModulesPath : srcModulesPath
+      // Packages ship with src/ included, so we can read TypeScript source files
+      const modulesPath = path.join(pkgPath, 'src', 'modules')
 
       if (fs.existsSync(modulesPath)) {
         packages.push({

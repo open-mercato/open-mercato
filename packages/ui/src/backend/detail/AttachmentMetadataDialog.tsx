@@ -94,7 +94,7 @@ type AttachmentMetadataDialogProps = {
 }
 
 function formatFileSize(value: number): string {
-  if (!Number.isFinite(value)) return '\u2014'
+  if (!Number.isFinite(value)) return '—'
   if (value <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let idx = 0
@@ -304,7 +304,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
       tags: item.tags ?? [],
       assignments: prepareAssignmentsForForm(item.assignments),
     })
-    setExtractedContent(item.content && item.content.trim() ? item.content : null)
+    setExtractedContent(item.content ?? null)
     const loadDetails = async () => {
       try {
         const call = await apiCall<AttachmentMetadataResponse>(`/api/attachments/library/${encodeURIComponent(item.id)}`)
@@ -321,7 +321,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
             assignments: prepareAssignmentsForForm(payload.assignments ?? item.assignments),
             ...prefixedCustom,
           })
-          const nextContent = typeof payload.content === 'string' && payload.content.trim() ? payload.content : null
+          const nextContent = typeof payload.content === 'string' ? payload.content : null
           setExtractedContent(nextContent)
         }
       } catch (err: any) {
@@ -517,7 +517,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
     }
   }, [item, sizeHeight, sizeWidth, t])
 
-  const loadMessage = t('attachments.library.metadata.loading', 'Loading attachment details\u2026')
+  const loadMessage = t('attachments.library.metadata.loading', 'Loading attachment details…')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -533,7 +533,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                   {item.fileName}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} \u2022 {item.partitionTitle ?? item.partitionCode}
+                  {formatFileSize(item.fileSize)} • {item.partitionTitle ?? item.partitionCode}
                 </div>
               </div>
               {downloadUrl ? (

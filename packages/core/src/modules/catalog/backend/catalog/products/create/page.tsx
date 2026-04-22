@@ -793,7 +793,7 @@ export default function CreateCatalogProductPage() {
                   `/backend/inbox-ops/proposals/${encodeURIComponent(inboxDraft.proposalId)}`,
                 );
               } else {
-                router.push(`/backend/catalog/products/${productId}`);
+                router.push("/backend/catalog/products");
               }
             } catch (err) {
               await cleanupFailedProduct(

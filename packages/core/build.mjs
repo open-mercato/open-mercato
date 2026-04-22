@@ -1,16 +1,10 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const outdir = join(__dirname, 'dist')
-
-mkdirSync(outdir, { recursive: true })
-for (const entry of readdirSync(outdir)) {
-  rmSync(join(outdir, entry), { recursive: true, force: true })
-}
 
 const srcEntryPoints = await glob('src/**/*.{ts,tsx}', {
   cwd: __dirname,
@@ -130,6 +124,8 @@ const addJsExtension = {
     })
   }
 }
+
+const outdir = join(__dirname, 'dist')
 
 await esbuild.build({
   entryPoints,

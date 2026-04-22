@@ -23,12 +23,23 @@ export RECORD_ID="<entity record id you want to attach files to>"
 
 ## OCR / text extraction
 
-Open Mercato supports two text-extraction methods for attachments:
+Open Mercato supports two OCR methods for extracting text from attachments:
 
 1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
-2. **Pure-JS extraction** – in-process fallback for plain text, PDFs, and DOCX files when LLM OCR is unavailable
+2. **markitdown** – fallback for non-image/PDF files (text, Office, Outlook)
 
 ### LLM-based OCR (images and PDFs)
+
+**System Dependencies**
+
+The LLM OCR feature requires system packages for PDF processing:
+
+- **macOS**: `brew install graphicsmagick ghostscript poppler`
+- **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
+- **Docker**: Add to Dockerfile:
+  ```dockerfile
+  RUN apt-get update && apt-get install -y graphicsmagick ghostscript poppler-utils
+  ```
 
 **Environment Variables**
 
@@ -45,45 +56,39 @@ OCR_MODEL=gpt-4o
 # Optional: Custom prompt for text extraction
 # OCR_DEFAULT_PROMPT="Extract all text content from this image..."
 
-# Optional attachment defaults and limits
-# OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true
-# OM_ATTACHMENT_MAX_UPLOAD_MB=25
-# OM_ATTACHMENT_TENANT_QUOTA_MB=512
+# Optional: Enable/disable OCR by default for new partitions (default: true)
+# OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true
 ```
-
-Attachment env naming follows the standard `OM_*` prefix. Legacy `OPENMERCATO_*` aliases are still read for backward compatibility, but new deployments should use the `OM_*` names.
 
 **How it works**
 
 - **Images** (PNG, JPG, GIF, BMP, WebP, TIFF): Sent directly to GPT-4o for text extraction
-- **PDFs**: Parsed with `pdfjs-dist`; text-layer content is used directly when available, and scanned/image-only pages are rendered through the Node canvas backend before OCR
+- **PDFs**: Converted to images page-by-page using pdf2pic (requires graphicsmagick + ghostscript), then each page is processed via GPT-4o
 - **Processing**: Asynchronous – uploads return immediately, content is populated in the background
 - **Model selection**: Per-partition model override available in partition settings UI
 - **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
-- **Security**: No `pdf2pic`, GraphicsMagick, Ghostscript, or external binaries are used in any extraction path
-- **Fallback**: when LLM OCR is unavailable, plain text files are read directly, PDFs are parsed with `pdfjs-dist`, and DOCX files are parsed with `mammoth`
+- **Fallback**: Non-image/PDF files use markitdown for text extraction
 
-### Pure-JS extraction (plain text, PDF, DOCX)
+### markitdown (non-image/PDF files)
 
-No additional setup required — extraction runs in-process with no external binaries.
+Prerequisite: the `markitdown` CLI must be on `PATH`. Easiest install:
 
-Supported formats and their extractors:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh           # install uv
+uv tool install markitdown                               # install the CLI
+markitdown --help                                        # verify it works
+```
 
-| Format | Extractor |
-|--------|-----------|
-| Plain text (`text/*`, `.txt`, `.md`, `.csv`, `.log`) | Direct UTF-8 read |
-| PDF (`.pdf`) | `pdfjs-dist` — text layer content |
-| Word document (`.docx`) | `mammoth` |
+How it works:
 
-Formats **not** extracted (returned as no content): `.doc` (legacy binary Word), `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.msg`, and other Office/Outlook formats. LLM-based OCR remains available for these files where the partition is configured with an OCR model.
+- Non-image/PDF files (text, Office, Outlook) are passed to `markitdown` after upload if the partition opts in.
+- The extracted text is stored on the attachment record and shown in the metadata dialog; empty output is ignored.
 
 ### Configuration
 
-- `OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false` controls whether new partitions opt into OCR by default.
-- `OM_ATTACHMENT_MAX_UPLOAD_MB=<number>` sets the global upload cap per file before field-specific limits are applied. Default: `25`.
-- `OM_ATTACHMENT_TENANT_QUOTA_MB=<number>` sets the tenant-wide stored attachment quota. Default: `512`.
+- The default opt-in is controlled by `OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false`.
 - Each partition has a `requiresOcr` flag; disable it to skip extraction for that partition.
-- Partition-specific model selection is available in the partition settings UI for image/PDF OCR.
+- Partition-specific model selection is available in the partition settings UI for LLM-based OCR.
 
 ## Attachments per record
 

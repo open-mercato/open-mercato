@@ -1,9 +1,4 @@
-import {
-  parseIdList,
-  buildProductFilters,
-  buildPricingContext,
-  scoreProductSearchRelevance,
-} from '../products/route'
+import { parseIdList, buildProductFilters, buildPricingContext } from '../products/route'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 
@@ -42,20 +37,12 @@ describe('catalog products route helpers', () => {
   })
 
   it('builds product filters and merges offer + custom field context', async () => {
-    const productRows = [
-      { id: 'prod-1' },
-      { id: 'prod-2' },
-      { id: 'prod-3' },
-    ]
     const offerRows = [
       { id: 'offer-1', product: 'prod-1' },
       { id: 'offer-2', product: { id: 'prod-2' } },
     ]
     const forkedEm = {
-      find: jest
-        .fn()
-        .mockResolvedValueOnce(productRows)
-        .mockResolvedValueOnce(offerRows),
+      find: jest.fn().mockResolvedValue(offerRows),
     }
     const em = { fork: () => forkedEm }
     const container = { resolve: jest.fn().mockReturnValue(em) }
@@ -71,7 +58,7 @@ describe('catalog products route helpers', () => {
       { container, auth: { tenantId: 'tenant-1' } } as any,
     )
 
-    expect(forkedEm.find).toHaveBeenCalledTimes(2)
+    expect(forkedEm.find).toHaveBeenCalled()
     expect(buildCustomFieldFiltersFromQuery).toHaveBeenCalledWith({
       entityIds: expect.any(Array),
       query: expect.any(Object),
@@ -79,6 +66,7 @@ describe('catalog products route helpers', () => {
       tenantId: 'tenant-1',
       fieldset: 'fashion',
     })
+    expect(filters.search_text).toEqual({ $ilike: '%luxe%' })
     expect(filters.status_entry_id).toEqual({ $eq: 'status' })
     expect(filters.is_active).toBe(true)
     expect(filters.is_configurable).toBe(false)
@@ -103,39 +91,5 @@ describe('catalog products route helpers', () => {
     )
 
     expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
-  })
-
-  it('scores obvious product title and sku matches by relevance', () => {
-    expect(scoreProductSearchRelevance('aurora', 'Aurora', 'AU-01')).toBe(0)
-    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'aurora')).toBe(1)
-    expect(scoreProductSearchRelevance('aurora', 'Aurora Borealis', 'AB-01')).toBe(2)
-    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'AURORA-SKU')).toBe(3)
-    expect(scoreProductSearchRelevance('aurora', 'Polar Aurora Light', 'NL-01')).toBe(4)
-    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'SKU-AURORA-01')).toBe(5)
-    expect(scoreProductSearchRelevance('aurora', 'Borealis', 'NL-01')).toBe(6)
-  })
-
-  it('supports case-insensitive title matching for issue 1350 scenarios', () => {
-    const ranked = [
-      { title: 'Alpha', sku: 'SKU-A' },
-      { title: 'Aurora', sku: 'AU-01' },
-      { title: 'Northern Lights', sku: 'AURORA-SKU' },
-      { title: 'Aurora Borealis', sku: 'AB-01' },
-    ]
-      .map((entry) => ({
-        ...entry,
-        score: scoreProductSearchRelevance('aurora', entry.title, entry.sku),
-      }))
-      .sort((left, right) => {
-        if (left.score !== right.score) return left.score - right.score
-        return left.title.localeCompare(right.title)
-      })
-
-    expect(ranked.map((entry) => entry.title)).toEqual([
-      'Aurora',
-      'Aurora Borealis',
-      'Northern Lights',
-      'Alpha',
-    ])
   })
 })

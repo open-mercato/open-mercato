@@ -37,27 +37,8 @@ jest.mock('../injection/InjectionSpot', () => ({
   },
 }))
 
-jest.mock('../injection/useInjectedMenuItems', () => ({
-  useInjectedMenuItems: () => ({
-    items: [],
-    isLoading: false,
-  }),
-}))
-
-jest.mock('../injection/eventBridge', () => ({
-  useEventBridge: jest.fn(),
-}))
-
-jest.mock('../injection/StatusBadgeInjectionSpot', () => ({
-  StatusBadgeInjectionSpot: () => <div data-testid="status-badge-injection-spot" />,
-}))
-
 jest.mock('../operations/LastOperationBanner', () => ({
   LastOperationBanner: () => <div data-testid="last-operation-banner" />,
-}))
-
-jest.mock('../progress/ProgressTopBar', () => ({
-  ProgressTopBar: () => <div data-testid="progress-top-bar" />,
 }))
 
 jest.mock('../indexes/PartialIndexBanner', () => ({
@@ -74,10 +55,6 @@ jest.mock('../../frontend/LanguageSwitcher', () => ({
 
 jest.mock('../upgrades/UpgradeActionBanner', () => ({
   UpgradeActionBanner: () => <div data-testid="upgrade-action-banner" />,
-}))
-
-jest.mock('../devtools', () => ({
-  UmesDevToolsPanel: () => null,
 }))
 
 const dict = {
@@ -316,138 +293,5 @@ describe('AppShell', () => {
       expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
-  })
-
-  it('hydrates backend chrome from the shared bootstrap payload and flips the ready marker', async () => {
-    const previousFetch = global.fetch
-    const previousWindowFetch = window.fetch
-    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
-    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string'
-        ? input
-        : input instanceof Request
-          ? input.url
-          : input.toString()
-      if (url.includes('/api/auth/admin/nav')) {
-        return new Response(JSON.stringify({
-          groups: [
-            {
-              id: 'core',
-              name: 'Core',
-              defaultName: 'Core',
-              items: [
-                {
-                  href: '/backend/users',
-                  title: 'Users List',
-                  defaultTitle: 'Users List',
-                  enabled: true,
-                },
-              ],
-            },
-          ],
-          settingsSections: [],
-          settingsPathPrefixes: [],
-          profileSections: [],
-          profilePathPrefixes: ['/backend/profile/'],
-          grantedFeatures: ['auth.*'],
-          roles: ['admin'],
-        }), { status: 200, headers: { 'content-type': 'application/json' } })
-      }
-      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
-    }) as unknown as typeof fetch
-    global.fetch = fetchMock
-    window.fetch = fetchMock
-    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
-
-    try {
-      renderWithProviders(
-        <AppShell
-          email="demo@example.com"
-          groups={[]}
-          adminNavApi="/api/auth/admin/nav"
-        >
-          <div>Hydrated content</div>
-        </AppShell>,
-        { dict },
-      )
-
-      expect(screen.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'false')
-
-      await waitFor(() => {
-        expect(screen.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
-        expect(screen.getByText('Users List')).toBeInTheDocument()
-      })
-    } finally {
-      global.fetch = previousFetch
-      window.fetch = previousWindowFetch
-      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
-    }
-  })
-
-  it('renders nav icons from iconName when iconMarkup is missing', async () => {
-    const previousFetch = global.fetch
-    const previousWindowFetch = window.fetch
-    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
-    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string'
-        ? input
-        : input instanceof Request
-          ? input.url
-          : input.toString()
-      if (url.includes('/api/auth/admin/nav-icon-fallback')) {
-        return new Response(JSON.stringify({
-          groups: [
-            {
-              id: 'checkout',
-              name: 'Checkout',
-              defaultName: 'Checkout',
-              items: [
-                {
-                  href: '/backend/checkout/pay-links',
-                  title: 'Pay Links',
-                  defaultTitle: 'Pay Links',
-                  enabled: true,
-                  iconName: 'ticket',
-                },
-              ],
-            },
-          ],
-          settingsSections: [],
-          settingsPathPrefixes: [],
-          profileSections: [],
-          profilePathPrefixes: ['/backend/profile/'],
-          grantedFeatures: ['checkout.view'],
-          roles: ['admin'],
-        }), { status: 200, headers: { 'content-type': 'application/json' } })
-      }
-      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
-    }) as unknown as typeof fetch
-    global.fetch = fetchMock
-    window.fetch = fetchMock
-    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
-
-    try {
-      renderWithProviders(
-        <AppShell
-          email="demo@example.com"
-          groups={[]}
-          adminNavApi="/api/auth/admin/nav-icon-fallback"
-        >
-          <div>Hydrated content</div>
-        </AppShell>,
-        { dict },
-      )
-
-      await waitFor(() => {
-        expect(screen.getByText('Pay Links')).toBeInTheDocument()
-      })
-
-      const link = screen.getByRole('link', { name: 'Pay Links' })
-      expect(link.querySelector('svg.lucide-ticket')).toBeTruthy()
-    } finally {
-      global.fetch = previousFetch
-      window.fetch = previousWindowFetch
-      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
-    }
   })
 })

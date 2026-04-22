@@ -51,7 +51,22 @@ export type LeaveRequestFormProps = {
 
 const DEFAULT_TIMEZONE = 'UTC'
 
-import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
+function toDateInputValue(value?: string | Date | null): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return value.toISOString().slice(0, 10)
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+    const parsed = new Date(trimmed)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.toISOString().slice(0, 10)
+  }
+  return null
+}
 
 export function buildLeaveRequestPayload(
   values: LeaveRequestFormValues,

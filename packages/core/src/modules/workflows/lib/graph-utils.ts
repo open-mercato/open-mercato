@@ -126,7 +126,7 @@ export function graphToDefinition(
       transition.priority = edgeData.priority
     }
 
-    // Add continueOnActivityFailure if present (default false)
+    // Add continueOnActivityFailure if present (default true)
     if (edgeData?.continueOnActivityFailure !== undefined) {
       transition.continueOnActivityFailure = edgeData.continueOnActivityFailure
     }
@@ -321,7 +321,7 @@ export function definitionToGraph(
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined
           ? (transition as any).continueOnActivityFailure
-          : false,
+          : true,
         preConditions: transition.preConditions || [],
         postConditions: transition.postConditions || [],
         activities: transition.activities || [],

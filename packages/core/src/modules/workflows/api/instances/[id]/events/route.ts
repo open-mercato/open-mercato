@@ -10,9 +10,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowInstance, WorkflowEvent } from '../../../../data/entities'
-import { workflowEventRowSchema, paginationSchema } from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -46,11 +44,11 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = scope?.selectedId ?? auth.orgId
 
-    if (!tenantId) {
+    if (!tenantId || !organizationId) {
       return NextResponse.json(
-        { error: 'Missing tenant context' },
+        { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
     }
@@ -59,7 +57,7 @@ export async function GET(
     const instance = await em.findOne(WorkflowInstance, {
       id: params.id,
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     })
 
     if (!instance) {
@@ -78,7 +76,7 @@ export async function GET(
     const where: any = {
       workflowInstanceId: params.id,
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     }
 
     if (eventType) {
@@ -132,8 +130,13 @@ export const openApi = {
           status: 200,
           description: 'List of workflow events',
           schema: z.object({
-            data: z.array(workflowEventRowSchema),
-            pagination: paginationSchema,
+            data: z.array(z.any()),
+            pagination: z.object({
+              total: z.number(),
+              limit: z.number(),
+              offset: z.number(),
+              hasMore: z.boolean(),
+            }),
           }),
         },
         {

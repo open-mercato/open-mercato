@@ -28,34 +28,6 @@ To rerun the preset for an existing tenant:
 yarn mercato sync_akeneo configure-from-env --tenant <tenantId> --org <organizationId>
 ```
 
-## URL security and host allowlist
-
-Open Mercato validates the Akeneo API URL server-side before any network call to prevent SSRF (Server-Side Request Forgery) and credential exfiltration. The following rules are enforced:
-
-- The URL **must** use HTTPS.
-- Embedded credentials, custom ports, paths, query parameters, and fragments are rejected.
-- The hostname must match an operator-controlled allowlist.
-
-By default, only Akeneo SaaS hosts are allowed: `*.cloud.akeneo.com` and `*.akeneo.cloud`.
-
-### Self-hosted or private Akeneo instances
-
-If your Akeneo PIM runs on a custom domain, set the `OM_INTEGRATION_AKENEO_ALLOWED_HOSTS` environment variable to a comma-separated list of allowed hostnames. Wildcard subdomains are supported:
-
-```env
-# Single self-hosted instance
-OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=pim.example.internal
-
-# Multiple hosts with wildcard
-OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=*.pim.corp.local,akeneo.staging.example.com
-```
-
-Legacy aliases `OPENMERCATO_AKENEO_ALLOWED_HOSTS` and `AKENEO_ALLOWED_HOSTS` are also accepted (checked in priority order).
-
-:::info
-All authenticated requests (OAuth token exchange, product pagination, media downloads) are pinned to the validated origin. If the remote API returns absolute URLs pointing to a different host, those requests are rejected to prevent token leakage.
-:::
-
 ## Prerequisites
 
 - An Akeneo PIM instance (v5+ recommended) with API access enabled.
@@ -219,7 +191,6 @@ During import, Open Mercato downloads product images and files from Akeneo using
 |---------|----------|
 | Health check fails with "Unauthorized" | Verify Client ID, Secret, Username, and Password. Regenerate the connection credentials in Akeneo if needed. |
 | Health check fails with "Connection refused" | Check the API URL. Ensure your server can reach the Akeneo instance (firewall, DNS). |
-| Health check fails with "host is not allowed" | Your Akeneo URL does not match the default host allowlist (`*.cloud.akeneo.com`, `*.akeneo.cloud`). Set `OM_INTEGRATION_AKENEO_ALLOWED_HOSTS` to include your custom domain. See [URL security and host allowlist](#url-security-and-host-allowlist). |
 | Products imported without images | The Akeneo user may lack media read permissions. Check the connection's permission scope in Akeneo. |
 | Missing attributes on imported products | Review the attribute mapping — unmapped attributes are skipped by default. |
 | Variants not appearing | Ensure the source products are product models (not simple products) with family variants configured in Akeneo. |

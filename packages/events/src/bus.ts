@@ -1,7 +1,7 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 export { registerCrossProcessEventListener } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
@@ -47,7 +47,6 @@ export function registerGlobalEventTap(handler: GlobalEventTap): () => void {
 type EventJobData = {
   event: string
   payload: EventPayload
-  options?: EmitOptions
 }
 
 /**
@@ -96,11 +95,13 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function getQueue(): Queue<EventJobData> {
     if (!queue) {
-      queue = queueStrategy === 'async'
-        ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
-            connection: { url: getRedisUrlOrThrow('QUEUE') },
-          })
-        : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
+      if (queueStrategy === 'async') {
+        queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
+          connection: { url: getRedisUrl('QUEUE') }
+        })
+      } else {
+        queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
+      }
     }
     return queue
   }
@@ -109,7 +110,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    * Delivers an event to all registered in-memory handlers.
    * Supports wildcard pattern matching for event patterns.
    */
-  async function deliver(event: string, payload: EventPayload, options?: EmitOptions): Promise<void> {
+  async function deliver(event: string, payload: EventPayload): Promise<void> {
     // Check all registered patterns (including wildcards)
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) continue
@@ -121,8 +122,6 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           await Promise.resolve(handler(payload, {
             resolve: opts.resolve,
             eventName: event,
-            tenantId: options?.tenantId ?? null,
-            organizationId: options?.organizationId ?? null,
           }))
         } catch (error) {
           console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
@@ -170,7 +169,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     }
 
     // Always deliver to in-memory handlers first
-    await deliver(event, payload, options)
+    await deliver(event, payload)
 
     if (isBroadcastEvent(event) && hasTenantScope(payload)) {
       try {
@@ -183,7 +182,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // If persistent, also enqueue for async processing
     if (options?.persistent) {
       const q = getQueue()
-      await q.enqueue({ event, payload, options })
+      await q.enqueue({ event, payload })
     }
   }
 

@@ -10,7 +10,6 @@ import { CustomerSessionService } from '@open-mercato/core/modules/customer_acco
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {}
 
@@ -35,41 +34,30 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const user = await em.findOne(CustomerUser, {
+    id: params.id,
+    tenantId: auth.tenantId,
+    deletedAt: null,
+  })
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  const userRoles = await findWithDecryption(
-    em,
-    CustomerUserRole,
-    { user: user.id as any, deletedAt: null } as any,
-    { populate: ['role'] },
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const userRoles = await em.find(CustomerUserRole, {
+    user: user.id as any,
+    deletedAt: null,
+  }, { populate: ['role'] })
   const roles = userRoles.map((ur) => ({
     id: (ur.role as any).id,
     name: (ur.role as any).name,
     slug: (ur.role as any).slug,
   }))
 
-  const activeSessions = await findWithDecryption(
-    em,
-    CustomerUserSession,
-    {
-      user: user.id as any,
-      deletedAt: null,
-      expiresAt: { $gt: new Date() },
-    } as any,
-    { orderBy: { lastUsedAt: 'DESC' } },
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const activeSessions = await em.find(CustomerUserSession, {
+    user: user.id as any,
+    deletedAt: null,
+    expiresAt: { $gt: new Date() },
+  }, { orderBy: { lastUsedAt: 'DESC' } })
 
   const sessions = activeSessions.map((session) => ({
     id: session.id,
@@ -125,13 +113,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const user = await em.findOne(CustomerUser, {
+    id: params.id,
+    tenantId: auth.tenantId,
+    deletedAt: null,
+  })
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
@@ -149,24 +135,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
-    const requestedRoleIds = parsed.data.roleIds
-    const validRoles = requestedRoleIds.length > 0
-      ? await findWithDecryption(
-          em,
-          CustomerRole,
-          {
-            id: { $in: requestedRoleIds } as any,
-            tenantId: auth.tenantId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          { tenantId: auth.tenantId, organizationId: auth.orgId },
-        )
-      : []
-    if (validRoles.length !== requestedRoleIds.length) {
-      const foundIds = new Set(validRoles.map((role) => role.id))
-      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
-      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
+    const validRoles: InstanceType<typeof CustomerRole>[] = []
+    for (const roleId of parsed.data.roleIds) {
+      const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
+      if (!role) {
+        return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
+      }
+      validRoles.push(role)
     }
 
     await em.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
@@ -214,13 +189,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const user = await em.findOne(CustomerUser, {
+    id: params.id,
+    tenantId: auth.tenantId,
+    deletedAt: null,
+  })
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }

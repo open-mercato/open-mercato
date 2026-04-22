@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

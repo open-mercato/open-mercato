@@ -25,10 +25,6 @@ export type SubscriberContext = {
   resolve: <T = unknown>(name: string) => T
   /** Event name (useful for wildcard handlers to know which event was triggered) */
   eventName?: string
-  /** Trusted tenant scope attached by the event emitter */
-  tenantId?: string | null
-  /** Trusted organization scope attached by the event emitter */
-  organizationId?: string | null
 }
 
 /** Event handler function signature */
@@ -55,10 +51,6 @@ export type SubscriberDescriptor = {
 export type EmitOptions = {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
-  /** Trusted tenant scope for subscribers that must not rely on payload scope */
-  tenantId?: string | null
-  /** Trusted organization scope for subscribers that must not rely on payload scope */
-  organizationId?: string | null
 }
 
 /** Options for creating an event bus */

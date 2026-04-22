@@ -28,7 +28,7 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
     // Capture the payment
     await page.getByRole('button', { name: /Capture/i }).click()
     await expect(page.getByText('capture successful')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByRole('button', { name: /Refund/i })).toBeEnabled()
+    await expect(page.getByText('Captured', { exact: true })).toBeVisible()
 
     // Refund the payment
     await page.getByRole('button', { name: /Refund/i }).click()

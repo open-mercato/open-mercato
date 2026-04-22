@@ -30,7 +30,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 2. Export `metadata` with `{ queue: '<queue-name>', id: '<worker-id>', concurrency: <n> }`
 3. Export default async handler function
 4. Ensure handler is idempotent — check state before mutating
-5. Run `yarn generate` to register the worker
+5. Run `npm run modules:prepare` to register the worker
 6. Test with `QUEUE_STRATEGY=local` in development
 
 ### Worker Contract

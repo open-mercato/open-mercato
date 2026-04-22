@@ -29,7 +29,7 @@ test.describe('TC-INT-003: Product Creation to Sales Channel to Order', () => {
       await page.goto(`/backend/catalog/products/${productId}`);
       await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}$`, 'i'));
 
-      await createSalesDocument(page, { kind: 'order', preferApi: true, token });
+      await createSalesDocument(page, { kind: 'order' });
       await expect(page).toHaveURL(/kind=order$/i);
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);

@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
-import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 
 const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
@@ -10,7 +9,6 @@ const SUPERADMIN_ROLE = 'superadmin'
 
 export type AuthContext = {
   sub: string
-  sid?: string | null
   tenantId: string | null
   orgId: string | null
   email?: string
@@ -75,7 +73,9 @@ function resolveOrganizationOverride(raw: string | undefined): CookieOverride {
 
 function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {
   if (!auth) return false
-  return (auth as Record<string, unknown>).isSuperAdmin === true
+  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
+  const roles = Array.isArray(auth?.roles) ? auth.roles : []
+  return roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === SUPERADMIN_ROLE)
 }
 
 function applySuperAdminScope(
@@ -113,22 +113,16 @@ function applySuperAdminScope(
 
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
-  const cache = getSharedApiKeyAuthCache()
-  const cached = cache.get(secret)
-  if (cached !== undefined) return cached as AuthContext
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
-    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Role, User } = await import('@open-mercato/core/modules/auth/data/entities')
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
-    if (!record) {
-      cache.setMiss(secret)
-      return null
-    }
+    if (!record) return null
 
     const roleIds = Array.isArray(record.rolesJson)
       ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -138,22 +132,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       : []
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
 
-    let keyIsSuperAdmin = false
-    if (roleIds.length) {
-      const superAcl = await em.findOne(
-        RoleAcl,
-        { role: { $in: roleIds } as any, isSuperAdmin: true, deletedAt: null } as any,
-      )
-      keyIsSuperAdmin = !!(superAcl && (superAcl as { isSuperAdmin?: boolean }).isSuperAdmin)
-    }
-
-    if (cache.shouldWriteLastUsed(record.id)) {
-      try {
-        record.lastUsedAt = new Date()
-        await em.persistAndFlush(record)
-      } catch {
-        // best-effort update; ignore write failures
-      }
+    try {
+      record.lastUsedAt = new Date()
+      await em.persistAndFlush(record)
+    } catch {
+      // best-effort update; ignore write failures
     }
 
     // For session keys, use sessionUserId; for regular keys, use createdBy
@@ -161,52 +144,31 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
 
     if (actualUserId) {
       const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
-      if (!user) {
-        cache.setMiss(secret)
-        return null
-      }
-      if ((user.tenantId ?? null) !== (record.tenantId ?? null)) {
-        cache.setMiss(secret)
-        return null
-      }
-      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) {
-        cache.setMiss(secret)
-        return null
-      }
+      if (!user) return null
+      if ((user.tenantId ?? null) !== (record.tenantId ?? null)) return null
+      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) return null
     } else {
       if (record.tenantId) {
         const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
-        if (!tenant) {
-          cache.setMiss(secret)
-          return null
-        }
+        if (!tenant) return null
       }
       if (record.organizationId) {
         const organization = await em.findOne(Organization, { id: record.organizationId, deletedAt: null, isActive: true })
-        if (!organization) {
-          cache.setMiss(secret)
-          return null
-        }
-        if (record.tenantId && String(organization.tenant.id) !== record.tenantId) {
-          cache.setMiss(secret)
-          return null
-        }
+        if (!organization) return null
+        if (record.tenantId && String(organization.tenant.id) !== record.tenantId) return null
       }
     }
 
-    const auth: Exclude<AuthContext, null> = {
+    return {
       sub: `api_key:${record.id}`,
       tenantId: record.tenantId ?? null,
       orgId: record.organizationId ?? null,
       roles: roleNames,
       isApiKey: true,
-      isSuperAdmin: keyIsSuperAdmin,
       keyId: record.id,
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
-    cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
-    return auth
   } catch {
     return null
   }

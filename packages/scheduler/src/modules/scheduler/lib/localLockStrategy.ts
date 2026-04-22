@@ -7,38 +7,39 @@ export class LocalLockStrategy {
   constructor(private em: () => EntityManager) {}
 
   /**
-   * Execute a function under a PostgreSQL advisory lock.
-   *
-   * IMPORTANT: Uses transaction-scoped advisory locks (`pg_try_advisory_xact_lock`)
-   * to avoid connection pool/session mismatch issues. The lock is automatically
-   * released when the transaction ends.
+   * Try to acquire a lock using PostgreSQL advisory locks
    */
-  async runWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
-    const em = this.em().fork()
+  async tryLock(key: string): Promise<boolean> {
+    const em = this.em()
     const hash = this.hashString(key)
-    let lockAcquired = false
-
+    
     try {
-      return await em.transactional(async (txEm) => {
-        const result = await txEm.getConnection().execute<{ acquired: boolean }[]>(
-          `SELECT pg_try_advisory_xact_lock(?) as acquired`,
-          [hash],
-        )
-
-        const acquired = result[0]?.acquired === true
-        if (!acquired) return { acquired: false }
-        lockAcquired = true
-
-        const fnResult = await fn()
-        return { acquired: true, result: fnResult }
-      })
+      // Use MikroORM's execute with proper parameter binding
+      const result = await em.getConnection().execute<{ acquired: boolean }[]>(
+        `SELECT pg_try_advisory_lock(?) as acquired`,
+        [hash]
+      )
+      return result[0]?.acquired === true
     } catch (error) {
-      if (lockAcquired) {
-        throw error
-      }
-
       console.error('[scheduler:local] Failed to acquire lock:', error)
-      return { acquired: false }
+      return false
+    }
+  }
+
+  /**
+   * Release a lock
+   */
+  async unlock(key: string): Promise<void> {
+    const em = this.em()
+    const hash = this.hashString(key)
+    
+    try {
+      await em.getConnection().execute(
+        `SELECT pg_advisory_unlock(?)`,
+        [hash]
+      )
+    } catch (error) {
+      console.error('[scheduler:local] Failed to release lock:', error)
     }
   }
 

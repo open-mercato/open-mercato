@@ -85,8 +85,6 @@ export default function CreateUserPage() {
   const [selectedWidgets, setSelectedWidgets] = React.useState<string[]>([])
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
-  const [actorResolved, setActorResolved] = React.useState(false)
-  const [sendInviteEmail, setSendInviteEmail] = React.useState(false)
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
     () => formatPasswordRequirements(passwordPolicy, t),
@@ -148,8 +146,6 @@ export default function CreateUserPage() {
         if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch (err) {
         console.error('Failed to resolve actor super admin flag', err)
-      } finally {
-        if (!cancelled) setActorResolved(true)
       }
     }
     loadActor()
@@ -160,44 +156,24 @@ export default function CreateUserPage() {
     setSelectedWidgets((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
   }, [])
 
-  // Block role loading until we know whether the actor is a super admin. Without this guard the
-  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
-  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
       return fetchRoleOptions(query, { tenantId: selectedTenantId })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
+  }, [actorIsSuperAdmin, selectedTenantId])
 
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
       {
-        id: 'sendInviteEmail',
-        label: t('auth.users.form.field.sendInviteEmail', 'Send password setup link via email'),
-        type: 'custom',
-        component: () => (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="size-4"
-              checked={sendInviteEmail}
-              onChange={(e) => setSendInviteEmail(e.target.checked)}
-            />
-            {t('auth.users.form.field.sendInviteEmailHint', 'Invite user to set their own password via a secure email link')}
-          </label>
-        ),
-      },
-      ...(!sendInviteEmail ? [{
         id: 'password',
         label: t('auth.users.form.field.password', 'Password'),
-        type: 'password' as const,
+        type: 'text',
         required: true,
         description: passwordDescription,
-      }] : []),
+      },
     ]
     if (actorIsSuperAdmin) {
       items.push({
@@ -230,7 +206,6 @@ export default function CreateUserPage() {
       id: 'organizationId',
       label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
-      required: true,
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? value : null
         return (
@@ -245,18 +220,13 @@ export default function CreateUserPage() {
     })
     items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, selectedTenantId, sendInviteEmail, t])
+  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
-    const base: string[] = sendInviteEmail
-      ? ['email', 'sendInviteEmail', 'organizationId', 'roles']
-      : ['email', 'sendInviteEmail', 'password', 'organizationId', 'roles']
-    if (actorIsSuperAdmin) {
-      const orgIdx = base.indexOf('organizationId')
-      base.splice(orgIdx, 0, 'tenantId')
-    }
+    const base: string[] = ['email', 'password', 'organizationId', 'roles']
+    if (actorIsSuperAdmin) base.splice(2, 0, 'tenantId')
     return base
-  }, [actorIsSuperAdmin, sendInviteEmail])
+  }, [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = React.useMemo(() => [
     { id: 'details', title: t('auth.users.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
@@ -312,35 +282,22 @@ export default function CreateUserPage() {
           initialValues={initialValues}
           submitLabel={t('auth.users.form.action.create', 'Create')}
           cancelHref="/backend/users"
-          successRedirect={`/backend/users?flash=${encodeURIComponent(
-            sendInviteEmail
-              ? t('auth.users.flash.createdWithInvite', 'User created and invitation sent')
-              : t('auth.users.flash.created', 'User created')
-          )}&type=success`}
+          successRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.created', 'User created'))}&type=success`}
           onSubmit={async (values) => {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
               email: values.email,
+              password: values.password,
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
-            }
-            if (sendInviteEmail) {
-              payload.sendInviteEmail = true
-            } else {
-              payload.password = values.password
             }
             if (actorIsSuperAdmin) {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
             }
-            const { result: created } = await createCrud<{ id?: string; _warning?: string }>('auth/users', payload)
+            const { result: created } = await createCrud<{ id?: string }>('auth/users', payload)
             const newUserId = typeof created?.id === 'string' ? created.id : null
-            if (created?._warning === 'invite_email_failed') {
-              const msg = t('auth.users.flash.createdEmailFailed', 'User created but invitation email could not be sent. You can resend it from the user page.')
-              window.location.href = `/backend/users?flash=${encodeURIComponent(msg)}&type=warning`
-              return
-            }
 
             if (widgetMode === 'override' && newUserId) {
               await updateCrud('dashboards/users/widgets', {

@@ -2,7 +2,7 @@
 
 The `data_sync` module provides a streaming data synchronization hub for import/export operations with external systems. It uses an adapter pattern where provider modules register `DataSyncAdapter` implementations.
 
-**Spec**: `.ai/specs/implemented/SPEC-045b-data-sync-hub.md`
+**Spec**: `.ai/specs/SPEC-045b-data-sync-hub.md`
 
 ---
 

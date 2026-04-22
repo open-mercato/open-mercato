@@ -28,7 +28,7 @@ type TokenMessageObject = {
   snapshot?: Record<string, unknown> | null
 }
 
-type MessageTokenDetailResponse = {
+type MessageTokenResponse = {
   id: string
   type: string
   subject: string
@@ -59,16 +59,6 @@ type MessageTokenDetailResponse = {
   objects: TokenMessageObject[]
   requiresAuth: boolean
   recipientUserId: string
-}
-
-type MessageTokenPreflightResponse = {
-  requiresAuth: true
-}
-
-type MessageTokenResponse = MessageTokenDetailResponse | MessageTokenPreflightResponse
-
-function isProtectedPreflight(data: MessageTokenResponse): data is MessageTokenPreflightResponse {
-  return data.requiresAuth && !('id' in data)
 }
 
 function toErrorMessage(payload: unknown): string | null {
@@ -128,7 +118,7 @@ function toObjectActions(
 }
 
 function mergeTokenActions(
-  messageActions: MessageTokenDetailResponse['actionData'],
+  messageActions: MessageTokenResponse['actionData'],
   defaultActions: Array<{
     id: string
     label: string
@@ -141,8 +131,8 @@ function mergeTokenActions(
     confirmRequired?: boolean
     confirmMessage?: string
   }> | undefined,
-): MessageTokenDetailResponse['actionData'] {
-  const deduped = new Map<string, NonNullable<MessageTokenDetailResponse['actionData']>['actions'][number]>()
+): MessageTokenResponse['actionData'] {
+  const deduped = new Map<string, NonNullable<MessageTokenResponse['actionData']>['actions'][number]>()
 
   for (const action of messageActions?.actions ?? []) {
     const normalizedId = action.id.trim()
@@ -251,7 +241,7 @@ export default function MessageTokenPage({ params }: { params: { token: string }
     )
   }
 
-  if (isProtectedPreflight(data)) {
+  if (data.requiresAuth) {
     return (
       <main className="mx-auto max-w-3xl space-y-4 p-6">
         <h1 className="text-2xl font-semibold">{t('messages.token.authRequired.title', 'Sign in required')}</h1>

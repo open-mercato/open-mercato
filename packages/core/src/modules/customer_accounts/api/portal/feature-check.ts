@@ -2,11 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
-import { matchFeature } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures, matchFeature } from '@open-mercato/shared/lib/auth/featureMatch'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 const requestSchema = z.object({
   features: z.array(z.string()).min(1).max(100),
@@ -26,18 +24,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-  const acl = await customerRbacService.loadAcl(auth.sub, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  })
-
-  const granted = acl.isPortalAdmin
-    ? [...body.features]
-    : body.features.filter((feature) =>
-        acl.features.some((g) => matchFeature(feature, g)),
-      )
+  const granted = body.features.filter((feature) =>
+    auth.resolvedFeatures.some((g) => matchFeature(feature, g)),
+  )
 
   return NextResponse.json({ ok: true, granted })
 }

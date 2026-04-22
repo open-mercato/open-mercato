@@ -3,10 +3,8 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
@@ -48,6 +46,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const roleId = url.searchParams.get('roleId')
   if (!roleId) return NextResponse.json({ error: 'roleId is required' }, { status: 400 })
+  const tenantId = url.searchParams.get('tenantId') || auth.tenantId || null
+  const organizationId = url.searchParams.get('organizationId') || null
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
@@ -55,18 +55,6 @@ export async function GET(req: Request) {
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const { tenantId, organizationId } = resolveWidgetAssignmentReadScope({
-    auth: { tenantId: auth.tenantId ?? null, orgId: auth.orgId ?? null },
-    isSuperAdmin: !!acl.isSuperAdmin,
-    queryTenantId: url.searchParams.get('tenantId'),
-    queryOrganizationId: url.searchParams.get('organizationId'),
-  })
-
-  const role = await em.findOne(Role, { id: roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
-    return NextResponse.json({ error: 'Role not found' }, { status: 404 })
   }
 
   const records = await em.find(DashboardRoleWidgets, { roleId, deletedAt: null })
@@ -111,13 +99,8 @@ export async function PUT(req: Request) {
   const validWidgetIds = new Set(widgets.map((w) => w.metadata.id))
   const widgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
-  const tenantId = auth.tenantId ?? null
-  const organizationId = auth.orgId ?? null
-
-  const role = await em.findOne(Role, { id: parsed.data.roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
-    return NextResponse.json({ error: 'Role not found' }, { status: 404 })
-  }
+  const tenantId = parsed.data.tenantId ?? auth.tenantId ?? null
+  const organizationId = parsed.data.organizationId ?? null
 
   let record = await em.findOne(DashboardRoleWidgets, {
     roleId: parsed.data.roleId,
@@ -177,7 +160,7 @@ const roleWidgetsPutDoc: OpenApiMethodDoc = {
   requestBody: {
     contentType: 'application/json',
     schema: roleWidgetSettingsSchema,
-    description: 'Role identifier and the widget ids that should remain assigned. Scope is derived from the authenticated session.',
+    description: 'Role identifier, optional scope, and the widget ids that should remain assigned.',
   },
   responses: [
     { status: 200, description: 'Widgets updated successfully.', schema: dashboardRoleWidgetsUpdateResponseSchema },

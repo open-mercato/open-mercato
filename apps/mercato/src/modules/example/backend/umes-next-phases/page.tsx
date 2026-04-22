@@ -48,7 +48,6 @@ export default function UmesNextPhasesPage() {
   const [progressJobId, setProgressJobId] = React.useState<string | null>(null)
   const [progressPercent, setProgressPercent] = React.useState(0)
   const [progressSseEvents, setProgressSseEvents] = React.useState(0)
-  const idsInputRef = React.useRef<HTMLInputElement | null>(null)
   const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const progressTickInFlightRef = React.useRef(false)
   const progressStepRef = React.useRef(0)
@@ -135,8 +134,7 @@ export default function UmesNextPhasesPage() {
     setProbePayload(null)
 
     try {
-      const currentIdsInput = idsInputRef.current?.value ?? idsInput
-      const ids = parseIds(currentIdsInput)
+      const ids = parseIds(idsInput)
       if (ids.length === 0) {
         throw new Error(t('example.umes.next.probe.idsRequired'))
       }
@@ -284,7 +282,6 @@ export default function UmesNextPhasesPage() {
             <span>{t('example.umes.next.probe.idsLabel')}</span>
             <input
               data-testid="phase-next-ids-input"
-              ref={idsInputRef}
               value={idsInput}
               onChange={(event) => setIdsInput(event.target.value)}
               className="h-9 rounded border border-input bg-background px-3 text-sm"

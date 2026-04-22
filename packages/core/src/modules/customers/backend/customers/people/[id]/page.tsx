@@ -273,37 +273,39 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const handleTasksLoadingChange = React.useCallback(() => {}, [])
 
-  const initialLoadDoneRef = React.useRef(false)
-  const loadData = React.useCallback(async () => {
+  React.useEffect(() => {
     if (!id) {
       setError(t('customers.people.detail.error.notFound'))
       setIsLoading(false)
       return
     }
-    if (!initialLoadDoneRef.current) {
+    const personId = id
+    let cancelled = false
+    async function load() {
       setIsLoading(true)
+      setError(null)
+      try {
+        const payload = await readApiResultOrThrow<PersonOverview>(
+          `/api/customers/people/${encodeURIComponent(personId)}?include=todos`,
+          undefined,
+          { errorMessage: t('customers.people.detail.error.load') },
+        )
+        if (cancelled) return
+        setData(payload as PersonOverview)
+      } catch (err) {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
+        setError(message)
+        setData(null)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
     }
-    setError(null)
-    try {
-      const payload = await readApiResultOrThrow<PersonOverview>(
-        `/api/customers/people/${encodeURIComponent(id)}?include=todos`,
-        undefined,
-        { errorMessage: t('customers.people.detail.error.load') },
-      )
-      setData(payload as PersonOverview)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
-      setError(message)
-      if (!initialLoadDoneRef.current) setData(null)
-    } finally {
-      setIsLoading(false)
-      initialLoadDoneRef.current = true
+    load().catch(() => {})
+    return () => {
+      cancelled = true
     }
   }, [id, t])
-
-  React.useEffect(() => {
-    loadData().catch(() => {})
-  }, [loadData])
 
   const savePerson = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
@@ -826,9 +828,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     }}
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handleDealsLoadingChange}
-                    onDataRefresh={loadData}
                     translator={detailTranslator}
-                    runGuardedMutation={runMutationWithContext}
                   />
                 )
               }

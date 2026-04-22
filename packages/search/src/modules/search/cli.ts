@@ -1,6 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
@@ -367,8 +367,8 @@ async function testMeilisearchCommand(): Promise<void> {
   console.log('')
 
   try {
-    const { Meilisearch } = await import('meilisearch')
-    const client = new Meilisearch({ host, apiKey })
+    const { MeiliSearch } = await import('meilisearch')
+    const client = new MeiliSearch({ host, apiKey })
 
     console.log('Testing connection...')
     const health = await client.health()
@@ -798,7 +798,7 @@ async function workerCommand(rest: string[]): Promise<void> {
     return
   }
 
-  const redisUrl = getRedisUrlOrThrow('QUEUE')
+  const redisUrl = getRedisUrl('QUEUE')
 
   // Dynamically import runWorker to avoid loading BullMQ unless needed
   const { runWorker } = await import('@open-mercato/queue/worker')

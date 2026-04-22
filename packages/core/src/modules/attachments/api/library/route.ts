@@ -133,7 +133,7 @@ export async function GET(req: Request) {
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
       thumbnailUrl,
-      content: record.content && record.content.trim() ? record.content : null,
+      content: record.content ?? null,
     }
   })
 

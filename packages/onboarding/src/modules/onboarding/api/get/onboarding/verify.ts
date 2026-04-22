@@ -3,7 +3,6 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
@@ -289,7 +288,7 @@ async function runDeferredProvisioning(args: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = getAppBaseUrl(req)
+  const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
   const token = url.searchParams.get('token') ?? ''
   const parsed = onboardingVerifySchema.safeParse({ token })
   if (!parsed.success) {

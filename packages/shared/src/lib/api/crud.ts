@@ -13,9 +13,7 @@ export function buildScopedWhere(
 
   if (orgField) {
     if (scope.organizationIds !== undefined) {
-      const ids = (scope.organizationIds ?? [])
-        .map((id) => (typeof id === 'string' ? id.trim() : id))
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      const ids = (scope.organizationIds ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)
       if (ids.length === 0) {
         where[orgField] = { $in: [] }
       } else if (ids.length === 1) {

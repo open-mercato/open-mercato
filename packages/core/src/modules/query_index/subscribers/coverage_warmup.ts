@@ -9,7 +9,6 @@ type Payload = {
 }
 
 const WARMUP_THROTTLE_MS = 5 * 60 * 1000
-const WARMUP_REFRESH_CONCURRENCY = 10
 const lastWarmupAt = new Map<string, number>()
 
 function scopeKey(entityType: string, tenantId: string | null): string {
@@ -22,10 +21,7 @@ function getEntityIdList(): string[] {
 
 export default async function handle(payload: Payload, ctx: { resolve: <T = any>(name: string) => T }) {
   const entityIds = getEntityIdList()
-  if (!entityIds.length) {
-    return
-  }
-
+  if (!entityIds.length) return
   const tenantId = payload?.tenantId ?? null
   let eventBus: EventBus | null = null
   try {
@@ -33,35 +29,25 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
   } catch {
     eventBus = null
   }
-
-  if (!eventBus) {
-    return
-  }
+  if (!eventBus) return
 
   const now = Date.now()
-  const staleEntityTypes: string[] = []
+  const scheduled: Promise<unknown>[] = []
   for (const entityType of entityIds) {
     const key = scopeKey(entityType, tenantId)
     const last = lastWarmupAt.get(key) ?? 0
-    if (now - last < WARMUP_THROTTLE_MS) {
-      continue
-    }
-
+    if (now - last < WARMUP_THROTTLE_MS) continue
     lastWarmupAt.set(key, now)
-    staleEntityTypes.push(entityType)
-  }
-
-  for (let i = 0; i < staleEntityTypes.length; i += WARMUP_REFRESH_CONCURRENCY) {
-    const chunk = staleEntityTypes.slice(i, i + WARMUP_REFRESH_CONCURRENCY)
-    await Promise.allSettled(
-      chunk.map((entityType) =>
-        eventBus.emit('query_index.coverage.refresh', {
-          entityType,
-          tenantId,
-          organizationId: null,
-          delayMs: 0,
-        }).catch(() => undefined)
-      )
+    scheduled.push(
+      eventBus.emitEvent('query_index.coverage.refresh', {
+        entityType,
+        tenantId,
+        organizationId: null,
+        delayMs: 0,
+      }).catch(() => undefined)
     )
+  }
+  if (scheduled.length) {
+    await Promise.allSettled(scheduled)
   }
 }

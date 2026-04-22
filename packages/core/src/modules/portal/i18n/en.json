@@ -89,13 +89,5 @@
   "portal.signup.success.title": "Account Created",
   "portal.signup.title": "Create Account",
   "portal.subtitle": "Your self-service hub",
-  "portal.title": "Customer Portal",
-  "portal.verify.description": "Please wait while we verify your email address.",
-  "portal.verify.error.backToLogin": "Back to sign in",
-  "portal.verify.error.generic": "Email verification failed. Please try again.",
-  "portal.verify.error.invalidToken": "Verification token is missing.",
-  "portal.verify.success.description": "Your email has been verified. You can now sign in to the portal.",
-  "portal.verify.success.loginLink": "Sign In",
-  "portal.verify.success.title": "Email verified",
-  "portal.verify.title": "Verifying email"
+  "portal.title": "Customer Portal"
 }

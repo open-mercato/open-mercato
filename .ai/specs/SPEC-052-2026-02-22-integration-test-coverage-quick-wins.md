@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-22
 **Updated:** 2026-03-16
-**Status:** In Progress — Phases 1-2 complete, Phase 3 planner complete
+**Status:** In Progress — Phases 1-2 complete
 **Scope:** Integration test coverage improvement across all core modules
 
 ---
@@ -183,26 +183,6 @@ Complex stateful modules requiring multi-step fixture chains.
 | **workflows** | 18 | 5 | Definition CRUD, instance lifecycle, user tasks, signals, events |
 | **planner** | 6 | 3 | Availability rule sets, weekly/date-specific rules, access |
 
-**Helpers created** (centralized in `packages/core/src/helpers/integration/`):
-- `plannerFixtures.ts` — availability rule set and availability rule create + cleanup
-
-**Module `meta.ts` file created** for: planner (declares `dependsOnModules: ['planner', 'staff']`).
-
-**Planner test files:**
-
-| File | Test ID | Scope | Status |
-|------|---------|-------|--------|
-| `packages/core/src/modules/planner/__integration__/TC-PLAN-002.spec.ts` | TC-PLAN-002 | Availability Rule Set CRUD: create, list, search, update, soft-delete | ✅ |
-| `packages/core/src/modules/planner/__integration__/TC-PLAN-003.spec.ts` | TC-PLAN-003 | Weekly replace (`/weekly/replace`) and date-specific replace (`/date-specific/replace`) with overwrite + unavailability | ✅ |
-| `packages/core/src/modules/planner/__integration__/TC-PLAN-004.spec.ts` | TC-PLAN-004 | Availability rule CRUD + employee access-control denial for rule set writes | ✅ |
-
-**Route coverage map — planner**
-
-- `GET/POST/PUT/DELETE /api/planner/availability-rule-sets`
-- `GET/POST/PUT/DELETE /api/planner/availability`
-- `POST /api/planner/availability-weekly`
-- `POST /api/planner/availability-date-specific`
-
 ---
 
 ### Phase 4 — Deepen Existing Module Coverage
@@ -266,4 +246,3 @@ Per module:
 
 - 2026-03-15: Refreshed Phase 2 after post-Phase-1 repo changes. Removed `notifications` from the zero-coverage list, aligned planned tests to current route behavior, added explicit route coverage mapping, and split `attachments` binary file/image checks into an optional deferred file.
 - 2026-03-16: Completed Phase 2 API-first coverage with 12 passing integration tests across `notifications`, `feature_toggles`, `business_rules`, and `attachments`. Updated route paths to the live underscore-based endpoints where applicable, aligned attachment partition coverage with demo-mode lock behavior, and fixed `business_rules` execution/log response serialization for bigint log IDs.
-- 2026-04-12: Implemented Phase 3 planner tests (TC-PLAN-002/003/004): availability rule set CRUD, weekly/date-specific replace APIs, individual rule CRUD, and employee access-control denial. Added `plannerFixtures.ts` helper and planner `meta.ts`.

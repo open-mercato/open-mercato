@@ -880,7 +880,6 @@ export class VectorIndexService {
         payload.resetCoverage = true
       }
       if (args.tenantId !== undefined) payload.tenantId = args.tenantId
-      else payload.allowAllTenants = true
       if (args.organizationId !== undefined) payload.organizationId = args.organizationId
       await this.opts.eventBus.emitEvent('query_index.reindex', payload)
       return

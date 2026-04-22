@@ -3,14 +3,14 @@ import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
-import { hashAuthToken } from '../../auth/lib/tokenHash'
-import { MAX_TOKEN_USE_COUNT, consumeMessageAccessToken } from '../lib/tokenConsumption'
 
-export { MAX_TOKEN_USE_COUNT }
+const MAX_TOKEN_USE_COUNT = 25
 
 const consumeTokenSchema = z.object({
   token: z.string().min(1),
 })
+
+type ConsumeTokenInput = z.infer<typeof consumeTokenSchema>
 
 const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipientUserId: string }> = {
   id: 'messages.tokens.consume',
@@ -18,20 +18,16 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     const input = consumeTokenSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const hashedToken = hashAuthToken(input.token)
-    const accessToken =
-      (await em.findOne(MessageAccessToken, { token: hashedToken })) ??
-      (await em.findOne(MessageAccessToken, { token: input.token }))
+    const accessToken = await em.findOne(MessageAccessToken, { token: input.token })
     if (!accessToken) {
       throw new Error('Invalid or expired link')
     }
-
-    const result = await consumeMessageAccessToken(em, accessToken.id)
-    if (!result.ok) {
-      if (result.reason === 'expired') throw new Error('This link has expired')
+    if (accessToken.expiresAt < new Date()) {
+      throw new Error('This link has expired')
+    }
+    if (accessToken.useCount >= MAX_TOKEN_USE_COUNT) {
       throw new Error('This link can no longer be used')
     }
-    em.clear()
 
     const message = await em.findOne(Message, {
       id: accessToken.messageId,
@@ -50,6 +46,8 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
       throw new Error('Invalid or expired link')
     }
 
+    accessToken.usedAt = new Date()
+    accessToken.useCount += 1
     let becameRead = false
     if (recipient.status === 'unread') {
       recipient.status = 'read'

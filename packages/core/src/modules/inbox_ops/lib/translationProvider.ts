@@ -2,7 +2,7 @@ import { generateText } from 'ai'
 import { z } from 'zod'
 import {
   resolveOpenCodeModel,
-  requireOpenCodeProviderApiKey,
+  resolveOpenCodeProviderApiKey,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { createStructuredModel, resolveExtractionProviderId, withTimeout } from './llmProvider'
 
@@ -20,7 +20,10 @@ export async function translateProposalContent(input: {
   targetLocale: string
 }): Promise<{ summary: string; actions: Record<string, string> }> {
   const providerId = resolveExtractionProviderId()
-  const apiKey = requireOpenCodeProviderApiKey(providerId)
+  const apiKey = resolveOpenCodeProviderApiKey(providerId)
+  if (!apiKey) {
+    throw new Error(`Missing API key for provider "${providerId}"`)
+  }
 
   const modelConfig = resolveOpenCodeModel(providerId, {
     overrideModel: process.env.INBOX_OPS_LLM_MODEL,

@@ -6,10 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
-import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -17,11 +16,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
-  const container = await createRequestContainer()
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-
   try {
-    await requireCustomerFeature(auth, ['portal.users.manage'], customerRbacService)
+    requireCustomerFeature(auth, ['portal.users.manage'])
   } catch (response) {
     return response as NextResponse
   }
@@ -34,6 +30,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: 'Cannot delete your own account' }, { status: 400 })
   }
 
+  const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService

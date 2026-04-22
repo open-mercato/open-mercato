@@ -1,16 +1,14 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { findRouteManifestMatch, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
-import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-
-registerFrontendRouteManifests(frontendRoutes)
+import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
+import { modules } from '@/.mercato/generated/modules.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
@@ -36,7 +34,7 @@ async function renderAccessDenied() {
 export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(frontendRoutes, pathname)
+  const match = findFrontendMatch(modules, pathname)
   if (!match) {
     return {}
   }
@@ -50,7 +48,7 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
 export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(frontendRoutes, pathname)
+  const match = findFrontendMatch(modules, pathname)
   if (!match) return notFound()
 
   // Customer portal auth gate — separate from staff auth
@@ -65,16 +63,10 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     }
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {
-      const portalContainer = await createRequestContainer()
-      const customerRbac = portalContainer.resolve('customerRbacService') as CustomerRbacService
-      const ok = await customerRbac.userHasAllFeatures(
-        customerAuth.sub,
-        customerFeatures as string[],
-        { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId },
-      )
+      const ok = hasAllFeatures(customerFeatures as string[], customerAuth.resolvedFeatures)
       if (!ok) return renderAccessDenied()
     }
-    const Component = await match.route.load()
+    const Component = match.route.Component
     return <Component params={match.params} />
   }
 
@@ -119,6 +111,6 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     },
   })
   if (middlewareRedirect) redirect(middlewareRedirect)
-  const Component = await match.route.load()
+  const Component = match.route.Component
   return <Component params={match.params} />
 }

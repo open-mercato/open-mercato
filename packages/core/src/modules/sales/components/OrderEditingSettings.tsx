@@ -180,7 +180,7 @@ export function OrderEditingSettings() {
                     <span className="truncate" title={status.label || status.value}>
                       {status.label || status.value}
                     </span>
-                    <Badge variant="outline" className="ml-auto text-overline uppercase tracking-wide">
+                    <Badge variant="outline" className="ml-auto text-[11px] uppercase tracking-wide">
                       {status.value}
                     </Badge>
                   </label>

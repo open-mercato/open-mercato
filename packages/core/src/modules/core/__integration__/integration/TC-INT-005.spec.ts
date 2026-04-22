@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
@@ -10,11 +9,9 @@ import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@op
 test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
   test.setTimeout(60_000);
 
-  test('should record shipment and payment on an order flow', async ({ page, request }) => {
-    const token = await getAuthToken(request);
-
+  test('should record shipment and payment on an order flow', async ({ page }) => {
     await login(page, 'admin');
-    await createSalesDocument(page, { kind: 'order', preferApi: true, token });
+    await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: `QA INT-005 ${Date.now()}`, quantity: 2, unitPriceGross: 40 });
 
     const shipmentResult = await addShipment(page);

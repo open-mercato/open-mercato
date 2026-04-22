@@ -186,6 +186,7 @@ export class ActionLogService {
   async list(query: Partial<ActionLogListQuery>) {
     const parsed = actionLogListSchema.parse({
       ...query,
+      limit: query.limit ?? 50,
     })
 
     const where: FilterQuery<ActionLog> = { deletedAt: null }
@@ -205,22 +206,16 @@ export class ActionLogService {
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
-    const page = parsed.page ?? 1
-    const offset = (page - 1) * pageSize
-
-    const [items, total] = await this.em.findAndCount(
+    const results = await this.em.find(
       ActionLog,
       where,
       {
         orderBy: { createdAt: 'desc' },
-        limit: pageSize,
-        offset,
+        limit: parsed.limit,
       },
     )
-    await this.decryptEntries(items)
-    const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
-    return { items, total, page, pageSize, totalPages }
+    await this.decryptEntries(results)
+    return results
   }
 
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {

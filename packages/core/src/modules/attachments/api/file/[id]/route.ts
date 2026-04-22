@@ -12,10 +12,6 @@ import type { EntityManager } from "@mikro-orm/postgresql";
 import { checkAttachmentAccess } from "@open-mercato/core/modules/attachments/lib/access";
 import { z } from "zod";
 import { attachmentsTag, attachmentErrorSchema } from "../../openapi";
-import {
-  buildAttachmentContentDisposition,
-  canRenderInlineAttachment,
-} from "@open-mercato/core/modules/attachments/lib/security";
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -73,23 +69,18 @@ export async function GET(
 
   const url = new URL(req.url);
   const forceDownload = url.searchParams.get("download") === "1";
-  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
   const headers: Record<string, string> = {
+    "Content-Type": attachment.mimeType || "application/octet-stream",
     "Cache-Control": partition.isPublic
       ? "public, max-age=86400"
       : "private, max-age=60",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Content-Type": renderInline
-      ? attachment.mimeType || "application/octet-stream"
-      : "application/octet-stream",
-    "Content-Disposition": buildAttachmentContentDisposition(
-      attachment.fileName,
-      renderInline ? "inline" : "attachment",
-    ),
-    "X-Content-Type-Options": "nosniff",
   };
   if (attachment.fileSize > 0) {
     headers["Content-Length"] = String(attachment.fileSize);
+  }
+  if (forceDownload) {
+    headers["Content-Disposition"] =
+      `attachment; filename="${encodeURIComponent(attachment.fileName)}"`;
   }
 
   const responseBody = new Uint8Array(buffer);

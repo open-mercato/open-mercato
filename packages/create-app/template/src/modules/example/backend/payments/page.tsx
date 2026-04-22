@@ -310,15 +310,11 @@ export default function PaymentGatewayDemoPage() {
         }))
         return
       }
-      const nextStatus = data?.status
       setActionResult(t('example.payments.success.action', '{action} successful: status = {status}', {
         action: t(`example.payments.action.${action}`, action),
-        status: t(`payment_gateways.status.${nextStatus ?? 'unknown'}`, nextStatus ?? 'unknown'),
+        status: t(`payment_gateways.status.${data?.status ?? 'unknown'}`, data?.status ?? 'unknown'),
       }))
-      if (nextStatus) {
-        setTransaction((prev) => prev ? { ...prev, status: nextStatus } : prev)
-      }
-      void refreshStatus(transaction.transactionId)
+      await refreshStatus()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('example.payments.error.unknown', 'Unknown error'))
     } finally {
@@ -326,10 +322,10 @@ export default function PaymentGatewayDemoPage() {
     }
   }
 
-  async function refreshStatus(transactionId = transaction?.transactionId) {
-    if (!transactionId) return
+  async function refreshStatus() {
+    if (!transaction) return
     try {
-      const response = await apiCall(`/api/payment_gateways/status?transactionId=${encodeURIComponent(transactionId)}`)
+      const response = await apiCall(`/api/payment_gateways/status?transactionId=${transaction.transactionId}`)
       if (response.ok) {
         const data = response.result as { status?: string } | null
         setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)
@@ -539,7 +535,7 @@ export default function PaymentGatewayDemoPage() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    onClick={() => void refreshStatus()}
+                    onClick={refreshStatus}
                     disabled={loading}
                   >
                     <RefreshCw className="mr-1.5 size-3.5" />

@@ -1,19 +1,13 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import type { LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
-// Side-effect: ensures the registry is populated with built-in adapters
-// and OpenAI-compatible presets before this module's getters run.
-import './llm-bootstrap'
+import {
+  OPEN_CODE_PROVIDER_IDS,
+  OPEN_CODE_PROVIDERS,
+  isOpenCodeProviderConfigured,
+  type OpenCodeProviderId,
+} from '@open-mercato/shared/lib/ai/opencode-provider'
 
 // Types
-//
-// `ChatProviderId` was previously a narrow literal union of three ids
-// (`'anthropic' | 'openai' | 'google'`). After the ports & adapters
-// refactor the registry accepts any stable id string, so this type
-// becomes `string`. Backward-compatibility note: downstream callers that
-// used exhaustive switches on the old union must add a `default:` branch.
-// See `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`.
-export type ChatProviderId = string
+export type ChatProviderId = OpenCodeProviderId
 
 export type ChatModelInfo = {
   id: string
@@ -37,74 +31,51 @@ export type ChatProviderConfig = {
 // Constants
 export const CHAT_CONFIG_KEY = 'chat_provider'
 
-function providerToChatInfo(provider: LlmProvider): ChatProviderInfo {
-  return {
-    name: provider.name,
-    envKeyRequired: provider.envKeys[0],
-    defaultModel: provider.defaultModel,
-    models: provider.defaultModels.map((m) => ({
-      id: m.id,
-      name: m.name,
-      contextWindow: m.contextWindow,
-    })),
-  }
-}
-
-/**
- * `CHAT_PROVIDERS` is a dynamic getter that returns all providers
- * registered with `llmProviderRegistry`. The shape
- * (`Record<string, ChatProviderInfo>`) is preserved so existing code that
- * indexed the map with a string literal (`CHAT_PROVIDERS['anthropic']`)
- * keeps working — it is now a runtime lookup against the registry.
- */
-export const CHAT_PROVIDERS: Record<string, ChatProviderInfo> = new Proxy(
-  {} as Record<string, ChatProviderInfo>,
-  {
-    get(_target, prop: string): ChatProviderInfo | undefined {
-      if (typeof prop !== 'string') return undefined
-      const provider = llmProviderRegistry.get(prop)
-      return provider ? providerToChatInfo(provider) : undefined
-    },
-    has(_target, prop: string): boolean {
-      if (typeof prop !== 'string') return false
-      return llmProviderRegistry.get(prop) !== null
-    },
-    ownKeys(): string[] {
-      return llmProviderRegistry.list().map((p) => p.id)
-    },
-    getOwnPropertyDescriptor(_target, prop: string): PropertyDescriptor | undefined {
-      if (typeof prop !== 'string') return undefined
-      const provider = llmProviderRegistry.get(prop)
-      if (!provider) return undefined
-      return {
-        enumerable: true,
-        configurable: true,
-        value: providerToChatInfo(provider),
-      }
-    },
+export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
+  openai: {
+    name: OPEN_CODE_PROVIDERS.openai.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.openai.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.openai.defaultModel,
+    models: [
+      { id: OPEN_CODE_PROVIDERS.openai.defaultModel, name: 'GPT-4o Mini', contextWindow: 128000 },
+    ],
   },
-)
+  anthropic: {
+    name: OPEN_CODE_PROVIDERS.anthropic.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.anthropic.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.anthropic.defaultModel,
+    models: [
+      { id: OPEN_CODE_PROVIDERS.anthropic.defaultModel, name: 'Claude Haiku 4.5', contextWindow: 200000 },
+    ],
+  },
+  google: {
+    name: OPEN_CODE_PROVIDERS.google.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.google.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.google.defaultModel,
+    models: [
+      { id: OPEN_CODE_PROVIDERS.google.defaultModel, name: 'Gemini 3 Flash', contextWindow: 1048576 },
+    ],
+  },
+}
 
 export const DEFAULT_CHAT_CONFIG: Omit<ChatProviderConfig, 'updatedAt'> = {
   providerId: 'openai',
-  get model(): string {
-    // Lazy resolution so the bootstrap has a chance to register providers
-    // before the default is computed.
-    const provider = llmProviderRegistry.get('openai')
-    return provider?.defaultModel ?? 'gpt-5-mini'
-  },
+  model: OPEN_CODE_PROVIDERS.openai.defaultModel,
 }
 
 // Provider configuration checks
 export function isProviderConfigured(providerId: ChatProviderId): boolean {
-  const provider = llmProviderRegistry.get(providerId)
-  return provider?.isConfigured() ?? false
+  return isOpenCodeProviderConfigured(providerId)
 }
 
 export function getConfiguredProviders(): ChatProviderId[] {
-  return llmProviderRegistry
-    .listConfigured()
-    .map((p) => p.id)
+  const providers: ChatProviderId[] = []
+  for (const providerId of OPEN_CODE_PROVIDER_IDS) {
+    if (isProviderConfigured(providerId)) {
+      providers.push(providerId)
+    }
+  }
+  return providers
 }
 
 // Config resolution
@@ -150,11 +121,7 @@ export async function saveChatConfig(
 }
 
 export function createDefaultConfig(): ChatProviderConfig {
-  return {
-    providerId: DEFAULT_CHAT_CONFIG.providerId,
-    model: DEFAULT_CHAT_CONFIG.model,
-    updatedAt: new Date().toISOString(),
-  }
+  return { ...DEFAULT_CHAT_CONFIG, updatedAt: new Date().toISOString() }
 }
 
 // Get model info by ID

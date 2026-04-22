@@ -4,19 +4,19 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-8",
+  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-8 [&>svg]:text-current",
   {
     variants: {
       variant: {
-        default: 'border-border bg-background text-foreground [&>svg]:text-foreground',
+        default: 'border-border bg-background text-foreground',
         destructive:
-          'border-status-error-border bg-status-error-bg text-status-error-text [&>svg]:text-status-error-icon',
+          'border-destructive/60 bg-destructive/10 text-destructive dark:border-destructive/40 dark:bg-destructive/20 dark:text-destructive-foreground',
         success:
-          'border-status-success-border bg-status-success-bg text-status-success-text [&>svg]:text-status-success-icon',
+          'border-emerald-600/30 bg-emerald-500/10 text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/15 dark:text-emerald-50',
         warning:
-          'border-status-warning-border bg-status-warning-bg text-status-warning-text [&>svg]:text-status-warning-icon',
+          'border-amber-500/30 bg-amber-400/10 text-amber-950 dark:border-amber-400/40 dark:bg-amber-400/20 dark:text-amber-50',
         info:
-          'border-status-info-border bg-status-info-bg text-status-info-text [&>svg]:text-status-info-icon',
+          'border-sky-600/30 bg-sky-500/10 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/20 dark:text-sky-50',
       },
     },
     defaultVariants: {

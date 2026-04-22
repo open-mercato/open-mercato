@@ -10,7 +10,6 @@ import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, No
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
-import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -29,7 +28,6 @@ import {
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -61,8 +59,6 @@ export default function VisualEditorPage() {
   const searchParams = useSearchParams()
   const definitionId = searchParams.get('id')
   const isMobile = useIsMobile()
-
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [isLoading, setIsLoading] = useState(!!definitionId)
   const [isSaving, setIsSaving] = useState(false)
@@ -227,30 +223,21 @@ export default function VisualEditorPage() {
   }, [])
 
   // Delete edge
-  const handleDeleteEdge = useCallback(async (edgeId: string) => {
-    await performDeleteEdgeFlow(edgeId, {
-      confirm,
-      t,
-      setShowEdgeDialog,
-      setSelectedEdge,
-      setEdges,
-      notifyDeleted: () => flash('Transition deleted successfully', 'success'),
-    })
-  }, [confirm, t])
+  const handleDeleteEdge = useCallback((edgeId: string) => {
+    setEdges((eds) => eds.filter((edge) => edge.id !== edgeId))
+    flash('Transition deleted successfully', 'success')
+  }, [])
 
   // Delete node
-  const handleDeleteNode = useCallback(async (nodeId: string) => {
-    await performDeleteNodeFlow(nodeId, {
-      nodes,
-      confirm,
-      t,
-      setShowNodeDialog,
-      setSelectedNode,
-      setNodes,
-      setEdges,
-      notifyDeleted: () => flash('Step deleted successfully', 'success'),
-    })
-  }, [confirm, nodes, t])
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    // Remove the node
+    setNodes((nds) => nds.filter((node) => node.id !== nodeId))
+
+    // Remove all edges connected to this node
+    setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
+
+    flash('Step deleted successfully', 'success')
+  }, [])
 
   // Handle new connections
   const handleConnect = useCallback((connection: Connection) => {
@@ -597,7 +584,6 @@ export default function VisualEditorPage() {
           metadataHandlers={metadataHandlers}
         />
         {sharedDialogs}
-        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -1043,7 +1029,6 @@ export default function VisualEditorPage() {
         </div>
       )}
       {sharedDialogs}
-      {ConfirmDialogElement}
     </Page>
   )
 }

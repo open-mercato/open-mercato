@@ -104,21 +104,11 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
   }
 
   const em = ctx.resolve('em') as EntityManager
-  const notification = await findOneWithDecryption(
-    em,
-    Notification,
-    {
-      id: payload.notificationId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-    },
-    undefined,
-    {
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-      encryptionService: null,
-    },
-  )
+  const notification = await em.findOne(Notification, {
+    id: payload.notificationId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId ?? null,
+  })
   if (!notification) {
     debug('notification not found', payload.notificationId)
     return
@@ -131,101 +121,92 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     encryptionService = null
   }
 
-  try {
-    const recipient = (await resolveRecipient(em, notification, encryptionService)) ?? { email: null, name: null }
-    if (!recipient?.email) {
-      debug('recipient has no email', notification.recipientUserId)
-    }
-    const { title, body, t } = await resolveNotificationCopy(notification)
-    const panelUrl = resolveNotificationPanelUrl(deliveryConfig)
-    if (!panelUrl) {
-      debug('missing panelUrl; check appUrl/panelPath settings')
-    }
+  const recipient = (await resolveRecipient(em, notification, encryptionService)) ?? { email: null, name: null }
+  if (!recipient?.email) {
+    debug('recipient has no email', notification.recipientUserId)
+  }
+  const { title, body, t } = await resolveNotificationCopy(notification)
+  const panelUrl = resolveNotificationPanelUrl(deliveryConfig)
+  if (!panelUrl) {
+    debug('missing panelUrl; check appUrl/panelPath settings')
+  }
 
-    const panelLink = panelUrl ? buildPanelLink(panelUrl, notification.id) : null
-    const baseOrigin = panelUrl ? new URL(panelUrl).origin : null
-    const actionLinks = (notification.actionData?.actions ?? [])
-      .map((action) => {
-        let href = action.href
-        if (href && notification.sourceEntityId) {
-          href = href.replace('{sourceEntityId}', notification.sourceEntityId)
-        }
-        const fullHref = (href && baseOrigin) ? `${baseOrigin}${href}` : panelLink
-        if (!fullHref) return null
-        return {
-          id: action.id,
-          label: action.labelKey ? t(action.labelKey, action.label) : action.label,
-          href: fullHref,
-        }
-      })
-      .filter((action): action is NonNullable<typeof action> => action !== null)
-
-    if (deliveryConfig.strategies.email.enabled && recipient?.email && panelLink) {
-      const subjectPrefix = deliveryConfig.strategies.email.subjectPrefix?.trim()
-      const subject = subjectPrefix ? `${subjectPrefix} ${title}` : title
-      const copy = {
-        preview: t('notifications.delivery.email.preview', 'New notification'),
-        heading: t('notifications.delivery.email.heading', 'You have a new notification'),
-        bodyIntro: t('notifications.delivery.email.bodyIntro', 'Review the notification details and take any required actions.'),
-        actionNotice: t('notifications.delivery.email.actionNotice', 'Actions are available in Open Mercato and are read-only in this email.'),
-        openCta: t('notifications.delivery.email.openCta', 'Open notification center'),
-        footer: t('notifications.delivery.email.footer', 'Open Mercato notifications'),
+  const panelLink = panelUrl ? buildPanelLink(panelUrl, notification.id) : null
+  const baseOrigin = panelUrl ? new URL(panelUrl).origin : null
+  const actionLinks = (notification.actionData?.actions ?? [])
+    .map((action) => {
+      let href = action.href
+      if (href && notification.sourceEntityId) {
+        href = href.replace('{sourceEntityId}', notification.sourceEntityId)
       }
-
-      try {
-        debug('sending email', { to: recipient.email, from: deliveryConfig.strategies.email.from, subject })
-        await sendEmail({
-          to: recipient.email,
-          subject,
-          from: deliveryConfig.strategies.email.from,
-          replyTo: deliveryConfig.strategies.email.replyTo,
-          react: NotificationEmail({
-            title,
-            body,
-            actions: actionLinks,
-            panelUrl: panelLink,
-            copy,
-          }),
-        })
-      } catch (error) {
-        console.error('[notifications] email delivery failed', error)
+      const fullHref = (href && baseOrigin) ? `${baseOrigin}${href}` : panelLink
+      if (!fullHref) return null
+      return {
+        id: action.id,
+        label: action.labelKey ? t(action.labelKey, action.label) : action.label,
+        href: fullHref,
       }
+    })
+    .filter((action): action is NonNullable<typeof action> => action !== null)
+
+  if (deliveryConfig.strategies.email.enabled && recipient?.email && panelLink) {
+    const subjectPrefix = deliveryConfig.strategies.email.subjectPrefix?.trim()
+    const subject = subjectPrefix ? `${subjectPrefix} ${title}` : title
+    const copy = {
+      preview: t('notifications.delivery.email.preview', 'New notification'),
+      heading: t('notifications.delivery.email.heading', 'You have a new notification'),
+      bodyIntro: t('notifications.delivery.email.bodyIntro', 'Review the notification details and take any required actions.'),
+      actionNotice: t('notifications.delivery.email.actionNotice', 'Actions are available in Open Mercato and are read-only in this email.'),
+      openCta: t('notifications.delivery.email.openCta', 'Open notification center'),
+      footer: t('notifications.delivery.email.footer', 'Open Mercato notifications'),
     }
 
-    const strategyConfigs = deliveryConfig.strategies.custom ?? {}
-    const strategies = getNotificationDeliveryStrategies()
-    for (const strategy of strategies) {
-      const strategyConfig = strategyConfigs[strategy.id]
-      const enabled = strategyConfig?.enabled ?? strategy.defaultEnabled ?? false
-      if (!enabled) {
-        debug('custom delivery disabled', strategy.id)
-        continue
-      }
-      try {
-        await strategy.deliver({
-          notification,
-          recipient,
+    try {
+      debug('sending email', { to: recipient.email, from: deliveryConfig.strategies.email.from, subject })
+      await sendEmail({
+        to: recipient.email,
+        subject,
+        from: deliveryConfig.strategies.email.from,
+        replyTo: deliveryConfig.strategies.email.replyTo,
+        react: NotificationEmail({
           title,
           body,
-          panelUrl,
-          panelLink,
-          actionLinks,
-          deliveryConfig,
-          config: strategyConfig ?? {},
-          resolve: ctx.resolve,
-          t,
-        })
-      } catch (error) {
-        console.error(`[notifications] delivery strategy failed (${strategy.id})`, error)
-      }
+          actions: actionLinks,
+          panelUrl: panelLink,
+          copy,
+        }),
+      })
+    } catch (error) {
+      console.error('[notifications] email delivery failed', error)
     }
-  } catch (err) {
-    console.error('[notifications:deliver] Failed to deliver notification:', {
-      notificationId: payload.notificationId,
-      recipientUserId: notification.recipientUserId,
-      error: err instanceof Error ? err.message : String(err),
-    })
-    throw err
+  }
+
+  const strategyConfigs = deliveryConfig.strategies.custom ?? {}
+  const strategies = getNotificationDeliveryStrategies()
+  for (const strategy of strategies) {
+    const strategyConfig = strategyConfigs[strategy.id]
+    const enabled = strategyConfig?.enabled ?? strategy.defaultEnabled ?? false
+    if (!enabled) {
+      debug('custom delivery disabled', strategy.id)
+      continue
+    }
+    try {
+      await strategy.deliver({
+        notification,
+        recipient,
+        title,
+        body,
+        panelUrl,
+        panelLink,
+        actionLinks,
+        deliveryConfig,
+        config: strategyConfig ?? {},
+        resolve: ctx.resolve,
+        t,
+      })
+    } catch (error) {
+      console.error(`[notifications] delivery strategy failed (${strategy.id})`, error)
+    }
   }
 
   return

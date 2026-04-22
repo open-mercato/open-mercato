@@ -88,14 +88,9 @@ describe('messages /api/messages/[id] GET', () => {
       },
     ]
 
-    const encryptedAnchorMessage = {
-      ...anchorMessage,
-      subject: 'ciphertext-anchor-subject',
-      body: 'ciphertext-anchor-body',
-    }
-
     const em = {
       findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.id === anchorMessage.id) return anchorMessage
         if (entity === MessageRecipient && where.messageId === anchorMessage.id) {
           return {
             messageId: anchorMessage.id,
@@ -130,7 +125,6 @@ describe('messages /api/messages/[id] GET', () => {
     }
 
     findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
-      if (entity === Message) return threadMessages
       if (entity !== User) return []
       return [
         { id: senderUserId, name: 'Sender User', email: 'sender@example.com' },
@@ -140,16 +134,10 @@ describe('messages /api/messages/[id] GET', () => {
       ]
     })
 
-    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
-      if (entity === Message) return encryptedAnchorMessage
-      if (entity === User) {
-        return {
-          id: senderUserId,
-          name: 'Sender User',
-          email: 'sender@example.com',
-        }
-      }
-      return null
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: senderUserId,
+      name: 'Sender User',
+      email: 'sender@example.com',
     })
 
     resolveMessageContextMock.mockResolvedValue({
@@ -192,20 +180,5 @@ describe('messages /api/messages/[id] GET', () => {
       recipientUserId: actorUserId,
       deletedAt: null,
     }))
-    expect(payload).toEqual(expect.objectContaining({
-      subject: encryptedAnchorMessage.subject,
-      body: encryptedAnchorMessage.body,
-    }))
-    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
-      em,
-      Message,
-      expect.objectContaining({
-        id: anchorMessage.id,
-        tenantId,
-        deletedAt: null,
-      }),
-      undefined,
-      { tenantId, organizationId },
-    )
   })
 })

@@ -179,35 +179,16 @@ export async function buildProductFilters(
   if (query.productType) {
     filters.product_type = { $eq: query.productType };
   }
+  const term = sanitizeSearchTerm(query.search);
+  if (term) {
+    filters.search_text = {
+      $ilike: `%${escapeLikePattern(term)}%`,
+    };
+  }
   const scope = {
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     tenantId: ctx.auth?.tenantId ?? null,
   };
-  const term = sanitizeSearchTerm(query.search);
-  if (term) {
-    const like = `%${escapeLikePattern(term)}%`;
-    const searchMatches = await findWithDecryption(
-      em,
-      CatalogProduct,
-      {
-        ...scope,
-        ...(query.withDeleted ? {} : { deletedAt: null }),
-        $or: [
-          { title: { $ilike: like } },
-          { subtitle: { $ilike: like } },
-          { description: { $ilike: like } },
-          { sku: { $ilike: like } },
-          { handle: { $ilike: like } },
-        ],
-      },
-      { fields: ["id"] },
-      scope,
-    );
-    const productIds = searchMatches
-      .map((product) => product.id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
-    intersectProductIds(productIds);
-  }
 
   const channelFilterIds = parseIdList(query.channelIds);
   if (channelFilterIds.length) {
@@ -704,33 +685,6 @@ async function decorateProductsAfterList(
   } catch (error) {
     console.error("[decorateProductsAfterList] Failed to load unit conversions", error);
   }
-
-  const searchTerm = ctx.query.search ? sanitizeSearchTerm(ctx.query.search) : null;
-  if (searchTerm && !ctx.query.sortField && Array.isArray(payload.items)) {
-    const needle = searchTerm.toLowerCase();
-    payload.items.sort((a, b) => {
-      const scoreA = scoreProductSearchRelevance(needle, a.title, a.sku);
-      const scoreB = scoreProductSearchRelevance(needle, b.title, b.sku);
-      if (scoreA !== scoreB) return scoreA - scoreB;
-      return (a.title ?? "").localeCompare(b.title ?? "");
-    });
-  }
-}
-
-export function scoreProductSearchRelevance(
-  needle: string,
-  title: string | null | undefined,
-  sku: string | null | undefined,
-): number {
-  const t = (title ?? "").toLowerCase();
-  const s = (sku ?? "").toLowerCase();
-  if (t === needle) return 0;
-  if (s === needle) return 1;
-  if (t.startsWith(needle)) return 2;
-  if (s.startsWith(needle)) return 3;
-  if (t.includes(needle)) return 4;
-  if (s.includes(needle)) return 5;
-  return 6;
 }
 
 const crud = makeCrudRoute({

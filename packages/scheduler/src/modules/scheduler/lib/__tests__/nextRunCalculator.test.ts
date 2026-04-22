@@ -265,7 +265,7 @@ describe('nextRunCalculator', () => {
           // (within the small delay between loop iterations)
           if (i > 0) {
             const diff = Math.abs(results[i].getTime() - results[i - 1].getTime())
-            expect(diff).toBeLessThan(500) // Allow normal CI/runtime jitter between loop iterations
+            expect(diff).toBeLessThan(100) // Should be very close
           }
         }
       })
@@ -283,10 +283,10 @@ describe('nextRunCalculator', () => {
         const diff1 = run1.getTime() - now
         const diff2 = run2.getTime() - now
         const diff3 = run3.getTime() - now
-
-        expect(Math.abs(diff1 - expectedInterval)).toBeLessThan(500)
-        expect(Math.abs(diff2 - expectedInterval)).toBeLessThan(500)
-        expect(Math.abs(diff3 - expectedInterval)).toBeLessThan(500)
+        
+        expect(Math.abs(diff1 - expectedInterval)).toBeLessThan(10)
+        expect(Math.abs(diff2 - expectedInterval)).toBeLessThan(10)
+        expect(Math.abs(diff3 - expectedInterval)).toBeLessThan(10)
       })
     })
 

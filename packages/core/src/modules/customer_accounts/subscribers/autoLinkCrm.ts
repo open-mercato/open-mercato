@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
   event: 'customer_accounts.user.created',
@@ -21,11 +21,13 @@ export default async function handle(
   const em = ctx.resolve<EntityManager>('em')
 
   try {
-    const user = await findOneWithDecryption(em, CustomerUser, { id: userId, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
-    if (!user) return
-    if (user.personEntityId) return
-
-    const email = (data?.email ? (data.email as string) : user.email)?.toLowerCase().trim()
+    let email: string | undefined
+    if (data?.email) {
+      email = (data.email as string).toLowerCase().trim()
+    } else {
+      const user = await em.findOne(CustomerUser, { id: userId, tenantId, deletedAt: null })
+      if (user) email = user.email?.toLowerCase().trim()
+    }
     if (!email) return
 
     const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')

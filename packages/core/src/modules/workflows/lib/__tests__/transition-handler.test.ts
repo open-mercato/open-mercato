@@ -10,14 +10,12 @@ import {
   WorkflowEvent,
 } from '../../data/entities'
 import * as transitionHandler from '../transition-handler'
-import * as activityExecutor from '../activity-executor'
 import * as ruleEvaluator from '../../../business_rules/lib/rule-evaluator'
 import * as ruleEngine from '../../../business_rules/lib/rule-engine'
 
 // Mock dependencies
 jest.mock('../../../business_rules/lib/rule-evaluator')
 jest.mock('../../../business_rules/lib/rule-engine')
-jest.mock('../activity-executor')
 
 describe('Transition Handler (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -751,82 +749,6 @@ describe('Transition Handler (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('evaluation error')
       // Note: No event is logged when evaluation fails early
-    })
-  })
-
-  // ============================================================================
-  // Activity Failure / continueOnActivityFailure Tests
-  // ============================================================================
-
-  describe('executeTransition with activity failures', () => {
-    const definitionWithActivities = (continueOnActivityFailure?: boolean) => ({
-      ...mockDefinition,
-      definition: {
-        ...mockDefinition.definition,
-        transitions: [
-          { fromStepId: 'start', toStepId: 'step-1' },
-          {
-            fromStepId: 'step-1',
-            toStepId: 'step-2',
-            activities: [{ activityType: 'SEND_EMAIL', activityName: 'notify', config: {} }],
-            ...(continueOnActivityFailure !== undefined ? { continueOnActivityFailure } : {}),
-          },
-          { fromStepId: 'step-2', toStepId: 'end' },
-        ],
-      },
-    })
-
-    const setupMocks = (def: any) => {
-      mockEm.findOne.mockReset()
-      mockEm.findOne.mockResolvedValue(def)
-      mockEm.create.mockReturnValue({} as any)
-      ;(ruleEngine.executeRules as jest.Mock)
-        .mockResolvedValueOnce({ allowed: true, executedRules: [], totalExecutionTime: 5 })
-        .mockResolvedValueOnce({ allowed: true, executedRules: [], totalExecutionTime: 5 })
-    }
-
-    test('should fail transition when activity fails and continueOnActivityFailure is omitted (default false)', async () => {
-      const def = definitionWithActivities()
-      setupMocks(def)
-      ;(activityExecutor.executeActivities as jest.Mock).mockResolvedValue([
-        { success: false, error: 'Email failed', activityType: 'SEND_EMAIL', activityName: 'notify' },
-      ])
-
-      const result = await transitionHandler.executeTransition(
-        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
-      )
-
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Email failed')
-    })
-
-    test('should succeed transition when activity fails but continueOnActivityFailure is true', async () => {
-      const def = definitionWithActivities(true)
-      setupMocks(def)
-      ;(activityExecutor.executeActivities as jest.Mock).mockResolvedValue([
-        { success: false, error: 'Email failed', activityType: 'SEND_EMAIL', activityName: 'notify' },
-      ])
-
-      const result = await transitionHandler.executeTransition(
-        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
-      )
-
-      expect(result.success).toBe(true)
-    })
-
-    test('should fail transition when activity fails and continueOnActivityFailure is explicitly false', async () => {
-      const def = definitionWithActivities(false)
-      setupMocks(def)
-      ;(activityExecutor.executeActivities as jest.Mock).mockResolvedValue([
-        { success: false, error: 'Email failed', activityType: 'SEND_EMAIL', activityName: 'notify' },
-      ])
-
-      const result = await transitionHandler.executeTransition(
-        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
-      )
-
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Email failed')
     })
   })
 

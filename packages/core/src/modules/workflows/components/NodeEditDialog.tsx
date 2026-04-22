@@ -419,9 +419,16 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     onClose()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!node || !onDelete) return
-    onDelete(node.id)
+    const confirmed = await confirmDialog({
+      title: t('workflows.confirm.deleteStep', { name: stepName || node.id }),
+      variant: 'destructive',
+    })
+    if (confirmed) {
+      onDelete(node.id)
+      onClose()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -181,8 +181,5 @@ export async function emitCatalogQueryIndexEvent(
   }
 
   const eventName = params.action === 'deleted' ? 'query_index.delete_one' : 'query_index.upsert_one'
-  await bus.emitEvent(eventName, payload, {
-    tenantId: params.tenantId ?? null,
-    organizationId: params.organizationId ?? null,
-  }).catch(() => undefined)
+  await bus.emitEvent(eventName, payload).catch(() => undefined)
 }

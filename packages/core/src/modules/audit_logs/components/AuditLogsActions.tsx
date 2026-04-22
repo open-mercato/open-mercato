@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -41,7 +41,6 @@ export function AuditLogsActions({
   headerExtras,
   onUndoError,
   onRedoError,
-  pagination,
 }: {
   items: ActionLogItem[] | undefined
   onRefresh: () => Promise<void>
@@ -49,7 +48,6 @@ export function AuditLogsActions({
   headerExtras?: React.ReactNode
   onUndoError?: () => void
   onRedoError?: () => void
-  pagination?: PaginationProps
 }) {
   const t = useT()
   const permissions = useAuditPermissions(true)
@@ -243,7 +241,6 @@ export function AuditLogsActions({
         perspective={{ tableId: 'audit_logs.actions.list' }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
-        pagination={pagination}
       />
       {selected ? (
         <ActionLogDetailsDialog

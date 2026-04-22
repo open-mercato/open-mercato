@@ -31,15 +31,13 @@ test.describe('TC-CRM-011: Add Comment to Customer', () => {
       await page.getByRole('button', { name: 'Notes' }).click();
       await page.getByRole('button', { name: /Add a note|Write the first note/i }).first().click();
 
-      const noteInput = page.getByPlaceholder(/Write a note/i).first();
+      const noteInput = page.getByRole('textbox', { name: /Write a note/i }).first();
       await noteInput.fill(noteOne);
-      await noteInput.press('Control+Enter');
-      await expect(noteInput).toHaveValue('', { timeout: 10_000 });
+      await page.getByRole('button', { name: /Add note/i }).first().click();
       await expect(page.getByText(noteOne)).toBeVisible();
 
       await noteInput.fill(noteTwo);
-      await noteInput.press('Control+Enter');
-      await expect(noteInput).toHaveValue('', { timeout: 10_000 });
+      await page.getByRole('button', { name: /Add note/i }).first().click();
       await expect(page.getByText(noteTwo)).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);

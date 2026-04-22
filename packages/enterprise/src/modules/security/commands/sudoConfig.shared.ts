@@ -1,7 +1,5 @@
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { ChallengeMethod, SudoChallengeConfig } from '../data/entities'
-import type { SudoAuthScope } from '../services/SudoChallengeService'
 
 export type SudoConfigUndoSnapshot = {
   id: string
@@ -53,17 +51,6 @@ export function applySudoConfigSnapshot(
   config.configuredBy = snapshot.configuredBy
   config.deletedAt = snapshot.deletedAt ? new Date(snapshot.deletedAt) : null
   config.updatedAt = new Date()
-}
-
-export function buildSudoAuthScopeFromAuth(auth: AuthContext | null | undefined): SudoAuthScope {
-  if (!auth) {
-    return { tenantId: null, organizationId: null, isSuperAdmin: false }
-  }
-  return {
-    tenantId: (auth.tenantId as string | null | undefined) ?? null,
-    organizationId: (auth.orgId as string | null | undefined) ?? null,
-    isSuperAdmin: auth.isSuperAdmin === true,
-  }
 }
 
 export function readSudoConfigUndoPayload(logEntry: unknown): SudoConfigUndoPayload | null {

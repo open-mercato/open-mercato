@@ -123,7 +123,7 @@ export const messageDetailResponseSchema = z.object({
   isRead: z.boolean(),
 })
 
-export const messageTokenDetailResponseSchema = z.object({
+export const messageTokenResponseSchema = z.object({
   id: z.string().uuid(),
   type: z.string(),
   subject: z.string(),
@@ -149,15 +149,6 @@ export const messageTokenDetailResponseSchema = z.object({
   requiresAuth: z.boolean(),
   recipientUserId: z.string().uuid(),
 })
-
-export const messageTokenPreflightResponseSchema = z.object({
-  requiresAuth: z.literal(true),
-})
-
-export const messageTokenResponseSchema = z.union([
-  messageTokenDetailResponseSchema,
-  messageTokenPreflightResponseSchema,
-])
 
 export const unreadCountResponseSchema = z.object({
   unreadCount: z.number(),

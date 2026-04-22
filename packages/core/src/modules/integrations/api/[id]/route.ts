@@ -5,8 +5,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBundle, getBundleIntegrations, getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../lib/credentials-service'
 import type { IntegrationStateService } from '../../lib/state-service'
-import type { IntegrationLogService } from '../../lib/log-service'
-import { deriveIntegrationHealthStatus, getEffectiveHealthCheckConfig } from '../../lib/health-service'
 import {
   finalizeIntegrationsReadResponse,
   integrationApiRoutePaths,
@@ -56,32 +54,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
-  const logService = container.resolve('integrationLogService') as IntegrationLogService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const [credentials, state, analyticsMap] = await Promise.all([
+  const [credentials, state] = await Promise.all([
     credentialsService.resolve(integration.id, scope),
     stateService.resolveState(integration.id, scope),
-    logService.aggregateAnalytics([integration.id], scope, 30),
   ])
-
-  const hasCredentials = credentials != null && Object.keys(credentials).length > 0
-  const healthConfig = getEffectiveHealthCheckConfig(integration.id)
-  const hasHealthCheck = Boolean(healthConfig?.service)
-  const healthStatus = deriveIntegrationHealthStatus({
-    hasHealthCheck,
-    hasCredentials,
-    lastHealthStatus: state.lastHealthStatus,
-    lastHealthCheckedAt: state.lastHealthCheckedAt,
-  })
-
-  const analytics = analyticsMap.get(integration.id) ?? {
-    lastActivityAt: null,
-    totalCount: 0,
-    errorCount: 0,
-    errorRate: 0,
-    dailyCounts: Array.from({ length: 30 }, () => 0),
-  }
 
   const bundle = integration.bundleId ? getBundle(integration.bundleId) : undefined
   const bundleIntegrations = integration.bundleId
@@ -97,8 +75,6 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
             reauthRequired: resolvedState.reauthRequired,
             lastHealthStatus: resolvedState.lastHealthStatus,
             lastHealthCheckedAt: resolvedState.lastHealthCheckedAt?.toISOString() ?? null,
-            lastHealthLatencyMs: resolvedState.lastHealthLatencyMs,
-            enabledAt: resolvedState.enabledAt?.toISOString() ?? null,
           },
         }
       }),
@@ -127,12 +103,8 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
         reauthRequired: state.reauthRequired,
         lastHealthStatus: state.lastHealthStatus,
         lastHealthCheckedAt: state.lastHealthCheckedAt?.toISOString() ?? null,
-        lastHealthLatencyMs: state.lastHealthLatencyMs,
-        enabledAt: state.enabledAt?.toISOString() ?? null,
       },
-      hasCredentials,
-      healthStatus,
-      analytics,
+      hasCredentials: Boolean(credentials),
     },
   })
 }

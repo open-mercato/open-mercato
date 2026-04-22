@@ -29,40 +29,6 @@ export type ResolvedFile = {
   importPath: string
 }
 
-export const MODULE_CODE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const
-
-export function stripModuleCodeExtension(name: string): string {
-  for (const extension of MODULE_CODE_EXTENSIONS) {
-    if (name.endsWith(extension)) {
-      return name.slice(0, -extension.length)
-    }
-  }
-  return name
-}
-
-export function isModulePageFile(name: string): boolean {
-  return stripModuleCodeExtension(name) === 'page'
-}
-
-export function isModuleRouteFile(name: string): boolean {
-  return stripModuleCodeExtension(name) === 'route'
-}
-
-function resolveCodeFileCandidates(relativePath: string): string[] {
-  const candidates = new Set<string>([relativePath])
-  const stripped = stripModuleCodeExtension(relativePath)
-  if (stripped !== relativePath) {
-    for (const extension of MODULE_CODE_EXTENSIONS) {
-      candidates.add(`${stripped}${extension}`)
-    }
-  } else {
-    for (const extension of MODULE_CODE_EXTENSIONS) {
-      candidates.add(`${relativePath}${extension}`)
-    }
-  }
-  return Array.from(candidates)
-}
-
 function walkDir(
   dir: string,
   include: (name: string) => boolean,
@@ -81,16 +47,6 @@ function walkDir(
     }
   }
   return found
-}
-
-export function resolveStandaloneSourceMirrorBase(pkgBase: string): string | null {
-  const distModulesMarker = `${path.sep}dist${path.sep}modules${path.sep}`
-  const markerIndex = pkgBase.lastIndexOf(distModulesMarker)
-  if (markerIndex < 0) return null
-
-  const suffix = pkgBase.slice(markerIndex + distModulesMarker.length)
-  const sourceBase = `${pkgBase.slice(0, markerIndex)}${path.sep}src${path.sep}modules${path.sep}${suffix}`
-  return fs.existsSync(sourceBase) ? sourceBase : null
 }
 
 const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
@@ -113,47 +69,41 @@ function apiRouteSort(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
-const isTestFile = (name: string) => /\.(test|spec)\.[jt]sx?$/.test(name)
-const isScriptFile = (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !isTestFile(name)
-const isComponentFile = (name: string) => ['.tsx', '.jsx', '.js'].some((extension) => name.endsWith(extension))
-const isMetadataCompanionFile = (name: string) => {
-  const stripped = stripModuleCodeExtension(name)
-  return stripped === 'meta' || stripped.endsWith('.meta')
-}
-const isPageCandidateFile = (name: string) =>
-  !isMetadataCompanionFile(name)
-  && (isModulePageFile(name) || (isComponentFile(name) && !/^[A-Z]/.test(stripModuleCodeExtension(name))))
+const isTestFile = (name: string) => /\.(test|spec)\.ts$/.test(name)
+const isTsFile = (name: string) => name.endsWith('.ts') && !isTestFile(name)
+const isTsxFile = (name: string) => name.endsWith('.tsx')
+const isRouteTs = (name: string) => name === 'route.ts'
 const isWidgetFile = (name: string) => /^widget\.(t|j)sx?$/.test(name)
 const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
 
 export const SCAN_CONFIGS = {
   frontendPages: {
     folder: 'frontend',
-    include: isPageCandidateFile,
+    include: isTsxFile,
     sort: staticBeforeDynamicSort,
   },
   backendPages: {
     folder: 'backend',
-    include: isPageCandidateFile,
+    include: isTsxFile,
     sort: staticBeforeDynamicSort,
   },
   apiRoutes: {
     folder: 'api',
-    include: isModuleRouteFile,
+    include: isRouteTs,
     sort: apiRouteSort,
   },
   apiPlainFiles: {
     folder: 'api',
-    include: (name: string) => isScriptFile(name) && !isModuleRouteFile(name),
+    include: (name: string) => name.endsWith('.ts') && name !== 'route.ts' && !isTestFile(name),
     skipDirs: (name: string) => methodNames.has(name.toLowerCase()),
   },
   subscribers: {
     folder: 'subscribers',
-    include: isScriptFile,
+    include: isTsFile,
   },
   workers: {
     folder: 'workers',
-    include: isScriptFile,
+    include: isTsFile,
   },
   dashboardWidgets: {
     folder: 'widgets/dashboard',
@@ -170,27 +120,23 @@ export const SCAN_CONFIGS = {
 export function scanModuleDir(roots: ModuleRoots, config: ScanConfig): ScannedFile[] {
   const folderSegments = config.folder ? config.folder.split('/') : []
   const appDir = path.join(roots.appBase, ...folderSegments)
-  const pkgScanBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
-  const pkgDir = path.join(pkgScanBase, ...folderSegments)
+  const pkgDir = path.join(roots.pkgBase, ...folderSegments)
   if (!fs.existsSync(appDir) && !fs.existsSync(pkgDir)) return []
 
-  const pkgFiles = fs.existsSync(pkgDir) ? walkDir(pkgDir, config.include, [], config.skipDirs) : []
-  const appFiles = fs.existsSync(appDir) ? walkDir(appDir, config.include, [], config.skipDirs) : []
-  const filesByLogicalPath = new Map<string, ScannedFile>()
+  const found: string[] = []
+  if (fs.existsSync(pkgDir)) found.push(...walkDir(pkgDir, config.include, [], config.skipDirs))
+  if (fs.existsSync(appDir)) found.push(...walkDir(appDir, config.include, [], config.skipDirs))
 
-  for (const relPath of pkgFiles) {
-    filesByLogicalPath.set(stripModuleCodeExtension(relPath), { relPath, fromApp: false })
-  }
-  for (const relPath of appFiles) {
-    filesByLogicalPath.set(stripModuleCodeExtension(relPath), { relPath, fromApp: true })
-  }
-
-  const files = Array.from(filesByLogicalPath.values())
+  let files = Array.from(new Set(found))
   if (config.sort) {
-    files.sort((a, b) => config.sort!(a.relPath, b.relPath))
+    files.sort(config.sort)
   }
 
-  return files
+  return files.map((relPath) => {
+    const appFile = path.join(appDir, ...relPath.split('/'))
+    const fromApp = fs.existsSync(appFile)
+    return { relPath, fromApp }
+  })
 }
 
 export function resolveModuleFile(
@@ -198,34 +144,16 @@ export function resolveModuleFile(
   imps: ModuleImports,
   relativePath: string
 ): ResolvedFile | null {
-  const relativeCandidates = resolveCodeFileCandidates(relativePath)
-  const pkgScanBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
-  const appRelativePath = relativeCandidates.find((candidate) =>
-    fs.existsSync(path.join(roots.appBase, ...candidate.split('/')))
-  )
-  const pkgRelativePath = relativeCandidates.find((candidate) =>
-    fs.existsSync(path.join(pkgScanBase, ...candidate.split('/')))
-  )
-  if (!appRelativePath && !pkgRelativePath) return null
+  const segments = relativePath.split('/')
+  const appFile = path.join(roots.appBase, ...segments)
+  const pkgFile = path.join(roots.pkgBase, ...segments)
+  const hasApp = fs.existsSync(appFile)
+  const hasPkg = fs.existsSync(pkgFile)
+  if (!hasApp && !hasPkg) return null
 
-  const fromApp = Boolean(appRelativePath)
-  const scanRelativePath = appRelativePath ?? pkgRelativePath!
-  let runtimeRelativePath = scanRelativePath
-
-  if (!fromApp && pkgScanBase !== roots.pkgBase) {
-    const runtimeCandidates = resolveCodeFileCandidates(stripModuleCodeExtension(scanRelativePath))
-    const distRelativePath = runtimeCandidates.find((candidate) =>
-      fs.existsSync(path.join(roots.pkgBase, ...candidate.split('/')))
-    )
-    if (!distRelativePath) {
-      return null
-    }
-    runtimeRelativePath = distRelativePath
-  }
-
-  const absoluteBase = fromApp ? roots.appBase : roots.pkgBase
-  const absolutePath = path.join(absoluteBase, ...runtimeRelativePath.split('/'))
-  const importSuffix = stripModuleCodeExtension(runtimeRelativePath)
+  const fromApp = hasApp
+  const absolutePath = fromApp ? appFile : pkgFile
+  const importSuffix = relativePath.replace(/\.tsx?$/, '')
   const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${importSuffix}`
   return { absolutePath, fromApp, importPath }
 }

@@ -73,12 +73,6 @@ describe('sales command registration', () => {
         'sales.orders.adjustments.delete',
         'sales.quotes.adjustments.upsert',
         'sales.quotes.adjustments.delete',
-        'sales.invoices.create',
-        'sales.invoices.update',
-        'sales.invoices.delete',
-        'sales.credit_memos.create',
-        'sales.credit_memos.update',
-        'sales.credit_memos.delete',
       ],
     },
     {

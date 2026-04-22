@@ -2,7 +2,6 @@ import {
   resolveOpenCodeProviderId,
   resolveFirstConfiguredOpenCodeProvider,
   resolveOpenCodeModel,
-  requireOpenCodeProviderApiKey,
 } from '../opencode-provider'
 
 describe('opencode provider helpers', () => {
@@ -82,80 +81,5 @@ describe('opencode provider helpers', () => {
         env: { OPENCODE_MODEL: 'anthropic/claude-haiku-4-5-20251001' },
       }),
     ).toThrow('does not match configured provider')
-  })
-
-  it('resolves API key from OPENCODE_ANTHROPIC_API_KEY fallback', () => {
-    const provider = resolveFirstConfiguredOpenCodeProvider({
-      env: {
-        ANTHROPIC_API_KEY: '',
-        OPENCODE_ANTHROPIC_API_KEY: 'opencode-anthropic-key',
-      },
-    })
-    expect(provider).toBe('anthropic')
-  })
-
-  it('primary key takes precedence over OPENCODE_* fallback', () => {
-    const provider = resolveFirstConfiguredOpenCodeProvider({
-      env: {
-        ANTHROPIC_API_KEY: 'primary-key',
-        OPENCODE_ANTHROPIC_API_KEY: 'opencode-anthropic-key',
-      },
-    })
-    expect(provider).toBe('anthropic')
-  })
-
-  it('OPENCODE_* fallback works for openai provider', () => {
-    const provider = resolveFirstConfiguredOpenCodeProvider({
-      env: {
-        OPENAI_API_KEY: '',
-        OPENCODE_OPENAI_API_KEY: 'opencode-openai-key',
-      },
-    })
-    expect(provider).toBe('openai')
-  })
-
-  it('OPENCODE_* fallback works for google provider', () => {
-    const provider = resolveFirstConfiguredOpenCodeProvider({
-      env: {
-        GOOGLE_GENERATIVE_AI_API_KEY: '',
-        OPENCODE_GOOGLE_API_KEY: 'opencode-google-key',
-      },
-    })
-    expect(provider).toBe('google')
-  })
-
-  describe('requireOpenCodeProviderApiKey', () => {
-    it('returns the API key when configured', () => {
-      const key = requireOpenCodeProviderApiKey('anthropic', {
-        ANTHROPIC_API_KEY: 'my-key',
-      })
-      expect(key).toBe('my-key')
-    })
-
-    it('returns the fallback OPENCODE_* key when primary is missing', () => {
-      const key = requireOpenCodeProviderApiKey('openai', {
-        OPENAI_API_KEY: '',
-        OPENCODE_OPENAI_API_KEY: 'fallback-key',
-      })
-      expect(key).toBe('fallback-key')
-    })
-
-    it('throws with env var names for anthropic when key is missing', () => {
-      expect(() => requireOpenCodeProviderApiKey('anthropic', {})).toThrow(
-        'Missing API key for provider "anthropic". Set ANTHROPIC_API_KEY or OPENCODE_ANTHROPIC_API_KEY in your .env file.',
-      )
-    })
-
-    it('throws with env var names for openai when key is missing', () => {
-      expect(() => requireOpenCodeProviderApiKey('openai', {})).toThrow(
-        'Missing API key for provider "openai". Set OPENAI_API_KEY or OPENCODE_OPENAI_API_KEY in your .env file.',
-      )
-    })
-
-    it('throws with env var names for google when key is missing', () => {
-      expect(() => requireOpenCodeProviderApiKey('google', {})).toThrow(
-        'Missing API key for provider "google". Set GOOGLE_GENERATIVE_AI_API_KEY or OPENCODE_GOOGLE_API_KEY in your .env file.',
-      )
-    })
   })
 })

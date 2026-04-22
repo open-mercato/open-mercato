@@ -120,7 +120,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       partitionTitle: partition?.title ?? null,
       tags: metadata.tags ?? [],
       assignments: enrichedAssignments,
-      content: record.content && record.content.trim() ? record.content : null,
+      content: record.content ?? null,
       customFields,
     },
   })

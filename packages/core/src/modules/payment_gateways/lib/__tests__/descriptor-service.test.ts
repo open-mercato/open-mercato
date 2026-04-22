@@ -41,8 +41,6 @@ describe('createPaymentGatewayDescriptorService', () => {
           reauthRequired: false,
           lastHealthStatus: null,
           lastHealthCheckedAt: null,
-          lastHealthLatencyMs: null,
-          enabledAt: null,
         })),
       } as never,
     })
@@ -79,8 +77,6 @@ describe('createPaymentGatewayDescriptorService', () => {
           reauthRequired: false,
           lastHealthStatus: null,
           lastHealthCheckedAt: null,
-          lastHealthLatencyMs: null,
-          enabledAt: null,
         })),
       } as never,
     })
@@ -117,8 +113,6 @@ describe('createPaymentGatewayDescriptorService', () => {
           reauthRequired: false,
           lastHealthStatus: null,
           lastHealthCheckedAt: null,
-          lastHealthLatencyMs: null,
-          enabledAt: null,
         })),
       } as never,
     })
@@ -155,8 +149,6 @@ describe('createPaymentGatewayDescriptorService', () => {
           reauthRequired: false,
           lastHealthStatus: 'healthy',
           lastHealthCheckedAt: null,
-          lastHealthLatencyMs: null,
-          enabledAt: null,
         })),
       } as never,
     })

@@ -8,7 +8,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { profileUpdateSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -63,11 +63,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
-  const container = await createRequestContainer()
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-
   try {
-    await requireCustomerFeature(auth, ['portal.account.manage'], customerRbacService)
+    requireCustomerFeature(auth, ['portal.account.manage'])
   } catch (response) {
     return response as NextResponse
   }
@@ -84,6 +81,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
+  const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
 
   const user = await customerUserService.findById(auth.sub, auth.tenantId)

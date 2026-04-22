@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 const supportedLocales = new Set<Locale>(locales)
 
@@ -33,9 +31,7 @@ export async function GET(req: Request) {
   if (!locale || !supportedLocales.has(locale as Locale)) {
     return NextResponse.json({ error: t('api.errors.invalidLocale', 'Invalid locale') }, { status: 400 })
   }
-  const baseUrl = getAppBaseUrl(req)
-  const safePath = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
-  const res = NextResponse.redirect(new URL(safePath, url.origin))
+  const res = NextResponse.redirect(url.searchParams.get('redirect') || '/')
   res.cookies.set('locale', locale as Locale, { path: '/', maxAge: 60 * 60 * 24 * 365 })
   return res
 }

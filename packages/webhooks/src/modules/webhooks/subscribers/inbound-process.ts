@@ -20,22 +20,13 @@ export default async function handler(payload: Record<string, unknown>) {
     throw new Error(`Webhook endpoint adapter "${providerKey}" is not registered`)
   }
 
-  try {
-    await adapter.processInbound({
-      providerKey,
-      eventType,
-      payload: verifiedPayload,
-      tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : undefined,
-      organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : undefined,
-    })
-  } catch (err) {
-    console.error('[webhooks:inbound] Processing failed:', {
-      providerKey,
-      eventType,
-      error: err instanceof Error ? err.message : String(err),
-    })
-    throw err
-  }
+  await adapter.processInbound({
+    providerKey,
+    eventType,
+    payload: verifiedPayload,
+    tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : undefined,
+    organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : undefined,
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

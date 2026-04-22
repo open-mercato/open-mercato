@@ -58,26 +58,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
-## Package builds that publish `dist/` must clear stale artifacts first
-
-**Context**: Standalone parity started failing during `yarn initialize` because `@open-mercato/core` published a deleted migration file that still existed only in `dist/`.
-
-**Problem**: Package build scripts that only overwrite current entry points leave removed files behind. Standalone/Verdaccio installs consume `dist/`, so stale migrations, routes, or generated outputs can execute even after the source file was deleted.
-
-**Rule**: Any package build that publishes from `dist/` must remove existing `dist/*` contents before rebuilding. Do not rely on esbuild output to implicitly prune deleted files.
-
-**Applies to**: Package `build.mjs` scripts, especially packages consumed by standalone apps through npm/Verdaccio.
-
-## Standalone CI runners must mirror webhook-security env from parity scripts
-
-**Context**: Standalone snapshot CI started failing payment-gateway and checkout webhook specs with `401` after the forged-webhook hardening made the mock gateway fail closed in production unless `MOCK_GATEWAY_WEBHOOK_SECRET` is configured.
-
-**Problem**: The dedicated standalone GitHub Actions workflow scaffolded and started the app from its own `.env`, but that path omitted `MOCK_GATEWAY_WEBHOOK_SECRET` even though the local parity runner and ephemeral CLI already injected it. Production-mode standalone apps then rejected every signed mock webhook.
-
-**Rule**: Whenever standalone test runners or CI workflows boot a scaffolded app outside the shared parity scripts, copy the full webhook-related env contract too, including `MOCK_GATEWAY_WEBHOOK_SECRET`. Keep workflow env blocks aligned with `scripts/test-create-app-integration.ts` and the CLI ephemeral test environment.
-
-**Applies to**: `.github/workflows/snapshot.yml`, standalone parity scripts, and any ad hoc scaffolded-app test harnesses.
-
 ## Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry
 
 **Context**: `create-mercato-app` advertised `yarn setup` as the first command, but the scaffold only shipped an empty `yarn.lock`.
@@ -97,56 +77,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When CI or smoke tests run the first `yarn install` inside a freshly scaffolded standalone app, set `YARN_ENABLE_IMMUTABLE_INSTALLS=0`. Do this only for the generated app install/add steps, not for the monorepo install.
 
 **Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
-
-## Keep mirrored dev runtimes aligned with their process registry type
-
-**Context**: The new splash-based dev runtimes track child processes in a `Set`, but shutdown code in the root script, app runtime, and create-app template still used `.filter(...)` as if the registry were an array.
-
-**Problem**: Pressing `Ctrl+C` crashed shutdown with `TypeError: children.filter is not a function`, leaving the runtime to exit noisily instead of terminating child processes cleanly.
-
-**Rule**: When a runtime script stores child processes in a `Set`, all shutdown and cleanup logic must iterate via `Array.from(children)` or direct `for...of`, and the same fix must be mirrored in `apps/mercato` and `packages/create-app/template` copies.
-
-**Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
-
-## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
-
-**Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
-
-**Problem**: Non-fatal search/vector warnings such as `[SearchService] Strategy index failed ...` and `[search.customers] Failed to load ...` flipped setup/dev splash screens into a blocking error even after Next had become ready. Once warmup later succeeded, the splash still looked like launch had failed.
-
-**Rule**: Splash startup classification must keep an explicit allowlist for known non-blocking runtime warnings, and once launch is already ready/warmed the splash must not demote the session back to failed because of later raw output. Keep this policy mirrored between the monorepo runtime and the standalone template copy.
-
-**Applies to**: `apps/mercato/scripts/dev.mjs`, `apps/mercato/scripts/dev-runtime-log-policy.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, and `packages/create-app/template/scripts/dev-runtime-log-policy.mjs`.
-
-## `dbMigrate` must not write migration snapshots during initialize flows
-
-**Context**: A branch change started passing a custom MikroORM `snapshotName` into `dbMigrate`, while `yarn initialize` always runs `dbMigrate`.
-
-**Problem**: Fresh initialize/reinstall flows began rewriting per-module `.snapshot-*.json` files as a side effect, creating noisy git diffs unrelated to the migration application itself.
-
-**Rule**: Keep stable snapshot naming for `dbGenerate`, but disable migration snapshots for `dbMigrate` (`snapshot: false`) so initialize applies committed migrations without mutating snapshot files.
-
-**Applies to**: `packages/cli/src/lib/db/commands.ts` and any future init/bootstrap flow that calls `dbMigrate`.
-
-## Windows `.cmd` wrappers must not be spawned directly in Node dev scripts
-
-**Context**: The dev runtime introduced direct `spawn('yarn.cmd', args)` calls on Windows in `scripts/dev.mjs`.
-
-**Problem**: On Windows, direct `spawn()` of `.cmd` wrappers can fail with `spawn EINVAL`, even when the same command works through `execFileSync` or an interactive shell. This broke `yarn dev` before package-build planning even started.
-
-**Rule**: In Node-based runtime scripts, never call `spawn()` directly on `*.cmd` / `*.bat` wrappers. Route them through a Windows-aware helper that converts the invocation into a shell command, and mirror the same fix in `packages/create-app/template/scripts/**`. Add or update script-level tests that cover the Windows command-resolution branch so CI protects the behavior.
-
-**Applies to**: `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and any future script runner that launches Yarn, npm, pnpm, Turbo, or other Windows command wrappers.
-
-## Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files
-
-**Context**: The standalone `create-app` flow generates app-local `.mercato` artifacts while official packages are consumed from `node_modules`.
-
-**Problem**: The entity-id generator parsed exported classes and property declarations from module entity files. That works against monorepo `src` files, but compiled `dist/modules/**/data/entities.js` files do not preserve that source shape, so standalone generation silently dropped package entities like `organization`.
-
-**Rule**: In standalone mode, when building app-level generated entity IDs/field shims for package-backed modules, prefer the package's shipped `generated/entities.ids.generated.ts` and `generated/entities/*/index.ts` artifacts. Do not rely on parsing compiled `dist` entity files for source-level declarations.
-
-**Applies to**: `packages/cli/src/lib/generators/entity-ids.ts` and standalone `create-app` generation paths.
 
 ## Standalone scaffolding and generators must not assume monorepo-only paths
 
@@ -228,16 +158,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Any serialization code that processes object graphs with shared references (common in Zod schema conversions, AST tools, and dependency graphs).
 
-## Tool-scoped regeneration commands must not be blocked by unrelated existing files
-
-**Context**: `yarn mercato agentic:init --tool=<tool>` is meant to support incremental setup of one coding tool at a time, including retroactive setup from the splash screen.
-
-**Problem**: A broad "any agentic file exists" guard causes false positives. Existing `.codex` files should not block adding Cursor, and existing Cursor files should not block adding Claude Code.
-
-**Rule**: When a CLI/setup command supports scoped tool selection, preflight "already configured" checks must be scoped to the selected tool's own files, not the union of all tool outputs.
-
-**Applies to**: `packages/cli/src/lib/agentic-init.ts` and any future tool-scoped bootstrap or regeneration commands.
-
 ## Inject TypeScript types into LLM tool descriptions for correct API payloads
 
 **Context**: The AI Code Mode tools (`search` + `execute`) require the LLM to construct API payloads. When the LLM must query a separate tool to discover schema fields and then mentally translate a compact JSON format, it frequently constructs wrong payloads and enters debug spirals (20+ tool calls, 50+ API requests).
@@ -247,16 +167,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For LLM-facing tools that construct structured API calls, pre-generate compact TypeScript type stubs from the OpenAPI spec at startup and inject them directly into the tool description. This mirrors Cloudflare's `generateTypes()` pattern. The LLM sees the correct types immediately without needing an extra discovery step.
 
 **Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
-
-## Do not rasterize untrusted uploads through sunsetted external converters
-
-**Context**: The attachments module OCR path rasterized uploaded PDFs through `pdf2pic -> gm -> Ghostscript` before sending page images to the LLM.
-
-**Problem**: Deprecated converters and delegate-based document parsers expand the attack surface for untrusted uploads and can introduce host-level RCE chains outside the TypeScript codebase.
-
-**Rule**: For untrusted uploads, do not introduce or keep sunsetted external converter chains (for example `pdf2pic`, `gm`, or Ghostscript delegates) in default request/background pipelines. Prefer native parsers, best-effort text extraction, or isolated sandboxed workers. If the safer path is not ready, disable the risky format-specific processing rather than keeping it enabled.
-
-**Applies to**: `attachments`, document preview/thumbnail pipelines, OCR services, importers, and any future upload-processing worker.
 
 ## Format Zod validation errors for LLM consumption
 
@@ -289,20 +199,8 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
 2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
 3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
-4. For custom-entity record forms, prefer opening the records list first and waiting for the `Create` action to appear before entering the form; this proves definitions loaded in the current app state.
-5. In custom-entity Playwright tests, target form controls via `data-crud-field-id="<fieldKey>"` instead of label-text ancestor traversal. The wrapper id is stable across monorepo and standalone layouts, while label-only selectors are brittle.
 
-**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales, customers, and custom-entity flows).
-
-## Projection updates that change indexed parent fields must emit query-index upserts
-
-**Context**: Customer interaction commands recomputed `next_interaction_*` fields directly on `customer_entities`, which changed list/search-visible data without mutating the `CustomerEntity` through its normal CRUD command path.
-
-**Problem**: The companies/people grids showed the fresh `next_interaction_name`, but `entity_indexes` and `search_tokens` for `customers:customer_entity` stayed stale. Global search and token-backed filters then missed values that were visibly present in the grid until a manual reindex happened.
-
-**Rule**: Any command or projection that directly updates fields surfaced through query-indexed docs must also emit `query_index.upsert_one` for the affected entity records. If child/profile docs denormalize the same parent fields, review whether they need matching upserts too.
-
-**Applies to**: Projection helpers, lifecycle commands, and any write path that bypasses the primary CRUD/indexer helpers while changing search/list-visible fields.
+**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
 
 ## Standalone template must include all generated bootstrap registries
 
@@ -564,11 +462,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 ## Keep standalone agentic content in sync with module conventions
 
-**Context**: The monorepo root `AGENTS.md` and related coding conventions evolved to cover task routing, specs, standalone testing, and backward-compatibility rules, while the create-app agentic templates lagged behind.
+**Context**: `packages/create-app/agentic/` contains purpose-built AI coding tool configurations for standalone Open Mercato apps (AGENTS.md, CLAUDE.md, entity-migration hooks, Cursor rules, Codex enforcement rules). This content is separate from the monorepo's `.ai/` folder.
 
-**Problem**: Newly generated standalone apps started with stale or incomplete agent instructions, so agents operating in those apps missed current workflow expectations and module constraints.
+**Problem**: When module conventions change (entity lifecycle, auto-discovery paths, CLI commands, `yarn generate` behavior), the standalone agentic content can drift, causing AI tools to give incorrect guidance or hooks to miss new patterns.
 
-**Rule**: Whenever root agent guidance changes in a way that affects standalone app development or maintenance — module placement, testing, standalone parity, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
+**Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
 
@@ -670,152 +568,3 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
 **Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
-
-## Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile
-
-**Context**: Module registry generation tried to discover subscriber, worker, and API-route metadata by runtime-importing source files. In optimized dev/build flows, those imports can fail because sibling TS-only dependencies are not executable in that context yet.
-
-**Problem**: When metadata import failed, generated manifests silently lost event bindings or route `metadata.path` overrides. That broke query-index subscribers, produced wrong API paths like `/shipping_carriers/...`, and surfaced as dev-time `MODULE_NOT_FOUND` errors from generated registries.
-
-**Rule**: For generator-time metadata discovery, use runtime imports when they work, but always keep a source-level fallback for stable static exports such as `metadata`. Generation must stay deterministic even when the source module itself is not directly executable.
-
-**Applies to**: `packages/cli` generators that inspect module files, especially subscribers, workers, API routes, and other static manifest inputs.
-
-## Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`
-
-**Context**: The standalone CLI scans installed packages under `node_modules/@open-mercato/*`. Published packages include compiled `dist/modules` output and also ship `src/modules`.
-
-**Problem**: Using `dist/modules` as the discovery source pulled in two classes of bad inputs that do not appear in monorepo source mode: helper files compiled from `.ts` to lower-case `.js` under `frontend/` and `backend/`, and stale dist-only artifacts such as legacy API handlers that no longer exist in `src/modules`. That produced bogus generated routes/imports and standalone-only build failures.
-
-**Rule**: In standalone generation, use the package's `src/modules` tree as the canonical discovery mirror when it exists, but keep runtime imports pointed at compiled `dist` files. Do not let dist-only artifacts or extension changes in compiled output redefine what counts as a route, API file, or convention file.
-
-**Applies to**: `packages/cli` module scanning, route/API discovery, standalone create-app flows, and any generator that inspects installed `@open-mercato/*` packages.
-
-## Standalone source-mirror discovery must remap source extensions to runtime files
-
-**Context**: Published packages can ship `src/modules/**/*.ts` alongside compiled `dist/modules/**/*.js`. Generators may discover convention files from the source mirror while runtime bootstrap imports the compiled package exports.
-
-**Problem**: If standalone discovery finds `src/modules/configs/cli.ts` and then validates that exact relative path under `dist/modules`, the check fails because the runtime file is `cli.js`. The module then silently loses CLI/setup/ACL and other convention registrations in `modules.cli.generated.ts`, which breaks bootstrap-only flows like `yarn setup`.
-
-**Rule**: When discovery uses a standalone source mirror, resolve the logical file from `src`, then remap it to the matching compiled file in `dist` by basename, not by keeping the source extension. Discovery and runtime paths must stay logically aligned even when `.ts` becomes `.js`.
-
-**Applies to**: `packages/cli` `resolveModuleFile()`, standalone module registry generation, CLI bootstrap generation, and any future source-mirror-based convention file lookup.
-
-## Auto-discovered DataTable fields must only advertise controls the table can actually honor
-
-**Context**: The customer grids auto-discovered custom fields into the advanced-filter builder and column chooser, but the table pages only registered `listVisible` custom columns. Hidden-but-selectable fields like `cf_executive_notes` appeared in the chooser without a matching TanStack column id.
-
-**Problem**: The chooser could surface legitimate field labels that crashed at toggle time with `Column with id 'cf_executive_notes' does not exist`, because discovery and actual column registration drifted apart.
-
-**Rule**: When a DataTable auto-discovers fields from entity/custom-field metadata, keep the discovery surface aligned with the concrete column registry. If a field should be selectable later, register a real hidden column for it; otherwise keep it out of chooser/filter discovery entirely.
-
-**Applies to**: `DataTable` auto-discovery, custom-field-backed list pages, and any future metadata-driven chooser/filter UI.
-
-## Mixed advanced filters need per-row join state, not one shared logic flag
-
-**Context**: The advanced-filter builder initially stored a single `logic` value for the whole filter state and reused it for every non-first row.
-
-**Problem**: Toggling one row from `And` to `Or` changed every row, making mixed expressions impossible and causing the backend to over-collapse distinct filter rows into one global boolean mode.
-
-**Rule**: For row-based filter builders, store the boolean connector on each non-first condition and keep any old global logic only as backward-compatible fallback when reading legacy URLs or state.
-
-**Applies to**: Shared advanced-filter state, URL serialization/deserialization, and any future query-builder UI that supports multiple rows.
-
-## dnd-kit contexts rendered in SSR need stable ids
-
-**Context**: The advanced datatable uses dnd-kit for header and column-chooser drag-and-drop, and those contexts are rendered during SSR on backend pages.
-
-**Problem**: Letting dnd-kit generate its own accessibility ids caused server/client `aria-describedby` mismatches, which showed up as React hydration errors on customer grid pages even though the table still rendered.
-
-**Rule**: Whenever a dnd-kit `DndContext` can be server-rendered, pass a deterministic `id` derived from stable page/table identity instead of relying on auto-generated ids.
-
-**Applies to**: `DataTable` header drag-and-drop, column chooser drag-and-drop, and any future SSR-rendered dnd-kit surface.
-
-## Lazy provider wrappers must not render provider-dependent children before the provider loads
-
-**Context**: Backend chrome hydration moved the AI assistant header integration behind a client-only lazy wrapper that imported the provider component asynchronously.
-
-**Problem**: The wrapper rendered `children` during the loading state, so provider-dependent descendants like `AiChatHeaderButton` mounted before `CommandPaletteProvider` existed and threw runtime context errors.
-
-**Rule**: When a wrapper lazily imports a context provider or integration shell, render nothing or a provider-safe placeholder until the provider is ready. Never render children early if they may call hooks from that provider.
-
-**Applies to**: Client-only integration shells, lazy provider wrappers, and any async-loaded context boundary in backend or portal chrome.
-
-## Hydrated backend chrome payloads must receive the original request for scope-aware RBAC
-
-**Context**: The backend sidebar/header payload moved from server layout assembly to `/api/auth/admin/nav` + client hydration, while org/tenant scope still depends on request cookies and headers.
-
-**Problem**: If the original request is not forwarded into payload resolution, selected org/tenant scope falls back to account defaults, which can empty `grantedFeatures` for the active scope and remove every `requireFeatures` sidebar route.
-
-**Rule**: Any server helper that resolves scoped backend chrome, navigation, or ACL-derived payloads must receive the original `Request` whenever scope can depend on cookies, forwarded headers, or query params.
-
-**Applies to**: Backend chrome payload builders, scoped sidebar/header APIs, organization-aware RBAC helpers, and any refactor that moves scope-sensitive work behind an API boundary.
-
-## Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout
-
-**Context**: The server-rendered backend layout previously decided sidebar route visibility by calling `rbac.userHasAllFeatures(...)` per route requirement. A hydration refactor replaced that with local matching against `loadAcl().features`.
-
-**Problem**: Even when the raw ACL snapshot looked sparse or scope-normalized differently, the original per-feature RBAC checks could still grant routes. Replacing that logic caused `requireFeatures` sidebar items to disappear after the refactor.
-
-**Rule**: When moving sidebar/header resolution into a shared payload builder or API, keep route inclusion logic behaviorally identical to the previous RBAC gate. Do not replace `userHasAllFeatures(...)` checks with ad hoc filtering against a cached/raw feature array unless equivalence is proven with regression tests.
-
-**Applies to**: Backend chrome payload builders, nav hydration refactors, sidebar route filtering, and any future optimization that tries to replace RBAC service checks with local feature matching.
-
-## Route-aware backend chrome should use route manifests, not the full module registry
-
-**Context**: The app bootstrap has two generated module manifests: the full `modules.generated.ts` and the lighter `modules.app.generated.ts`, while route-aware consumers already have dedicated generated manifests such as `backend-routes.generated.ts`.
-
-**Problem**: Hydrated sidebar work was refactored to call `getModules()` for route data, which forced bootstrap onto the full module manifest and regressed the original fast-path split between app bootstrap and route manifests.
-
-**Rule**: Backend chrome, breadcrumbs, static settings path discovery, and other route-aware consumers should read `backend-routes.generated.ts` or `getBackendRouteManifests()`. Keep `modules.app.generated.ts` in bootstrap unless the caller truly needs the full module registry beyond route manifests.
-
-**Applies to**: `apps/*/src/bootstrap.ts`, backend layouts, hydrated sidebar/header APIs, route matching helpers, and any future performance optimization around generated registries.
-
-## When a task brief requires Playwright coverage, unit tests are not a substitute
-
-**Context**: `packages/search/src/lib/merger.ts` received new Jest coverage, but the task brief and QA guides explicitly required module-local Playwright integration coverage.
-
-**Problem**: The branch still failed review because the required coverage class was missing even though the low-level tests passed.
-
-**Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
-
-**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/integration-tests/SKILL.md`.
-
-## Provider credentials must never control authenticated cross-origin requests
-
-**Context**: The Akeneo client accepted an arbitrary tenant-provided `apiUrl` and also trusted absolute pagination or download URLs returned by the remote API.
-
-**Problem**: A malicious or mistyped host could turn OAuth password-grant login into credential exfiltration, and hostile `next` or media download links could pivot authenticated bearer-token requests to a different origin.
-
-**Rule**: For integration providers, normalize and validate the configured base URL server-side before any network call, restrict it to an operator-owned allowlist plus a safe scheme/origin shape, build OAuth endpoints from fixed paths, and reject any absolute follow-up URL whose origin differs from the validated provider origin.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, provider-specific HTTP clients, OAuth/token helpers, pagination cursors, media download helpers, and any future integration that consumes remote absolute URLs.
-## Never guard sensitive routes with `requireRoles` on mutable role names
-
-**Context**: Feature toggles routes were guarded with `requireRoles: ['superadmin']`. Since role names are user-editable, a tenant admin with `auth.roles.manage` could create a role named "superadmin" and escalate privileges — even though reserved-name validation blocked the exact attack, the architecture remained fragile.
-
-**Problem**: `requireRoles` checks mutable string names against the auth context. If the reserved name list has a gap or a new privileged name is introduced, the same privilege escalation pattern reappears.
-
-**Rule**: Always use `requireFeatures` with immutable feature IDs (declared in `acl.ts`) instead of `requireRoles` for access control. Reserve `requireRoles` only for truly exceptional, well-documented cases. When adding a new module, declare granular features in `acl.ts` and wire `defaultRoleFeatures` in `setup.ts` — never ship an empty `acl.ts` with `requireRoles` guards.
-
-**Applies to**: All API routes, backend page metadata (`page.meta.ts`), and any runtime access control check.
-
-## Standalone template env examples must mirror security-sensitive app env keys
-
-**Context**: Payment gateway webhook hardening introduced `MOCK_GATEWAY_WEBHOOK_SECRET` as the explicit non-production signing secret for the mock gateway. The monorepo app `.env.example` documented it, but the standalone template `.env.example` did not.
-
-**Problem**: Standalone parity and local generated apps can silently miss required security-sensitive env keys even when the monorepo app documents them, leading to standalone-only regressions that look like product bugs.
-
-**Rule**: When a feature adds a new app-level env var required for local, test, or non-production behavior, update both `apps/mercato/.env.example` and `packages/create-app/template/.env.example` in the same change. If standalone CI/bootstrap scripts synthesize `.env`, set the same var there explicitly too.
-
-**Applies to**: `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, create-app smoke/parity scripts, and any new env-backed local/testing security feature.
-
-## Keep raw SQL out of API route handlers
-
-**Context**: The customer portal signup route (`packages/core/src/modules/customer_accounts/api/signup.ts`) inlined a tenant-bound organization lookup as a raw `em.getConnection().execute(...)` call. The SQL was only a handful of lines, but it put persistence knowledge into a route file and made regression tests reach into route internals to pin the `WHERE id = ? AND tenant_id = ?` predicate.
-
-**Problem**: Raw SQL in route handlers blurs the layering between HTTP plumbing and persistence. It is easy to drift: the same SQL gets copy-pasted into other routes, each copy is re-audited separately, and security-critical predicates (tenant binding, soft-delete filters) can silently diverge between callers. API routes should read as orchestration — parse, validate, authorize, delegate, respond — not as SQL authors.
-
-**Rule**: API route handlers must not contain raw SQL. Extract DB reads/writes into a named helper in the module's `lib/` (for simple lookups) or a service in `services/` (for stateful or multi-step logic), and import the helper from the route. The helper is the single place where the predicate is defined, audited, and regression-tested. MikroORM entity calls (`findOneWithDecryption`, repository methods) are acceptable in routes when they are single-liner lookups by stable primary keys; anything with a custom `WHERE`, `JOIN`, or raw `execute(...)` belongs in a helper.
-
-**Applies to**: All API route files under `packages/**/api/**` and `apps/**/api/**`. When moving existing inline SQL out of a route, keep the regression test pointed at the helper source so the predicate stays pinned even after the relocation.

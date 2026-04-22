@@ -1,12 +1,17 @@
 import type React from 'react'
-import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
 
 export function readString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
 export function toDateInputValue(value: string | null | undefined): string {
-  return toDateInputValueOrNull(value) ?? ''
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const year = String(parsed.getFullYear())
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function openNativeDatePicker(event: React.SyntheticEvent<HTMLInputElement>) {

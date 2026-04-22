@@ -2,8 +2,6 @@ import * as React from 'react'
 import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFieldDefs'
 import { Filter } from '@open-mercato/shared/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
-import type { FilterFieldDef as AdvancedFilterFieldDef, FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
-import { mapCustomFieldKindToFilterType, normalizeCustomFieldFilterOptions } from './customFieldColumns'
 import type { CustomFieldDefDto } from './customFieldDefs'
 export type { CustomFieldDefDto }
 import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
@@ -119,33 +117,6 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   const order = new Map(visible.map((v, idx) => [v.key, idx]))
   out.sort((a, b) => (order.get(a.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0) - (order.get(b.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0))
   return out
-}
-
-export function buildAdvancedFilterFieldsFromCustomFields(
-  defs: CustomFieldDefDto[],
-  groupLabel?: string,
-): AdvancedFilterFieldDef[] {
-  const visible = filterCustomFieldDefs(defs, 'filter')
-  const seenKeys = new Set<string>()
-  const fields: AdvancedFilterFieldDef[] = []
-  for (const d of visible) {
-    const keyLower = String(d.key).toLowerCase()
-    if (seenKeys.has(keyLower)) continue
-    seenKeys.add(keyLower)
-    const type = mapCustomFieldKindToFilterType(d.kind)
-    const field: AdvancedFilterFieldDef = {
-      key: `cf_${d.key}`,
-      label: d.label || d.key,
-      type,
-      group: groupLabel ?? 'Custom Fields',
-    }
-    if (type === 'select') {
-      const opts = normalizeOptions(d.options) as FilterOption[]
-      if (opts.length) field.options = opts
-    }
-    fields.push(field)
-  }
-  return fields
 }
 
 export async function fetchCustomFieldFilterDefs(

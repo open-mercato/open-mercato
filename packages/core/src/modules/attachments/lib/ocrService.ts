@@ -1,7 +1,10 @@
 import { generateText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
+import { fromPath } from 'pdf2pic'
 import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
+import { randomUUID } from 'crypto'
 
 export type OcrServiceOptions = {
   apiKey?: string
@@ -21,7 +24,6 @@ export type OcrResult = {
 }
 
 const DEFAULT_MODEL = 'gpt-4o'
-const OCR_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff']
 
 const DEFAULT_OCR_PROMPT = `Extract all text content from this image. Preserve the structure and formatting where possible. Output the text in markdown format. If there are tables, preserve them as markdown tables. If there is no text visible, respond with an empty string.`
 
@@ -30,7 +32,7 @@ function isImageMimeType(mimeType: string | null, filePath?: string): boolean {
   if (normalized.startsWith('image/')) return true
   if (filePath) {
     const ext = path.extname(filePath).toLowerCase()
-    return OCR_IMAGE_EXTENSIONS.includes(ext)
+    return ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff'].includes(ext)
   }
   return false
 }
@@ -86,19 +88,20 @@ export class OcrService {
     return this.client
   }
 
-  private async generateTextFromImageBuffer(params: {
-    imageBuffer: Buffer
-    mediaType: string
-    model: string
-  }): Promise<string> {
-    const { imageBuffer, mediaType, model } = params
+  async processImage(input: OcrInput): Promise<OcrResult> {
+    const startTime = Date.now()
+    const { filePath, mimeType, model } = input
+    const resolvedModel = model ?? this.defaultModel
+
     const client = this.ensureClient()
+    const imageBuffer = await fs.readFile(filePath)
     const base64 = imageBuffer.toString('base64')
+    const mediaType = getImageMediaType(mimeType, filePath)
     const dataUrl = `data:${mediaType};base64,${base64}`
 
     try {
       const result = await generateText({
-        model: client(model),
+        model: client(resolvedModel),
         messages: [
           {
             role: 'user',
@@ -116,7 +119,10 @@ export class OcrService {
         ],
       })
 
-      return result.text.trim()
+      return {
+        content: result.text.trim(),
+        processingTimeMs: Date.now() - startTime,
+      }
     } catch (err: any) {
       const statusCandidate =
         err?.statusCode ?? err?.status ?? err?.response?.status ?? err?.response?.statusCode
@@ -168,67 +174,76 @@ export class OcrService {
     }
   }
 
-  async processImage(input: OcrInput): Promise<OcrResult> {
-    const startTime = Date.now()
-    const { filePath, mimeType, model } = input
-    const resolvedModel = model ?? this.defaultModel
-    const imageBuffer = await fs.readFile(filePath)
-
-    return {
-      content: await this.generateTextFromImageBuffer({
-        imageBuffer,
-        mediaType: getImageMediaType(mimeType, filePath),
-        model: resolvedModel,
-      }),
-      processingTimeMs: Date.now() - startTime,
-    }
-  }
-
   async processPdf(input: OcrInput): Promise<OcrResult> {
     const startTime = Date.now()
     const { filePath, model } = input
     const resolvedModel = model ?? this.defaultModel
-    const { preparePdfPagesForOcr } = await import('./pdfProcessing')
-    const preparedPdf = await preparePdfPagesForOcr(filePath)
 
-    if (preparedPdf.pageCount === 0) {
-      return {
-        content: '',
-        pageCount: 0,
-        processingTimeMs: Date.now() - startTime,
+    const tempDir = path.join(os.tmpdir(), `openmercato-ocr-${randomUUID()}`)
+    await fs.mkdir(tempDir, { recursive: true })
+
+    try {
+      const converter = fromPath(filePath, {
+        density: 300,
+        format: 'png',
+        width: 2480,
+        height: 3508,
+        savePath: tempDir,
+        saveFilename: 'page',
+      })
+
+      const pdfInfo = await converter.bulk(-1, { responseType: 'image' })
+      const pageCount = pdfInfo.length
+
+      if (pageCount === 0) {
+        return {
+          content: '',
+          pageCount: 0,
+          processingTimeMs: Date.now() - startTime,
+        }
       }
-    }
 
-    const pageContents: string[] = []
+      const pageContents: string[] = []
 
-    for (const page of preparedPdf.pages) {
-      try {
-        let pageContent = page.extractedText
+      for (let i = 0; i < pageCount; i++) {
+        const pageInfo = pdfInfo[i]
+        if (!pageInfo.path) {
+          console.error(`[attachments.ocr] Page ${i + 1} has no path`)
+          continue
+        }
 
-        if (!pageContent && page.imageBuffer) {
-          pageContent = await this.generateTextFromImageBuffer({
-            imageBuffer: page.imageBuffer,
-            mediaType: 'image/png',
+        try {
+          const pageResult = await this.processImage({
+            filePath: pageInfo.path,
+            mimeType: 'image/png',
             model: resolvedModel,
           })
-        }
 
-        if (pageContent) {
-          if (preparedPdf.pageCount > 1) {
-            pageContents.push(`--- Page ${page.pageNumber} ---\n\n${pageContent}`)
-          } else {
-            pageContents.push(pageContent)
+          if (pageResult.content) {
+            if (pageCount > 1) {
+              pageContents.push(`--- Page ${i + 1} ---\n\n${pageResult.content}`)
+            } else {
+              pageContents.push(pageResult.content)
+            }
           }
-        }
-      } catch (error) {
-        console.error(`[attachments.ocr] Failed to process PDF page ${page.pageNumber}`, error)
-      }
-    }
 
-    return {
-      content: pageContents.join('\n\n'),
-      pageCount: preparedPdf.pageCount,
-      processingTimeMs: Date.now() - startTime,
+          await fs.unlink(pageInfo.path).catch((err) => {
+            console.error(`[attachments.ocr] Failed to cleanup page file: ${pageInfo.path}`, err)
+          })
+        } catch (err) {
+          console.error(`[attachments.ocr] Failed to process page ${i + 1}`, err)
+        }
+      }
+
+      return {
+        content: pageContents.join('\n\n'),
+        pageCount,
+        processingTimeMs: Date.now() - startTime,
+      }
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
+        console.error(`[attachments.ocr] Failed to cleanup temp directory: ${tempDir}`, err)
+      })
     }
   }
 
@@ -236,21 +251,26 @@ export class OcrService {
     const { filePath, mimeType } = input
 
     if (isPdfMimeType(mimeType, filePath)) {
-      console.log('[attachments.ocr] Processing PDF attachment via pdfjs-dist')
+      console.log(`[attachments.ocr] Processing PDF: ${filePath}`)
       return this.processPdf(input)
     }
 
     if (isImageMimeType(mimeType, filePath)) {
-      console.log('[attachments.ocr] Processing image attachment via LLM OCR')
+      console.log(`[attachments.ocr] Processing image: ${filePath}`)
       return this.processImage(input)
     }
 
-    console.log(`[attachments.ocr] Unsupported file type for OCR: ${mimeType || 'unknown'}`)
+    console.log(`[attachments.ocr] Unsupported file type: ${mimeType} (${filePath})`)
     return null
   }
 }
 
 export function shouldUseLlmOcr(mimeType: string | null, fileName: string): boolean {
-  if (isPdfMimeType(mimeType, fileName)) return true
-  return isImageMimeType(mimeType, fileName)
+  const normalized = (mimeType || '').toLowerCase()
+  if (normalized === 'application/pdf') return true
+  if (normalized.startsWith('image/')) return true
+
+  const ext = fileName.split('.').pop()?.toLowerCase() || ''
+  const ocrExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'pdf']
+  return ocrExtensions.includes(ext)
 }

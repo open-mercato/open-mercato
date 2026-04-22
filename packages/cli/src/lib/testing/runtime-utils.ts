@@ -123,10 +123,10 @@ export type DockerHostConfig = {
   socketOverride: string
 }
 
-export function runCommandAndCapture(command: string, args: string[], options?: { cwd?: string }): Promise<{ code: number | null; stdout: string; stderr: string }> {
+export function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
-      cwd: options?.cwd ?? process.cwd(),
+      cwd: process.cwd(),
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })

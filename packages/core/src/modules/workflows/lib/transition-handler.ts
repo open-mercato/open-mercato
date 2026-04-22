@@ -414,7 +414,7 @@ export async function executeTransition(
       const failedActivities = results.filter(r => !r.success)
 
       if (failedActivities.length > 0) {
-        const continueOnFailure = transition.continueOnActivityFailure ?? false
+        const continueOnFailure = transition.continueOnActivityFailure ?? true
 
         // Log activity failures
         await logTransitionEvent(em, {

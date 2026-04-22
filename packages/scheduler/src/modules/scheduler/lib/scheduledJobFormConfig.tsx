@@ -226,7 +226,6 @@ export function scheduledJobFields(
               <div className="space-y-1">
                 <Label htmlFor="targetQueue">
                   {t('scheduler.form.target_queue', 'Target Queue')}
-                  <span className="text-status-error-icon ml-0.5" aria-hidden="true">*</span>
                 </Label>
                 <ComboboxInput
                   value={targetQueue}
@@ -241,7 +240,6 @@ export function scheduledJobFields(
               <div className="space-y-1">
                 <Label htmlFor="targetCommand">
                   {t('scheduler.form.target_command', 'Target Command')}
-                  <span className="text-status-error-icon ml-0.5" aria-hidden="true">*</span>
                 </Label>
                 <ComboboxInput
                   value={targetCommand}

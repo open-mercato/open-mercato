@@ -46,27 +46,6 @@ export const enabledModules: ModuleEntry[] = [
   )
 }
 
-function writeModulesConfigWithConditionalAppModule(rootDir: string) {
-  const srcDir = path.join(rootDir, 'src')
-  fs.mkdirSync(srcDir, { recursive: true })
-  fs.writeFileSync(
-    path.join(srcDir, 'modules.ts'),
-    `
-export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
-
-export const enabledModules: ModuleEntry[] = [
-  { id: 'customers', from: '@open-mercato/core' },
-  { id: 'example', from: '@app' },
-]
-
-if (enabledModules.some((entry) => entry.id === 'example')) {
-  enabledModules.push({ id: 'example_customers_sync', from: '@app' })
-}
-`,
-    'utf8',
-  )
-}
-
 describe('resolver enterprise module toggle', () => {
   const originalEnv = process.env.OM_ENABLE_ENTERPRISE_MODULES
   const originalResolverMarker = (globalThis as Record<string, unknown>).__resolver_evaluated__
@@ -125,19 +104,5 @@ describe('resolver enterprise module toggle', () => {
     const modules = createResolver(tempDir).loadEnabledModules()
     expect(modules).toEqual([{ id: 'customers', from: '@open-mercato/core' }])
     expect((globalThis as Record<string, unknown>).__resolver_evaluated__).toBeUndefined()
-  })
-
-  it('loads conditional app modules when enabledModules.some() matches', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolver-enterprise-'))
-    writeModulesConfigWithConditionalAppModule(tempDir)
-
-    const modules = createResolver(tempDir).loadEnabledModules()
-    expect(modules).toEqual(
-      expect.arrayContaining([
-        { id: 'customers', from: '@open-mercato/core' },
-        { id: 'example', from: '@app' },
-        { id: 'example_customers_sync', from: '@app' },
-      ]),
-    )
   })
 })

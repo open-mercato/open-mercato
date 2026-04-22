@@ -1,13 +1,22 @@
 "use client"
 
 import { Box, type LucideIcon } from 'lucide-react'
+import * as lucideIcons from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ObjectPreviewProps } from '@open-mercato/shared/modules/messages/types'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { resolveRegisteredLucideIcon } from '../icons/lucideRegistry'
 
 function resolveIcon(name: string | undefined): LucideIcon {
-  return resolveRegisteredLucideIcon(name) ?? Box
+  if (!name) return Box
+  const key = name
+    .split('-')
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join('') as keyof typeof lucideIcons
+  const candidate = lucideIcons[key]
+  if (typeof candidate === 'function' || (typeof candidate === 'object' && candidate !== null && '$$typeof' in candidate)) {
+    return candidate as LucideIcon
+  }
+  return Box
 }
 
 export function MessageObjectPreview({

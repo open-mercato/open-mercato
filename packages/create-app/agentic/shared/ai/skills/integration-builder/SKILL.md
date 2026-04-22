@@ -666,7 +666,8 @@ In `apps/mercato/package.json`:
 
 ```bash
 yarn install                  # link workspace package
-yarn generate                 # discover integration.ts, widgets, workers, update generated files
+npm run modules:prepare       # discover integration.ts, widgets, workers
+yarn generate                 # update generated files
 ```
 
 ---
@@ -678,7 +679,7 @@ After completing the implementation:
 1. **Build**: `yarn build:packages` — must pass
 2. **Lint**: `yarn lint` — must pass
 3. **Tests**: `yarn test --filter <package-name>` — must pass
-4. **Module prepare**: `yarn generate` — integration discovered
+4. **Module prepare**: `npm run modules:prepare` — integration discovered
 5. **Dev server**: `yarn dev` — integration visible in `/backend/integrations`
 6. **Health check**: Test via admin panel
 7. **Credential save**: Save test credentials via admin panel
@@ -715,7 +716,7 @@ After completing the implementation:
 - **MUST** use timing-safe comparison for any manual HMAC verification
 - **MUST** add webhook setup guide (`helpDetails`) on webhook secret credential fields
 - **MUST** add i18n translations — no hardcoded user-facing strings
-- **MUST** run `yarn generate` after creating/modifying module files
+- **MUST** run `npm run modules:prepare` after creating/modifying module files
 - **MUST NOT** modify any files in `packages/core/`, `packages/ui/`, or `packages/shared/`
 - **MUST** follow the gateway-stripe reference implementation patterns exactly
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`

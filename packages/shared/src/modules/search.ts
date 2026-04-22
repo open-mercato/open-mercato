@@ -192,8 +192,6 @@ export type SearchServiceOptions = {
   mergeConfig?: ResultMergeConfig
   /** Callback to enrich results with presenter data from database */
   presenterEnricher?: PresenterEnricherFn
-  /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
-  availabilityCacheTtlMs?: number
 }
 
 // =============================================================================

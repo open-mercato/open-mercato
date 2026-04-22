@@ -1,7 +1,4 @@
-import { modules } from '@/.mercato/generated/modules.app.generated'
-import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { modules } from '@/.mercato/generated/modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import type { Metadata } from 'next'
 import { resolveLocalizedAppMetadata } from '@/lib/metadata'
@@ -22,26 +19,6 @@ function FeatureBadge({ label }: { label: string }) {
 
 export async function generateMetadata(): Promise<Metadata> {
   return resolveLocalizedAppMetadata()
-}
-
-const routeCountsByModule = modules.reduce((map, module) => {
-  map.set(module.id, { frontend: 0, backend: 0, api: 0 })
-  return map
-}, new Map<string, { frontend: number; backend: number; api: number }>())
-
-for (const route of frontendRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.frontend += 1
-}
-
-for (const route of backendRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.backend += 1
-}
-
-for (const route of apiRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.api += route.methods.length
 }
 
 export default async function Home() {
@@ -116,10 +93,10 @@ export default async function Home() {
           <div className="text-sm font-medium mb-3">{t('app.page.activeModules.title', 'Active Modules')}</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[200px] overflow-y-auto pr-2">
             {modules.map((m) => {
-              const counts = routeCountsByModule.get(m.id) ?? { frontend: 0, backend: 0, api: 0 }
-              const fe = counts.frontend
-              const be = counts.backend
-              const api = counts.api
+              const fe = m.frontendRoutes?.length || 0
+              const be = m.backendRoutes?.length || 0
+              const api = m.apis?.length || 0
+              const cli = m.cli?.length || 0
               const i18n = m.translations ? Object.keys(m.translations).length : 0
               return (
                 <div key={m.id} className="rounded border p-3 bg-background">
@@ -129,6 +106,7 @@ export default async function Home() {
                     {fe ? <FeatureBadge label={`FE:${fe}`} /> : null}
                     {be ? <FeatureBadge label={`BE:${be}`} /> : null}
                     {api ? <FeatureBadge label={`API:${api}`} /> : null}
+                    {cli ? <FeatureBadge label={`CLI:${cli}`} /> : null}
                     {i18n ? <FeatureBadge label={`i18n:${i18n}`} /> : null}
                   </div>
                 </div>

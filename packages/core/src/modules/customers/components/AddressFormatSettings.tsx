@@ -157,7 +157,7 @@ export function AddressFormatSettings() {
               </span>
             </label>
           ))}
-          {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {pending ? (
             <div className="inline-flex items-center gap-2 rounded border border-dashed px-3 py-1 text-xs text-muted-foreground">
               <Spinner className="h-3 w-3" />

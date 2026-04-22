@@ -142,7 +142,7 @@ Other modules can declare `defaultCustomerRoleFeatures` in their `setup.ts`. Dur
 |--------|--------|-----|
 | `getCustomerAuthFromRequest` | `lib/customerAuth` | API routes — reads JWT from `Authorization` header or cookie |
 | `requireCustomerAuth` | `lib/customerAuth` | API routes — throws 401 if not authenticated |
-| `requireCustomerFeature` | `lib/customerAuth` | API routes — async; re-resolves ACL via `CustomerRbacService` on every call (pass it as 3rd arg); throws 403 if features missing |
+| `requireCustomerFeature` | `lib/customerAuth` | API routes — throws 403 if features missing |
 | `getCustomerAuthFromCookies` | `lib/customerAuthServer` | Server components — reads JWT from Next.js `cookies()` |
 
 ### RBAC Check (Service)

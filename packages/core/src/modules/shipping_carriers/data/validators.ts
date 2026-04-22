@@ -15,19 +15,13 @@ const packageSchema = z.object({
   heightCm: z.number().positive(),
 })
 
-/** Permissive phone regex: allows +, digits, spaces, dashes, dots, and parentheses. Min 7 chars. */
-export const PHONE_REGEX = /^[+\d][\d\s\-().]{6,}$/
-
-const emailField = z.string().trim().email('Invalid email address.').max(320).optional()
-const phoneField = z.string().trim().regex(PHONE_REGEX, 'Invalid phone number.').max(50).optional()
-
 export const calculateRatesSchema = z.object({
   providerKey: z.string().min(1),
   origin: addressSchema,
   destination: addressSchema,
   packages: z.array(packageSchema).min(1),
-  receiverPhone: phoneField,
-  receiverEmail: emailField,
+  receiverPhone: z.string().optional(),
+  receiverEmail: z.string().optional(),
 })
 
 export const createShipmentSchema = z.object({
@@ -38,10 +32,10 @@ export const createShipmentSchema = z.object({
   packages: z.array(packageSchema).min(1),
   serviceCode: z.string().min(1),
   labelFormat: z.enum(['pdf', 'zpl', 'png']).optional(),
-  senderPhone: phoneField,
-  senderEmail: emailField,
-  receiverPhone: phoneField,
-  receiverEmail: emailField,
+  senderPhone: z.string().optional(),
+  senderEmail: z.string().optional(),
+  receiverPhone: z.string().optional(),
+  receiverEmail: z.string().optional(),
   targetPoint: z.string().optional(),
   c2cSendingMethod: z.enum(['parcel_locker', 'dispatch_order', 'pop', 'any_point']).optional(),
 })

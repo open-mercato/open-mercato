@@ -11,9 +11,9 @@ This tutorial walks you through:
 - Overriding the auth login screen from the app overlay
 
 ## 1) Prerequisites
-- Node.js 24+ (enforced by preinstall check; use `nvm use 24` or `fnm use 24` to switch)
-- Docker & Docker Compose (for PostgreSQL, Redis, and Meilisearch)
-- Copy `apps/mercato/.env.example` to `apps/mercato/.env` and set:
+- Node.js 20+
+- Docker & Docker Compose (for PostgreSQL and Redis)
+- Copy `apps/mercato/.env.example` → `apps/mercato/.env` and set:
   - `DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato`
   - `JWT_SECRET=some-strong-secret`
   - `REDIS_URL=redis://localhost:6379`
@@ -65,8 +65,6 @@ packages/my-module/package.json
 ```
 packages/my-module/src/modules/my_module/
   index.ts             # module metadata
-  acl.ts               # (optional) RBAC features
-  setup.ts             # (optional) default role features, tenant init
   di.ts                # (optional) register(container)
   frontend/
     page.tsx           # serves "/my_module" (Next-style page)
@@ -78,28 +76,22 @@ packages/my-module/src/modules/my_module/
     en.json            # (optional) module dictionary
   data/
     entities.ts        # (optional) MikroORM entities
-    validators.ts      # (optional) zod validation schemas
 ```
 
 Example `index.ts`:
-```ts
+```
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-export const metadata: ModuleInfo = {
-  name: 'my_module',
-  title: 'My Module',
-  version: '0.1.0',
-  description: 'A custom module.',
-}
+export const metadata: ModuleInfo = { id: 'my_module', title: 'My Module', version: '0.1.0' } as any
 ```
 
 3. Add a TS alias so imports resolve:
 
-- In `tsconfig.json` paths add: `"@open-mercato/my-module/*": ["./packages/my-module/src/*"]`
+- In `tsconfig.json` paths add: "@open-mercato/my-module/*": ["./packages/my-module/src/*"]
 
 4. Enable the module in `apps/mercato/src/modules.ts`:
 
-```ts
-export const enabledModules: ModuleEntry[] = [
+```
+export const enabledModules = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
@@ -112,10 +104,6 @@ export const enabledModules: ModuleEntry[] = [
 - `yarn dev`
 
 Now visit `/my_module` and `/backend/my_module`.
-
-:::tip App-level modules
-For simpler modules that do not need to be published as separate packages, you can place them directly under `apps/mercato/src/modules/` and use `from: '@app'` instead. See the [Customization Tutorials](../customization/create-first-module) for this approach.
-:::
 
 ## 7) Override the Auth Login Screen
 
@@ -132,8 +120,8 @@ Delete it to fall back to the package implementation.
 
 Use `apps/mercato/src/di.ts` to register app-level DI overrides (runs after all module registrars):
 
-```ts
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+```
+import type { AppContainer } from '@/lib/di/container'
 import { asClass } from 'awilix'
 // import { CustomAuthService } from './services/CustomAuthService'
 
@@ -153,4 +141,4 @@ export function register(container: AppContainer) {
 - List and run via `yarn mercato <module> <command> [...args]`.
 - Add app-level commands in `apps/mercato/src/cli.ts` (listed under module `app`).
 
-You now have an app running with core modules, your own module package, and an overridden auth login screen -- all without editing core.
+You now have an app running with core modules, your own module package, and an overridden auth login screen — all without editing core.

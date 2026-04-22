@@ -8,8 +8,6 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
-import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -30,12 +28,8 @@ import {
 } from '../../../components/detail/hooks/useCustomerDictionary'
 import {
   useCustomFieldDefs,
+  filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
-import {
-  mapCustomFieldKindToFilterType,
-  normalizeCustomFieldFilterOptions,
-  supportsCustomFieldColumn,
-} from '@open-mercato/ui/backend/utils/customFieldColumns'
 
 type DealRow = {
   id: string
@@ -282,8 +276,6 @@ export default function CustomersDealsPage() {
     const raw = Number(searchParams?.get('page') ?? '1')
     return Number.isFinite(raw) && raw > 0 ? raw : 1
   })
-  const [pageSize, setPageSize] = React.useState(PAGE_SIZE)
-  const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
@@ -291,7 +283,6 @@ export default function CustomersDealsPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>({ logic: 'and', conditions: [] })
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
   const initialPersonIds = React.useMemo(
@@ -589,11 +580,7 @@ export default function CustomersDealsPage() {
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
     params.set('page', String(page))
-    params.set('pageSize', String(pageSize))
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id)
-      params.set('order', sorting[0].desc ? 'desc' : 'asc')
-    }
+    params.set('pageSize', String(PAGE_SIZE))
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
@@ -620,12 +607,8 @@ export default function CustomersDealsPage() {
         if (stringValue) params.set(key, stringValue)
       }
     })
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
-    for (const [key, val] of Object.entries(advancedParams)) {
-      params.set(key, val)
-    }
     return params.toString()
-  }, [advancedFilterState, filterValues, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
+  }, [filterValues, page, search, selectedCompanyIds, selectedPersonIds])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -748,39 +731,6 @@ export default function CustomersDealsPage() {
     [confirm, handleRefresh, pendingDeleteId, t],
   )
 
-  const handlePageSizeChange = React.useCallback((newSize: number) => {
-    setPageSize(newSize)
-    setPage(1)
-  }, [])
-
-  const handleBulkDelete = React.useCallback(async (selectedRows: DealRow[]) => {
-    const confirmed = await confirm({
-      title: t('customers.deals.list.bulkDelete.title', 'Delete {count} deals?', { count: selectedRows.length }),
-      description: t('customers.deals.list.bulkDelete.description', 'This action cannot be undone.'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return false
-    let deletedCount = 0
-    for (const row of selectedRows) {
-      try {
-        await deleteCrud('customers/deals', {
-          body: { id: row.id },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
-        })
-        deletedCount++
-      } catch {}
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const deletedIds = new Set(selectedRows.map((r) => r.id))
-        return prev.filter((r) => !deletedIds.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
-    }
-    return deletedCount > 0
-  }, [confirm, t])
-
   const personOptions = peopleState.options
   const companyOptions = companiesState.options
 
@@ -836,70 +786,57 @@ export default function CustomersDealsPage() {
       )
     }
 
-    const customColumns = customFieldDefs
-      .filter((def) => supportsCustomFieldColumn(def))
-      .map<ColumnDef<DealRow>>((def) => ({
-        accessorKey: `cf_${def.key}`,
-        header: def.label || def.key,
-        meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
-          filterType: mapCustomFieldKindToFilterType(def.kind),
-          filterOptions: normalizeCustomFieldFilterOptions(def.options),
-          hidden: def.listVisible === false,
-        },
-        cell: ({ getValue }) => {
-          const value = getValue()
-          if (value == null) return noValue
-          if (Array.isArray(value)) {
-            const normalized = value
-              .map((item) => {
-                if (item == null) return ''
-                if (typeof item === 'string') return item.trim()
-                return String(item).trim()
-              })
-              .filter((item) => item.length > 0)
-            if (!normalized.length) return noValue
-            return <span className="text-sm">{normalized.join(', ')}</span>
-          }
-          if (typeof value === 'boolean') {
-            return (
-              <span className="text-sm">
-                {value
-                  ? t('customers.deals.list.booleanYes', 'Yes')
-                  : t('customers.deals.list.booleanNo', 'No')}
-              </span>
-            )
-          }
-          const stringValue = typeof value === 'string' ? value.trim() : String(value)
-          if (!stringValue) return noValue
-          return <span className="text-sm">{stringValue}</span>
-        },
-      }))
+    const customColumns = filterCustomFieldDefs(customFieldDefs, 'list').map<ColumnDef<DealRow>>((def) => ({
+      accessorKey: `cf_${def.key}`,
+      header: def.label || def.key,
+      cell: ({ getValue }) => {
+        const value = getValue()
+        if (value == null) return noValue
+        if (Array.isArray(value)) {
+          const normalized = value
+            .map((item) => {
+              if (item == null) return ''
+              if (typeof item === 'string') return item.trim()
+              return String(item).trim()
+            })
+            .filter((item) => item.length > 0)
+          if (!normalized.length) return noValue
+          return <span className="text-sm">{normalized.join(', ')}</span>
+        }
+        if (typeof value === 'boolean') {
+          return (
+            <span className="text-sm">
+              {value
+                ? t('customers.deals.list.booleanYes', 'Yes')
+                : t('customers.deals.list.booleanNo', 'No')}
+            </span>
+          )
+        }
+        const stringValue = typeof value === 'string' ? value.trim() : String(value)
+        if (!stringValue) return noValue
+        return <span className="text-sm">{stringValue}</span>
+      },
+    }))
 
     return [
       {
         accessorKey: 'title',
         header: t('customers.deals.list.columns.title'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'title' },
         cell: ({ row }) => <span className="font-medium text-sm">{row.original.title}</span>,
       },
       {
         accessorKey: 'status',
         header: t('customers.deals.list.columns.status'),
-        meta: { filterType: 'select' as const, columnChooserGroup: 'Basic Info', filterKey: 'status' },
         cell: ({ row }) => renderDictionaryCell('deal-statuses', row.original.status),
       },
       {
         accessorKey: 'pipelineStage',
         header: t('customers.deals.list.columns.pipelineStage'),
-        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_stage' },
         cell: ({ row }) => renderDictionaryCell('pipeline-stages', row.original.pipelineStage),
       },
       {
         accessorKey: 'pipelineId',
         header: t('customers.deals.list.columns.pipeline', 'Pipeline'),
-        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_id' },
         cell: ({ row }) => {
           const name = row.original.pipelineId ? pipelineNames[row.original.pipelineId] : null
           return name ? <span className="text-sm">{name}</span> : noValue
@@ -908,7 +845,6 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'valueAmount',
         header: t('customers.deals.list.columns.value'),
-        meta: { filterType: 'number' as const, columnChooserGroup: 'Financial', filterKey: 'value_amount' },
         cell: ({ row }) => (
           <span className="text-sm font-medium">
             {formatCurrency(row.original.valueAmount ?? null, row.original.valueCurrency ?? null, t('customers.deals.list.noValue'))}
@@ -918,7 +854,6 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'probability',
         header: t('customers.deals.list.columns.probability'),
-        meta: { filterType: 'number' as const, columnChooserGroup: 'Financial', filterKey: 'probability' },
         cell: ({ row }) => {
           const value = row.original.probability
           if (typeof value === 'number' && Number.isFinite(value)) {
@@ -930,7 +865,6 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'expectedCloseAt',
         header: t('customers.deals.list.columns.expectedClose'),
-        meta: { columnChooserGroup: 'Dates', filterKey: 'expected_close_at' },
         cell: ({ row }) => (
           <span className="text-sm">
             {formatDateValue(row.original.expectedCloseAt ?? null, t('customers.deals.list.noValue'))}
@@ -940,19 +874,16 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
-        meta: { columnChooserGroup: 'Associations', filterable: false },
         cell: ({ row }) => renderAssociationList(row.original.companies, t('customers.deals.list.unnamedCompany')),
       },
       {
         accessorKey: 'people',
         header: t('customers.deals.list.columns.people'),
-        meta: { columnChooserGroup: 'Associations', filterable: false },
         cell: ({ row }) => renderAssociationList(row.original.people, t('customers.deals.list.unnamedPerson')),
       },
       {
         accessorKey: 'updatedAt',
         header: t('customers.deals.list.columns.updatedAt'),
-        meta: { columnChooserGroup: 'Dates', filterKey: 'updated_at' },
         cell: ({ row }) => (
           <span className="text-sm">
             {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'))}
@@ -967,8 +898,6 @@ export default function CustomersDealsPage() {
     <Page>
       <PageBody>
         <DataTable<DealRow>
-          stickyFirstColumn
-          stickyActionsColumn
           title={t('customers.deals.list.title')}
           actions={(
             <Button asChild>
@@ -978,7 +907,6 @@ export default function CustomersDealsPage() {
             </Button>
           )}
           columns={columns}
-          columnChooser={{ auto: true }}
           data={rows}
           onRowClick={(row) => {
             router.push(`/backend/customers/deals/${row.id}`)
@@ -1014,17 +942,6 @@ export default function CustomersDealsPage() {
               />
             )
           }}
-          sortable
-          sorting={sorting}
-          onSortingChange={setSorting}
-          bulkActions={[
-            {
-              id: 'delete',
-              label: t('customers.deals.list.actions.delete', 'Delete'),
-              destructive: true,
-              onExecute: handleBulkDelete,
-            },
-          ]}
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={t('customers.deals.list.searchPlaceholder')}
@@ -1034,12 +951,10 @@ export default function CustomersDealsPage() {
           onFiltersClear={handleFiltersClear}
           pagination={{
             page,
-            pageSize,
+            pageSize: PAGE_SIZE,
             total,
             totalPages,
             onPageChange: (nextPage) => setPage(nextPage),
-            pageSizeOptions: [10, 25, 50, 100],
-            onPageSizeChange: handlePageSizeChange,
             cacheStatus,
           }}
           isLoading={isLoading}
@@ -1050,14 +965,6 @@ export default function CustomersDealsPage() {
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
           perspective={{ tableId: 'customers.deals.list' }}
-          advancedFilter={{
-              auto: true,
-              value: advancedFilterState,
-              onChange: setAdvancedFilterState,
-              onApply: () => { setPage(1) },
-              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
-            }}
-          virtualized
         />
       </PageBody>
       {ConfirmDialogElement}

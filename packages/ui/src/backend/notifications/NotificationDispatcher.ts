@@ -99,18 +99,11 @@ class NotificationDispatcher {
     for (const notification of notifications) {
       if (this.handledIds.has(notification.id)) continue
 
-      let handlerRan = false
-      let hadFeatureBlockedHandler = false
-
       for (const entry of sortedEntries) {
         const handler = entry.handler
         if (!matchesType(handler.notificationType, notification.type)) continue
-        if (!matchesFeatures(handler.features, runtime.features)) {
-          hadFeatureBlockedHandler = true
-          continue
-        }
+        if (!matchesFeatures(handler.features, runtime.features)) continue
         if (this.shouldDebounce(handler, notification.id)) continue
-        handlerRan = true
         try {
           void Promise.resolve(handler.handle(notification, context))
         } catch (error) {
@@ -120,7 +113,6 @@ class NotificationDispatcher {
 
       for (const listener of this.listeners.values()) {
         if (!matchesType(listener.pattern, notification.type)) continue
-        handlerRan = true
         try {
           listener.effect(notification)
         } catch (error) {
@@ -128,14 +120,7 @@ class NotificationDispatcher {
         }
       }
 
-      // Only mark as permanently handled when something actually ran, or when no handler
-      // was blocked by missing features. This prevents a race where the initial notification
-      // fetch completes before the feature-check API resolves (features: []), causing all
-      // feature-gated handlers to be skipped — but the notification gets permanently
-      // deduped so it never fires when features are available on the next dispatch.
-      if (handlerRan || !hadFeatureBlockedHandler) {
-        this.markHandled(notification.id)
-      }
+      this.markHandled(notification.id)
     }
   }
 

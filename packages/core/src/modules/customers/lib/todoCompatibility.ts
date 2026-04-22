@@ -1,18 +1,9 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import {
-  CustomerInteraction,
-  CustomerTodoLink,
-} from '../data/entities'
+import type { CustomerTodoLink } from '../data/entities'
 import type { InteractionRecord } from './interactionCompatibility'
-import {
-  CUSTOMER_INTERACTION_TASK_SOURCE,
-  EXAMPLE_TODO_SOURCE,
-  resolveExampleIntegrationHref,
-} from './interactionCompatibility'
-import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interactionReadModel'
+import { CUSTOMER_INTERACTION_TASK_SOURCE } from './interactionCompatibility'
 
 export type CustomerTodoRow = {
   id: string
@@ -29,8 +20,6 @@ export type CustomerTodoRow = {
   organizationId: string
   tenantId: string
   createdAt: string
-  externalHref?: string | null
-  _integrations?: Record<string, unknown>
   customer: {
     id: string | null
     displayName: string | null
@@ -53,32 +42,6 @@ type CustomerSummary = {
   id: string | null
   displayName: string | null
   kind: string | null
-}
-
-type CustomersAuthLike = {
-  tenantId: string | null
-  orgId?: string | null
-  sub?: string | null
-  userId?: string | null
-  keyId?: string | null
-}
-
-type CustomersContainerLike = {
-  resolve: (name: string) => unknown
-}
-
-export type CanonicalTodoListResult = {
-  items: CustomerTodoRow[]
-  bridgeIds: Set<string>
-  total: number
-}
-
-export type ListTodosPagination = { page: number; pageSize: number }
-
-function resolveLegacyTodoSource(source: string | null | undefined): string {
-  return typeof source === 'string' && source.trim().length > 0
-    ? source
-    : EXAMPLE_TODO_SOURCE
 }
 
 function extractTodoTitle(record: Record<string, unknown>): string | null {
@@ -125,64 +88,6 @@ function readCustomField(record: Record<string, unknown>, key: string): unknown 
   return undefined
 }
 
-export function normalizeTodoSearch(value: string | undefined): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim().toLowerCase()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
-    }
-    return rightTime - leftTime
-  })
-}
-
-export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
-  if (!search) return rows
-  return rows.filter((row) => {
-    const haystack = [
-      row.customer.displayName,
-      row.todoTitle,
-      row.todoDescription,
-    ]
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(search)
-  })
-}
-
-export function paginateTodoRows(
-  rows: CustomerTodoRow[],
-  page: number,
-  pageSize: number,
-  exportAll: boolean,
-): { items: CustomerTodoRow[]; total: number; page: number; pageSize: number; totalPages: number } {
-  const total = rows.length
-  if (exportAll) {
-    return {
-      items: rows,
-      total,
-      page: 1,
-      pageSize: total,
-      totalPages: 1,
-    }
-  }
-  const start = (page - 1) * pageSize
-  return {
-    items: rows.slice(start, start + pageSize),
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  }
-}
-
 export async function resolveLegacyTodoDetails(
   queryEngine: QueryEngine,
   links: CustomerTodoLink[],
@@ -198,7 +103,10 @@ export async function resolveLegacyTodoDetails(
 
   const idsBySource = new Map<string, Set<string>>()
   for (const link of links) {
-    const source = resolveLegacyTodoSource(link.todoSource)
+    const source =
+      typeof link.todoSource === 'string' && link.todoSource.trim().length > 0
+        ? link.todoSource
+        : 'example:todo'
     const id =
       typeof link.todoId === 'string' && link.todoId.trim().length > 0
         ? link.todoId
@@ -356,177 +264,6 @@ export async function resolveLegacyTodoDetails(
   return details
 }
 
-export async function listLegacyTodoRows(
-  em: EntityManager,
-  queryEngine: QueryEngine,
-  tenantId: string,
-  organizationIds: string[] | null,
-  entityId: string | undefined,
-  options?: { limit?: number | null },
-): Promise<CustomerTodoRow[]> {
-  const where: Record<string, unknown> = { tenantId }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (entityId) {
-    where.entity = entityId
-  }
-
-  const findOptions: Record<string, unknown> = {
-    populate: ['entity'],
-    orderBy: { createdAt: 'desc' },
-  }
-  if (typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
-    findOptions.limit = options.limit
-  }
-
-  const links = await em.find(CustomerTodoLink, where, findOptions as any)
-  const details = await resolveLegacyTodoDetails(
-    queryEngine,
-    links,
-    tenantId,
-    organizationIds ?? [],
-  )
-
-  return links.map((link) => {
-    const source = resolveLegacyTodoSource(link.todoSource)
-    return mapLegacyTodoLinkToRow(
-      link,
-      details.get(`${source}:${link.todoId}`) ?? null,
-    )
-  })
-}
-
-export async function listCanonicalTodoRows(
-  em: EntityManager,
-  container: CustomersContainerLike,
-  auth: CustomersAuthLike,
-  selectedOrganizationId: string | null,
-  organizationIds: string[] | null,
-  options?: {
-    entityId?: string
-    includeDeleted?: boolean
-    source?: string | string[] | null
-    pagination?: ListTodosPagination | null
-    searchText?: string | null
-    limit?: number | null
-  },
-): Promise<CanonicalTodoListResult> {
-  const where: Record<string, unknown> = {
-    tenantId: auth.tenantId,
-    interactionType: 'task',
-  }
-  if (!options?.includeDeleted) {
-    where.deletedAt = null
-  }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (options?.entityId) {
-    where.entity = options.entityId
-  }
-  if (options?.source) {
-    where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
-  }
-  const trimmedSearch =
-    typeof options?.searchText === 'string' ? options.searchText.trim() : ''
-  if (trimmedSearch.length > 0) {
-    const pattern = `%${trimmedSearch}%`
-    where.$or = [
-      { title: { $ilike: pattern } },
-      { body: { $ilike: pattern } },
-    ]
-  }
-
-  const findOptions: Record<string, unknown> = {
-    orderBy: { createdAt: 'desc' },
-  }
-  const pagination = options?.pagination ?? null
-  if (pagination) {
-    findOptions.offset = Math.max(0, (pagination.page - 1) * pagination.pageSize)
-    findOptions.limit = pagination.pageSize
-  } else if (
-    typeof options?.limit === 'number' &&
-    Number.isFinite(options.limit) &&
-    options.limit > 0
-  ) {
-    findOptions.limit = options.limit
-  }
-
-  let interactions: CustomerInteraction[]
-  let total: number
-  if (pagination) {
-    const [rows, count] = await em.findAndCount(CustomerInteraction, where, findOptions as any)
-    interactions = rows
-    total = count
-  } else {
-    interactions = await em.find(CustomerInteraction, where, findOptions as any)
-    total = interactions.filter((interaction) => !interaction.deletedAt).length
-  }
-  const activeInteractions = interactions.filter((interaction) => !interaction.deletedAt)
-  const groups = new Map<string, CustomerInteraction[]>()
-
-  for (const interaction of activeInteractions) {
-    const organizationId =
-      typeof interaction.organizationId === 'string' && interaction.organizationId.trim().length > 0
-        ? interaction.organizationId
-        : selectedOrganizationId ?? ''
-    const bucket = groups.get(organizationId)
-    if (bucket) {
-      bucket.push(interaction)
-    } else {
-      groups.set(organizationId, [interaction])
-    }
-  }
-
-  const rowByInteractionId = new Map<string, CustomerTodoRow>()
-
-  for (const [groupOrganizationId, groupedInteractions] of groups.entries()) {
-    const scopedOrganizationId = groupOrganizationId.length > 0 ? groupOrganizationId : null
-    const hydrated = await hydrateCanonicalInteractions({
-      em,
-      container,
-      auth: {
-        ...auth,
-        orgId: auth.orgId ?? null,
-      },
-      selectedOrganizationId: scopedOrganizationId,
-      interactions: groupedInteractions,
-    })
-    const customerIds = Array.from(
-      new Set(
-        hydrated
-          .map((interaction) => interaction.entityId ?? null)
-          .filter((value): value is string => !!value),
-      ),
-    )
-    const customerSummaries = await loadCustomerSummaries(
-      em,
-      customerIds,
-      auth.tenantId,
-      scopedOrganizationId,
-    )
-
-    for (const interaction of hydrated) {
-      rowByInteractionId.set(
-        interaction.id,
-        mapInteractionRecordToTodoRow(
-          interaction,
-          interaction.entityId ? customerSummaries.get(interaction.entityId) ?? null : null,
-        ),
-      )
-    }
-  }
-
-  return {
-    items: activeInteractions
-      .map((interaction) => rowByInteractionId.get(interaction.id) ?? null)
-      .filter((row): row is CustomerTodoRow => !!row),
-    bridgeIds: new Set(interactions.map((interaction) => interaction.id)),
-    total,
-  }
-}
-
 export function mapLegacyTodoLinkToRow(
   link: CustomerTodoLink,
   detail: LegacyTodoDetail | null,
@@ -541,7 +278,10 @@ export function mapLegacyTodoLinkToRow(
   return {
     id: link.id,
     todoId: link.todoId,
-    todoSource: resolveLegacyTodoSource(link.todoSource),
+    todoSource:
+      typeof link.todoSource === 'string' && link.todoSource.trim().length > 0
+        ? link.todoSource
+        : 'example:todo',
     todoTitle: detail?.title ?? null,
     todoIsDone: detail?.isDone ?? null,
     todoPriority: detail?.priority ?? null,
@@ -553,7 +293,6 @@ export function mapLegacyTodoLinkToRow(
     organizationId: link.organizationId,
     tenantId: link.tenantId,
     createdAt: link.createdAt.toISOString(),
-    _integrations: undefined,
     customer: entity,
   }
 }
@@ -598,8 +337,6 @@ export function mapInteractionRecordToTodoRow(
     organizationId: interaction.organizationId ?? '',
     tenantId: interaction.tenantId ?? '',
     createdAt: interaction.createdAt,
-    externalHref: resolveExampleIntegrationHref(interaction),
-    _integrations: interaction._integrations ?? undefined,
     customer: customer ?? {
       id: interaction.entityId ?? null,
       displayName: null,

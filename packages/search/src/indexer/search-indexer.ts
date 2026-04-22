@@ -433,15 +433,15 @@ export class SearchIndexer {
           config,
         )
 
-        // Bulk index records via SearchService (sends to all strategies)
-        if (records.length > 0) {
+        // Index each record via SearchService (sends to all strategies)
+        for (const record of records) {
           try {
-            await this.searchService.bulkIndex(records)
-            result.recordsIndexed += records.length
+            await this.searchService.index(record)
+            result.recordsIndexed++
           } catch (error) {
-            searchDebugWarn('SearchIndexer', 'Failed to bulk index records', {
+            searchDebugWarn('SearchIndexer', 'Failed to index record', {
               entityId: params.entityId,
-              recordCount: records.length,
+              recordId: record.recordId,
               error: error instanceof Error ? error.message : error,
             })
           }
@@ -561,15 +561,7 @@ export class SearchIndexer {
     }
 
     if (indexableRecords.length > 0) {
-      try {
-        await this.searchService.bulkIndex(indexableRecords)
-      } catch (error) {
-        throw new Error(
-          `Failed to bulk index ${indexableRecords.length} records: ${
-            error instanceof Error ? error.message : error
-          }`
-        )
-      }
+      await this.searchService.bulkIndex(indexableRecords)
     }
   }
 

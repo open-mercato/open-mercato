@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createModuleQueue, type Queue } from '@open-mercato/queue'
+import { createQueue, type Queue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import type { WebhookDeliveryJob } from './delivery'
 
 const queues = new Map<string, Queue<WebhookDeliveryJob>>()
@@ -11,8 +12,12 @@ export function getWebhookQueue(queueName: string = WEBHOOK_DELIVERIES_QUEUE): Q
   const existing = queues.get(queueName)
   if (existing) return existing
 
-  const concurrency = Math.max(1, Number.parseInt(process.env.WEBHOOK_QUEUE_CONCURRENCY ?? '10', 10) || 10)
-  const created = createModuleQueue<WebhookDeliveryJob>(queueName, { concurrency })
+  const created = process.env.QUEUE_STRATEGY === 'async'
+    ? createQueue<WebhookDeliveryJob>(queueName, 'async', {
+      connection: { url: getRedisUrl('QUEUE') },
+      concurrency: Math.max(1, Number.parseInt(process.env.WEBHOOK_QUEUE_CONCURRENCY ?? '10', 10) || 10),
+    })
+    : createQueue<WebhookDeliveryJob>(queueName, 'local')
 
   queues.set(queueName, created)
   return created

@@ -7,28 +7,6 @@ export interface AppRoot {
   generatedDir: string
 }
 
-const nextConfigNames = [
-  'next.config.ts',
-  'next.config.js',
-  'next.config.mjs',
-] as const
-
-function hasNextConfigFile(appDir: string): boolean {
-  return nextConfigNames.some((configName) => {
-    const configPath = path.join(appDir, configName)
-
-    if (!fs.existsSync(configPath)) {
-      return false
-    }
-
-    try {
-      return fs.statSync(configPath).isFile()
-    } catch {
-      return false
-    }
-  })
-}
-
 /**
  * Find the Next.js app root by searching for next.config.ts/js/mjs.
  *
@@ -42,8 +20,12 @@ function hasNextConfigFile(appDir: string): boolean {
 export function findAppRoot(startDir: string = process.cwd()): AppRoot | null {
   let current = startDir
 
-  while (true) {
-    if (hasNextConfigFile(current)) {
+  while (current !== path.dirname(current)) {
+    const configTs = path.join(current, 'next.config.ts')
+    const configJs = path.join(current, 'next.config.js')
+    const configMjs = path.join(current, 'next.config.mjs')
+
+    if (fs.existsSync(configTs) || fs.existsSync(configJs) || fs.existsSync(configMjs)) {
       const mercatoDir = path.join(current, '.mercato')
       const generatedDir = path.join(mercatoDir, 'generated')
 
@@ -57,12 +39,7 @@ export function findAppRoot(startDir: string = process.cwd()): AppRoot | null {
       return { appDir: current, mercatoDir, generatedDir }
     }
 
-    const parent = path.dirname(current)
-    if (parent === current) {
-      break
-    }
-
-    current = parent
+    current = path.dirname(current)
   }
 
   return null
@@ -88,7 +65,13 @@ export function findAllApps(rootDir: string): AppRoot[] {
 
     const appDir = path.join(appsDir, entry.name)
 
-    if (!hasNextConfigFile(appDir)) continue
+    // Check for Next.js config
+    const hasNextConfig =
+      fs.existsSync(path.join(appDir, 'next.config.ts')) ||
+      fs.existsSync(path.join(appDir, 'next.config.js')) ||
+      fs.existsSync(path.join(appDir, 'next.config.mjs'))
+
+    if (!hasNextConfig) continue
 
     const mercatoDir = path.join(appDir, '.mercato')
     const generatedDir = path.join(mercatoDir, 'generated')

@@ -51,7 +51,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   const [transitionName, setTransitionName] = useState('')
   const [trigger, setTrigger] = useState('auto')
   const [priority, setPriority] = useState('100')
-  const [continueOnActivityFailure, setContinueOnActivityFailure] = useState(false)
+  const [continueOnActivityFailure, setContinueOnActivityFailure] = useState(true)
   const [preConditions, setPreConditions] = useState<TransitionCondition[]>([])
   const [postConditions, setPostConditions] = useState<TransitionCondition[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -94,7 +94,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
       setTrigger(edgeData?.trigger || 'auto')
       setPriority((edgeData?.priority || 100).toString())
-      setContinueOnActivityFailure(edgeData?.continueOnActivityFailure !== undefined ? edgeData.continueOnActivityFailure : false)
+      setContinueOnActivityFailure(edgeData?.continueOnActivityFailure !== undefined ? edgeData.continueOnActivityFailure : true)
 
       // Handle pre/post conditions - convert from various formats
       const rawPreConditions = edgeData?.preConditions || []
@@ -290,9 +290,16 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     onClose()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!edge) return
-    onDelete(edge.id)
+    const confirmed = await confirmDialog({
+      title: t('workflows.edgeEditor.confirmDelete'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
+      onDelete(edge.id)
+      onClose()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

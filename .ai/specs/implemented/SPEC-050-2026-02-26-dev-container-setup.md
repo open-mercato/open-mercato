@@ -342,9 +342,3 @@ None.
 - Updated spec: Forwarded Ports table now shows the `forwardPorts` entry string alongside port/service, added design decision row, added internal consistency check row.
 - Updated audit checklist: port forwarding check now verifies named service syntax.
 - Updated troubleshooting guide: extended "Cannot connect to database from host tools" to cover Redis and Meilisearch; added named service syntax note.
-
-### 2026-04-03
-- Added `docker-compose.local.yml` for personal overrides (gitignored) — allows developers to mount sibling repos, add env vars, or extra services without modifying tracked files
-- `generate-compose-volumes.sh` auto-creates a default `docker-compose.local.yml` (commented-out example) if the file doesn't exist, preventing container startup failures
-- Added to `devcontainer.json` `dockerComposeFile` array as the third compose layer
-- Updated README: new "Personal Overrides" section with sibling repo example, added file to File Responsibilities table

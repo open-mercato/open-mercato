@@ -1,9 +1,8 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/core'
 import { ProgressJob } from '../data/entities'
 import type { ProgressService } from './progressService'
 import { calculateEta, calculateProgressPercent, STALE_JOB_TIMEOUT_SECONDS } from './progressService'
 import { PROGRESS_EVENTS } from './events'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 function buildJobPayload(job: ProgressJob): Record<string, unknown> {
   return {
@@ -244,8 +243,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return job
     },
 
-    async isCancellationRequested(jobId, tenantId) {
-      const job = await findOneWithDecryption(em, ProgressJob, { id: jobId, tenantId })
+    async isCancellationRequested(jobId) {
+      const job = await em.findOne(ProgressJob, { id: jobId })
       return job?.cancelRequestedAt != null
     },
 

@@ -4,17 +4,6 @@
  * Client for communicating with OpenCode server running in headless mode.
  * OpenCode is used as an AI agent that can execute MCP tools.
  */
-import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
-
-const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 30_000
-const DEFAULT_OPENCODE_SSE_CONNECT_TIMEOUT_MS = 15_000
-
-function resolveOpencodeTimeoutMs(envVar: string, fallback: number): number {
-  const raw = process.env[envVar]
-  const parsed = raw ? Number.parseInt(raw, 10) : undefined
-  return resolveTimeoutMs(parsed, fallback)
-}
 
 export type OpenCodeClientConfig = {
   baseUrl: string
@@ -142,22 +131,6 @@ export class OpenCodeClient {
     onError?: (error: Error) => void
   ): () => void {
     const controller = new AbortController()
-    const connectTimeoutMs = resolveOpencodeTimeoutMs(
-      'OPENCODE_SSE_CONNECT_TIMEOUT_MS',
-      DEFAULT_OPENCODE_SSE_CONNECT_TIMEOUT_MS,
-    )
-    const connectTimeoutReason = new Error(
-      `OpenCode SSE connection timed out after ${connectTimeoutMs}ms`,
-    )
-    let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      controller.abort(connectTimeoutReason)
-    }, connectTimeoutMs)
-    const clearConnectTimer = () => {
-      if (connectTimer !== null) {
-        clearTimeout(connectTimer)
-        connectTimer = null
-      }
-    }
 
     const connect = async () => {
       try {
@@ -168,7 +141,6 @@ export class OpenCodeClient {
           },
           signal: controller.signal,
         })
-        clearConnectTimer()
 
         if (!res.ok || !res.body) {
           throw new Error(`SSE connection failed: ${res.status}`)
@@ -200,71 +172,55 @@ export class OpenCodeClient {
           }
         }
       } catch (error) {
-        clearConnectTimer()
-        if ((error as Error).name === 'AbortError') {
-          const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
-          if (reason === connectTimeoutReason) {
-            onError?.(connectTimeoutReason)
-          }
-          return
+        if ((error as Error).name !== 'AbortError') {
+          onError?.(error as Error)
         }
-        onError?.(error as Error)
       }
     }
 
     connect()
 
-    return () => {
-      clearConnectTimer()
-      controller.abort()
-    }
+    return () => controller.abort()
   }
 
   /**
    * Check OpenCode server health.
    */
   async health(): Promise<OpenCodeHealth> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/global/health`, {
+    const res = await fetch(`${this.baseUrl}/global/health`, {
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
       throw new Error(`Health check failed: ${res.status}`)
     }
 
-    const data = await readJsonSafe<OpenCodeHealth>(res, null)
-    if (!data) throw new Error('Health check returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
    * Get MCP server connection status.
    */
   async mcpStatus(): Promise<OpenCodeMcpStatus> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/mcp`, {
+    const res = await fetch(`${this.baseUrl}/mcp`, {
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
       throw new Error(`MCP status check failed: ${res.status}`)
     }
 
-    const data = await readJsonSafe<OpenCodeMcpStatus>(res, null)
-    if (!data) throw new Error('MCP status check returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
    * Create a new conversation session.
    */
   async createSession(): Promise<OpenCodeSession> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/session`, {
+    const res = await fetch(`${this.baseUrl}/session`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({}),
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -272,27 +228,22 @@ export class OpenCodeClient {
       throw new Error(`Failed to create session: ${error}`)
     }
 
-    const data = await readJsonSafe<OpenCodeSession>(res, null)
-    if (!data) throw new Error('Create session returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
    * Get an existing session by ID.
    */
   async getSession(sessionId: string): Promise<OpenCodeSession> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/session/${sessionId}`, {
+    const res = await fetch(`${this.baseUrl}/session/${sessionId}`, {
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
       throw new Error(`Failed to get session: ${res.status}`)
     }
 
-    const data = await readJsonSafe<OpenCodeSession>(res, null)
-    if (!data) throw new Error('Get session returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
@@ -313,14 +264,10 @@ export class OpenCodeClient {
       body.model = options.model
     }
 
-    const res = await fetchWithTimeout(`${this.baseUrl}/session/${sessionId}/message`, {
+    const res = await fetch(`${this.baseUrl}/session/${sessionId}/message`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(body),
-      timeoutMs: resolveOpencodeTimeoutMs(
-        'OPENCODE_SEND_MESSAGE_TIMEOUT_MS',
-        resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
-      ),
     })
 
     if (!res.ok) {
@@ -328,20 +275,17 @@ export class OpenCodeClient {
       throw new Error(`Failed to send message: ${error}`)
     }
 
-    const data = await readJsonSafe<OpenCodeMessage>(res, null)
-    if (!data) throw new Error('Send message returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
    * Set authentication credentials for a provider.
    */
   async setAuth(providerId: string, apiKey: string): Promise<void> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/auth/${providerId}`, {
+    const res = await fetch(`${this.baseUrl}/auth/${providerId}`, {
       method: 'PUT',
       headers: this.headers,
       body: JSON.stringify({ type: 'api', key: apiKey }),
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -353,36 +297,30 @@ export class OpenCodeClient {
    * Get current configuration.
    */
   async getConfig(): Promise<Record<string, unknown>> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/config`, {
+    const res = await fetch(`${this.baseUrl}/config`, {
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
       throw new Error(`Failed to get config: ${res.status}`)
     }
 
-    const data = await readJsonSafe<Record<string, unknown>>(res, null)
-    if (!data) throw new Error('Get config returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
    * Get pending questions that need user response.
    */
   async getPendingQuestions(): Promise<OpenCodeQuestion[]> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/question`, {
+    const res = await fetch(`${this.baseUrl}/question`, {
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
       throw new Error(`Failed to get questions: ${res.status}`)
     }
 
-    const data = await readJsonSafe<OpenCodeQuestion[]>(res, null)
-    if (!data) throw new Error('Get questions returned invalid JSON response')
-    return data
+    return res.json()
   }
 
   /**
@@ -413,11 +351,10 @@ export class OpenCodeClient {
 
     console.log('[OpenCode Client] Answering question', questionId, 'with body:', JSON.stringify(body))
 
-    const res = await fetchWithTimeout(`${this.baseUrl}/question/${questionId}/reply`, {
+    const res = await fetch(`${this.baseUrl}/question/${questionId}/reply`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(body),
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     const responseText = await res.text()
@@ -434,10 +371,9 @@ export class OpenCodeClient {
   async rejectQuestion(questionId: string): Promise<void> {
     console.log('[OpenCode Client] Rejecting question', questionId)
 
-    const res = await fetchWithTimeout(`${this.baseUrl}/question/${questionId}/reject`, {
+    const res = await fetch(`${this.baseUrl}/question/${questionId}/reject`, {
       method: 'POST',
       headers: this.headers,
-      timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -452,16 +388,14 @@ export class OpenCodeClient {
    */
   async getSessionStatus(sessionId: string): Promise<{ status: string; questionId?: string }> {
     try {
-      const res = await fetchWithTimeout(`${this.baseUrl}/session/${sessionId}/status`, {
+      const res = await fetch(`${this.baseUrl}/session/${sessionId}/status`, {
         headers: this.headers,
-        timeoutMs: resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
       })
 
       if (res.ok) {
         const contentType = res.headers.get('content-type')
         if (contentType && contentType.includes('application/json')) {
-          const data = await readJsonSafe<{ status: string; questionId?: string }>(res, null)
-          if (data) return data
+          return res.json()
         }
       }
     } catch {

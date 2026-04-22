@@ -10,7 +10,7 @@ const widget: InjectionRowActionWidget = {
     {
       id: 'example.customer.priority',
       label: 'example.priority.action.open',
-      placement: { position: InjectionPosition.After, relativeTo: 'view' },
+      placement: { position: InjectionPosition.After, relativeTo: 'edit' },
       onSelect: (row, context) => {
         if (!row || typeof row !== 'object') return
         const id = (row as Record<string, unknown>).id

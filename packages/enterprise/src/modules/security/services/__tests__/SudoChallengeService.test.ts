@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChallengeMethod, SudoChallengeConfig } from '../../data/entities'
+import { ChallengeMethod } from '../../data/entities'
 import { registerSecuritySudoTargetEntries } from '../../lib/module-security-registry'
 import {
   defaultSecurityModuleConfig,
@@ -82,36 +82,24 @@ function createServiceContext(
       else sessions.push(record)
     }),
     flush: jest.fn().mockResolvedValue(undefined),
-    find: jest.fn(async (entity: unknown, query: Record<string, unknown>) => {
-      if (entity === SudoChallengeConfig) {
-        return configs.filter((config) => {
-          if ('targetIdentifier' in query && config.targetIdentifier !== query.targetIdentifier) return false
-          if (query.deletedAt !== undefined && config.deletedAt !== query.deletedAt) return false
-          if (query.tenantId !== undefined && config.tenantId !== query.tenantId) return false
-          const orPredicates = (query as Record<string, unknown>).$or as Array<Record<string, unknown>> | undefined
-          if (Array.isArray(orPredicates) && orPredicates.length > 0) {
-            const matches = orPredicates.some((predicate) => {
-              if ('tenantId' in predicate && config.tenantId !== (predicate.tenantId as string | null)) return false
-              return true
-            })
-            if (!matches) return false
-          }
-          return true
-        })
+    find: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
+      if ('targetIdentifier' in query) {
+        return configs.filter((config) =>
+          config.targetIdentifier === query.targetIdentifier
+          && config.deletedAt === query.deletedAt,
+        )
       }
       return []
     }),
-    findOne: jest.fn(async (entity: unknown, query: Record<string, unknown>) => {
-      if (entity === SudoChallengeConfig) {
-        return configs.find((config) => {
-          if (query.id !== undefined && config.id !== query.id) return false
-          if ('targetIdentifier' in query && config.targetIdentifier !== query.targetIdentifier) return false
-          if (query.tenantId !== undefined && config.tenantId !== query.tenantId) return false
-          if (query.organizationId !== undefined && config.organizationId !== query.organizationId) return false
-          if (query.isDeveloperDefault !== undefined && config.isDeveloperDefault !== query.isDeveloperDefault) return false
-          if (query.deletedAt !== undefined && config.deletedAt !== query.deletedAt) return false
-          return true
-        }) ?? null
+    findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
+      if ('targetIdentifier' in query) {
+        return configs.find((config) =>
+          config.targetIdentifier === query.targetIdentifier
+          && config.tenantId === (query.tenantId as string | null | undefined)
+          && config.organizationId === (query.organizationId as string | null | undefined)
+          && (query.isDeveloperDefault === undefined || config.isDeveloperDefault === query.isDeveloperDefault)
+          && (query.deletedAt === undefined || config.deletedAt === query.deletedAt)
+        ) ?? null
       }
       if ('sessionToken' in query || 'id' in query) {
         return sessions.find((session) => {
@@ -314,129 +302,5 @@ describe('SudoChallengeService', () => {
 
     expect(result.method).toBe('password')
     expect(mfaVerificationService.createChallenge).not.toHaveBeenCalled()
-  })
-
-  describe('tenant isolation for sudo configs', () => {
-    function seedConfig(
-      configs: ConfigRecord[],
-      overrides?: Partial<ConfigRecord>,
-    ): ConfigRecord {
-      const record: ConfigRecord = {
-        id: 'config-a',
-        tenantId: 'tenant-a',
-        organizationId: null,
-        label: null,
-        targetIdentifier: 'security.custom.target',
-        isEnabled: true,
-        isDeveloperDefault: false,
-        ttlSeconds: 300,
-        challengeMethod: ChallengeMethod.PASSWORD,
-        configuredBy: 'user-a',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        ...overrides,
-      }
-      configs.push(record)
-      return record
-    }
-
-    test('updateConfig rejects cross-tenant writes from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
-
-      await expect(
-        service.updateConfig(
-          'config-a',
-          { isEnabled: false },
-          'user-b',
-          { tenantId: 'tenant-b', organizationId: null, isSuperAdmin: false },
-        ),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
-
-      expect(configs[0].isEnabled).toBe(true)
-      expect(configs[0].configuredBy).toBe('user-a')
-    })
-
-    test('deleteConfig rejects cross-tenant deletes from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
-
-      await expect(
-        service.deleteConfig('config-a', {
-          tenantId: 'tenant-b',
-          organizationId: null,
-          isSuperAdmin: false,
-        }),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
-
-      expect(configs[0].deletedAt).toBeNull()
-    })
-
-    test('getConfigById and listConfigs hide cross-tenant records from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
-      seedConfig(configs, {
-        id: 'config-b',
-        tenantId: 'tenant-b',
-        targetIdentifier: 'security.custom.target.b',
-        configuredBy: 'user-b',
-      })
-
-      const foreignScope = { tenantId: 'tenant-b', organizationId: null, isSuperAdmin: false }
-      const fetched = await service.getConfigById('config-a', foreignScope)
-      expect(fetched).toBeNull()
-
-      const visible = await service.listConfigs(foreignScope)
-      expect(visible.map((item) => item.id)).not.toContain('config-a')
-      expect(visible.map((item) => item.id)).toContain('config-b')
-    })
-
-    test('createConfig rejects attempts to target a foreign tenant', async () => {
-      const { service, configs } = createServiceContext()
-
-      await expect(
-        service.createConfig(
-          {
-            tenantId: 'tenant-b',
-            organizationId: null,
-            targetIdentifier: 'security.custom.new',
-            isEnabled: true,
-            ttlSeconds: 300,
-            challengeMethod: ChallengeMethod.PASSWORD,
-          },
-          'user-a',
-          { tenantId: 'tenant-a', organizationId: null, isSuperAdmin: false },
-        ),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
-
-      expect(configs.find((item) => item.targetIdentifier === 'security.custom.new')).toBeUndefined()
-    })
-
-    test('superadmin bypasses tenant scope and can manage any config', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
-
-      const superAdminScope = { tenantId: null, organizationId: null, isSuperAdmin: true }
-      await service.updateConfig(
-        'config-a',
-        { isEnabled: false },
-        'super-admin',
-        superAdminScope,
-      )
-      expect(configs[0].isEnabled).toBe(false)
-
-      await service.deleteConfig('config-a', superAdminScope)
-      expect(configs[0].deletedAt).toBeInstanceOf(Date)
-    })
   })
 })

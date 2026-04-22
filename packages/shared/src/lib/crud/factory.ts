@@ -59,59 +59,10 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam } from './ids'
-import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
-}
-
-function resolveSortParams(queryParams: Record<string, unknown>) {
-  const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
-  const rawSortDir = queryParams.sortDir ?? queryParams.order ?? 'asc'
-  const sortField = typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : 'id'
-  const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
-  const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
-  return { sortField, sortDir }
-}
-/**
- * Translates column-name filter keys to MikroORM property names so the ORM
- * fallback path can apply buildFilters correctly.  Without this, filters like
- * `{ entity_id: { $eq: uuid } }` are silently ignored by MikroORM when the
- * underlying property is a @ManyToOne relation named `entity`.
- *
- * Uses em.getMetadata() to build a fieldName -> propertyName map at runtime.
- */
-function translateFiltersForOrm(
-  filters: Record<string, unknown>,
-  em: any,
-  entityClass: any,
-): Record<string, unknown> {
-  if (!filters || typeof filters !== 'object') return filters
-  try {
-    const metadata = em?.getMetadata?.()
-    if (!metadata) return filters
-    const meta = metadata.find?.(entityClass.name ?? entityClass)
-    if (!meta?.properties) return filters
-    const columnToProperty = new Map<string, string>()
-    for (const [propName, propMeta] of Object.entries<any>(meta.properties)) {
-      const fieldNames: string[] = propMeta.fieldNames ?? []
-      for (const fn of fieldNames) {
-        if (fn !== propName) {
-          columnToProperty.set(fn, propName)
-        }
-      }
-    }
-    if (columnToProperty.size === 0) return filters
-    const translated: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(filters)) {
-      const mappedKey = columnToProperty.get(key) ?? key
-      translated[mappedKey] = value
-    }
-    return translated
-  } catch {
-    return filters
-  }
 }
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
@@ -127,7 +78,6 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
 
 export type CrudMethodMetadata = {
   requireAuth?: boolean
-  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -182,22 +132,6 @@ export type ListConfig<TList> = {
   customFieldSources?: QueryCustomFieldSource[]
   joins?: QueryJoinEdge[]
   decorateCustomFields?: CrudListCustomFieldDecorator
-  /**
-   * When true, LIST queries skip the default organization_id / tenant_id guards in both the
-   * query-engine path and the ORM-fallback path (including the empty-`organizationIds`
-   * short-circuit and the automatic scope injection into `buildScopedWhere`).
-   *
-   * `buildFilters` MUST fully encode row visibility (typically as `$or` of scoped branches) and
-   * MUST fail closed when the principal lacks a resolvable tenant/org.
-   *
-   * Scope: this flag only affects GET/list reads. Update and delete operations always keep
-   * their automatic tenant/org scoping in `buildScopedWhere` as a write-side safety guard, so
-   * callers cannot accidentally mutate rows outside the caller's tenant/org.
-   *
-   * With this flag, `HybridQueryEngine` delegates to the basic engine, so custom-field (`cf:*`)
-   * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
-   */
-  omitAutomaticTenantOrgScope?: boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -1396,27 +1330,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_prepare')
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
+        const sortFieldRaw = (queryParams as any).sortField || 'id'
+        const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
-        const baseFilters = exportFullRequested
+        const filters = exportFullRequested
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
-        const filters = exportFullRequested
-          ? baseFilters
-          : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
         const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
-        if (
-          ormCfg.orgField &&
-          ctx.organizationIds &&
-          ctx.organizationIds.length === 0 &&
-          !opts.list?.omitAutomaticTenantOrgScope
-        ) {
+        if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
           profiler.mark('scope_blocked')
           logForbidden({
             resourceKind,
@@ -1470,9 +1397,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (ormCfg.orgField) {
           queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
-        }
-        if (opts.list.omitAutomaticTenantOrgScope) {
-          queryOpts.omitAutomaticTenantOrgScope = true
         }
         const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')
@@ -1632,12 +1556,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const em = (ctx.container.resolve('em') as any)
       const repo = em.getRepository(ormCfg.entity)
       profiler.mark('orm_repo_ready')
-      if (
-        ormCfg.orgField &&
-        ctx.organizationIds &&
-        ctx.organizationIds.length === 0 &&
-        !opts.list?.omitAutomaticTenantOrgScope
-      ) {
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         profiler.mark('fallback_scope_blocked')
         logForbidden({
           resourceKind,
@@ -1685,27 +1604,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return response
       }
-      const fallbackBaseFilters = exportFullRequested
+      const fallbackFilters = exportFullRequested
         ? ({} as Where<any>)
         : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
-      const fallbackFilters = exportFullRequested
-        ? fallbackBaseFilters
-        : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
         : mergeIdFilter(fallbackFilters, parsedIds)
-      const ormFilters = translateFiltersForOrm(
-        mergedFallbackFilters as Record<string, any>,
-        em,
-        ormCfg.entity,
-      )
-      const omitListScope = !!opts.list?.omitAutomaticTenantOrgScope
       const where: any = buildScopedWhere(
-        ormFilters as Record<string, any>,
+        mergedFallbackFilters as Record<string, any>,
         {
-          organizationId: !omitListScope && ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
-          organizationIds: !omitListScope && ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
-          tenantId: !omitListScope && ormCfg.tenantField ? ctx.auth.tenantId : undefined,
+          organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
           softDeleteField: ormCfg.softDeleteField,

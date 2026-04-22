@@ -8,7 +8,6 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
@@ -52,11 +51,7 @@ export class CustomerInvitationService {
 
   async findByToken(token: string): Promise<CustomerUserInvitation | null> {
     const tokenHashed = hashToken(token)
-    const invitation = await findOneWithDecryption(
-      this.em,
-      CustomerUserInvitation,
-      { token: tokenHashed } as any,
-    )
+    const invitation = await this.em.findOne(CustomerUserInvitation, { token: tokenHashed })
     if (!invitation) return null
     if (invitation.acceptedAt) return null
     if (invitation.cancelledAt) return null
@@ -93,26 +88,16 @@ export class CustomerInvitationService {
 
     // Assign roles
     const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-    const roles = roleIds.length > 0
-      ? await findWithDecryption(
-          this.em,
-          CustomerRole,
-          {
-            id: { $in: roleIds } as any,
-            tenantId: invitation.tenantId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
-        )
-      : []
-    for (const role of roles) {
-      const userRole = this.em.create(CustomerUserRole, {
-        user,
-        role,
-        createdAt: new Date(),
-      } as any)
-      this.em.persist(userRole)
+    for (const roleId of roleIds) {
+      const role = await this.em.findOne(CustomerRole, { id: roleId, tenantId: invitation.tenantId, deletedAt: null })
+      if (role) {
+        const userRole = this.em.create(CustomerUserRole, {
+          user,
+          role,
+          createdAt: new Date(),
+        } as any)
+        this.em.persist(userRole)
+      }
     }
 
     // Mark invitation as accepted

@@ -14,7 +14,7 @@ const overridesIcon = React.createElement('svg', { width: 16, height: 16, viewBo
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['feature_toggles.view'],
+  requireRoles: ['superadmin'],
   pageTitle: 'Overrides',
   pageTitleKey: 'feature_toggles.nav.overrides',
   pageGroup: 'Feature Toggles',

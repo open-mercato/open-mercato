@@ -1,15 +1,6 @@
 import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
-import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
-
-const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
-
-function resolveVaultRequestTimeoutMs(): number {
-  const raw = process.env.VAULT_REQUEST_TIMEOUT_MS
-  const parsed = raw ? Number.parseInt(raw, 10) : undefined
-  return resolveTimeoutMs(parsed, DEFAULT_VAULT_REQUEST_TIMEOUT_MS)
-}
 
 export type TenantDek = {
   tenantId: string
@@ -82,7 +73,6 @@ type VaultClientOpts = {
   vaultToken?: string
   mountPath?: string
   ttlMs?: number
-  requestTimeoutMs?: number
 }
 
 type VaultReadResponse = {
@@ -153,7 +143,6 @@ export class HashicorpVaultKmsService implements KmsService {
   private readonly vaultToken: string
   private readonly mountPath: string
   private readonly ttlMs: number
-  private readonly requestTimeoutMs: number
   private healthy = true
   private readonly debugEnabled: boolean
   private static loggedInit = false
@@ -163,7 +152,6 @@ export class HashicorpVaultKmsService implements KmsService {
     this.vaultToken = normalizeEnv(opts.vaultToken || process.env.VAULT_TOKEN || '')
     this.mountPath = (opts.mountPath || process.env.VAULT_KV_PATH || 'secret/data').replace(/\/+$/, '')
     this.ttlMs = opts.ttlMs ?? 15 * 60 * 1000
-    this.requestTimeoutMs = resolveTimeoutMs(opts.requestTimeoutMs, resolveVaultRequestTimeoutMs())
     this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
@@ -203,10 +191,9 @@ export class HashicorpVaultKmsService implements KmsService {
       return null
     }
     try {
-      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
+      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
         method: 'GET',
         headers: { 'X-Vault-Token': this.vaultToken },
-        timeoutMs: this.requestTimeoutMs,
       })
       if (!res.ok) {
         this.healthy = res.status < 500
@@ -219,11 +206,7 @@ export class HashicorpVaultKmsService implements KmsService {
       return (await res.json()) as VaultReadResponse
     } catch (err) {
       this.healthy = false
-      console.warn('⚠️ [encryption][kms] Vault read error', {
-        path,
-        error: (err as Error)?.message || String(err),
-        timeoutMs: this.requestTimeoutMs,
-      })
+      console.warn('⚠️ [encryption][kms] Vault read error', { path, error: (err as Error)?.message || String(err) })
       return null
     }
   }
@@ -234,14 +217,14 @@ export class HashicorpVaultKmsService implements KmsService {
       return false
     }
     try {
-      const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
+      const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
+
         method: 'POST',
         headers: {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ data: { key } }),
-        timeoutMs: this.requestTimeoutMs,
       })
       this.healthy = res.ok
       if (!res.ok) {
@@ -250,11 +233,7 @@ export class HashicorpVaultKmsService implements KmsService {
       return res.ok
     } catch (err) {
       this.healthy = false
-      console.warn('⚠️ [encryption][kms] Vault write error', {
-        path,
-        error: (err as Error)?.message || String(err),
-        timeoutMs: this.requestTimeoutMs,
-      })
+      console.warn('⚠️ [encryption][kms] Vault write error', { path, error: (err as Error)?.message || String(err) })
       return false
     }
   }

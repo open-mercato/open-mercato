@@ -1,21 +1,11 @@
 import type { NextConfig } from "next";
-import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
-
-const isDevelopment = process.env.NODE_ENV !== 'production'
-const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
-    ...(isDevelopment
-      ? {
-          preloadEntriesOnStart: false,
-        }
-      : {}),
   },
-  allowedDevOrigins: allowedDevOrigins.length > 0 ? allowedDevOrigins : undefined,
   // Transpile @open-mercato packages that have TypeScript in src/
   // Note: @open-mercato/shared is excluded as it has pre-built dist/ files
   transpilePackages: [

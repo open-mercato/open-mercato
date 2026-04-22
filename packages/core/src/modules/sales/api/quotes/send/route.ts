@@ -16,8 +16,6 @@ import {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
-import { hashAuthToken } from '../../../../auth/lib/tokenHash'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -145,8 +143,7 @@ export async function POST(req: Request) {
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tenantScope = ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId } : undefined
-    const quote = await findOneWithDecryption(em, SalesQuote, { id: input.quoteId, deletedAt: null }, {}, tenantScope)
+    const quote = await em.findOne(SalesQuote, { id: input.quoteId, deletedAt: null })
     if (!quote) {
       throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
     }
@@ -167,9 +164,8 @@ export async function POST(req: Request) {
     const validUntil = new Date(now)
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
 
-    const rawAcceptanceToken = crypto.randomUUID()
     quote.validUntil = validUntil
-    quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
+    quote.acceptanceToken = crypto.randomUUID()
     quote.sentAt = now
     quote.status = 'sent'
     quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
@@ -179,9 +175,10 @@ export async function POST(req: Request) {
     })
     quote.updatedAt = now
     em.persist(quote)
+    await em.flush()
 
     const appUrl = process.env.APP_URL || ''
-    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
+    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${quote.acceptanceToken}` : `/quote/${quote.acceptanceToken}`
 
     const locale = await detectLocale()
     const validUntilFormatted = validUntil.toLocaleDateString(locale, {
@@ -207,8 +204,6 @@ export async function POST(req: Request) {
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
     })
-
-    await em.flush()
 
     if (guardResult.afterSuccessCallbacks.length) {
       await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {

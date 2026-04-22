@@ -277,7 +277,6 @@ const deleteConversationForActorCommand: CommandHandler<unknown, { ok: true; aff
       await emitMessagesEvent('messages.message.deleted', {
         messageId,
         actorUserId: input.userId,
-        recipientUserId: input.userId,
         target,
         tenantId: input.tenantId,
         organizationId: input.organizationId,

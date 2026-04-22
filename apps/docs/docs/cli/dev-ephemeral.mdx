@@ -4,7 +4,7 @@ sidebar_label: yarn dev:ephemeral
 description: Starts a development runtime on an automatically selected free port for parallel worktrees.
 ---
 
-`yarn dev:ephemeral` starts Open Mercato development mode on a free local port with a dedicated ephemeral PostgreSQL container, prints the runtime URLs, and opens the same splash status screen used by the regular dev flow so startup progress stays visible until the app is reachable.
+`yarn dev:ephemeral` starts Open Mercato development mode on a free local port with a dedicated ephemeral PostgreSQL container, prints the URL, and opens `/backend` in your browser when the app is reachable.
 
 The command performs these steps automatically:
 
@@ -16,8 +16,8 @@ The command performs these steps automatically:
 6. Starts a disposable PostgreSQL container and resolves a unique `DATABASE_URL`.
 7. Runs `yarn initialize -- --reinstall` against that ephemeral database.
 8. Selects a random free app port in the `5000-65535` range.
-9. Starts the app runtime with `PORT=<selected-port>` and ephemeral `DATABASE_URL`, forwarding status into the splash screen.
-10. Waits for readiness and records the running instance in `.ai/dev-ephemeral-envs.json`.
+9. Starts `yarn dev:app` with `PORT=<selected-port>` and ephemeral `DATABASE_URL`.
+10. Waits for readiness, opens the browser, and records the running instance in `.ai/dev-ephemeral-envs.json`.
 
 ## Usage
 
@@ -35,8 +35,6 @@ When setup finishes, the command prints:
 - `Opened browser at http://127.0.0.1:<port>/backend`
 
 Use that URL for browser testing or MCP tooling.
-
-If auto-open is enabled, the browser opens the local splash status page first. Once runtime warmup finishes, use the ready actions there or navigate directly to the printed backend URL.
 
 ## Dev Instance Registry
 
@@ -68,19 +66,3 @@ Each process auto-selects its own free port.
 | `DEV_EPHEMERAL_POSTGRES_IMAGE` | Optional Docker image for ephemeral PostgreSQL. Default: `postgres:16`. |
 | `DEV_EPHEMERAL_POSTGRES_USER` | Optional PostgreSQL user for ephemeral DB. Default: `postgres`. |
 | `DEV_EPHEMERAL_POSTGRES_PASSWORD` | Optional PostgreSQL password for ephemeral DB. Default: `postgres`. |
-
-## Verbose Mode
-
-```bash
-yarn dev:ephemeral:verbose
-```
-
-This keeps the app runtime in raw passthrough mode while still using the splash screen for the ephemeral setup stages.
-
-## Classic Mode
-
-```bash
-yarn dev:ephemeral:classic
-```
-
-This disables the splash screen entirely and keeps the full ephemeral startup flow in raw passthrough mode for backward-compatible terminal output.

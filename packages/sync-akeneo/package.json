@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/sync-akeneo",
-  "version": "0.5.0",
+  "version": "0.4.10",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -65,17 +65,12 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.25.0",
     "glob": "^13.0.6",
-    "jest": "^30.3.0",
-    "ts-jest": "^29.4.9"
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/open-mercato/open-mercato",
-    "directory": "packages/sync-akeneo"
   }
 }

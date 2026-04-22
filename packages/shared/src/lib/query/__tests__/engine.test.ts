@@ -271,51 +271,6 @@ describe('BasicQueryEngine', () => {
     expect(hasEqualityFilter).toBe(true)
   })
 
-  test('customFieldSources equality filters stay exact when search tokens are available', async () => {
-    const fakeKnex = createFakeKnex({
-      customer_entities: [],
-      customer_people: [],
-      'information_schema.columns': [
-        { table_name: 'customer_entities', column_name: 'tenant_id' },
-        { table_name: 'customer_people', column_name: 'id' },
-        { table_name: 'customer_people', column_name: 'tenant_id' },
-      ],
-    })
-    const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
-    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
-
-    await engine.query('customers:customer_entity', {
-      tenantId: 't1',
-      fields: ['id'],
-      customFieldSources: [
-        {
-          entityId: 'customers:customer_person_profile',
-          table: 'customer_people',
-          alias: 'person_profile',
-          join: { fromField: 'id', toField: 'entity_id' },
-        },
-      ],
-      filters: {
-        'person_profile.id': { $eq: 'profile-1' },
-      },
-      page: { page: 1, pageSize: 10 },
-    })
-
-    expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'customer_entities')
-    expect(baseCall).toBeTruthy()
-    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
-    expect(existsFilter).toBeTruthy()
-    const subQuery = existsFilter[1]
-    expect(subQuery?._ops?.table).toBe('customer_people')
-    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
-      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
-      : false
-    expect(hasEqualityFilter).toBe(true)
-  })
-
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeKnex = createFakeKnex({
       todos: [],

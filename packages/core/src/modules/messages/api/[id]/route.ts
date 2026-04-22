@@ -38,17 +38,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const skipMarkReadParam = url.searchParams.get('skipMarkRead')
   const skipMarkRead = skipMarkReadParam === '1'
 
-  const message = await findOneWithDecryption(
-    em,
-    Message,
-    {
-      id: params.id,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
+  const message = await em.findOne(Message, {
+    id: params.id,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
 
   if (!message) {
     return Response.json({ error: 'Message not found' }, { status: 404 })
@@ -95,8 +89,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   )
   const allRecipients = await em.find(MessageRecipient, { messageId: params.id, deletedAt: null })
 
-  const threadMessages = await findWithDecryption(
-    em,
+  const threadMessages = await em.find(
     Message,
     {
       threadId: message.threadId ?? message.id,
@@ -105,8 +98,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       deletedAt: null,
       isDraft: false,
     },
-    { orderBy: { sentAt: 'ASC' } },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { orderBy: { sentAt: 'ASC' } }
   )
   const threadMessageIds = threadMessages.map((item) => item.id)
   const visibleRecipientRows = threadMessageIds.length > 0

@@ -1,4 +1,5 @@
-import { createModuleQueue, type Queue } from '@open-mercato/queue'
+import { createQueue, type Queue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 const queues = new Map<string, Queue<Record<string, unknown>>>()
 
@@ -6,8 +7,12 @@ export function getShippingCarrierQueue(queueName: string): Queue<Record<string,
   const existing = queues.get(queueName)
   if (existing) return existing
 
-  const concurrency = Math.max(1, Number.parseInt(process.env.SHIPPING_CARRIER_QUEUE_CONCURRENCY ?? '5', 10) || 5)
-  const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
+  const created = process.env.QUEUE_STRATEGY === 'async'
+    ? createQueue<Record<string, unknown>>(queueName, 'async', {
+      connection: { url: getRedisUrl('QUEUE') },
+      concurrency: Math.max(1, Number.parseInt(process.env.SHIPPING_CARRIER_QUEUE_CONCURRENCY ?? '5', 10) || 5),
+    })
+    : createQueue<Record<string, unknown>>(queueName, 'local')
 
   queues.set(queueName, created)
   return created

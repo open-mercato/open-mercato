@@ -70,10 +70,10 @@ const severityIcons = {
 }
 
 const severityColors = {
-  info: 'text-status-info-icon',
-  warning: 'text-status-warning-icon',
-  success: 'text-status-success-icon',
-  error: 'text-status-error-icon',
+  info: 'text-blue-500',
+  warning: 'text-amber-500',
+  success: 'text-green-500',
+  error: 'text-destructive',
 }
 
 export function NotificationItem({

@@ -12,8 +12,8 @@ Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 
 ## Reference Files
 
-- Spec: `.ai/specs/implemented/2026-03-19-checkout-pay-links.md`
-- UI wireframes: `.ai/specs/implemented/2026-03-19-checkout-pay-links-wireframes.md`
+- Spec: `.ai/specs/2026-03-19-checkout-pay-links.md`
+- UI wireframes: `.ai/specs/2026-03-19-checkout-pay-links-wireframes.md`
 - Core module guidance: `packages/core/AGENTS.md`
 - UI guidance: `packages/ui/AGENTS.md`
 

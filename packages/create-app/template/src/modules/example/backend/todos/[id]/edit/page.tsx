@@ -34,11 +34,10 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
       placeholder: t('example.todos.form.fields.title.placeholder'),
     },
     { id: 'is_done', label: t('example.todos.form.fields.isDone.label'), type: 'checkbox' },
-    { id: 'cf_blocked', label: t('example.todos.table.column.blocked'), type: 'checkbox' },
   ], [t])
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'details', title: t('example.todos.form.groups.details'), column: 1, fields: ['title'] },
-    { id: 'status', title: t('example.todos.form.groups.status'), column: 2, fields: ['is_done', 'cf_blocked'] },
+    { id: 'status', title: t('example.todos.form.groups.status'), column: 2, fields: ['is_done'] },
     { id: 'attributes', title: t('example.todos.form.groups.attributes'), column: 1, kind: 'customFields' },
     {
       id: 'actions',

@@ -110,7 +110,7 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
         filteredListItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
       ).toBeTruthy();
 
-      const search = page.getByPlaceholder(/Search by name/i);
+      const search = page.getByRole('textbox', { name: /Search companies/i });
       const waitForCompanyInList = async () => {
         await expect
           .poll(

@@ -76,7 +76,7 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
             code: partitionCode,
             title: 'QA Partition Updated',
             description: 'Updated partition description',
-            isPublic: false,
+            isPublic: true,
             requiresOcr: false,
           },
         })

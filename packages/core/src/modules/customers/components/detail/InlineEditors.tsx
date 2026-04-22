@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { AtSign, Briefcase, Loader2, Pencil, X } from 'lucide-react'
+import { Loader2, Linkedin, Pencil, Twitter, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { PluggableList } from 'unified'
@@ -174,7 +174,7 @@ export const InlineSelectEditor = UiInlineSelectEditor
 
 const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
 
-function createSocialRenderDisplay(IconComponent: typeof Briefcase): NonNullable<InlineFieldProps['renderDisplay']> {
+function createSocialRenderDisplay(IconComponent: typeof Linkedin): NonNullable<InlineFieldProps['renderDisplay']> {
   // eslint-disable-next-line react/display-name
   return ({ value, emptyLabel }) => {
     const raw = typeof value === 'string' ? value.trim() : ''
@@ -196,8 +196,8 @@ function createSocialRenderDisplay(IconComponent: typeof Briefcase): NonNullable
   }
 }
 
-export const renderLinkedInDisplay = createSocialRenderDisplay(Briefcase)
-export const renderTwitterDisplay = createSocialRenderDisplay(AtSign)
+export const renderLinkedInDisplay = createSocialRenderDisplay(Linkedin)
+export const renderTwitterDisplay = createSocialRenderDisplay(Twitter)
 
 export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({ value, emptyLabel }) => {
   const raw = typeof value === 'string' ? value : ''
@@ -206,11 +206,12 @@ export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({
     return <span className="text-muted-foreground">{emptyLabel}</span>
   }
   return (
-    <div className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs">
-      <ReactMarkdown remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}>
-        {raw}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}
+      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+    >
+      {raw}
+    </ReactMarkdown>
   )
 }
 
@@ -292,7 +293,7 @@ export function InlineDictionaryEditor({
             selectClassName={selectClassName}
           />
           {dictionaryQuery.isError ? (
-            <p className="text-xs text-status-error-text">
+            <p className="text-xs text-red-600">
               {dictionaryQuery.error instanceof Error
                 ? dictionaryQuery.error.message
                 : translate('customers.people.form.dictionary.errorLoad', 'Failed to load options')}

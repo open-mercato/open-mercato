@@ -17,8 +17,8 @@ export function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTable
   return <tr className={cn('border-b last:border-b-0', className)} {...props} />
 }
 
-export function TableHead({ className, ref, ...props }: React.ThHTMLAttributes<HTMLTableCellElement> & { ref?: React.Ref<HTMLTableCellElement> }) {
-  return <th ref={ref} className={cn('text-left font-medium px-4 py-2 whitespace-nowrap text-muted-foreground', className)} {...props} />
+export function TableHead({ className, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) {
+  return <th className={cn('text-left font-medium px-4 py-2 whitespace-nowrap text-muted-foreground', className)} {...props} />
 }
 
 export function TableCell({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {

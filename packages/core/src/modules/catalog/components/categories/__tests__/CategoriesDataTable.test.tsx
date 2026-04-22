@@ -125,31 +125,18 @@ describe('CategoriesDataTable', () => {
     })
   })
 
-  const renderCategoriesDataTable = async () => {
+  it('renders the Categories title', () => {
     render(<CategoriesDataTable />)
-    await waitFor(() => {
-      expect(mockApiCall).toHaveBeenCalledWith(
-        '/api/auth/feature-check',
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.stringContaining('catalog.categories.manage'),
-        }),
-      )
-    })
-  }
-
-  it('renders the Categories title', async () => {
-    await renderCategoriesDataTable()
     expect(screen.getByText('Categories')).toBeInTheDocument()
   })
 
-  it('renders rows from query data', async () => {
-    await renderCategoriesDataTable()
+  it('renders rows from query data', () => {
+    render(<CategoriesDataTable />)
     expect(screen.getByTestId('data-count')).toHaveTextContent('2')
   })
 
   it('shows Create button when user has manage permission', async () => {
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     await waitFor(() => {
       expect(screen.getByText('Create')).toBeInTheDocument()
     })
@@ -160,45 +147,52 @@ describe('CategoriesDataTable', () => {
       ok: true,
       result: { ok: false, granted: [] },
     })
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     await waitFor(() => {
       expect(screen.queryByText('Create')).not.toBeInTheDocument()
     })
   })
 
-  it('shows loading state', async () => {
+  it('shows loading state', () => {
     mockUseQuery.mockReturnValue({ data: undefined, isLoading: true })
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     expect(screen.getByTestId('loading')).toBeInTheDocument()
   })
 
-  it('shows empty state with zero rows', async () => {
+  it('shows empty state with zero rows', () => {
     mockUseQuery.mockReturnValue({
       data: { items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 },
       isLoading: false,
     })
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     expect(screen.getByTestId('data-count')).toHaveTextContent('0')
     expect(screen.queryByTestId('loading')).not.toBeInTheDocument()
   })
 
   it('checks feature permission on mount', async () => {
-    await renderCategoriesDataTable()
-  })
-
-  it('passes correct query key to useQuery', async () => {
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     await waitFor(() => {
-      expect(mockUseQuery).toHaveBeenCalledWith(
+      expect(mockApiCall).toHaveBeenCalledWith(
+        '/api/auth/feature-check',
         expect.objectContaining({
-          queryKey: expect.arrayContaining(['catalog-categories']),
+          method: 'POST',
+          body: expect.stringContaining('catalog.categories.manage'),
         }),
       )
     })
   })
 
+  it('passes correct query key to useQuery', () => {
+    render(<CategoriesDataTable />)
+    expect(mockUseQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: expect.arrayContaining(['catalog-categories']),
+      }),
+    )
+  })
+
   it('renders Create link pointing to create page', async () => {
-    await renderCategoriesDataTable()
+    render(<CategoriesDataTable />)
     await waitFor(() => {
       const createLink = screen.getByText('Create').closest('a')
       expect(createLink).toHaveAttribute('href', '/backend/catalog/categories/create')

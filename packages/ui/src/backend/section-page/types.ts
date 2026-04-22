@@ -6,8 +6,6 @@ export type SectionNavItem = {
   labelKey?: string
   href: string
   icon?: ReactNode
-  iconName?: string
-  iconMarkup?: string
   requireFeatures?: string[]
   order?: number
   children?: SectionNavItem[]

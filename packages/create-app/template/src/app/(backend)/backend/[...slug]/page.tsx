@@ -1,8 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
-import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
+import { findBackendMatch } from '@open-mercato/shared/modules/registry'
+import { modules } from '@/.mercato/generated/modules.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
@@ -39,7 +39,7 @@ async function renderAccessDenied() {
 export async function generateMetadata(props: BackendParams): Promise<Metadata> {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(backendRoutes, pathname)
+  const match = findBackendMatch(modules, pathname)
   if (!match) {
     return {}
   }
@@ -53,7 +53,7 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
 export default async function BackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(backendRoutes, pathname)
+  const match = findBackendMatch(modules, pathname)
   if (!match) return notFound()
   let auth: AuthContext = null
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
@@ -111,8 +111,7 @@ export default async function BackendCatchAll(props: BackendParams) {
   })
   if (middlewareRedirect) redirect(middlewareRedirect)
   const pageHandle = ComponentReplacementHandles.page(pathname)
-  const LoadedComponent = await match.route.load()
-  const Component = resolveRegisteredComponent(pageHandle, LoadedComponent)
+  const Component = resolveRegisteredComponent(pageHandle, match.route.Component)
 
   return (
     <>

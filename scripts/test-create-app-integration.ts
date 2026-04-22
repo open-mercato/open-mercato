@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -14,6 +14,11 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
+const standaloneInstallEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+}
+
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
     throw new Error(`${label} is missing: ${filePath}`)
@@ -46,8 +51,6 @@ function writeStandaloneEnv(appDir: string): void {
   const example = fs.existsSync(envExamplePath) ? fs.readFileSync(envExamplePath, 'utf8') : ''
   const envLines = [
     example.trimEnd(),
-    'APP_URL=http://localhost:3000',
-    'NEXT_PUBLIC_APP_URL=http://localhost:3000',
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
     'JWT_SECRET=ci-standalone-test-jwt-secret',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
@@ -55,9 +58,7 @@ function writeStandaloneEnv(appDir: string): void {
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
     'OM_DISABLE_EMAIL_DELIVERY=1',
-    'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
-    'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
@@ -74,20 +75,15 @@ async function main(): Promise<void> {
   const cleanup = process.argv.includes('--cleanup')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
   const appDir = path.join(tempRoot, 'standalone-app')
-  const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
 
   const integrationEnv: NodeJS.ProcessEnv = {
-    APP_URL: 'http://localhost:3000',
-    NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     JWT_SECRET: 'ci-standalone-test-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
     OM_DISABLE_EMAIL_DELIVERY: '1',
-    OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
-    MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
@@ -104,7 +100,10 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio'], {
+      cwd: ROOT,
+      input: '5\n',
+    })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')

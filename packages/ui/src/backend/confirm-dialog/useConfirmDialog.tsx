@@ -15,7 +15,6 @@ function DialogMountTracker({ trackerRef }: { trackerRef: React.MutableRefObject
 export type ConfirmDialogOptions = {
   title?: string;
   text?: string;
-  description?: string;
   confirmText?: string | false;
   cancelText?: string | false;
   variant?: "default" | "destructive";
@@ -122,7 +121,7 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
           onOpenChange={handleOpenChange}
           onConfirm={handleConfirm}
           title={options.title}
-          text={options.text ?? options.description}
+          text={options.text}
           confirmText={options.confirmText}
           cancelText={options.cancelText}
           variant={options.variant}

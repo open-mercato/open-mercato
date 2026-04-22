@@ -10,10 +10,8 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../../data/entities'
-import { workflowEventDetailSchema } from '../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -47,11 +45,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = scope?.selectedId ?? auth.orgId
 
-    if (!tenantId) {
+    if (!tenantId || !organizationId) {
       return NextResponse.json(
-        { error: 'Missing tenant context' },
+        { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
     }
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const hasPermission = await rbacService.userHasAllFeatures(
       auth.sub,
       ['workflows.instances.view'],
-      { tenantId, organizationId: orgFilter.rbacOrganizationId }
+      { tenantId, organizationId }
     )
 
     if (!hasPermission) {
@@ -71,16 +69,31 @@ export async function GET(request: NextRequest, context: RouteContext) {
       )
     }
 
+    // Find the event - first try without org filter to debug
+    const eventAny = await em.findOne(WorkflowEvent, {
+      id: params.id,
+    })
+
     // Find the event with proper filters
     const event = await em.findOne(WorkflowEvent, {
       id: params.id,
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     })
 
     if (!event) {
       return NextResponse.json(
-        { error: 'Workflow event not found' },
+        {
+          error: 'Workflow event not found',
+          debug: process.env.NODE_ENV === 'development' ? {
+            requestedId: params.id,
+            requestedTenantId: tenantId,
+            requestedOrganizationId: organizationId,
+            eventExists: !!eventAny,
+            eventTenantId: eventAny?.tenantId,
+            eventOrganizationId: eventAny?.organizationId,
+          } : undefined
+        },
         { status: 404 }
       )
     }
@@ -89,7 +102,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const instance = await em.findOne(WorkflowInstance, {
       id: event.workflowInstanceId,
       tenantId,
-      ...orgFilter.where,
+      organizationId,
     })
 
     // Build response
@@ -139,7 +152,26 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow event details',
-          schema: workflowEventDetailSchema,
+          schema: z.object({
+            id: z.string(),
+            workflowInstanceId: z.string(),
+            stepInstanceId: z.string().nullable(),
+            eventType: z.string(),
+            eventData: z.any(),
+            occurredAt: z.string(),
+            userId: z.string().nullable(),
+            workflowInstance: z.object({
+              id: z.string(),
+              workflowId: z.string(),
+              version: z.number(),
+              status: z.string(),
+              currentStepId: z.string(),
+              correlationKey: z.string().nullable(),
+              startedAt: z.string().nullable(),
+              completedAt: z.string().nullable(),
+              context: z.any(),
+            }).nullable(),
+          }),
         },
         {
           status: 401,

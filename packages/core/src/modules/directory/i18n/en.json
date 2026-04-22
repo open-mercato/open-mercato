@@ -27,8 +27,6 @@
   "directory.organizations.form.field.isActive": "Active",
   "directory.organizations.form.field.name": "Name",
   "directory.organizations.form.field.parent": "Parent",
-  "directory.organizations.form.field.slug": "Slug",
-  "directory.organizations.form.field.slug.description": "URL-safe identifier used for the customer portal (lowercase letters, numbers, hyphens, underscores).",
   "directory.organizations.form.field.tenant": "Tenant",
   "directory.organizations.form.group.customFields": "Custom Data",
   "directory.organizations.form.group.details": "Details",

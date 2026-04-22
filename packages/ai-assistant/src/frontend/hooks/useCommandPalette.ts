@@ -19,8 +19,6 @@ import type {
   DebugEventType,
   OpenCodeQuestion,
 } from '../types'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { COMMAND_PALETTE_SHORTCUT, AI_CHAT_SHORTCUT } from '../constants'
 import { filterTools } from '../utils/toolMatcher'
 import { useMcpTools } from './useMcpTools'
@@ -499,7 +497,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   // Route query using fast model
   const routeQuery = useCallback(
     async (query: string): Promise<RouteResult> => {
-      const { ok, result, status } = await apiCall<RouteResult>('/api/ai_assistant/route', {
+      const response = await fetch('/api/ai_assistant/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -511,15 +509,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }),
       })
 
-      if (!ok) {
-        throw new Error(`Routing failed: ${status}`)
+      if (!response.ok) {
+        throw new Error(`Routing failed: ${response.status}`)
       }
 
-      if (!result) {
-        throw new Error('Routing returned empty response')
-      }
-
-      return result
+      return response.json()
     },
     [tools]
   )
@@ -553,7 +547,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         const controller = new AbortController()
         currentStreamController.current = controller
 
-        const response = await apiFetch('/api/ai_assistant/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -771,7 +765,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
         setMessages([userMessage])
 
-        const response = await apiFetch('/api/ai_assistant/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -984,7 +978,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         currentStreamController.current = controller
 
         // Send to chat API with OpenCode session for context persistence
-        const response = await apiFetch('/api/ai_assistant/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1277,7 +1271,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       try {
         // Send answer as simple POST - the original SSE stream will receive the follow-up
         const sessionId = pendingQuestion.sessionID
-        const { ok, result, status } = await apiCall<{ error?: string }>('/api/ai_assistant/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1289,8 +1283,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
           }),
         })
 
-        if (!ok) {
-          throw new Error(result?.error || `Answer request failed: ${status}`)
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `Answer request failed: ${response.status}`)
         }
 
         // Answer sent successfully - the original stream will handle the response
@@ -1330,7 +1325,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
       try {
         // Send to chat API
-        const response = await apiFetch('/api/ai_assistant/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

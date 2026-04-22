@@ -205,8 +205,6 @@ export default function LoginPage() {
     try {
       const form = new FormData(e.currentTarget)
       if (requiredRoles.length) form.set('requireRole', requiredRoles.join(','))
-      const redirectParam = searchParams.get('redirect')
-      if (redirectParam) form.set('redirect', redirectParam)
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         clearAllOperations()

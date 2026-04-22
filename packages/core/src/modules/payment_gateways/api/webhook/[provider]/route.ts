@@ -17,6 +17,22 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+function readScopeFromEventData(data: Record<string, unknown>): { organizationId: string; tenantId: string } | null {
+  const metadata = data.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const metadataRecord = metadata as Record<string, unknown>
+  const organizationId = typeof metadataRecord.organizationId === 'string'
+    ? metadataRecord.organizationId.trim()
+    : ''
+  const tenantId = typeof metadataRecord.tenantId === 'string'
+    ? metadataRecord.tenantId.trim()
+    : ''
+
+  if (!organizationId || !tenantId) return null
+  return { organizationId, tenantId }
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
   const resolvedParams = await params
   const providerKey = resolvedParams.provider
@@ -40,13 +56,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const sessionIdHint = registration.readSessionIdHint?.(payload) ?? null
 
   try {
-    // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
-    // GatewayTransaction whose per-tenant credentials successfully verify the inbound
-    // signature — NEVER from attacker-controlled payload metadata. If no candidate
-    // transaction can be located by the provider-reported session id, or no candidate's
-    // credentials can verify the signature, we fail closed with 401. This prevents
-    // forged webhooks (e.g. mock gateway PoC) from mutating another tenant's payment
-    // state via `event.data.metadata.{organizationId,tenantId}`.
     const candidates = sessionIdHint
       ? await findWithDecryption(
         em,
@@ -78,16 +87,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       }
     }
 
-    if (!event || !transaction || !matchedScope) {
-      throw lastVerificationError ?? new Error('Webhook verification failed: no matching transaction')
+    if (!event) {
+      try {
+        event = await registration.handler({ rawBody, headers, credentials: {} })
+      } catch (error: unknown) {
+        throw lastVerificationError ?? error
+      }
+    }
+    if (!event) {
+      throw new Error('Webhook verification failed')
     }
 
-    const scope = matchedScope
+    if (!transaction && sessionIdHint) {
+      const derivedScope = readScopeFromEventData(event.data)
+      if (derivedScope) {
+        transaction = await service.findTransactionBySessionId(sessionIdHint, derivedScope, providerKey)
+        matchedScope = transaction
+          ? { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
+          : derivedScope
+      }
+    }
+
+    const scope = transaction
+      ? { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
+      : matchedScope ?? readScopeFromEventData(event.data)
 
     const jobPayload = {
       providerKey,
       event,
-      transactionId: transaction.id,
+      transactionId: transaction?.id ?? null,
       scope,
     }
 

@@ -15,19 +15,19 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
   anthropic: {
     id: 'anthropic',
     name: 'Anthropic',
-    envKeys: ['ANTHROPIC_API_KEY', 'OPENCODE_ANTHROPIC_API_KEY'],
+    envKeys: ['ANTHROPIC_API_KEY'],
     defaultModel: 'claude-haiku-4-5-20251001',
   },
   openai: {
     id: 'openai',
     name: 'OpenAI',
-    envKeys: ['OPENAI_API_KEY', 'OPENCODE_OPENAI_API_KEY'],
+    envKeys: ['OPENAI_API_KEY'],
     defaultModel: 'gpt-4o-mini',
   },
   google: {
     id: 'google',
     name: 'Google',
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'OPENCODE_GOOGLE_API_KEY'],
+    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
     defaultModel: 'gemini-3-flash',
   },
 }
@@ -106,22 +106,6 @@ export function resolveOpenCodeProviderApiKey(
   }
 
   return null
-}
-
-export function requireOpenCodeProviderApiKey(
-  providerId: OpenCodeProviderId,
-  env: EnvLookup = process.env,
-): string {
-  const apiKey = resolveOpenCodeProviderApiKey(providerId, env)
-  if (apiKey) {
-    return apiKey
-  }
-
-  const provider = OPEN_CODE_PROVIDERS[providerId]
-  const envKeysHint = provider.envKeys.join(' or ')
-  throw new Error(
-    `Missing API key for provider "${providerId}". Set ${envKeysHint} in your .env file.`,
-  )
 }
 
 export function getOpenCodeProviderConfiguredEnvKey(

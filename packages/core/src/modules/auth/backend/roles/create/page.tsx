@@ -12,7 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type CreateRoleFormValues = {
   name: string
-  tenantId?: string
+  tenantId: string | null
 } & Record<string, unknown>
 
 export default function CreateRolePage() {
@@ -76,7 +76,7 @@ export default function CreateRolePage() {
   const initialValues = React.useMemo<Partial<CreateRoleFormValues>>(
     () => ({
       name: '',
-      tenantId: undefined,
+      tenantId: null,
     }),
     [],
   )

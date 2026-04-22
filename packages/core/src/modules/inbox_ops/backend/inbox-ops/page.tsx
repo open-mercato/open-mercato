@@ -323,7 +323,6 @@ export default function InboxOpsProposalsPage() {
     <Page>
       <PageBody>
         <DataTable<ProposalRow>
-          stickyActionsColumn
           title={t('inbox_ops.title', 'AI Inbox Actions')}
           refreshButton={{
             label: t('inbox_ops.list.actions.refresh', 'Refresh'),

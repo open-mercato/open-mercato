@@ -39,26 +39,3 @@ export const listIntegrationLogsQuerySchema = z.object({
 })
 
 export type ListIntegrationLogsQuery = z.infer<typeof listIntegrationLogsQuerySchema>
-
-const optionalBooleanQuery = z.preprocess((value) => {
-  if (value === undefined || value === '' || value === null) return undefined
-  if (value === true || value === 'true' || value === '1') return true
-  if (value === false || value === 'false' || value === '0') return false
-  return value
-}, z.boolean().optional())
-
-export const integrationMarketplaceHealthStatusSchema = z.enum(['healthy', 'degraded', 'unhealthy', 'unconfigured'])
-
-export const listIntegrationsQuerySchema = z.object({
-  q: z.string().max(200).optional(),
-  category: z.string().max(64).optional(),
-  bundleId: z.string().max(128).optional(),
-  isEnabled: optionalBooleanQuery,
-  healthStatus: integrationMarketplaceHealthStatusSchema.optional(),
-  sort: z.enum(['title', 'category', 'enabledAt', 'healthStatus']).optional(),
-  order: z.enum(['asc', 'desc']).default('asc'),
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(100),
-})
-
-export type ListIntegrationsQuery = z.infer<typeof listIntegrationsQuerySchema>

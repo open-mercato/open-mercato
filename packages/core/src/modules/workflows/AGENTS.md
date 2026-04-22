@@ -66,17 +66,11 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 |---------------|-------------|
 | `SEND_EMAIL` | Send templated email via mail service |
 | `CALL_API` | Call an internal API endpoint |
-| `CALL_WEBHOOK` | Call an external HTTP endpoint (SSRF-guarded via `@open-mercato/shared/lib/url-safety`; `redirect: 'manual'`, 3xx rejected) |
+| `CALL_WEBHOOK` | Call an external HTTP endpoint |
 | `UPDATE_ENTITY` | Mutate an entity via the command bus |
 | `EMIT_EVENT` | Emit a domain event to the event bus |
 | `EXECUTE_FUNCTION` | Run a registered custom function |
 | `WAIT` | Delay execution for a configured duration |
-
-## Environment
-
-| Variable | Effect | Default |
-|----------|--------|---------|
-| `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
 
 ## DI Services
 
@@ -106,7 +100,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 4. Register the node in the visual editor's node type map
 5. Add i18n labels in `i18n/en.json` under `workflows.stepTypes`
 6. Add icon mapping in `lib/node-type-icons.ts`
-7. Run `yarn generate`
+7. Run `npm run modules:prepare`
 
 ## Event Triggers
 
