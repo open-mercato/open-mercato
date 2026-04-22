@@ -1,8 +1,5 @@
 name: Deploy to Dokploy QA
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 on:
   workflow_dispatch:
     inputs:
@@ -36,6 +33,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   DOCKERFILE: ./docker/preview/Dockerfile

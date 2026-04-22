@@ -13,6 +13,16 @@ export function isIgnorableDerivedKeyWarningLine(line) {
     || line.startsWith('Persist this secret securely.')
 }
 
+function isIgnorableStructuredWarningBlockStartLine(line) {
+  if (typeof line !== 'string') return false
+
+  const normalized = line.trim()
+  if (!normalized.endsWith('{')) return false
+
+  return isIgnorableSearchWarningLine(normalized)
+    || isIgnorableDerivedKeyWarningLine(normalized)
+}
+
 export function isIgnorableSearchWarningLine(line) {
   if (typeof line !== 'string') return false
 
@@ -89,13 +99,11 @@ export function createSplashPassthroughIgnoreMatcher() {
       return true
     }
 
-    if (!isIgnorableSearchWarningLine(normalized)) {
+    if (!isIgnorableStructuredWarningBlockStartLine(normalized)) {
       return false
     }
 
-    if (normalized.endsWith('{')) {
-      warningBlockDepth = 1
-    }
+    warningBlockDepth = 1
 
     return true
   }

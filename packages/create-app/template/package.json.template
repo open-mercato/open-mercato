@@ -116,6 +116,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "16.0.7",
     "jest": "^30.2.0",
+    "cross-spawn": "^7.0.6",
     "tailwindcss": "^4.1.17",
     "ts-morph": "^25.0.0",
     "ts-jest": "^29.4.6",
@@ -127,6 +128,10 @@
     "better-sqlite3": "^12.5.0",
     "bullmq": "^5.34.8",
     "ioredis": "^5.8.2"
+  },
+  "resolutions": {
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1"
   },
   "imports": {
     "#generated/entities.ids.generated": {

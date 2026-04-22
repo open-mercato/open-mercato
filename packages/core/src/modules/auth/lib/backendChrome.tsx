@@ -18,6 +18,7 @@ import {
   convertToSectionNavGroups,
   type AdminNavItem,
 } from '@open-mercato/ui/backend/utils/nav'
+import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -106,8 +107,21 @@ async function serializeIconMarkup(icon: React.ReactNode | undefined): Promise<s
     renderToStaticMarkupPromise = import('react-dom/server')
   }
   const { renderToStaticMarkup } = await renderToStaticMarkupPromise
-  const markup = renderToStaticMarkup(<>{icon}</>)
-  return markup.trim().length > 0 ? markup : undefined
+
+  const normalizedIcon = typeof icon === 'string'
+    ? resolveRegisteredLucideIconNode(icon, 'size-4')
+    : icon
+
+  if (!normalizedIcon) return undefined
+
+  try {
+    const markup = renderToStaticMarkup(<>{normalizedIcon}</>)
+    return markup.trim().length > 0 ? markup : undefined
+  } catch {
+    // Some icon values may be client-only component references after dependency upgrades.
+    // Avoid taking down the entire nav payload because one icon cannot be rendered server-side.
+    return undefined
+  }
 }
 
 async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
@@ -119,6 +133,7 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,
+    iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
     children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
   }
@@ -210,6 +225,7 @@ async function serializeSectionItem(item: {
     labelKey: item.labelKey,
     href: item.href,
     order: item.order,
+    iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
     children: item.children ? await Promise.all(item.children.map((child) => serializeSectionItem(child))) : undefined,
   }

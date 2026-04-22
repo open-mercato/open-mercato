@@ -271,6 +271,10 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
       <strong>Building Standalone App on Linux/Mac</strong><br/><br/>
       <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
     </td>
+    <td align="center">
+      <strong>How to install Open Mercato on Windows</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=eX1SqfDPhkU"><img src="https://img.youtube.com/vi/eX1SqfDPhkU/maxresdefault.jpg" alt="How to Install" width="400"/></a>
+    </td>
   </tr>
 </table>
 
@@ -400,4 +404,3 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
-

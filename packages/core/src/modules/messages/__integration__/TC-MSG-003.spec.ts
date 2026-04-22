@@ -31,10 +31,24 @@ test.describe('TC-MSG-003: Reply From Message Detail', () => {
 
       // Inline composer opens — no dialog in the current UI.
       await expect(page.getByPlaceholder('Write your reply...')).toBeVisible();
-      await page.getByPlaceholder('Write your reply...').fill(replyBody);
-      await page.getByPlaceholder('Write your reply...').press('Control+Enter');
+      const replyInput = page.getByPlaceholder('Write your reply...');
+      await replyInput.fill(replyBody);
 
-      await expect(page.getByText('Reply sent.').first()).toBeVisible();
+      const replyResponsePromise = page.waitForResponse((response) => {
+        if (response.request().method() !== 'POST') return false;
+        let pathname = '';
+        try {
+          pathname = new URL(response.url()).pathname;
+        } catch {
+          return false;
+        }
+        if (!/^\/api\/messages\/[^/]+\/reply$/i.test(pathname)) return false;
+        const requestBody = response.request().postData() ?? '';
+        return requestBody.includes(replyBody);
+      });
+      await replyInput.press('Control+Enter');
+      const replyResponse = await replyResponsePromise;
+      expect(replyResponse.ok()).toBeTruthy();
 
       // Inline reply does not navigate; page stays on the original message URL.
       await expect(page).toHaveURL(new RegExp(`/backend/messages/${fixture.messageId}$`, 'i'));

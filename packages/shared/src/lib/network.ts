@@ -25,9 +25,10 @@ export function isBlockedHostname(hostname: string): boolean {
 }
 
 export function isPrivateUrl(rawUrl: string): boolean {
+  const urlToParse = rawUrl.replace(/\[([0-9a-fA-F:]+)%25[^\]]*\]/g, '[$1]')
   let url: URL
   try {
-    url = new URL(rawUrl)
+    url = new URL(urlToParse)
   } catch {
     return false
   }
@@ -81,11 +82,10 @@ function isPrivateIPv6(address: string): boolean {
   const embedded = embeddedIPv4FromIPv6(segments)
   if (embedded && isPrivateIPv4(embedded)) return true
 
-  const [a, b] = segments
+  const [a] = segments
   if ((a & 0xfe00) === 0xfc00) return true
   if ((a & 0xffc0) === 0xfe80) return true
   if ((a & 0xff00) === 0xff00) return true
-  if (a === 0x2001 && b === 0x0db8) return true
   return false
 }
 
