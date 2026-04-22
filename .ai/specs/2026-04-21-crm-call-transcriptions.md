@@ -3,39 +3,12 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-04-21 |
-| **Status** | Draft — Proposed (revised after architectural review ANALYSIS-2026-04-21; all 7 findings addressed in-line) |
+| **Status** | Proposed |
 | **Author** | Piotr (om-cto) + om-spec-writing |
 | **Scope** | OSS |
 | **Module(s)** | `customers`, `attachments`, `webhooks`, `integrations`, new `packages/transcription-zoom` |
 | **Related specs** | `.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md`, `.ai/specs/SPEC-030-2026-02-24-deal-attachments.md`, `.ai/specs/implemented/SPEC-045-2026-02-24-integration-marketplace.md`, `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` |
-
-**Resolution summary** *(from Open Questions gate, 2026-04-21 → 2026-04-22)*
-- **Q1** → v1 reference adapter = **Zoom**. Community adds tldv / Meet / Fireflies / Loom / Otter / Gong as separate workspace packages.
-- **Q2** → Ingest is **automatic** (provider webhook primary, polling fallback). No manual upload. Routing by **participant email → CRM Person**. Zero-match transcripts go to the **Unmatched Transcripts inbox**.
-- **Q3** → OM does **not** transcribe. We only ingest transcripts already produced by the source tool.
-- **Q-NEW** (from user override) → **One transcript → many participants via a junction entity**. Email is the deterministic participation key. ONE `CustomerInteraction` + ONE `Attachment` + N `CustomerInteractionParticipant` rows per call.
-- **Q-RESEARCH-1** (Mat, 2026-04-22) → **Polymorphic participant identity** from day one: `email nullable + phone nullable + CHECK (at least one)`. Near-zero cost; unblocks v2 CTI without a migration.
-- **Q-RESEARCH-2** (Mat, 2026-04-22) → **CTI / PBX track deferred to v2.** v1 is meeting-SaaS only.
-
----
-
-## Architectural Review Response (2026-04-22)
-
-`ANALYSIS-2026-04-21-crm-call-transcriptions.md` flagged 7 findings. All verified against the codebase. All addressed inline. Summary of corrections:
-
-| # | Finding | Resolution applied |
-|---|---|---|
-| 1 | **ACL leak via `attachments/library`** — global route returns `content` to anyone with `attachments.view`. | Transcript reads now go through a NEW customers-owned route `GET /api/customers/interactions/:id/transcript`, gated by `customers.call_transcripts.view`. The interaction-timeline UI does NOT mount `<AttachmentLibrary>` for transcript content; it renders transcripts inline via the customers route. The attachment row is still created (so it's discoverable via search ACL-checked at search time), but its `content` is NOT served by the global library route to call-recording partition rows — see §API Contracts and §Access Control. |
-| 2 | **Subscriber listens to nonexistent event IDs** (`customers.customer_person_profile.*`). | Subscriber rewired to the actual event IDs `customers.person.created` and `customers.person.updated` per `customers/events.ts:10-12`. |
-| 3 | **Response enricher cannot rewrite queries** (additive-only). | Replaced enricher plan with: (a) a new dedicated route `GET /api/customers/interactions/timeline?subjectKind=person|company|deal&subjectId=<uuid>` that does the union server-side via the participants junction, and (b) an API interceptor on `customers.interactions` list that honors a `participantOf` query param when the timeline widget calls it. See §Proposed Solution.7. |
-| 4 | **Encryption contract shape is wrong** — real shape is `{entityId, fields:[{field}]}`. `attachments/encryption.ts` doesn't exist. | Rewrote §Encryption against the real `ModuleEncryptionMap` contract from `packages/shared/src/modules/encryption.ts`. CREATE new `packages/core/src/modules/attachments/encryption.ts` with `entityId: 'attachments:attachment', fields: [{field: 'content'}]` (encrypts all attachment content globally — accepted trade-off; content is unindexed without ACL anyway). EXTEND `customers/encryption.ts` with `customers:customer_interaction_participant` and the new interaction custom fields. See §Data Models > Encryption. |
-| 5 | **Search story underdefined** — `customers:customer_interaction` not indexed. | Added concrete §Search section: extend `customers/search.ts` with a `customers:customer_interaction` entry that indexes `title` + `source` for call-type interactions. Transcript body is NOT in the search index in v1 — the search stack has no user-feature-aware result filter, and indexing encrypted transcript content without one would leak across ACL boundaries. Full-text transcript search is deferred to a follow-up spec that extends `packages/search` with a feature-aware filter. (The original draft of this row — "indexes transcript content gated at search-API auth time" — was superseded by the second architectural review on 2026-04-22; see the §Search configuration block below and the Changelog for details.) |
-| 6 | **Shared types use `Record<string, unknown>`** — violates `packages/shared/AGENTS.md` MUST rules. | Reworked the provider contract: `CallTranscriptProvider<TCredentials>` is generic over its credentials shape. `ProviderCtx<TCredentials>.credentials: TCredentials`. `providerMetadata` typed as `Record<string, JsonValue>` with `JsonValue = string \| number \| boolean \| null \| JsonValue[] \| { [k: string]: JsonValue }`. See updated §Proposed Solution.1. |
-| 7 | **Interaction detail page doesn't exist; `translations.ts` absent.** | Dropped the "interaction detail page" notion. Transcripts surface inline on the existing Person / Company / Deal detail pages via the timeline widget — each timeline row for an `interactionType='call'` becomes expandable with the transcript, participants pills, "Open in <provider>" deep-link, and reingest action. Unmatched Transcripts inbox remains as a NEW backend page (that's a fresh surface, not an extension). i18n: CREATE `packages/core/src/modules/customers/translations.ts` (it does not exist today) — declared in §UI & UX and §Internationalization. |
-
-Changelog updated (see end of doc). Status moves back to **Proposed** once these in-line patches are reviewed and accepted.
-
----
+| **Architectural reviews** | `.ai/specs/analysis/ANALYSIS-2026-04-21-crm-call-transcriptions.md`, `.ai/specs/analysis/ANALYSIS-2026-04-22-transcription-provider-specs.md` (resolutions recorded in §Changelog) |
 
 ## TLDR
 
@@ -1339,3 +1312,7 @@ This spec ships independently; the AI stack layers on top when its own implement
 - **2026-04-22** — Re-review pass findings #1 and #2 applied (stale wording left over from the F4 + F1 redesigns):
   - **R1** §Architectural Review Response finding-#5 row, §Overview's attachment-content paragraph, and §Research — Market Leaders closing line all rewritten to match the narrowed v1 search scope (title + source only; transcript body deferred to a follow-up spec). The old "transcript fulltext-indexed" / "transcript as a searchable record" language is gone.
   - **R2** §Proposed Solution.1 trailing paragraph about credential storage generalized — it now describes the split between tenant-scoped vault storage (fits the Zoom pattern) and provider-owned per-user tables (fits the tl;dv pattern, forced by `IntegrationScope = { organizationId, tenantId }`). §Proposed Solution.3 "Ingest triggers" webhook bullet rewritten to (a) cite the auto-discovered file path convention instead of "registered with `packages/webhooks`" and (b) describe tenant/user resolution in provider-neutral terms, acknowledging the URL/payload/signed-secret-fingerprint family of mechanisms.
+- **2026-04-22** — Readability cleanup pass (spec-writing skill review, architectural findings H1 + H2):
+  - **H1** — removed two review-meta blocks from the intro (*"Resolution summary (from Open Questions gate …)"* and *"## Architectural Review Response (2026-04-22)"* with its 7-row findings table). Both duplicated content already present in this Changelog in richer form. A new reader now goes metadata → TLDR → Overview, per the spec-writing template.
+  - **H2** — simplified `Status` from `Draft — Proposed (revised after architectural review ANALYSIS-2026-04-21; all 7 findings addressed in-line)` to `Proposed`. Review history lives in the Changelog, not in the frontmatter.
+  - Added an `Architectural reviews` row to the metadata table pointing at the two `ANALYSIS-*` files under `.ai/specs/analysis/` so readers who want the review audit trail can find it.
