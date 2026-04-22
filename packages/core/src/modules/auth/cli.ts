@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { ensureRoles, setupInitialTenant } from './lib/setup-app'
+import { ensureCustomRoleAcls, ensureDefaultRoleAcls, ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -636,5 +636,54 @@ const setPassword: ModuleCli = {
   },
 }
 
+const applyAcl: ModuleCli = {
+  command: 'apply-acl',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantIdArg =
+      typeof args.tenantId === 'string'
+        ? args.tenantId
+        : typeof args.tenant === 'string'
+          ? args.tenant
+          : typeof args.tenant_id === 'string'
+            ? args.tenant_id
+            : null
+    const allTenants = Boolean(args['all-tenants'] || args.allTenants || args.all)
+
+    if (!tenantIdArg && !allTenants) {
+      console.log('ℹ️  No --tenant <id> or --all-tenants provided; defaulting to --all-tenants.')
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+    const modules = getCliModules()
+
+    const applyForTenant = async (tenantId: string) => {
+      await ensureRoles(em, { tenantId })
+      await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole: true })
+      await ensureCustomRoleAcls(em, tenantId, modules)
+      console.log(`🔐 ACL applied for tenant ${tenantId}`)
+    }
+
+    if (tenantIdArg) {
+      await applyForTenant(String(tenantIdArg))
+      console.log('✅ ACL apply complete.')
+      return
+    }
+
+    const tenants = await em.find(Tenant, {})
+    if (!tenants.length) {
+      console.log('No tenants found; nothing to apply.')
+      return
+    }
+    for (const tenant of tenants) {
+      const id = tenant.id ? String(tenant.id) : null
+      if (!id) continue
+      await applyForTenant(id)
+    }
+    console.log(`✅ ACL apply complete across ${tenants.length} tenant(s).`)
+  },
+}
+
 // Export the full CLI list
-export default [addUser, seedRoles, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
+export default [addUser, seedRoles, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword, applyAcl]
