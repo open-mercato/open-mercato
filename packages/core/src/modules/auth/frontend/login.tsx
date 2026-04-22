@@ -13,7 +13,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
@@ -301,22 +301,26 @@ export default function LoginPage() {
                 <input type="hidden" name="tenantId" value={tenantId} />
               ) : null}
               {!!translatedRoles.length && (
-                <Notice compact className="text-center">
-                  {translate(
-                    translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
-                    translatedRoles.length > 1
-                      ? 'Access requires one of the following roles: {roles}'
-                      : 'Access requires role: {roles}',
-                    { roles: translatedRoles.join(', ') },
-                  )}
-                </Notice>
+                <Alert variant="info" className="text-center">
+                  <AlertDescription>
+                    {translate(
+                      translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
+                      translatedRoles.length > 1
+                        ? 'Access requires one of the following roles: {roles}'
+                        : 'Access requires role: {roles}',
+                      { roles: translatedRoles.join(', ') },
+                    )}
+                  </AlertDescription>
+                </Alert>
               )}
               {!!translatedFeatures.length && (
-                <Notice compact className="text-center">
-                  {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
-                    feature: translatedFeatures.join(', '),
-                  })}
-                </Notice>
+                <Alert variant="info" className="text-center">
+                  <AlertDescription>
+                    {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
+                      feature: translatedFeatures.join(', '),
+                    })}
+                  </AlertDescription>
+                </Alert>
               )}
               {showTenantInvalid ? (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
