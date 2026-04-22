@@ -39,10 +39,12 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ### Phase 1: Review Handoff Rules
 
-- [x] 1.1 Update `auto-review-pr` handoff rules and comment templates
-- [x] 1.2 Update `auto-fix-github` handoff rules and comment templates
+- [x] 1.1 Update `auto-review-pr` handoff rules and comment templates — ca98c4969
+- [x] 1.2 Update `auto-fix-github` handoff rules and comment templates — ca98c4969
 
 ### Phase 2: Validation And Delivery
 
-- [x] 2.1 Re-read the updated skills for consistency
-- [ ] 2.2 Open a dedicated PR against `develop`
+- [x] 2.1 Re-read the updated skills for consistency — ca98c4969
+- [x] 2.2 Open a dedicated PR against `develop`
+
+Opened PR: `#1644` https://github.com/open-mercato/open-mercato/pull/1644
