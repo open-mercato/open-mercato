@@ -7,6 +7,19 @@ import { render, screen, within } from '@testing-library/react'
 import PrivacyPage from '../modules/content/frontend/privacy/page'
 import TermsPage from '../modules/content/frontend/terms/page'
 
+function isOpenMercatoPlatformLink(href: string | null): boolean {
+  if (typeof href !== 'string' || href.trim().length === 0) {
+    return false
+  }
+
+  try {
+    const parsed = new URL(href, 'https://openmercato.test')
+    return parsed.hostname === 'openmercato.com' || parsed.hostname.endsWith('.openmercato.com')
+  } catch {
+    return false
+  }
+}
+
 jest.mock('next/link', () => {
   const React = require('react')
   return React.forwardRef(({ children, href, ...rest }: any, ref: React.ForwardedRef<HTMLAnchorElement>) => (
@@ -61,9 +74,7 @@ describe('PrivacyPage', () => {
 
   it('includes an external link to the platform site', () => {
     const article = document.querySelector('article')
-    const externalLinks = within(article!).getAllByRole('link').filter((link) =>
-      link.getAttribute('href')?.includes('openmercato.com'),
-    )
+    const externalLinks = within(article!).getAllByRole('link').filter((link) => isOpenMercatoPlatformLink(link.getAttribute('href')))
     expect(externalLinks.length).toBeGreaterThan(0)
   })
 })

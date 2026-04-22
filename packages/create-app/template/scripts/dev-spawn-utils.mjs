@@ -2,39 +2,45 @@ function isWindowsCmdScript(command, platform = process.platform) {
   return platform === 'win32' && /\.(cmd|bat)$/i.test(String(command))
 }
 
-function quoteWindowsShellArgument(value) {
+const PROCESS_VALUE_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f]/
+const WINDOWS_CMD_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f%!]/
+
+function assertProcessSafeValue(value, label) {
   const stringValue = String(value)
-  if (stringValue.length === 0) {
-    return '""'
+  if (PROCESS_VALUE_UNSAFE_CHAR_PATTERN.test(stringValue)) {
+    throw new Error(`${label} contains unsupported control characters.`)
   }
 
-  if (!/[\s"&()<>^|]/.test(stringValue)) {
-    return stringValue
+  return stringValue
+}
+
+function assertWindowsCmdSafeValue(value, label) {
+  const stringValue = assertProcessSafeValue(value, label)
+  if (WINDOWS_CMD_UNSAFE_CHAR_PATTERN.test(stringValue)) {
+    throw new Error(`${label} contains unsupported characters for Windows command execution.`)
   }
 
-  return `"${stringValue.replace(/"/g, '""')}"`
+  return stringValue
 }
 
 export function resolveSpawnCommand(command, commandArgs = [], options = {}) {
   const platform = options.platform ?? process.platform
+  const safeCommand = assertProcessSafeValue(command, 'Process command')
+  const safeArgs = commandArgs.map((arg, index) => assertProcessSafeValue(arg, `Process argument #${index + 1}`))
 
-  if (!isWindowsCmdScript(command, platform)) {
+  if (!isWindowsCmdScript(safeCommand, platform)) {
     return {
-      command,
-      args: commandArgs,
+      command: safeCommand,
+      args: safeArgs,
       spawnOptions: {},
     }
   }
 
-  const shellCommand = [
-    quoteWindowsShellArgument(command),
-    ...commandArgs.map((arg) => quoteWindowsShellArgument(arg)),
-  ].join(' ')
-
   return {
-    command: shellCommand,
-    args: [],
-    spawnOptions: { shell: true },
+    command: assertWindowsCmdSafeValue(safeCommand, 'Windows command path'),
+    args: safeArgs.map((arg, index) =>
+      assertWindowsCmdSafeValue(arg, `Windows command argument #${index + 1}`),
+    ),
+    spawnOptions: {},
   }
 }
-

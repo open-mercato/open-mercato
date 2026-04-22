@@ -3,7 +3,7 @@ import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
 
-const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 5_000
+const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
 
 function resolveVaultRequestTimeoutMs(): number {
   const raw = process.env.VAULT_REQUEST_TIMEOUT_MS

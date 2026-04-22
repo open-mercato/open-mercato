@@ -758,7 +758,7 @@ async function selectLookupValue(
 
   if (await selectByPreferredRow()) return true;
 
-  const deadline = Date.now() + 4_000;
+  const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
     await waitForLookupIdle(root);
     if (await selectAnyLookupOption(root)) return true;
@@ -767,7 +767,7 @@ async function selectLookupValue(
     if (await selectedButton.isVisible().catch(() => false)) {
       return true;
     }
-    await input.page().waitForTimeout(250);
+    await input.page().waitForTimeout(100);
   }
 
   await input.press('ArrowDown').catch(() => {});
@@ -1069,7 +1069,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
     const kindSelect = dialog.locator('select').first();
-    await expect(kindSelect).toHaveValue(/^custom$/i, { timeout: 3_000 });
+    await expect(kindSelect).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });

@@ -1,9 +1,9 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-// Do NOT import bootstrap here — middleware runs in the Edge runtime and
+// Do NOT import bootstrap here — proxy runs in the Edge runtime and
 // cannot use Node.js-only modules like MikroORM. Bootstrap runs in layouts.
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   return NextResponse.next({ request: { headers: requestHeaders } })

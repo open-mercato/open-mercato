@@ -11,23 +11,29 @@ test('resolveSpawnCommand keeps non-Windows commands unchanged', () => {
   assert.deepEqual(result.spawnOptions, {})
 })
 
-test('resolveSpawnCommand wraps Windows cmd shims in a shell command', () => {
+test('resolveSpawnCommand keeps Windows cmd shims as direct executable invocations for cross-spawn', () => {
   const result = resolveSpawnCommand('yarn.cmd', ['turbo', 'run', 'build', '--filter=./packages/*'], {
     platform: 'win32',
   })
 
-  assert.equal(result.command, 'yarn.cmd turbo run build --filter=./packages/*')
-  assert.deepEqual(result.args, [])
-  assert.deepEqual(result.spawnOptions, { shell: true })
+  assert.equal(result.command, 'yarn.cmd')
+  assert.deepEqual(result.args, ['turbo', 'run', 'build', '--filter=./packages/*'])
+  assert.deepEqual(result.spawnOptions, {})
 })
 
-test('resolveSpawnCommand quotes Windows cmd arguments that need shell escaping', () => {
+test('resolveSpawnCommand keeps Windows cmd arguments unchanged so cross-spawn can quote them', () => {
   const result = resolveSpawnCommand('tool.cmd', ['value with spaces', 'say "hello"'], {
     platform: 'win32',
   })
 
-  assert.equal(result.command, 'tool.cmd "value with spaces" "say ""hello"""')
-  assert.deepEqual(result.args, [])
-  assert.deepEqual(result.spawnOptions, { shell: true })
+  assert.equal(result.command, 'tool.cmd')
+  assert.deepEqual(result.args, ['value with spaces', 'say "hello"'])
+  assert.deepEqual(result.spawnOptions, {})
 })
 
+test('resolveSpawnCommand rejects unsafe Windows cmd arguments', () => {
+  assert.throws(
+    () => resolveSpawnCommand('tool.cmd', ['%TEMP%'], { platform: 'win32' }),
+    /unsupported characters/,
+  )
+})

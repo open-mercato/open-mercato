@@ -1,7 +1,9 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
+import { findRouteManifestMatch, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
+
+registerFrontendRouteManifests(frontendRoutes)
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
