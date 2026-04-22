@@ -39,10 +39,10 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ### Phase 1: Review Handoff Rules
 
-- [ ] 1.1 Update `auto-review-pr` handoff rules and comment templates
-- [ ] 1.2 Update `auto-fix-github` handoff rules and comment templates
+- [x] 1.1 Update `auto-review-pr` handoff rules and comment templates
+- [x] 1.2 Update `auto-fix-github` handoff rules and comment templates
 
 ### Phase 2: Validation And Delivery
 
-- [ ] 2.1 Re-read the updated skills for consistency
+- [x] 2.1 Re-read the updated skills for consistency
 - [ ] 2.2 Open a dedicated PR against `develop`
