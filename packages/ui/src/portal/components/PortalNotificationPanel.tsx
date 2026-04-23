@@ -22,10 +22,10 @@ function CheckIcon({ className }: { className?: string }) {
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  success: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  warning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  error: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+  info: 'bg-status-info-bg text-status-info-text',
+  success: 'bg-status-success-bg text-status-success-text',
+  warning: 'bg-status-warning-bg text-status-warning-text',
+  error: 'bg-status-error-bg text-status-error-text',
 }
 
 type Tab = 'all' | 'unread'
@@ -84,19 +84,19 @@ export function PortalNotificationPanel({
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-modal bg-black/20 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l bg-background shadow-2xl"
+        className="fixed right-0 top-0 z-modal flex h-full w-full max-w-md flex-col border-l bg-background shadow-2xl"
       >
         {/* Header */}
         <div className="flex h-16 items-center justify-between border-b px-5">
           <div>
-            <h2 className="text-[15px] font-semibold">{t('portal.notifications.title', 'Notifications')}</h2>
+            <h2 className="text-base font-semibold">{t('portal.notifications.title', 'Notifications')}</h2>
             {unreadCount > 0 ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-overline text-muted-foreground">
                 {t('portal.notifications.unreadSummary', '{count} unread', { count: unreadCount })}
               </p>
             ) : null}
@@ -107,7 +107,7 @@ export function PortalNotificationPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="text-[12px] text-muted-foreground"
+                className="text-xs text-muted-foreground"
                 onClick={() => onMarkAllRead()}
               >
                 <CheckIcon className="mr-1 size-3.5" />
@@ -127,7 +127,7 @@ export function PortalNotificationPanel({
               key={tabId}
               type="button"
               onClick={() => setTab(tabId)}
-              className={`border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors ${
+              className={`border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
                 tab === tabId
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -137,7 +137,7 @@ export function PortalNotificationPanel({
                 ? t('portal.notifications.tab.all', 'All')
                 : t('portal.notifications.tab.unread', 'Unread')}
               {tabId === 'unread' && unreadCount > 0 ? (
-                <span className="ml-1.5 inline-flex size-5 items-center justify-center rounded-full bg-foreground text-[10px] font-bold text-background">
+                <span className="ml-1.5 inline-flex size-5 items-center justify-center rounded-full bg-foreground text-overline font-bold text-background">
                   {unreadCount}
                 </span>
               ) : null}
@@ -164,22 +164,22 @@ export function PortalNotificationPanel({
                 }`}
               >
                 {/* Severity dot */}
-                <div className={`mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${SEVERITY_STYLES[notification.severity] ?? SEVERITY_STYLES.info}`}>
+                <div className={`mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg text-overline font-bold ${SEVERITY_STYLES[notification.severity] ?? SEVERITY_STYLES.info}`}>
                   {notification.severity.charAt(0).toUpperCase()}
                 </div>
 
                 {/* Content */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-[13px] font-medium leading-snug">
+                    <p className="text-sm font-medium leading-snug">
                       {notification.title}
                     </p>
-                    <span className="shrink-0 text-[11px] text-muted-foreground/60">
+                    <span className="shrink-0 text-overline text-muted-foreground/60">
                       {formatTime(notification.createdAt)}
                     </span>
                   </div>
                   {notification.body ? (
-                    <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                       {notification.body}
                     </p>
                   ) : null}
@@ -191,7 +191,7 @@ export function PortalNotificationPanel({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-auto px-2 py-1 text-[11px] text-muted-foreground"
+                        className="h-auto px-2 py-1 text-overline text-muted-foreground"
                         onClick={() => onMarkAsRead(notification.id)}
                       >
                         {t('portal.notifications.markRead', 'Mark read')}
@@ -201,7 +201,7 @@ export function PortalNotificationPanel({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-auto px-2 py-1 text-[11px] text-muted-foreground"
+                      className="h-auto px-2 py-1 text-overline text-muted-foreground"
                       onClick={() => onDismiss(notification.id)}
                     >
                       {t('portal.notifications.dismiss', 'Dismiss')}
@@ -209,7 +209,7 @@ export function PortalNotificationPanel({
                     {notification.linkHref ? (
                       <a
                         href={notification.linkHref}
-                        className="ml-auto text-[11px] font-medium text-foreground underline underline-offset-2 hover:opacity-80"
+                        className="ml-auto text-overline font-medium text-foreground underline underline-offset-2 hover:opacity-80"
                         onClick={() => {
                           if (notification.status === 'unread') onMarkAsRead(notification.id)
                           onClose()

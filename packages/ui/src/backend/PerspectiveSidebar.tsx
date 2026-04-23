@@ -352,8 +352,8 @@ export function PerspectiveSidebar({
   const isShare = mode.type === 'share'
 
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
+    <div className="fixed inset-0 z-modal">
+      <div className="absolute inset-0 bg-black/20" onClick={() => onOpenChange(false)} role="presentation" />
       <div className="fixed right-0 top-0 h-full w-full sm:w-80 bg-background shadow-xl border-l flex flex-col">
         <div className="flex items-center p-4 border-b">
           <Button

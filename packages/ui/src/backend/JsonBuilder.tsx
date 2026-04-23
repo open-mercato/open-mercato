@@ -117,7 +117,7 @@ export function JsonBuilder({
                             } catch { }
                         }}
                         placeholder='{"key": "value"}'
-                        className="w-full rounded border px-3 py-2 min-h-[300px] text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full rounded border px-3 py-2 min-h-[300px] text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={disabled}
                     />
                     {parseError && (
@@ -242,7 +242,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                         <select
                             value={type}
                             onChange={(e) => handleTypeChange(e.target.value as JsonNodeType)}
-                            className="text-xs border rounded px-1 py-0.5 bg-muted text-foreground focus:ring-1 focus:ring-blue-500"
+                            className="text-xs border rounded px-1 py-0.5 bg-muted text-foreground focus-visible:ring-1 focus-visible:ring-ring"
                         >
                             <option value="string">String</option>
                             <option value="number">Number</option>
@@ -255,7 +255,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
 
                     {type === 'string' && (
                         <input
-                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus-visible:outline-none focus-visible:border-ring"
                             value={data}
                             onChange={e => onChange(e.target.value)}
                             disabled={readOnly}
@@ -264,7 +264,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     {type === 'number' && (
                         <input
                             type="number"
-                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus-visible:outline-none focus-visible:border-ring"
                             value={data}
                             onChange={e => onChange(parseFloat(e.target.value) || 0)}
                             disabled={readOnly}
@@ -272,7 +272,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     )}
                     {type === 'boolean' && (
                         <select
-                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus-visible:outline-none focus-visible:border-ring"
                             value={String(data)}
                             onChange={e => onChange(e.target.value === 'true')}
                             disabled={readOnly}
@@ -310,7 +310,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             <div className="pt-2">
                                 {/* Key Renamer */}
                                 <input
-                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
+                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus-visible:border-ring bg-transparent focus-visible:outline-none text-right pr-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}

@@ -379,7 +379,7 @@ export function DashboardScreen() {
       <InjectionSpot spotId={dashboardBeforeSpotId} context={injectionContext} />
 
       {editing && availableWidgets.length > 0 && (
-        <div className="rounded-lg border border-dashed bg-muted/40 p-4">
+        <div className="rounded-lg border border-dashed bg-muted/50 p-4">
           <div className="mb-2 text-sm font-medium text-muted-foreground">{t('dashboard.addWidget')}</div>
           <div className="flex flex-wrap gap-2">
             {availableWidgets.map((meta) => (
