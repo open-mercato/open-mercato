@@ -35,12 +35,12 @@
 ### Phase 1: Plan and BC-safe env support
 
 - [x] 1.1 Add the run plan on the task branch — 57e7fab22
-- [ ] 1.2 Introduce `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` as the preferred env name while preserving `DISABLE_VECTOR_SEARCH_AUTOINDEXING` as a supported legacy alias in runtime/config surfaces
+- [x] 1.2 Introduce `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` as the preferred env name while preserving `DISABLE_VECTOR_SEARCH_AUTOINDEXING` as a supported legacy alias in runtime/config surfaces — 6470d0b98
 
 ### Phase 2: Default-off examples and docs
 
-- [ ] 2.1 Update shipped `.env.example` files so vector auto-indexing is disabled by default and the enable path is explicit
-- [ ] 2.2 Update env-focused docs pages to explain that vector search remains available when an embedding provider is configured, but auto-indexing is opt-in via `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` or by removing the disable flag
+- [x] 2.1 Update shipped `.env.example` files so vector auto-indexing is disabled by default and the enable path is explicit — 6470d0b98
+- [x] 2.2 Update env-focused docs pages to explain that vector search remains available when an embedding provider is configured, but auto-indexing is opt-in via `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` or by removing the disable flag — 6470d0b98
 
 ### Phase 3: Validation and PR delivery
 
