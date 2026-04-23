@@ -1222,9 +1222,13 @@ Performance: one indexed lookup on `customer_interaction_participants(organizati
 ### Sidebar menu item
 
 Add `unmatched_transcripts` menu item into the main sidebar via widget injection from `call_transcripts/widgets/injection/menu-item.tsx` (spot `menu:sidebar:settings`):
-- Icon: `inbox` (lucide).
+- Icon: `phone-missed` (lucide). Deliberately NOT `inbox` — the `inbox_ops` module already owns the "inbox" navigation metaphor and uses `lucide:inbox` for its sidebar entry; a second inbox entry with the same icon would confuse users navigating between two unrelated staging queues. `phone-missed` is semantically precise for this surface: a call that arrived but didn't connect to anyone in CRM. Acceptable alternates if `phone-missed` proves visually weak at 16px: `voicemail`, `circle-alert`, `flag-triangle-right`.
 - Link: `/backend/call-transcripts/unmatched`.
 - Badge: live count of `status='pending'` rows per tenant; `useAppEvent('call_transcripts.transcript.unmatched')` + `useAppEvent('call_transcripts.unmatched.resolved')` to auto-refresh.
+
+### Relationship to `inbox_ops`
+
+The Unmatched Transcripts inbox is narrowly scoped to the transcript-ingestion pipeline — it holds `CallTranscriptUnmatched` rows for transcripts that landed via webhook or polling but whose participants had zero CRM matches. It is owned by `call_transcripts`, gated by `call_transcripts.unmatched.resolve`, and resolved by picking a target Person/Company/Deal. It is NOT a generic operations inbox. The existing `inbox_ops` module (separate domain, separate ACL, separate icon `lucide:inbox`) remains the canonical "ops queue" surface for cross-cutting human-review workflows (lead intake, manual triage, etc.). The two inboxes do not share data, subscribers, or cache keys. Users with access to both will see them as distinct sidebar entries; the icon split (`phone-missed` vs `inbox`) is the primary visual cue that they are different queues.
 
 ---
 
@@ -1311,9 +1315,21 @@ Default role assignments (seeded in `call_transcripts/setup.ts` `defaultRoleFeat
 | `call_transcripts.manage` | ✓ | ✓ | ✓ | — |
 | `call_transcripts.unmatched.resolve` | ✓ | ✓ | ✓ | — |
 
-### `customers` module (no new features for transcript handling)
+### `customers` module (one new feature)
 
-No new feature IDs in customers. The existing `customers.interactions.view` / `customers.people.view` / `customers.companies.view` / `customers.deals.view` continue to gate the timeline union. `customers.interactions.manage` gates the new `customers.interactions.create_from_transcript` / `update_from_transcript` / `delete_from_transcript` commands.
+This spec introduces **one new feature ID** in the customers module: `customers.interactions.create`. Granular write permission is needed because `POST /api/call-transcripts/unmatched/:id/resolve` writes a `CustomerInteraction` linked to CRM subjects and must be guarded by a dedicated "may create interactions" capability — the existing `customers.interactions.manage` (which governs reingest/admin flows) is too broad to require at the unmatched-inbox surface. Declaring `customers.interactions.create` now as a first-class feature prevents a future rename on what becomes FROZEN contract surface per BC rule #10.
+
+```
+customers.interactions.create  // may create CustomerInteraction rows (used by inbox resolve + from-transcript commands)
+```
+
+Seeded in `customers/setup.ts` `defaultRoleFeatures`:
+
+| Feature | superadmin | admin | manager | employee |
+|---|:-:|:-:|:-:|:-:|
+| `customers.interactions.create` | ✓ | ✓ | ✓ | — |
+
+The existing `customers.interactions.view` / `customers.people.view` / `customers.companies.view` / `customers.deals.view` continue to gate the timeline union. `customers.interactions.manage` continues to gate reingest and the `customers.interactions.create_from_transcript` / `update_from_transcript` / `delete_from_transcript` commands when invoked as administrative flows; the new `customers.interactions.create` is the narrower permission the unmatched-resolve route guard requires.
 
 ### Provider packages
 
@@ -1351,7 +1367,7 @@ Reviewed against the 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`. All ch
 | 7 | API route URLs | STABLE | Additive only: 5 new routes under `/api/call-transcripts/*`, 1 new under `/api/customers/interactions/timeline`. Shared webhook route `/api/webhooks/inbound/[endpointId]` is existing. No per-provider webhook routes introduced (retired from the earlier draft). |
 | 8 | Database schema | ADDITIVE-ONLY | 3 new tables in `call_transcripts` (aggregate + participants + unmatched), 1 new junction in `customers` (`customer_interaction_participants`), 4 new `customer_interaction` custom fields. No renames, no drops. |
 | 9 | DI service names | STABLE | New: `customerMatchingService` (customers, resolved by call_transcripts), `callTranscriptIngestService` (call_transcripts), `callTranscriptProjectionService` (call_transcripts). No DI multi-provider token — the earlier `callTranscriptProviders` token is retired in favor of the module-level registry function. |
-| 10 | ACL feature IDs | FROZEN | 3 new feature IDs in `call_transcripts.*` + 2 per provider package (`transcription_<vendor>.*`). No new IDs in customers. |
+| 10 | ACL feature IDs | FROZEN | 3 new feature IDs in `call_transcripts.*` + 1 new feature ID in `customers.*` (`customers.interactions.create`) + 2 per provider package (`transcription_<vendor>.*`). All additive; no renames. |
 | 11 | Notification type IDs | FROZEN | 1 new type `call_transcripts.unmatched_transcript` (moved from the retired `customers.unmatched_transcript` draft id). |
 | 12 | CLI commands | STABLE | No new CLI in v1 (future optional: `yarn mercato call-transcripts reingest <id>`). |
 | 13 | Generated file contracts | STABLE | No changes to generator output shapes. New module participates in standard `yarn generate`. |
@@ -1374,7 +1390,7 @@ Release notes entry:
 | Idempotency breakage on provider replay (Zoom replays `recording.transcript_completed` webhook) | Medium | Data quality | `call_transcripts.ingest` keys on UNIQUE `(tenantId, providerKey, externalRecordingId)`; duplicate submissions return `{status: 'duplicate'}`. Shared webhook pipeline also dedups on messageId. | Low |
 | Stale provider credentials mid-polling | Low | Reliability | Polling worker catches auth errors, marks the integration as `needs_reconnect` in the integrations vault, notifies admins. | Low |
 | Retroactive match latency for bulk imports | Low | UX | Both backfill subscribers are persistent + batched; UX accepts that a bulk-imported 10k contact set may take minutes before historical calls surface. | Low |
-| GDPR right-to-forget on a Person with historical transcripts | Medium | Privacy | Deleting a Person: `customer_interaction_participants` rows cascade (FK ON DELETE CASCADE). Interactions where the deleted person was primary: `customers` runs its existing interaction-orphan policy per SPEC-046b. Transcript aggregate (`call_transcripts.text`) retained per tenant retention policy; revert to `projection_status='unmatched'` with operator review. | Medium — requires documented operator flow. |
+| GDPR right-to-forget on a Person with historical transcripts | Medium | Privacy | Cross-module cleanup is event-driven, NOT `ON DELETE CASCADE` — per root AGENTS.md "NO direct ORM relationships between modules," the customers-side Person delete cannot FK-cascade into tables owned by `call_transcripts` or into the customers-owned `customer_interaction_participants` junction that stores encrypted personal data. Two cleanup paths: **(1) Same-module cleanup.** `customers` subscribes to its own `customers.person.deleted` event and deletes matching `customer_interaction_participants` rows (`customer_entity_id = deletedPersonId`) in a dedicated subscriber. Interactions where the deleted person was primary go through `customers`'s existing interaction-orphan policy per SPEC-046b. **(2) Cross-module cleanup.** `call_transcripts` subscribes to `customers.person.deleted` and, for each transcript whose `CallTranscriptParticipant.email_hash`/`.phone_hash` matches the deleted Person, scrubs the participant row's decryptable PII (set `email=null`, `phone=null`, `display_name=null`, clear hashes) while retaining `CallTranscript.text` per tenant retention policy. Transcripts whose primary participant is the deleted person revert to `projection_status='unmatched'` and surface in the inbox for operator review. A CLI fallback (`yarn mercato call-transcripts purge-for-person --personId=<uuid>`) lets operators re-run cleanup on demand (e.g. after a missed event). Both subscribers are persistent and idempotent. | Low to Medium — event-driven model is the platform-idiomatic approach; operator has a documented CLI fallback. |
 | Transcript indexing cost (1-hour Zoom call ≈ 30k chars) | Low | Performance | Transcript body NOT indexed in v1 (scope-reduced per §Search). Vector embeddings explicitly out of scope. | Low |
 | Webhook handler downtime loses transcripts | Medium | Reliability | Polling fallback catches up within the polling interval. Provider packages SHOULD surface a missed-ingestion indicator in the admin UI. Shared webhook pipeline's queue retries also buffer transient outages. | Low |
 | Cross-module projection failure (customers projection fails after transcript aggregate committed) | Medium | Data consistency | Two-phase commit with a durable recovery path (see §4 "Transaction model"). Phase A commits the transcript aggregate atomically; Phase C commits the customers projection in its own transaction. On Phase C failure the transcript row sits at `projection_status='projection_failed'` with `last_error`; a persistent recovery subscriber retries with exponential backoff; after N retries the transcript falls back to `projection_status='unmatched'` and surfaces in the inbox. No silently orphaned transcripts. A future `commandBus.runInShared(em, …)` primitive would let Phase A+C commit as one transaction — tracked as a separate platform concern. | Low to Medium — visible failure mode documented; operator has a clear recovery path. |
@@ -1408,10 +1424,10 @@ Tests split by owning module: `call_transcripts/__integration__/` for the transc
 | TC-CT-010 | Retroactive match on email update (transcript side) | Existing Person's email updated to match → `backfill-unmatched` still triggers. |
 | TC-CT-011 | ACL gating (transcript read) | User without `call_transcripts.view` gets 403 on `GET /api/call-transcripts/:id`. |
 | TC-CT-012 | ACL gating (unmatched) | User without `call_transcripts.unmatched.resolve` cannot list/claim. |
-| TC-CT-013 | Undo `call_transcripts.ingest` | Chain-undo deletes customers projection AND call_transcripts rows. |
-| TC-CT-014 | Undo `resolve_unmatched` | Recreates staging row from snapshot; un-projects from customers. |
+| TC-CT-013 | Undo `call_transcripts.ingest` (per-phase model) | (a) Undo before Phase C completes: only transcript-module rows deleted, no CRM write to reverse. (b) Undo after Phase C completes: invokes `customers.interactions.delete_from_transcript` as the inverse command, then deletes transcript-module rows. Inverse command is idempotent — a missing interaction is treated as "already undone," not an error. (c) Inverse command failure: transcript-module rows still delete and `call_transcripts.transcript.undo_partial` event is emitted. No chain-undo — matches §4 "Transaction model". |
+| TC-CT-014 | Undo `resolve_unmatched` | Recreates staging row from snapshot; un-projects from customers via `customers.interactions.delete_from_transcript`. |
 | TC-CT-015 | Encrypted fields round-trip | `CallTranscript.text`, `CallTranscriptParticipant.email`/`.phone`/`.display_name` encrypted on write, decrypted on authorized read. |
-| TC-CT-016 | Transaction atomicity | Forced customers-projection failure → outer transaction rolls back → no orphan `CallTranscript` row; caller receives 500. |
+| TC-CT-016 | Phase C failure + durable recovery (two-phase commit) | Forced customers-projection failure after Phase A commits → `CallTranscript.projection_status='projection_failed'` with `last_error` populated; `call_transcripts.transcript.projection_failed` fired; recovery subscriber retries with exponential backoff; on subsequent success the transcript transitions to `projected` with `interaction_id` set; after N retries the transcript falls back to `projection_status='unmatched'` and appears in the inbox. Explicitly asserts NO rollback of Phase A (transcript aggregate remains) — this matches §4 "Transaction model" and replaces the earlier "outer transaction rolls back" claim. |
 | TC-CT-017 | Unmatched inbox notification | `call_transcripts.transcript.unmatched` → notification of type `call_transcripts.unmatched_transcript` created for eligible users. |
 | TC-CT-018 | Dismiss unmatched | `DELETE /api/call-transcripts/unmatched/:id` sets `status='dismissed'`; transcript aggregate retained. |
 
@@ -1463,6 +1479,29 @@ The parent spec's test matrix (above) covers only the customers-module pipeline 
 
 Each phase produces a running, testable app increment. A phase is only "done" when all tests in its scope pass and the code-review gate succeeds. Phases ordered to establish module boundaries first, then layer UX and providers on top.
 
+### Phase 0 — Prerequisite: `@open-mercato/webhooks` `handleHandshake` hook
+
+Why this is Phase 0: §Proposed Solution.3 requires an additive extension to the `WebhookEndpointAdapter` interface in `@open-mercato/webhooks` to support Zoom's synchronous `endpoint.url_validation` response. Verified against `packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts:54-106` and `.../subscribers/inbound-process.ts`: the current shared route persists a receipt, emits `webhooks.inbound.received`, returns a fixed JSON ack, and runs `processInbound` asynchronously in a subscriber — no path exists today for an adapter to return a provider-specific synchronous response body. Without this hook Zoom's webhook registration fails at URL-validation time (3-second cryptographic reply window). Phase 4 (Zoom adapter) is a hard blocker on this landing; tl;dv (Phase 5) does not need it.
+
+This is a platform-level contract change and therefore gets its own phase rather than being bundled into Phase 4. It MAY land in parallel with Phases 1–3 (no runtime dependency on `call_transcripts` or `customers`), but it MUST merge before Phase 4 starts.
+
+1. Extend the `WebhookEndpointAdapter` interface in `packages/webhooks/src/modules/webhooks/lib/adapter-registry.ts` (or the equivalent location verified at implementation time) with the optional hook:
+   ```ts
+   handleHandshake?(input: {
+     headers: Record<string, string>
+     body: string
+     method: string
+   }): Promise<null | { status: number; headers?: Record<string, string>; body: unknown }>
+   ```
+2. Modify the shared inbound route (`packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts`) to look up the adapter BEFORE the standard persist → emit → subscriber pipeline and, if the adapter implements `handleHandshake`, invoke it with `{ headers, body, method }`. When the hook returns a non-null `{ status, headers?, body }`, the route responds with that payload verbatim and skips receipt persistence, event emission, and async processing. When the hook returns `null` (or is absent), the route falls through to the existing behavior — no regression for adapters that do not implement the hook.
+3. Preserve the raw body for `verifyWebhook` on the fall-through path (existing contract).
+4. Add a shared-route test asserting: (a) adapters without `handleHandshake` behave exactly as today (persist receipt, emit event, 200 JSON ack); (b) adapters whose `handleHandshake` returns non-null short-circuit to the returned `{ status, headers?, body }` and do NOT persist a receipt or emit an event; (c) adapters whose `handleHandshake` returns `null` fall through to the standard flow.
+5. Document the addition in `packages/webhooks/AGENTS.md` and in the release notes as additive-only — existing adapters remain conformant without code changes (hook is optional).
+
+**Result**: `@open-mercato/webhooks` supports a synchronous handshake short-circuit. Phase 4 (Zoom) unblocks. No runtime behavior change for existing adapters.
+
+Size: ~1 atomic commit in `packages/webhooks` per §Proposed Solution.3.
+
 ### Phase 1 — `call_transcripts` module scaffold + contract + hub
 
 1. Scaffold `packages/core/src/modules/call_transcripts/` per `om-module-scaffold` conventions. Register it in `apps/mercato/src/modules.ts`.
@@ -1490,14 +1529,15 @@ Each phase produces a running, testable app increment. A phase is only "done" wh
 2. Declare custom field `sourceCallTranscriptId` (uuid) + `durationSec` + `direction` + `sourceProvider` on `customer_interaction` in `customers/ce.ts`.
 3. **EXTEND** `customers/encryption.ts` with the participants entry.
 4. Declare event `customers.interaction_participant.matched` in `customers/events.ts`.
-5. Create commands in `customers/commands/interactions-from-transcript.ts`: `customers.interactions.create_from_transcript`, `.update_from_transcript`, `.delete_from_transcript` (all undoable).
-6. Create service `CustomerMatchingService` in `customers/lib/matching-service.ts` (read-only, registered in DI as `customerMatchingService`). Exposes `matchParticipants(tenantId, organizationId, participants[])`.
-7. Create command `customers.interaction_participants.manually_link`.
-8. Create route `GET /api/customers/interactions/timeline?subjectKind=&subjectId=` in `customers/api/GET/interactions/timeline.ts`.
-9. Create interceptor `customers/api/interceptors.ts` handling `participantOf=<uuid>` query param → resolves union into `query.ids`.
-10. Create subscriber `customers/subscribers/backfill-interaction-participant.ts`.
-11. Integration tests TC-CRM-CT-001..007, 009 + TC-CRM-CT-UI-001 (timeline union).
-12. Run `yarn generate` + `yarn db:generate`.
+5. **EXTEND** `customers/acl.ts` with `customers.interactions.create` (see §Access Control). Seed it in `customers/setup.ts` `defaultRoleFeatures` for `superadmin` / `admin` / `manager`. This is the feature the `POST /api/call-transcripts/unmatched/:id/resolve` route-level guard requires alongside `call_transcripts.unmatched.resolve`.
+6. Create commands in `customers/commands/interactions-from-transcript.ts`: `customers.interactions.create_from_transcript`, `.update_from_transcript`, `.delete_from_transcript` (all undoable).
+7. Create service `CustomerMatchingService` in `customers/lib/matching-service.ts` (read-only, registered in DI as `customerMatchingService`). Exposes `matchParticipants(tenantId, organizationId, participants[])`.
+8. Create command `customers.interaction_participants.manually_link`.
+9. Create route `GET /api/customers/interactions/timeline?subjectKind=&subjectId=` in `customers/api/GET/interactions/timeline.ts`.
+10. Create interceptor `customers/api/interceptors.ts` handling `participantOf=<uuid>` query param → resolves union into `query.ids`.
+11. Create subscriber `customers/subscribers/backfill-interaction-participant.ts`.
+12. Integration tests TC-CRM-CT-001..007, 009 + TC-CRM-CT-UI-001 (timeline union).
+13. Run `yarn generate` + `yarn db:generate`.
 
 **Result**: customers module exposes the projection command API and matching service. The `call_transcripts.ingest` command now has a real target; the timeline union route is ready for downstream widgets.
 
@@ -1515,6 +1555,7 @@ Each phase produces a running, testable app increment. A phase is only "done" wh
 6. Create `<CallTranscriptCard>` component in `call_transcripts/components/CallTranscriptCard.tsx` + widget injection at `customers:timeline:interaction` spot via `call_transcripts/widgets/injection/timeline-call-card.tsx`.
 7. Create sidebar menu item widget injection for the inbox badge.
 8. Integration tests TC-CT-001, 003, 004, 006, 007, 008, 009, 010, 012, 013, 014, 017, 018 + TC-CT-UI-001..009.
+9. Run `yarn generate` to regenerate auto-discovered artifacts for the new backend page + widget injection. Then run `yarn mercato configs cache structural --all-tenants` to purge the `nav:*` cache per root AGENTS.md — required because Phase 3 adds a new backend page (`/backend/call-transcripts/unmatched`), a new sidebar menu injection, and a new timeline widget injection. Skipping this step leaves stale navigation cache and hides the new UI until the cache expires naturally.
 
 **Result**: end-to-end ingest pipeline working against the stub provider. Inbox UI, `<CallTranscriptCard>`, and sidebar badge live. No real provider yet.
 
@@ -1734,4 +1775,12 @@ None at spec time.
   - **#3 (High)** `CallTranscriptParticipant` CHECK conflicted with Zoom/tl;dv design — the earlier `CHECK (email OR phone)` rejected anonymous speakers (Zoom guests without `user_email`, tl;dv display-name-only segments). The transcript side is the raw source-of-truth; losing these rows would silently mutate provider data. CHECK relaxed to `(email IS NOT NULL OR phone IS NOT NULL OR display_name IS NOT NULL)` and a computed `matchable` boolean column added — matching phases skip display-name-only rows; UI shows them for audit. The CRM-side `customer_interaction_participants` junction keeps the stricter CHECK because CRM matching requires identity.
   - **#4 (High)** Parent spec overstated `@open-mercato/webhooks` capability — the claim that `verifyWebhook` could return a synthetic envelope and the shared route would pass it through was wrong (verified against `packages/webhooks/.../route.ts:54-106` and `.../subscribers/inbound-process.ts`: route persists a receipt, emits an event, returns fixed JSON ack; `processInbound` runs asynchronously). §Proposed Solution.3 rewritten to require an **explicit additive extension** to `@open-mercato/webhooks`: new optional `handleHandshake(input) → Promise<null | { status, headers?, body }>` hook on `WebhookEndpointAdapter`, called BEFORE `verifyWebhook` by the shared route, short-circuiting the standard flow when it returns non-null. Marked as a **hard prerequisite for Phase 4 (Zoom)**. The Zoom sub-spec §Ingestion and §Implementation Phases Phase 2 updated to consume `handleHandshake` for `endpoint.url_validation`. tl;dv doesn't need this.
   - **#5 (Medium)** tl;dv polling TLDR was internally inconsistent — claimed `GET /meetings?since=lastPolledAt` but the actual API is page-based with client-side `happenedAt` filtering (verified in the sub-spec's §Provider profile table). TLDR bullet rewritten to match the real API shape.
+  - **Status**: Proposed (revised).
+- **2026-04-23** — PR #1645 review (@haxiorz scanner) findings applied. Six items across critical + important tiers:
+  - **BC-2 (Critical)** Route guard `customers.interactions.create` didn't exist in `customers/acl.ts` (only `.view` and `.manage`). §Access Control "customers module" section rewritten: declares `customers.interactions.create` as a NEW feature ID (additive, granular — too narrow to overload onto `.manage`), seeded for `superadmin` / `admin` / `manager` in `customers/setup.ts` `defaultRoleFeatures`. Phase 2 gained a new step 5 covering the ACL + setup extension. BC row #10 updated: "3 new feature IDs in `call_transcripts.*` + 1 new feature ID in `customers.*` (`customers.interactions.create`) + 2 per provider package." Phase 2 numbering shifted to accommodate.
+  - **G-1 (Critical)** `handleHandshake` hook on `WebhookEndpointAdapter` was referenced as a "hard prerequisite for Phase 4" in §Proposed Solution.3 but had no dedicated phase of its own — implementation agents would have no actionable scope. Introduced **Phase 0 — Prerequisite: `@open-mercato/webhooks` `handleHandshake` hook** at the top of §Implementation Phases, spelling out: the interface extension, the shared-route invocation order change, raw-body preservation, the required shared-route test (three cases), and AGENTS.md / release-notes documentation. Phase 0 MAY land in parallel with Phases 1-3 but MUST merge before Phase 4. Size: ~1 atomic commit in `packages/webhooks`.
+  - **G-3 (Important)** TC-CT-013 and TC-CT-016 test descriptions contradicted the rewritten two-phase commit model (they still said "chain-undo" / "outer transaction rolls back"). TC-CT-013 rewritten as per-phase inverse-command model with three branches (before-Phase-C, after-Phase-C, inverse-command-failure). TC-CT-016 rewritten as "Phase C failure + durable recovery" — Phase A stays committed, `projection_status='projection_failed'` set, recovery subscriber retries, eventual success → `projected` OR N-retries exhausted → fallback to `unmatched`.
+  - **BC-3 (Important)** GDPR right-to-forget row in §Risks claimed `ON DELETE CASCADE` on `customer_interaction_participants`, which violates root AGENTS.md "NO direct ORM relationships between modules." Rewritten as event-driven cleanup: same-module subscriber in `customers` listens on `customers.person.deleted` and cleans `customer_interaction_participants`; cross-module subscriber in `call_transcripts` listens on the same event and scrubs matching participant PII (email / phone / display_name / hashes) while retaining `CallTranscript.text` per tenant retention. CLI fallback `yarn mercato call-transcripts purge-for-person --personId=<uuid>` documented for missed-event replay.
+  - **G-4 (Important)** Phase 3 adds a new backend page, sidebar menu injection, and timeline widget injection but didn't run the required structural-cache purge per root AGENTS.md. Added step 9 to Phase 3: `yarn generate` + `yarn mercato configs cache structural --all-tenants`. Without this the new UI stays hidden behind stale `nav:*` cache until natural expiry.
+  - **R-4 (Important)** Sidebar menu used `lucide:inbox`, colliding with the existing `inbox_ops` module's icon and metaphor. Icon changed to `lucide:phone-missed` (semantically precise — a call that arrived but didn't connect to anyone in CRM); added a "Relationship to `inbox_ops`" paragraph in §UI & UX that disambiguates the two inboxes (separate modules, separate ACL, separate data, separate cache keys).
   - **Status**: Proposed (revised).
