@@ -482,15 +482,15 @@ export function VectorSearchSection({
                         key={driver.id}
                         className={`flex items-start gap-3 p-3 rounded-md border ${
                           isCurrent && isReady
-                            ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20'
+                            ? 'border-status-success-border bg-status-success-bg'
                             : !driver.implemented
-                              ? 'border-border bg-muted/20 opacity-60'
+                              ? 'border-border bg-muted/30 opacity-60'
                               : 'border-border bg-muted/30'
                         }`}
                       >
                         <div className={`flex h-8 w-8 items-center justify-center rounded-full flex-shrink-0 ${
                           isCurrent && isReady
-                            ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                            ? 'bg-status-success-bg text-status-success-icon'
                             : 'bg-muted text-muted-foreground'
                         }`}>
                           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -499,16 +499,16 @@ export function VectorSearchSection({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className={`text-sm font-medium ${isCurrent && isReady ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            <p className={`text-sm font-medium ${isCurrent && isReady ? 'text-status-success-text' : ''}`}>
                               {driver.name}
                             </p>
                             {isCurrent && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                              <span className="text-overline px-1.5 py-0.5 rounded bg-status-success-bg text-status-success-text">
                                 {t('search.settings.vector.active', 'Active')}
                               </span>
                             )}
                             {!driver.implemented && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                              <span className="text-overline px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                                 {t('search.settings.vector.comingSoon', 'Coming soon')}
                               </span>
                             )}
@@ -516,8 +516,8 @@ export function VectorSearchSection({
                           <div className="mt-1 space-y-0.5">
                             {driver.envVars.map((envVar) => (
                               <div key={envVar.name} className="flex items-center gap-1.5">
-                                <div className={`h-1.5 w-1.5 rounded-full ${envVar.set ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
-                                <code className="text-[10px] text-muted-foreground font-mono">{envVar.name}</code>
+                                <div className={`h-1.5 w-1.5 rounded-full ${envVar.set ? 'bg-status-success-icon' : 'bg-muted-foreground/40'}`} />
+                                <code className="text-overline text-muted-foreground font-mono">{envVar.name}</code>
                               </div>
                             ))}
                           </div>
@@ -549,7 +549,7 @@ export function VectorSearchSection({
                             ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                             : isConfigured
                               ? 'border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer'
-                              : 'border-border bg-muted/20 opacity-50 cursor-not-allowed'
+                              : 'border-border bg-muted/30 opacity-50 cursor-not-allowed'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -559,7 +559,7 @@ export function VectorSearchSection({
                                 {info.name}
                               </p>
                               {isCurrentlySaved && isConfigured && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                <span className="text-overline px-1.5 py-0.5 rounded bg-status-success-bg text-status-success-text">
                                   {t('search.settings.vector.active', 'Active')}
                                 </span>
                               )}
@@ -570,7 +570,7 @@ export function VectorSearchSection({
                               </p>
                             ) : (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {t('search.settings.vector.setEnvVar', 'Set')} <code className="font-mono text-[10px] bg-muted px-1 rounded">{info.envKeyRequired}</code>
+                                {t('search.settings.vector.setEnvVar', 'Set')} <code className="font-mono text-overline bg-muted px-1 rounded">{info.envKeyRequired}</code>
                               </p>
                             )}
                           </div>
@@ -578,7 +578,7 @@ export function VectorSearchSection({
                             isSelected
                               ? 'bg-primary text-primary-foreground'
                               : isConfigured
-                                ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                ? 'bg-status-success-bg text-status-success-icon'
                                 : 'bg-muted text-muted-foreground'
                           }`}>
                             {isSelected ? (
@@ -606,7 +606,7 @@ export function VectorSearchSection({
                               </Label>
                               <select
                                 id={`model-${providerId}`}
-                                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                                 value={displayModel}
                                 onChange={(e) => handleModelChange(e.target.value)}
                                 disabled={embeddingLoading || embeddingSaving}
@@ -652,7 +652,7 @@ export function VectorSearchSection({
                                 {t('search.settings.dimension.label', 'Dimensions')}: {displayDimension}
                               </span>
                               {embeddingSettings?.indexedDimension && embeddingSettings.indexedDimension !== displayDimension && (
-                                <span className="text-amber-600 dark:text-amber-400">
+                                <span className="text-status-warning-text">
                                   {t('search.settings.dimension.mismatch', 'mismatch')}: {embeddingSettings.indexedDimension}
                                 </span>
                               )}
@@ -678,12 +678,12 @@ export function VectorSearchSection({
               </div>
 
               {/* Setup Instructions */}
-              <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <div className="p-3 rounded-md bg-status-info-bg border border-status-info-border">
                 <div className="flex items-start gap-2">
-                  <svg className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-5 w-5 text-status-info-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <div className="text-sm text-blue-800 dark:text-blue-200">
+                  <div className="text-sm text-status-info-text">
                     <p className="font-medium mb-1">{t('search.settings.vector.howTo', 'How to set up')}</p>
                     <p className="text-xs">{t('search.settings.vector.howToDescription', 'Add the API key for your preferred provider to your .env file. Only providers with configured API keys can be selected.')}</p>
                   </div>
@@ -701,16 +701,16 @@ export function VectorSearchSection({
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
           ) : !isEmbeddingConfigured ? (
-            <div className="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
               <div className="flex items-start gap-3">
-                <svg className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  <p className="text-sm font-medium text-status-warning-text">
                     {t('search.settings.vectorNotConfigured', 'No embedding provider configured')}
                   </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  <p className="text-xs text-status-warning-text mt-1">
                     {t('search.settings.vectorNotConfiguredHint', 'Configure an embedding provider in the Configuration tab to enable indexing.')}
                   </p>
                 </div>
@@ -763,14 +763,14 @@ export function VectorSearchSection({
 
                 {/* Active reindex lock banner */}
                 {vectorReindexLock && (
-                  <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="p-3 rounded-md bg-status-info-bg border border-status-info-border">
                     <div className="flex items-start gap-3">
-                      <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                      <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-status-info-icon" />
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                        <p className="text-sm font-medium text-status-info-text">
                           {t('search.settings.reindexInProgress', 'Reindex operation in progress')}
                         </p>
-                        <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                        <p className="text-xs text-status-info-text mt-1">
                           {t('search.settings.reindexInProgressDetails', 'Action: {{action}} | Started {{minutes}} minutes ago', {
                             action: vectorReindexLock.action,
                             minutes: vectorReindexLock.elapsedMinutes,
@@ -781,11 +781,11 @@ export function VectorSearchSection({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20">
-                  <svg className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center gap-2 p-2 rounded bg-status-warning-bg">
+                  <svg className="h-4 w-4 text-status-warning-icon flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
-                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                  <p className="text-xs text-status-warning-text">
                     {t('search.settings.vectorReindex.warning', 'This may take a while for large datasets and will consume API credits.')}
                   </p>
                 </div>
@@ -830,18 +830,18 @@ export function VectorSearchSection({
                   key={log.id}
                   className={`p-2 rounded-md text-sm ${
                     log.level === 'error'
-                      ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                      ? 'bg-status-error-bg border border-status-error-border'
                       : 'bg-muted/50'
                   }`}
                 >
                   <div className="flex items-start gap-2">
                     {log.level === 'error' && (
-                      <svg className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-4 w-4 text-status-error-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs ${log.level === 'error' ? 'text-red-800 dark:text-red-200' : 'text-foreground'}`}>
+                      <p className={`text-xs ${log.level === 'error' ? 'text-status-error-text' : 'text-foreground'}`}>
                         {log.message}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -881,7 +881,7 @@ export function VectorSearchSection({
 
       {/* Vector Reindex Confirmation Dialog */}
       {showVectorReindexDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
           <div className="mx-4 max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
             <h3 className="text-lg font-semibold mb-2">{t('search.settings.reindex.confirmTitle', 'Confirm Reindex')}</h3>
             <p className="text-sm text-muted-foreground mb-4">
@@ -901,7 +901,7 @@ export function VectorSearchSection({
 
       {/* Embedding Provider Change Confirmation Dialog */}
       {showEmbeddingConfirmDialog && pendingEmbeddingConfig && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
           <div className="mx-4 max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg">
             <h3 className="text-lg font-semibold mb-2">{t('search.settings.change.title', 'Confirm Provider Change')}</h3>
             <p className="text-sm text-muted-foreground mb-4">
