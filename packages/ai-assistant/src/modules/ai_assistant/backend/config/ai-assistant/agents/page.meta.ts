@@ -17,11 +17,10 @@ export const metadata = {
   pageTitleKey: 'ai_assistant.agents.navTitle',
   pageGroup: 'Module Configs',
   pageGroupKey: 'settings.sections.moduleConfigs',
-  pageOrder: 432,
+  pageOrder: 430,
   icon: agentsIcon,
   pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'AI Assistant', labelKey: 'ai_assistant.config.nav.settings' },
-    { label: 'Agents', labelKey: 'ai_assistant.agents.navTitle' },
+    { label: 'AI Agents', labelKey: 'ai_assistant.agents.navTitle' },
   ],
 } as const

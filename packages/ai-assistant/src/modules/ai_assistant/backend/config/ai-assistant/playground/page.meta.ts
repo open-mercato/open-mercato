@@ -20,7 +20,7 @@ export const metadata = {
   icon: playgroundIcon,
   pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'AI Assistant', labelKey: 'ai_assistant.config.nav.settings' },
+    { label: 'AI Agents', labelKey: 'ai_assistant.agents.navTitle' },
     { label: 'Playground', labelKey: 'ai_assistant.playground.navTitle' },
   ],
 } as const
