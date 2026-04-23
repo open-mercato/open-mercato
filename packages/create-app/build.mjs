@@ -22,8 +22,8 @@ chmodSync('dist/index.js', 0o755)
 
 // Copy lib template assets to dist/ so they can be read at runtime
 if (existsSync('src/lib/templates')) {
-  cpSync('src/lib/templates', 'dist/lib/templates', { recursive: true })
-  console.log('Copied src/lib/templates/ → dist/lib/templates/')
+  cpSync('src/lib/templates', 'dist/templates', { recursive: true })
+  console.log('Copied src/lib/templates/ → dist/templates/')
 }
 
 // Copy agentic source content to dist/ so generators can read it at runtime
