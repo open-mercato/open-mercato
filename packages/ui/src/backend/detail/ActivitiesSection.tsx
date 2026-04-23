@@ -177,7 +177,7 @@ function TimelineItemHeader({
   return (
     <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
       {iconNode ? (
-        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/50', wrapperSize].join(' ')}>
           {iconNode}
         </span>
       ) : null}
@@ -323,7 +323,7 @@ function ActivityForm({
             typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
           return (
             <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={currentValue}
               onChange={(event) => setValue(event.target.value)}
             >
@@ -348,7 +348,7 @@ function ActivityForm({
           const currentValue = typeof value === 'string' ? value : ''
           return (
             <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={currentValue}
               onChange={(event) => setValue(event.target.value)}
             >
@@ -410,7 +410,7 @@ function ActivityForm({
       component: ({ value, setValue }) => (
         <input
           type="datetime-local"
-          className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => setValue(event.target.value || '')}
           onFocus={(event) => {
@@ -1120,7 +1120,7 @@ function ActivitiesSectionImpl<C = unknown>({
                   return (
                     <div
                       key={activity.id}
-                      className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80 cursor-pointer"
+                      className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/70 cursor-pointer"
                       role="button"
                       tabIndex={0}
                       onClick={() => openEditDialog(activity)}

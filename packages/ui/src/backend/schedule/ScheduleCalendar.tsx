@@ -160,7 +160,7 @@ export default function ScheduleCalendar({
                 type="button"
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-[11px]"
+                className="h-auto p-0 text-overline"
                 onClick={(clickEvent) => {
                   clickEvent.stopPropagation()
                   onItemClick?.(resource)

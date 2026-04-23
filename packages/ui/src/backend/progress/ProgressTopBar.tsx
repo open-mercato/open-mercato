@@ -58,7 +58,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
             </>
           ) : (
             <>
-              <CheckCircle className="h-4 w-4 text-green-500" />
+              <CheckCircle className="h-4 w-4 text-status-success-icon" />
               <span className="text-muted-foreground">
                 {t('progress.recentlyCompleted', '{count} operations completed', { count: recentlyCompleted.length })}
               </span>
@@ -108,13 +108,13 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
     <div className={cn(
       'rounded-md border bg-card p-3',
       isFailed && 'border-destructive/50 bg-destructive/5',
-      isCompleted && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20',
+      isCompleted && 'border-status-success-border bg-status-success-bg',
     )}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {isActive && <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />}
-            {isCompleted && <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />}
+            {isCompleted && <CheckCircle className="h-4 w-4 text-status-success-icon flex-shrink-0" />}
             {isFailed && <XCircle className="h-4 w-4 text-destructive flex-shrink-0" />}
             <span className="font-medium truncate">{job.name}</span>
           </div>
@@ -170,7 +170,7 @@ function IndeterminateProgressBar({ className }: { className?: string }) {
   return (
     <div className={cn('relative w-full overflow-hidden rounded-full bg-secondary', className)}>
       <div className="absolute inset-y-0 left-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
-      <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/40" />
+      <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/10" />
     </div>
   )
 }

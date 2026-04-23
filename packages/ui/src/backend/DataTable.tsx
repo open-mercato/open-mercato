@@ -644,7 +644,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
+          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-dropdown"
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
@@ -2308,7 +2308,7 @@ export function DataTable<T>({
                     >
                       <Filter className="h-4 w-4" />
                       {advancedFilter.value.conditions.length > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-overline text-primary-foreground">
                           {advancedFilter.value.conditions.length}
                         </span>
                       ) : null}
@@ -2405,7 +2405,7 @@ export function DataTable<T>({
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {sortable && header.column.getCanSort?.() ? (
-                        <span className="ml-1 inline-flex flex-col text-[10px] leading-none gap-px">
+                        <span className="ml-1 inline-flex flex-col text-overline leading-none gap-px">
                           <span className={header.column.getIsSorted() === 'asc' ? 'text-foreground' : 'text-muted-foreground/40'}>▲</span>
                           <span className={header.column.getIsSorted() === 'desc' ? 'text-foreground' : 'text-muted-foreground/40'}>▼</span>
                         </span>

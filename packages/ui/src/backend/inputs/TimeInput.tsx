@@ -109,7 +109,7 @@ export function TimeInput({
 
   const inputClass = cn(
     'w-14 h-9 rounded border text-center text-sm tabular-nums',
-    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
     disabled && 'bg-muted text-muted-foreground cursor-not-allowed',
     'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed'
   )

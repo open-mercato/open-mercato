@@ -44,7 +44,7 @@ export function LanguageSwitcher() {
       <div className="relative">
         <select
           id={selectId}
-          className="appearance-none rounded-md border bg-background px-3 py-1 pr-8 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-60"
+          className="appearance-none rounded-md border bg-background px-3 py-1 pr-8 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
           value={current}
           onChange={(event) => setLocale(event.target.value as Locale)}
           disabled={pending}
