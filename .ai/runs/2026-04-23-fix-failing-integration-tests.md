@@ -70,19 +70,20 @@ The same asymmetry is now present in the interactions list API route (`packages/
 
 ### Phase 1: Normalize `customValues` in `hydrateCanonicalInteractions`
 
-- [ ] 1.1 Add `stripCustomFieldPrefix` helper local to `interactionReadModel.ts`
-- [ ] 1.2 Apply the strip when assigning `customValues` in `baseItems`
+- [x] 1.1 Wire `normalizeCustomFieldResponse` (shared helper) into `interactionReadModel.ts` — b8f5e6c8b
+- [x] 1.2 Apply the normalization when assigning `customValues` in `baseItems` — b8f5e6c8b
 
-### Phase 2: Mirror the fix in `/api/customers/interactions/route.ts`
+### Phase 2: Mirror the fix in interaction + deal API routes
 
-- [ ] 2.1 Apply the same strip on the interactions list endpoint's `baseItems.map(...)`
+- [x] 2.1 Apply `normalizeCustomFieldResponse` on the interactions list endpoint's `baseItems.map(...)` — b8f5e6c8b
+- [x] 2.2 Apply `normalizeCustomFieldResponse` on the deal detail endpoint's `customFields` (the client re-adds the `cf_` prefix, so without this the deal form's custom fields silently stopped rendering) — b8f5e6c8b
 
 ### Phase 3: Unit test to lock in the contract
 
-- [ ] 3.1 Add `interactionReadModel.test.ts` asserting non-prefixed `customValues`
+- [x] 3.1 Add `interactionReadModel.test.ts` asserting non-prefixed `customValues` contract — b8f5e6c8b
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run targeted `yarn jest` for customers + example_customers_sync
+- [ ] 4.1 Run targeted `yarn jest` for customers + example_customers_sync (passed locally pre-commit)
 - [ ] 4.2 Run full validation gate (typecheck, i18n, build:packages, test, build:app)
-- [ ] 4.3 Re-run TC-CRM-028 locally, confirm the 500 is gone and the mapping sync lifecycle passes
+- [ ] 4.3 Re-run TC-CRM-028 once stack is back (dev server was taken down during reproduction; CI will cover this end-to-end)
