@@ -40,7 +40,7 @@ const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSetting
           </label>
           <input
             id="welcome-headline"
-            className="w-full rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={value.headline}
             onChange={(event) => handleChange('headline', event.target.value)}
             placeholder={t('example.widgets.welcome.settings.headlinePlaceholder', 'Welcome back, {{user}}!')}
@@ -55,7 +55,7 @@ const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSetting
           </label>
           <textarea
             id="welcome-message"
-            className="min-h-[120px] w-full resize-y rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="min-h-[120px] w-full resize-y rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={value.message ?? ''}
             onChange={(event) => handleChange('message', event.target.value)}
             placeholder={DEFAULT_SETTINGS.message}

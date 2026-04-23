@@ -152,10 +152,10 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const disabled = onboardingDisabled || submitting || state === 'success'
 
   return (
-    <div className="relative flex min-h-svh items-center justify-center bg-muted/40 px-4 pb-24">
+    <div className="relative flex min-h-svh items-center justify-center bg-muted/50 px-4 pb-24">
       <Card className="relative w-full max-w-lg overflow-hidden shadow-lg">
         {onboardingDisabled ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/70 p-6 backdrop-blur-[2px]">
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80 p-6 backdrop-blur-[2px]">
             <div
               className="max-w-sm rounded-xl border border-border/70 bg-background/95 px-5 py-4 text-center shadow-sm"
               role="alert"
@@ -219,7 +219,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 autoComplete="email"
                 aria-invalid={Boolean(fieldErrors.email)}
                 aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-                className={fieldErrors.email ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.email && (
                 <p id="email-error" className="text-xs text-red-600">{fieldErrors.email}</p>
@@ -237,7 +237,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   autoComplete="given-name"
                   aria-invalid={Boolean(fieldErrors.firstName)}
                   aria-describedby={fieldErrors.firstName ? 'firstName-error' : undefined}
-                  className={fieldErrors.firstName ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                  className={fieldErrors.firstName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.firstName && (
                   <p id="firstName-error" className="text-xs text-red-600">{fieldErrors.firstName}</p>
@@ -254,7 +254,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   autoComplete="family-name"
                   aria-invalid={Boolean(fieldErrors.lastName)}
                   aria-describedby={fieldErrors.lastName ? 'lastName-error' : undefined}
-                  className={fieldErrors.lastName ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                  className={fieldErrors.lastName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.lastName && (
                   <p id="lastName-error" className="text-xs text-red-600">{fieldErrors.lastName}</p>
@@ -272,7 +272,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 autoComplete="organization"
                 aria-invalid={Boolean(fieldErrors.organizationName)}
                 aria-describedby={fieldErrors.organizationName ? 'organizationName-error' : undefined}
-                className={fieldErrors.organizationName ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                className={fieldErrors.organizationName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.organizationName && (
                 <p id="organizationName-error" className="text-xs text-red-600">{fieldErrors.organizationName}</p>
@@ -290,7 +290,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 minLength={passwordPolicy.minLength}
                 aria-invalid={Boolean(fieldErrors.password)}
                 aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-                className={fieldErrors.password ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                className={fieldErrors.password ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {passwordDescription ? (
                 <p className="text-xs text-muted-foreground">{passwordDescription}</p>
@@ -310,7 +310,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 autoComplete="new-password"
                 aria-invalid={Boolean(fieldErrors.confirmPassword)}
                 aria-describedby={fieldErrors.confirmPassword ? 'confirmPassword-error' : undefined}
-                className={fieldErrors.confirmPassword ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                className={fieldErrors.confirmPassword ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.confirmPassword && (
                 <p id="confirmPassword-error" className="text-xs text-red-600">{fieldErrors.confirmPassword}</p>
@@ -383,7 +383,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
             <Button
               type="submit"
               disabled={disabled}
-              className="mt-2 h-11 bg-foreground text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-2 h-11 bg-foreground text-background transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting
                 ? translate('onboarding.form.loading', 'Sending...')
