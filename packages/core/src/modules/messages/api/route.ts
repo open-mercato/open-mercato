@@ -51,7 +51,7 @@ type RecipientCountRow = {
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
 }
 

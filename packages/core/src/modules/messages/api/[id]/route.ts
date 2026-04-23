@@ -18,7 +18,7 @@ import {
 } from '../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
   PATCH: { requireAuth: true, requireFeatures: ['messages.compose'] },
   DELETE: { requireAuth: true, requireFeatures: ['messages.view'] },
 }
