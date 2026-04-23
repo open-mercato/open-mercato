@@ -1902,7 +1902,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
           </div>
         </div>
         {(Array.isArray(values.options) ? values.options : []).map((option) => (
-          <div key={option.id} className="rounded-md bg-muted/40 p-4">
+          <div key={option.id} className="rounded-md bg-muted/50 p-4">
             <div className="flex items-center gap-2">
               <Input
                 value={option.title}
@@ -2250,7 +2250,7 @@ function ProductVariantsSection({
               </thead>
               <tbody>
                 {variants.map((variant) => (
-                  <tr key={variant.id} className="border-t hover:bg-muted/40">
+                  <tr key={variant.id} className="border-t hover:bg-muted/50">
                     <td className="px-3 py-2">
                       <Link
                         href={`/backend/catalog/products/${productId}/variants/${variant.id}`}

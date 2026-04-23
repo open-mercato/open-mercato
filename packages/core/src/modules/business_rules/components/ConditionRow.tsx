@@ -77,7 +77,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
             value={condition.field || ''}
             onChange={handleFieldChange}
             placeholder={t('business_rules.components.conditionRow.field.placeholder')}
-            className={`w-full px-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            className={`w-full px-2 py-1.5 text-sm border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               fieldError ? 'border-red-500' : 'border-border'
             }`}
           />
@@ -96,7 +96,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <select
             value={condition.operator || '='}
             onChange={handleOperatorChange}
-            className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {operators.map((op) => (
               <option key={op.value} value={op.value}>
@@ -144,7 +144,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 ? t('business_rules.components.conditionRow.field.comparisonPlaceholder')
                 : t('business_rules.components.conditionRow.value.placeholder')
               }
-              className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground mt-0.5">
               {useFieldComparison

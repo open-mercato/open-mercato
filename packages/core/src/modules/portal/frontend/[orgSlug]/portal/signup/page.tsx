@@ -112,17 +112,17 @@ export default function PortalSignupPage({ params }: Props) {
         ) : null}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-name" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
+          <Label htmlFor="signup-name" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
           <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
+          <Label htmlFor="signup-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
           <Input id="signup-email" type="email" autoComplete="email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-password" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
+          <Label htmlFor="signup-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
           <Input id="signup-password" type="password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
@@ -130,7 +130,7 @@ export default function PortalSignupPage({ params }: Props) {
           {submitting ? t('portal.signup.submitting', 'Creating account...') : t('portal.signup.submit', 'Create Account')}
         </Button>
 
-        <p className="text-center text-[13px] text-muted-foreground">
+        <p className="text-center text-sm text-muted-foreground">
           {t('portal.signup.hasAccount', 'Already have an account?')}{' '}
           <Link href={`/${orgSlug}/portal/login`} className="font-medium text-foreground underline underline-offset-4 hover:opacity-80">
             {t('portal.signup.loginLink', 'Sign in')}

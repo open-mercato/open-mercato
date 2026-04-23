@@ -172,7 +172,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           required
           disabled={isSubmitting}
         />
@@ -187,7 +187,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
           type="text"
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={isSubmitting}
         />
       </div>

@@ -487,7 +487,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="text"
                               value={condition.ruleId}
                               onChange={(e) => updatePreCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                             />
                           </div>
 
@@ -497,7 +497,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 type="checkbox"
                                 checked={condition.required}
                                 onChange={(e) => updatePreCondition(index, 'required', e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                className="rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
                               />
                               {t('workflows.edgeEditor.requiredCheckbox')}
                             </label>
@@ -639,7 +639,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="text"
                               value={condition.ruleId}
                               onChange={(e) => updatePostCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                             />
                           </div>
 
@@ -649,7 +649,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 type="checkbox"
                                 checked={condition.required}
                                 onChange={(e) => updatePostCondition(index, 'required', e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                className="rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
                               />
                               {t('workflows.edgeEditor.requiredPostCheckbox')}
                             </label>
@@ -776,7 +776,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="text"
                               value={activity.activityId}
                               onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.activityIdPlaceholder')}
                             />
                           </div>
@@ -788,7 +788,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="text"
                               value={activity.activityName || ''}
                               onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.activityNamePlaceholder')}
                             />
                           </div>
@@ -799,7 +799,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             <select
                               value={activity.activityType}
                               onChange={(e) => updateActivity(index, 'activityType', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                             >
                               <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
                               <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
@@ -818,7 +818,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="text"
                               value={activity.timeout || ''}
                               onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
                             />
                             <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
@@ -834,7 +834,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   type="number"
                                   value={activity.retryPolicy?.maxAttempts || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxAttempts', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="3"
                                   min="1"
                                   max="10"
@@ -846,7 +846,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   type="number"
                                   value={activity.retryPolicy?.initialIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="1000"
                                   min="0"
                                 />
@@ -858,7 +858,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   step="0.1"
                                   value={activity.retryPolicy?.backoffCoefficient || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value) || 1)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="2"
                                   min="1"
                                   max="10"
@@ -870,7 +870,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   type="number"
                                   value={activity.retryPolicy?.maxIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="10000"
                                   min="0"
                                 />

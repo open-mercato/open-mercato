@@ -70,7 +70,7 @@ export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderPr
 
         default:
             return (
-                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/20 rounded border border-dashed">
+                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/30 rounded border border-dashed">
                     {t('feature_toggles.form.fields.defaultValue.selectType', 'Please select a type above to configure the default value')}
                 </div>
             );

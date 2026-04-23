@@ -491,16 +491,16 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
         />
 
-        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              <h3 className="text-sm font-medium text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.title', 'Customer Portal Access')}
               </h3>
-              <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+              <p className="mt-1 text-sm text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.description', 'This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.')}
               </p>
-              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+              <p className="mt-2 text-xs text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.url', 'Portal URL: {url}', {
                   url: `${typeof window !== 'undefined' ? window.location.origin : ''}/[org-slug]/portal`,
                 })}
@@ -522,8 +522,8 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <dd className="flex items-center gap-2">
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     data.emailVerifiedAt
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                      ? 'bg-status-success-bg text-status-success-text'
+                      : 'bg-status-warning-bg text-status-warning-text'
                   }`}>
                     {data.emailVerifiedAt
                       ? t('customer_accounts.admin.verified', 'Yes')
@@ -748,12 +748,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
             </Button>
           </div>
           {resetLinkUrl && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
-              <p className="mb-1.5 text-sm font-medium text-blue-900 dark:text-blue-100">
+            <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
+              <p className="mb-1.5 text-sm font-medium text-status-info-text">
                 {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 break-all rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
                   {resetLinkUrl}
                 </code>
                 <Button
@@ -768,7 +768,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                   {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
                 </Button>
               </div>
-              <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
+              <p className="mt-1.5 text-xs text-status-info-text">
                 {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
               </p>
             </div>

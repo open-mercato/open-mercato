@@ -60,7 +60,7 @@ export function MobileTaskForm({
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>
             {fieldTitle}
-            {required && <span className="text-red-600 ml-1">*</span>}
+            {required && <span className="text-status-error-text ml-1">*</span>}
           </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           <select
@@ -68,7 +68,7 @@ export function MobileTaskForm({
             value={fieldValue(fieldName)}
             onChange={(e) => onFieldChange(fieldName, e.target.value)}
             required={required}
-            className="w-full h-11 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-base"
+            className="w-full h-11 px-3 py-2 border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-base"
           >
             <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
             {enumValues.map((value: string) => (
@@ -86,7 +86,7 @@ export function MobileTaskForm({
             <div key={fieldName} className="space-y-2">
               <Label htmlFor={fieldName}>
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </Label>
               {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
               <Textarea
@@ -104,7 +104,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -124,7 +124,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -150,7 +150,7 @@ export function MobileTaskForm({
               />
               <Label htmlFor={fieldName} className="font-medium">
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </Label>
             </div>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
@@ -162,7 +162,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -192,8 +192,8 @@ export function MobileTaskForm({
       )}
 
       {isOverdue && (
-        <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-3">
-          <p className="text-sm text-red-800 dark:text-red-200 font-medium">{t('workflows.tasks.detail.overdueWarning')}</p>
+        <div className="bg-status-error-bg border border-status-error-border rounded-lg p-3">
+          <p className="text-sm text-status-error-text font-medium">{t('workflows.tasks.detail.overdueWarning')}</p>
         </div>
       )}
 
@@ -207,7 +207,7 @@ export function MobileTaskForm({
           {task.dueDate && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('workflows.tasks.fields.dueDate')}:</span>
-              <span className={`text-right text-xs ${isOverdue ? 'text-red-600 font-medium' : ''}`}>
+              <span className={`text-right text-xs ${isOverdue ? 'text-status-error-text font-medium' : ''}`}>
                 {new Date(task.dueDate).toLocaleString()}
               </span>
             </div>
@@ -231,8 +231,8 @@ export function MobileTaskForm({
       </div>
 
       {!isCompletable && (
-        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-          <p className="text-sm text-blue-800 dark:text-blue-200">{t('workflows.tasks.detail.cannotComplete')}</p>
+        <div className="bg-status-info-bg border border-status-info-border rounded-lg p-3">
+          <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.cannotComplete')}</p>
         </div>
       )}
 
@@ -251,8 +251,8 @@ export function MobileTaskForm({
           )}
 
           {!task.formSchema?.properties && (
-            <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-              <p className="text-sm text-blue-800 dark:text-blue-200">{t('workflows.tasks.detail.noFormSchema')}</p>
+            <div className="bg-status-info-bg border border-status-info-border rounded-lg p-3">
+              <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.noFormSchema')}</p>
             </div>
           )}
 
