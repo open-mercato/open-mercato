@@ -137,13 +137,14 @@ export class AccessLogService {
         context: undefined,
       }
     }
+    const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
     const toNullableUuid = (value: unknown) => {
       if (typeof value !== 'string' || value.length === 0) return null
       // Extract UUID from "api_key:<uuid>" format (used by workflow authentication)
-      if (value.startsWith('api_key:')) {
-        return value.slice('api_key:'.length)
-      }
-      return value
+      const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
+      // System actors (sync workers, scheduler, etc.) use non-UUID subjects like
+      // "system:...". Reject those so the uuid column stays valid.
+      return UUID_REGEX.test(candidate) ? candidate : null
     }
     const fields = Array.isArray(input.fields)
       ? input.fields.filter((f): f is string => typeof f === 'string' && f.length > 0)
