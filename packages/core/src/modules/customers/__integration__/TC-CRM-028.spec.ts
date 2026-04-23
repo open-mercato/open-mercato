@@ -491,7 +491,7 @@ async function listInteractionActionLogCommandIds(interactionId: string): Promis
     resourceKind: 'customers.interaction',
     resourceId: interactionId,
   });
-  return result.items.map((item) => item.commandId);
+  return result.items.map((item: { commandId: string }) => item.commandId);
 }
 
 async function waitForExampleTodo(

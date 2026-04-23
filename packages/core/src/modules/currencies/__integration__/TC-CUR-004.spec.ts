@@ -23,13 +23,14 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
     let originalBaseId: string | null = null;
 
     try {
-      token = await getAuthToken(request, 'admin');
-      const { organizationId, tenantId } = getTokenContext(token);
+      const authToken = await getAuthToken(request, 'admin');
+      token = authToken;
+      const { organizationId, tenantId } = getTokenContext(authToken);
 
       // Create a fixture currency
       const randLetter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
       const code = `B${randLetter()}${randLetter()}`;
-      currencyId = await createCurrencyFixture(request, token, {
+      currencyId = await createCurrencyFixture(request, authToken, {
         code,
         name: 'QA TC-CUR-004 Target Currency',
       });
@@ -39,7 +40,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
         request,
         'GET',
         '/api/currencies/currencies?isBase=true&pageSize=1',
-        { token },
+        { token: authToken },
       );
       const listBody = (await listResponse.json()) as { items?: Array<{ id: string }> };
       originalBaseId = listBody.items?.[0]?.id ?? null;
@@ -72,7 +73,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
               request,
               'GET',
               `/api/currencies/currencies?isBase=true&code=${encodeURIComponent(code)}&pageSize=10`,
-              { token },
+              { token: authToken },
             );
             const body = (await response.json()) as { items?: Array<{ id: string }> };
             return body.items?.some((item) => item.id === currencyId) ?? false;
