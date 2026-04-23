@@ -1,130 +1,62 @@
-import * as esbuild from 'esbuild'
-import { glob } from 'glob'
-import { readFileSync, writeFileSync, chmodSync, existsSync, cpSync, mkdirSync, readdirSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { atomicWriteFileSync } from '../../scripts/lib/add-js-extension.mjs'
+import { buildPackage } from '../../scripts/build-package.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const packageDir = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob('src/**/*.ts', {
-  cwd: __dirname,
-  ignore: ['**/__tests__/**', '**/*.test.ts'],
-  absolute: true,
-})
+await buildPackage(packageDir, {
+  name: 'cli',
+  entryPoints: 'src/**/*.ts',
+  rewriteOptions: {
+    // Generated code templates keep `.ts` suffixes and template-literal placeholders
+    // (`${...}`) inside import strings; those must survive the rewrite untouched.
+    skipExtensions: ['.js', '.json', '.ts'],
+    skipTemplateLiterals: true,
+  },
+  afterBuild: async ({ outdir }) => {
+    // Prepend shebang + make bin.js executable. Use atomic write so concurrent
+    // consumers (turbo, yarn test:ephemeral pipeline) never observe a half-written file.
+    const binPath = join(outdir, 'bin.js')
+    const binContent = readFileSync(binPath, 'utf-8')
+    atomicWriteFileSync(binPath, '#!/usr/bin/env node\n' + binContent)
+    chmodSync(binPath, 0o755)
 
-if (entryPoints.length === 0) {
-  console.error('No entry points found!')
-  process.exit(1)
-}
-
-console.log(`Found ${entryPoints.length} entry points`)
-
-// Plugin to add .js extension to relative imports
-const addJsExtension = {
-  name: 'add-js-extension',
-  setup(build) {
-    build.onEnd(async (result) => {
-      if (result.errors.length > 0) return
-      const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
-      for (const file of outputFiles) {
-        const fileDir = dirname(file)
-        let content = readFileSync(file, 'utf-8')
-        // Add .js to relative imports that don't have an extension
-        content = content.replace(
-          /from\s+["'](\.[^"']+)["']/g,
-          (match, path) => {
-            // Skip paths that already have an extension (including .ts for generated code templates)
-            if (path.endsWith('.js') || path.endsWith('.json') || path.endsWith('.ts')) return match
-            // Skip paths containing template literal placeholders (code generation templates)
-            if (path.includes('${')) return match
-            // Check if it's a directory with index.js
-            const resolvedPath = join(fileDir, path)
-            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-              return `from "${path}/index.js"`
-            }
-            return `from "${path}.js"`
-          }
-        )
-        content = content.replace(
-          /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
-          (match, path) => {
-            // Skip paths that already have an extension (including .ts for generated code templates)
-            if (path.endsWith('.js') || path.endsWith('.json') || path.endsWith('.ts')) return match
-            // Skip paths containing template literal placeholders (code generation templates)
-            if (path.includes('${')) return match
-            // Check if it's a directory with index.js
-            const resolvedPath = join(fileDir, path)
-            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-              return `import("${path}/index.js")`
-            }
-            return `import("${path}.js")`
-          }
-        )
-        writeFileSync(file, content)
-      }
-    })
-  }
-}
-
-const outdir = join(__dirname, 'dist')
-
-const result = await esbuild.build({
-  entryPoints,
-  outdir,
-  outbase: join(__dirname, 'src'),
-  format: 'esm',
-  platform: 'node',
-  target: 'node18',
-  sourcemap: true,
-  bundle: false,
-  write: true,
-  plugins: [addJsExtension],
-})
-
-if (result.errors.length > 0) {
-  console.error('Build errors:', result.errors)
-  process.exit(1)
-}
-
-// Make bin.js executable with shebang
-const binPath = join(__dirname, 'dist/bin.js')
-const binContent = readFileSync(binPath, 'utf-8')
-writeFileSync(binPath, '#!/usr/bin/env node\n' + binContent)
-chmodSync(binPath, 0o755)
-
-// Copy agentic source files from create-app so generators can read them at runtime
-const agenticSrc = join(__dirname, '..', 'create-app', 'agentic')
-if (existsSync(agenticSrc)) {
-  cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
-  console.log('Copied create-app/agentic/ → dist/agentic/')
-}
-
-const packagesDir = join(__dirname, '..')
-const guidesDestDir = join(outdir, 'agentic', 'guides')
-mkdirSync(guidesDestDir, { recursive: true })
-
-let guidesFound = 0
-for (const pkg of readdirSync(packagesDir)) {
-  const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
-  if (existsSync(guideSource)) {
-    cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
-    guidesFound++
-  }
-
-  const modulesDir = join(packagesDir, pkg, 'src', 'modules')
-  if (!existsSync(modulesDir)) continue
-
-  for (const mod of readdirSync(modulesDir)) {
-    const moduleGuideSource = join(modulesDir, mod, 'agentic', 'standalone-guide.md')
-    if (existsSync(moduleGuideSource)) {
-      cpSync(moduleGuideSource, join(guidesDestDir, `${pkg}.${mod}.md`))
-      guidesFound++
+    // Copy agentic source files from create-app so generators can read them at runtime.
+    const agenticSrc = join(packageDir, '..', 'create-app', 'agentic')
+    if (existsSync(agenticSrc)) {
+      cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
+      console.log('Copied create-app/agentic/ → dist/agentic/')
     }
-  }
-}
 
-if (guidesFound > 0) {
-  console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
-}
+    // Discover standalone guides across sibling packages.
+    const packagesDir = join(packageDir, '..')
+    const guidesDestDir = join(outdir, 'agentic', 'guides')
+    mkdirSync(guidesDestDir, { recursive: true })
 
-console.log('CLI built successfully')
+    let guidesFound = 0
+    for (const pkg of readdirSync(packagesDir)) {
+      const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
+      if (existsSync(guideSource)) {
+        cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
+        guidesFound++
+      }
+
+      const modulesDir = join(packagesDir, pkg, 'src', 'modules')
+      if (!existsSync(modulesDir)) continue
+
+      for (const mod of readdirSync(modulesDir)) {
+        const moduleGuideSource = join(modulesDir, mod, 'agentic', 'standalone-guide.md')
+        if (existsSync(moduleGuideSource)) {
+          cpSync(moduleGuideSource, join(guidesDestDir, `${pkg}.${mod}.md`))
+          guidesFound++
+        }
+      }
+    }
+
+    if (guidesFound > 0) {
+      console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
+    }
+  },
+})
