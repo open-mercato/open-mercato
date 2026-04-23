@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import type { Knex } from 'knex'
+import { sql } from 'kysely'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
 
@@ -14,13 +14,15 @@ type BuildDocParams = {
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
-  const knex = (em as any).getConnection().getKnex() as Knex
+  const db = (em as any).getKysely()
   const baseTable = resolveEntityTableName(em, params.entityType)
 
   // Fetch base row
-  const baseRow = await knex(baseTable)
-    .where('id', params.recordId)
-    .first()
+  const baseRow = await db
+    .selectFrom(baseTable as any)
+    .selectAll()
+    .where('id' as any, '=', params.recordId)
+    .executeTakeFirst() as Record<string, any> | undefined
   if (!baseRow) return null
   const docSources: Array<Record<string, any>> = []
 
@@ -29,15 +31,18 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   if (params.entityType === 'customers:customer_person_profile' || params.entityType === 'customers:customer_company_profile') {
     const entityId = (baseRow as any).entity_id ?? (baseRow as any).entityId
     if (entityId) {
-      const entityRow = await knex('customer_entities')
-        .where('id', entityId)
-        .first()
+      const entityRow = await db
+        .selectFrom('customer_entities' as any)
+        .selectAll()
+        .where('id' as any, '=', entityId)
+        .executeTakeFirst() as Record<string, any> | undefined
       if (entityRow) {
         docSources.push(entityRow)
         parentEntityRow = entityRow
       }
     }
   }
+  void parentEntityRow
 
   // Build base document (snake_case keys as in DB)
   let doc: Record<string, any> = {}
@@ -47,15 +52,38 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   }
 
   // Attach custom fields under flat keys 'cf:<key>'
-  const cfRows = await knex('custom_field_values')
-    .select(['field_key', 'value_text', 'value_multiline', 'value_int', 'value_float', 'value_bool'])
-    .where({ entity_id: params.entityType, record_id: String(params.recordId) })
-    .modify((qb: any) => {
-      if (params.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: params.organizationId }).orWhereNull('organization_id'))
-      else qb.whereNull('organization_id')
-      if (params.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: params.tenantId }).orWhereNull('tenant_id'))
-      else qb.whereNull('tenant_id')
-    })
+  let cfQuery = db
+    .selectFrom('custom_field_values' as any)
+    .select([
+      'field_key' as any,
+      'value_text' as any,
+      'value_multiline' as any,
+      'value_int' as any,
+      'value_float' as any,
+      'value_bool' as any,
+    ])
+    .where('entity_id' as any, '=', params.entityType)
+    .where('record_id' as any, '=', String(params.recordId))
+
+  if (params.organizationId != null) {
+    cfQuery = cfQuery.where((eb: any) => eb.or([
+      eb('organization_id' as any, '=', params.organizationId),
+      eb('organization_id' as any, 'is', null),
+    ]))
+  } else {
+    cfQuery = cfQuery.where('organization_id' as any, 'is', null)
+  }
+
+  if (params.tenantId != null) {
+    cfQuery = cfQuery.where((eb: any) => eb.or([
+      eb('tenant_id' as any, '=', params.tenantId),
+      eb('tenant_id' as any, 'is', null),
+    ]))
+  } else {
+    cfQuery = cfQuery.where('tenant_id' as any, 'is', null)
+  }
+
+  const cfRows = await cfQuery.execute() as Array<Record<string, any>>
 
   const cfMap: Record<string, any[]> = {}
   for (const r of cfRows) {
@@ -72,12 +100,14 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
 
   // Attach translations under flat keys 'l10n:{locale}:{field}'
   try {
-    const translationRow = await knex('entity_translations')
-      .where({ entity_type: params.entityType, entity_id: String(params.recordId) })
-      .andWhereRaw('tenant_id is not distinct from ?', [params.tenantId ?? null])
-      .andWhereRaw('organization_id is not distinct from ?', [params.organizationId ?? null])
-      .select(['translations'])
-      .first()
+    const translationRow = await db
+      .selectFrom('entity_translations' as any)
+      .select(['translations' as any])
+      .where('entity_type' as any, '=', params.entityType)
+      .where('entity_id' as any, '=', String(params.recordId))
+      .where(sql`tenant_id is not distinct from ${params.tenantId ?? null}`)
+      .where(sql`organization_id is not distinct from ${params.organizationId ?? null}`)
+      .executeTakeFirst() as { translations: Record<string, Record<string, unknown>> | null } | undefined
 
     if (translationRow?.translations && typeof translationRow.translations === 'object') {
       for (const [locale, fields] of Object.entries(translationRow.translations)) {
@@ -113,29 +143,37 @@ export type UpsertIndexResult = {
   revived: boolean
 }
 
+function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
+  q: QB,
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null },
+): QB {
+  let chain = q.where('entity_type' as any, '=', args.entityType)
+  chain = chain.where('entity_id' as any, '=', String(args.recordId))
+  chain = args.organizationId == null
+    ? chain.where('organization_id' as any, 'is', null as any)
+    : chain.where('organization_id' as any, '=', args.organizationId)
+  chain = chain.where(sql`tenant_id is not distinct from ${args.tenantId ?? null}`)
+  return chain
+}
+
 export async function upsertIndexRow(
   em: EntityManager,
   args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
 ): Promise<UpsertIndexResult> {
-  const knex = (em as any).getConnection().getKnex() as Knex
-  const baseScopeQuery = knex('entity_indexes')
-    .select(['id', 'deleted_at'])
-    .where({
-      entity_type: args.entityType,
-      entity_id: String(args.recordId),
-      organization_id: args.organizationId ?? null,
-    })
-    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-    .first<{ id: string; deleted_at: Date | null } | undefined>()
+  const db = (em as any).getKysely()
 
-  const existing = await baseScopeQuery
+  const existing = await scopeEntityIndexes(
+    db.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
+    args,
+  ).executeTakeFirst() as { id: string; deleted_at: Date | null } | undefined
+
   const existed = !!existing
   const wasDeleted = !!existing && existing.deleted_at != null
 
   const doc = await buildIndexDoc(em, args)
   if (!doc) {
     try {
-      await deleteSearchTokensForRecord(knex, {
+      await deleteSearchTokensForRecord(db, {
         entityType: args.entityType,
         recordId: args.recordId,
         organizationId: args.organizationId ?? null,
@@ -143,14 +181,10 @@ export async function upsertIndexRow(
       })
     } catch {}
     if (existed) {
-      await knex('entity_indexes')
-        .where({
-          entity_type: args.entityType,
-          entity_id: String(args.recordId),
-          organization_id: args.organizationId ?? null,
-        })
-        .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-        .del()
+      await scopeEntityIndexes(
+        db.deleteFrom('entity_indexes' as any) as any,
+        args,
+      ).execute()
     }
     return { doc: null, existed, wasDeleted, created: false, revived: false }
   }
@@ -160,29 +194,40 @@ export async function upsertIndexRow(
     entity_id: String(args.recordId),
     organization_id: args.organizationId ?? null,
     tenant_id: args.tenantId ?? null,
-    doc,
+    doc: sql`${JSON.stringify(doc)}::jsonb`,
     index_version: 1,
-    updated_at: knex.fn.now(),
+    updated_at: sql`now()`,
     deleted_at: null,
   }
+
   // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
   try {
-    const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
-    await insertQ
-      .onConflict(['entity_type', 'entity_id', 'organization_id_coalesced'])
-      .merge(payload)
+    await db
+      .insertInto('entity_indexes' as any)
+      .values({ ...payload, created_at: sql`now()` } as any)
+      .onConflict((oc: any) => oc
+        .columns(['entity_type', 'entity_id', 'organization_id_coalesced'])
+        .doUpdateSet({
+          tenant_id: args.tenantId ?? null,
+          doc: sql`${JSON.stringify(doc)}::jsonb`,
+          index_version: 1,
+          updated_at: sql`now()`,
+          deleted_at: null,
+        } as any))
+      .execute()
   } catch {
     // Fallback for schemas without organization_id_coalesced column/index
-    const updated = await knex('entity_indexes')
-      .where({
-        entity_type: args.entityType,
-        entity_id: String(args.recordId),
-        organization_id: args.organizationId ?? null,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-      .update(payload)
-    if (!updated) {
-      try { await knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() }) } catch {}
+    const updated = await scopeEntityIndexes(
+      db.updateTable('entity_indexes' as any).set(payload as any) as any,
+      args,
+    ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
+    if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
+      try {
+        await db
+          .insertInto('entity_indexes' as any)
+          .values({ ...payload, created_at: sql`now()` } as any)
+          .execute()
+      } catch {}
     }
   }
 
@@ -198,7 +243,7 @@ export async function upsertIndexRow(
       encryption,
       dekKeyCache,
     )
-    await replaceSearchTokensForRecord(knex, {
+    await replaceSearchTokensForRecord(db, {
       entityType: args.entityType,
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
@@ -213,36 +258,27 @@ export async function markDeleted(
   em: EntityManager,
   args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
 ): Promise<{ wasActive: boolean }> {
-  const knex = (em as any).getConnection().getKnex() as Knex
-  const existing = await knex('entity_indexes')
-    .select(['deleted_at'])
-    .where({
-      entity_type: args.entityType,
-      entity_id: String(args.recordId),
-      organization_id: args.organizationId ?? null,
-    })
-    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-    .first<{ deleted_at: Date | null } | undefined>()
+  const db = (em as any).getKysely()
+  const existing = await scopeEntityIndexes(
+    db.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
+    args,
+  ).executeTakeFirst() as { deleted_at: Date | null } | undefined
 
   const wasActive = !!existing && existing.deleted_at == null
 
   if (existing) {
     try {
-      await deleteSearchTokensForRecord(knex, {
+      await deleteSearchTokensForRecord(db, {
         entityType: args.entityType,
         recordId: args.recordId,
         organizationId: args.organizationId ?? null,
         tenantId: args.tenantId ?? null,
       })
     } catch {}
-    await knex('entity_indexes')
-      .where({
-        entity_type: args.entityType,
-        entity_id: String(args.recordId),
-        organization_id: args.organizationId ?? null,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-      .del()
+    await scopeEntityIndexes(
+      db.deleteFrom('entity_indexes' as any) as any,
+      args,
+    ).execute()
   }
 
   return { wasActive }

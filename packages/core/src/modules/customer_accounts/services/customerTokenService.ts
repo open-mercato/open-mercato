@@ -1,10 +1,15 @@
 import { EntityManager } from '@mikro-orm/postgresql'
+import type { Kysely } from 'kysely'
 import {
   CustomerUser,
   CustomerUserEmailVerification,
   CustomerUserPasswordReset,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
+
+function getKysely(em: EntityManager): Kysely<any> {
+  return (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
+}
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000 // 15 minutes
@@ -24,7 +29,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 
@@ -39,7 +44,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 
@@ -53,7 +58,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 
@@ -70,12 +75,15 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
 
-    const knex = this.em.getKnex()
-    const consumed = await knex('customer_user_email_verifications')
-      .where('id', record.id)
-      .whereNull('used_at')
-      .where('expires_at', '>', new Date())
-      .update({ used_at: new Date() })
+    const db = getKysely(this.em)
+    const updateResult = await db
+      .updateTable('customer_user_email_verifications' as any)
+      .set({ used_at: new Date() } as any)
+      .where('id' as any, '=', record.id)
+      .where('used_at' as any, 'is', null)
+      .where('expires_at' as any, '>', new Date())
+      .executeTakeFirst()
+    const consumed = Number(updateResult?.numUpdatedRows ?? 0n)
     if (consumed === 0) return null
 
     const resolvedUserId = typeof user === 'string' ? user : user.id
@@ -95,12 +103,15 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
 
-    const knex = this.em.getKnex()
-    const consumed = await knex('customer_user_password_resets')
-      .where('id', record.id)
-      .whereNull('used_at')
-      .where('expires_at', '>', new Date())
-      .update({ used_at: new Date() })
+    const db = getKysely(this.em)
+    const updateResult = await db
+      .updateTable('customer_user_password_resets' as any)
+      .set({ used_at: new Date() } as any)
+      .where('id' as any, '=', record.id)
+      .where('used_at' as any, 'is', null)
+      .where('expires_at' as any, '>', new Date())
+      .executeTakeFirst()
+    const consumed = Number(updateResult?.numUpdatedRows ?? 0n)
     if (consumed === 0) return null
 
     const resolvedUserId = typeof user === 'string' ? user : user.id

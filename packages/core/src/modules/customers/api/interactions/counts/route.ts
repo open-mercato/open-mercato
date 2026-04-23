@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -67,28 +68,29 @@ export async function GET(req: Request) {
         ? [auth.orgId]
         : []
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
+    const kysely = em.getKysely<any>()
 
-    const baseQuery = knex('customer_interactions')
-      .where('entity_id', query.entityId)
-      .where('tenant_id', auth.tenantId)
-      .whereNull('deleted_at')
+    let baseQuery = (kysely as any)
+      .selectFrom('customer_interactions')
+      .where('entity_id', '=', query.entityId)
+      .where('tenant_id', '=', auth.tenantId)
+      .where('deleted_at', 'is', null)
 
     if (organizationIds.length === 1) {
-      baseQuery.where('organization_id', organizationIds[0])
+      baseQuery = baseQuery.where('organization_id', '=', organizationIds[0])
     } else if (organizationIds.length > 1) {
-      baseQuery.whereIn('organization_id', organizationIds)
+      baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
     if (query.status) {
-      baseQuery.where('status', query.status)
+      baseQuery = baseQuery.where('status', '=', query.status)
     }
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.
     const rows = await baseQuery
-      .select('interaction_type')
-      .count('* as count')
-      .groupBy('interaction_type') as Array<{ interaction_type: string; count: string | number }>
+      .select(['interaction_type', sql<string>`count(*)`.as('count')])
+      .groupBy('interaction_type')
+      .execute() as Array<{ interaction_type: string; count: string | number }>
 
     const counts: Record<string, number> = { call: 0, email: 0, meeting: 0, note: 0 }
     let total = 0

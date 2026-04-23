@@ -55,9 +55,10 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@mikro-orm/core": "^6.6.10",
-    "@mikro-orm/migrations": "^6.6.10",
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/core": "^7.0.10",
+    "@mikro-orm/decorators": "^7.0.10",
+    "@mikro-orm/migrations": "^7.0.10",
+    "@mikro-orm/postgresql": "^7.0.10",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "cross-spawn": "^7.0.6",

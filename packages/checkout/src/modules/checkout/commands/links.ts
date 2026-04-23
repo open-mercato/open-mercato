@@ -108,19 +108,19 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       sourceValues.title ?? sourceValues.name,
     )
     const link = em.create(CheckoutLink, {
+      ...sourceValues,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       completionCount: 0,
       activeReservationCount: 0,
       isLocked: false,
-      ...sourceValues,
       fixedPriceAmount: toMoneyString(sourceValues.fixedPriceAmount),
       fixedPriceOriginalAmount: toMoneyString(sourceValues.fixedPriceOriginalAmount),
       customAmountMin: toMoneyString(sourceValues.customAmountMin),
       customAmountMax: toMoneyString(sourceValues.customAmountMax),
       slug,
       passwordHash: await hashCheckoutPassword(sourceValues.password),
-    })
+    } as any)
     em.persist(link)
     await em.flush()
     await setCustomFieldsIfAny({

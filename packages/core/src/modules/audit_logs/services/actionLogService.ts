@@ -1,5 +1,6 @@
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
@@ -184,7 +185,7 @@ export class ActionLogService {
     const data = this.parseCreateInput(input)
     const fork = this.em.fork()
     const log = this.createLogEntity(fork, data)
-    await fork.persistAndFlush(log)
+    await fork.persist(log).flush()
     await this.decryptEntries(log)
     return log
   }
@@ -353,15 +354,15 @@ export class ActionLogService {
   }
 
   private async loadEntries(parsed: ActionLogListQuery, options?: { paginate?: boolean }) {
-    const query = this.buildListQuery(parsed).select<{ id: string }[]>('action_logs.id as id')
+    let query = (this.buildListQuery(parsed) as any).select('action_logs.id as id')
 
     if (options?.paginate !== false) {
       const { limit, offset } = this.resolvePagination(parsed)
-      query.limit(limit).offset(offset)
+      query = query.limit(limit).offset(offset)
     }
 
-    const rows = await query
-    const ids = rows.map((row) => row.id).filter(Boolean)
+    const rows = await query.execute()
+    const ids = rows.map((row: any) => row.id).filter(Boolean)
     if (ids.length === 0) return []
 
     const results = await this.em.find(ActionLog, {
@@ -370,90 +371,92 @@ export class ActionLogService {
     })
     await this.decryptEntries(results)
 
-    const byId = new Map(results.map((entry) => [entry.id, entry]))
+    const byId = new Map(results.map((entry: any) => [entry.id, entry]))
     return ids
-      .map((id) => byId.get(id))
-      .filter((entry): entry is ActionLog => Boolean(entry))
+      .map((id: any) => byId.get(id))
+      .filter((entry: any): entry is ActionLog => Boolean(entry))
   }
 
-  private buildListQuery(parsed: ActionLogListQuery) {
-    const query = this.em.getKnex()('action_logs').whereNull('action_logs.deleted_at')
+  private buildListQuery(parsed: ActionLogListQuery): any {
+    let query = (this.em.getKysely<any>() as any)
+      .selectFrom('action_logs')
+      .selectAll()
+      .where('action_logs.deleted_at', 'is', null) as any
 
-    if (parsed.tenantId) query.andWhere('action_logs.tenant_id', parsed.tenantId)
-    if (parsed.organizationId) query.andWhere('action_logs.organization_id', parsed.organizationId)
+    if (parsed.tenantId) query = query.where('action_logs.tenant_id', '=', parsed.tenantId)
+    if (parsed.organizationId) query = query.where('action_logs.organization_id', '=', parsed.organizationId)
 
     const actorUserIds = this.resolveActorUserIds(parsed)
-    if (actorUserIds.length === 1) query.andWhere('action_logs.actor_user_id', actorUserIds[0])
-    if (actorUserIds.length > 1) query.whereIn('action_logs.actor_user_id', actorUserIds)
+    if (actorUserIds.length === 1) query = query.where('action_logs.actor_user_id', '=', actorUserIds[0])
+    if (actorUserIds.length > 1) query = query.where('action_logs.actor_user_id', 'in', actorUserIds)
 
     if (parsed.includeRelated && parsed.resourceKind && parsed.resourceId) {
-      query.andWhere(function applyRelatedScope() {
-        this.where({
-          'action_logs.resource_kind': parsed.resourceKind,
-          'action_logs.resource_id': parsed.resourceId,
-        }).orWhere({
-          'action_logs.parent_resource_kind': parsed.resourceKind,
-          'action_logs.parent_resource_id': parsed.resourceId,
-        })
-      })
+      query = query.where((eb: any) =>
+        eb.or([
+          eb.and([
+            eb('action_logs.resource_kind', '=', parsed.resourceKind),
+            eb('action_logs.resource_id', '=', parsed.resourceId),
+          ]),
+          eb.and([
+            eb('action_logs.parent_resource_kind', '=', parsed.resourceKind),
+            eb('action_logs.parent_resource_id', '=', parsed.resourceId),
+          ]),
+        ])
+      )
     } else {
-      if (parsed.resourceKind) query.andWhere('action_logs.resource_kind', parsed.resourceKind)
-      if (parsed.resourceId) query.andWhere('action_logs.resource_id', parsed.resourceId)
+      if (parsed.resourceKind) query = query.where('action_logs.resource_kind', '=', parsed.resourceKind)
+      if (parsed.resourceId) query = query.where('action_logs.resource_id', '=', parsed.resourceId)
     }
 
-    if (parsed.undoableOnly) query.whereNotNull('action_logs.undo_token')
-    if (parsed.before) query.andWhere('action_logs.created_at', '<', parsed.before)
-    if (parsed.after) query.andWhere('action_logs.created_at', '>', parsed.after)
+    if (parsed.undoableOnly) query = query.where('action_logs.undo_token', 'is not', null)
+    if (parsed.before) query = query.where('action_logs.created_at', '<', parsed.before)
+    if (parsed.after) query = query.where('action_logs.created_at', '>', parsed.after)
 
     const fieldNames = this.resolveFieldNames(parsed)
-    if (fieldNames.length > 0) {
-      const placeholders = fieldNames.map(() => '?').join(', ')
-      query.andWhereRaw(
-        `coalesce(action_logs.changed_fields, ARRAY[]::text[]) && ARRAY[${placeholders}]::text[]`,
-        fieldNames,
-      )
-    }
+    if (fieldNames.length === 1) query = query.where('action_logs.primary_changed_field', '=', fieldNames[0])
+    if (fieldNames.length > 1) query = query.where('action_logs.primary_changed_field', 'in', fieldNames)
 
     const actionTypes = this.resolveActionTypes(parsed)
-    if (actionTypes.length === 1) query.andWhere('action_logs.action_type', actionTypes[0])
-    if (actionTypes.length > 1) query.whereIn('action_logs.action_type', actionTypes)
+    if (actionTypes.length === 1) query = query.where('action_logs.action_type', '=', actionTypes[0])
+    if (actionTypes.length > 1) query = query.where('action_logs.action_type', 'in', actionTypes)
 
     if (parsed.sortField === 'user') {
-      query.leftJoin('users as audit_actor', 'audit_actor.id', 'action_logs.actor_user_id')
+      query = query.leftJoin('users as audit_actor', 'audit_actor.id', 'action_logs.actor_user_id')
     }
 
     const sortDir = parsed.sortDir === 'asc' ? 'asc' : 'desc'
     switch (parsed.sortField) {
       case 'user':
-        query.orderByRaw(`coalesce(nullif(audit_actor.name, ''), audit_actor.email, '') ${sortDir}`)
+        query = query.orderBy(sql`coalesce(nullif(audit_actor.name, ''), audit_actor.email, '')`, sortDir)
         break
       case 'action':
-        query.orderByRaw(`coalesce(action_logs.action_type, '') ${sortDir}`)
+        query = query.orderBy(sql`coalesce(action_logs.action_type, '')`, sortDir)
         break
       case 'field':
-        query.orderByRaw(`coalesce(action_logs.primary_changed_field, '') ${sortDir}`)
+        query = query.orderBy(sql`coalesce(action_logs.primary_changed_field, '')`, sortDir)
         break
       case 'source':
-        query.orderByRaw(`coalesce(action_logs.source_key, '') ${sortDir}`)
+        query = query.orderBy(sql`coalesce(action_logs.source_key, '')`, sortDir)
         break
       case 'createdAt':
       default:
-        query.orderBy(SORT_FIELDS.createdAt, sortDir)
-        query.orderBy('action_logs.id', sortDir)
+        query = query.orderBy(SORT_FIELDS.createdAt, sortDir)
+        query = query.orderBy('action_logs.id', sortDir)
         return query
     }
 
-    query.orderBy('action_logs.created_at', 'desc')
-    query.orderBy('action_logs.id', 'desc')
+    query = query.orderBy('action_logs.created_at', 'desc')
+    query = query.orderBy('action_logs.id', 'desc')
     return query
   }
 
   async count(query: Partial<ActionLogListQuery>) {
     const parsed = this.parseListQuery(query)
-    const row = await this.buildListQuery(parsed)
-      .clearOrder()
-      .count<{ count: string | number }>({ count: '*' })
-      .first()
+    const row = await (this.buildListQuery(parsed) as any)
+      .clearSelect()
+      .clearOrderBy()
+      .select(sql<string>`count(*)`.as('count'))
+      .executeTakeFirst()
 
     if (!row) return 0
     const rawCount = row.count ?? 0
@@ -579,45 +582,49 @@ export class ActionLogService {
     let cursorId: string | null = null
 
     while (true) {
-      const rowsQuery = this.em.getKnex()<BackfillRow>('action_logs')
-        .select(
-          'id',
-          'tenant_id',
-          'organization_id',
-          'actor_user_id',
-          'command_id',
-          'action_label',
-          'snapshot_before',
-          'changes_json',
-          'context_json',
-          'action_type',
-          'source_key',
-          'changed_fields',
-          'primary_changed_field',
-          'created_at',
-        )
-        .whereNull('deleted_at')
+      const rowsQuery = (this.em.getKysely<any>() as any)
+        .selectFrom('action_logs')
+        .select([
+          'action_logs.id',
+          'action_logs.tenant_id',
+          'action_logs.organization_id',
+          'action_logs.actor_user_id',
+          'action_logs.command_id',
+          'action_logs.action_label',
+          'action_logs.snapshot_before',
+          'action_logs.changes_json',
+          'action_logs.context_json',
+          'action_logs.action_type',
+          'action_logs.source_key',
+          'action_logs.changed_fields',
+          'action_logs.primary_changed_field',
+          'action_logs.created_at',
+        ])
+        .where('action_logs.deleted_at', 'is', null) as any
 
-      if (options.tenantId) rowsQuery.andWhere('tenant_id', options.tenantId)
-      if (options.organizationId) rowsQuery.andWhere('organization_id', options.organizationId)
+      if (options.tenantId) rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
+      if (options.organizationId) rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
 
       if (!options.force) {
-        rowsQuery.andWhere((builder) => {
-          builder
-            .whereNull('action_type')
-            .orWhereNull('source_key')
-            .orWhereNull('changed_fields')
-        })
+        rowsQuery.where((eb: any) =>
+          eb.or([
+            eb('action_logs.action_type', 'is', null),
+            eb('action_logs.source_key', 'is', null),
+            eb('action_logs.changed_fields', 'is', null),
+          ])
+        )
       }
 
       if (cursorCreatedAt && cursorId) {
-        rowsQuery.andWhere((builder) => {
-          builder
-            .where('created_at', '>', cursorCreatedAt)
-            .orWhere((nested) => {
-              nested.where('created_at', cursorCreatedAt).andWhere('id', '>', cursorId)
-            })
-        })
+        rowsQuery.where((eb: any) =>
+          eb.or([
+            eb('action_logs.created_at', '>', cursorCreatedAt),
+            eb.and([
+              eb('action_logs.created_at', '=', cursorCreatedAt),
+              eb('action_logs.id', '>', cursorId),
+            ]),
+          ])
+        )
       }
 
       const rows = await rowsQuery
@@ -652,14 +659,16 @@ export class ActionLogService {
             continue
           }
 
-          await this.em.getKnex()('action_logs')
-            .where({ id: row.id })
-            .update({
+          await (this.em.getKysely<any>() as any)
+            .updateTable('action_logs')
+            .set({
               action_type: projection.actionType,
               changed_fields: projection.changedFields,
               primary_changed_field: projection.primaryChangedField,
               source_key: projection.sourceKey,
             })
+            .where('id', '=', row.id)
+            .execute()
 
           result.updated += 1
         } catch (err) {

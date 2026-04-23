@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from '@mikro-orm/postgresql'
 
 const PERSON_COMPANY_LINKS_TABLE = 'customer_person_company_links'
 const PERSON_COMPANY_LINKS_DELETED_AT_COLUMN = 'deleted_at'
@@ -6,29 +7,23 @@ const PERSON_COMPANY_LINKS_DELETED_AT_COLUMN = 'deleted_at'
 let supportsDeletedAtColumnPromise: Promise<boolean> | null = null
 let warnedAboutMissingDeletedAtColumn = false
 
-type KnexLike = (tableName: string) => {
-  where: (filters: Record<string, unknown>) => {
-    first: () => Promise<unknown>
-  }
-}
-
-function getKnex(em: EntityManager): KnexLike {
-  return (em.getConnection() as unknown as { getKnex: () => KnexLike }).getKnex()
-}
-
 export async function customerPersonCompanyLinksSupportDeletedAt(em: EntityManager): Promise<boolean> {
-  if (typeof (em as { getConnection?: unknown }).getConnection !== 'function') {
+  if (typeof (em as { getKysely?: unknown }).getKysely !== 'function') {
     return true
   }
   if (!supportsDeletedAtColumnPromise) {
-    supportsDeletedAtColumnPromise = getKnex(em)('information_schema.columns')
-      .where({
-        table_name: PERSON_COMPANY_LINKS_TABLE,
-        column_name: PERSON_COMPANY_LINKS_DELETED_AT_COLUMN,
-      })
-      .first()
-      .then((row) => !!row)
+    const db = em.getKysely<any>() as any
+    const probe: Promise<boolean> = db
+      .selectFrom('information_schema.columns')
+      .select(['column_name'])
+      .where(sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', PERSON_COMPANY_LINKS_TABLE)
+      .where('column_name', '=', PERSON_COMPANY_LINKS_DELETED_AT_COLUMN)
+      .executeTakeFirst()
+      .then((row: unknown) => !!row)
       .catch(() => false)
+    supportsDeletedAtColumnPromise = probe
+    return probe
   }
   return supportsDeletedAtColumnPromise
 }

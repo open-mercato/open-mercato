@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
@@ -141,7 +141,7 @@ const DEFAULT_BATCH_SIZE = 200
 
 type RebuildExecutionOptions = {
   em: EntityManager
-  knex: Knex
+  db: Kysely<any>
   entityType: string
   tableName: string
   orgOverride?: string
@@ -165,7 +165,7 @@ type RebuildResult = {
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
     em,
-    knex,
+    db,
     entityType,
     tableName,
     orgOverride,
@@ -220,28 +220,41 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     }
   }
 
-  const filters: Record<string, unknown> = {}
-  if (!global) {
-    if (orgOverride !== undefined && supportsOrgFilter) filters.organization_id = orgOverride
-    if (tenantOverride !== undefined && supportsTenantFilter) filters.tenant_id = tenantOverride
+  const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+    let chain = q
+    if (!global) {
+      if (orgOverride !== undefined && supportsOrgFilter) {
+        chain = chain.where('organization_id' as any, '=', orgOverride)
+      }
+      if (tenantOverride !== undefined && supportsTenantFilter) {
+        chain = chain.where('tenant_id' as any, '=', tenantOverride)
+      }
+    }
+    if (!includeDeleted && supportsDeletedFilter) {
+      chain = chain.where('deleted_at' as any, 'is', null as any)
+    }
+    return chain
   }
-  if (!includeDeleted && supportsDeletedFilter) filters.deleted_at = null
-
-  const baseQuery = knex(tableName).where(filters)
 
   if (recordId) {
-    const row = await baseQuery.clone().where({ id: recordId }).first<AnyRow>()
+    const row = await applyFilters(
+      db.selectFrom(tableName as any).selectAll() as any,
+    )
+      .where('id' as any, '=', recordId)
+      .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    await upsertIndexBatch(knex, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
     bar.update(1)
     bar.complete()
     return { processed: 1, matched: 1 }
   }
 
-  const countRow = await baseQuery.clone().count<{ count: string }>({ count: '*' }).first()
-  const totalRaw = countRow?.count ?? (countRow as any)?.['count(*)']
-  const total = totalRaw ? Number(totalRaw) : 0
+  const countRow = await applyFilters(
+    db.selectFrom(tableName as any).select(sql<string>`count(*)`.as('count')) as any,
+  ).executeTakeFirst() as { count: string | number } | undefined
+  const totalRaw = countRow?.count
+  const total = totalRaw != null ? Number(totalRaw) : 0
   const effectiveOffset = Math.max(0, offset)
   const matchedWithoutLimit = Math.max(0, total - effectiveOffset)
   const limitValue = toPositiveInt(limit)
@@ -257,15 +270,17 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   while (processed < intended) {
     const chunkLimit = remaining !== undefined ? Math.min(batchSize, remaining) : batchSize
-    const chunk = await baseQuery
-      .clone()
-      .select('*')
-      .orderBy('id')
-      .limit(chunkLimit)
-      .offset(cursorOffset)
+    const chunk = await applyFilters(
+      db
+        .selectFrom(tableName as any)
+        .selectAll()
+        .orderBy('id' as any)
+        .limit(chunkLimit)
+        .offset(cursorOffset) as any,
+    ).execute() as AnyRow[]
     if (!chunk.length) break
 
-    await upsertIndexBatch(knex, entityType, chunk as AnyRow[], {
+    await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
     }, { encryptDoc, decryptDoc })
@@ -284,10 +299,15 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
   return { processed, matched: intended }
 }
 
-async function getColumnSet(knex: Knex, tableName: string): Promise<Set<string>> {
+async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string>> {
   try {
-    const info = await knex(tableName).columnInfo()
-    return new Set(Object.keys(info).map((key) => key.toLowerCase()))
+    const rows = await db
+      .selectFrom('information_schema.columns' as any)
+      .select(['column_name' as any])
+      .where(sql<boolean>`table_schema = current_schema()`)
+      .where('table_name' as any, '=', tableName)
+      .execute() as Array<{ column_name: string }>
+    return new Set(rows.map((row) => String(row.column_name).toLowerCase()))
   } catch {
     return new Set<string>()
   }
@@ -336,9 +356,9 @@ const rebuild: ModuleCli = {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     try {
-      const knex = em.getConnection().getKnex()
+      const db = em.getKysely<any>()
       const tableName = resolveEntityTableName(em, entity)
-      const columns = await getColumnSet(knex, tableName)
+      const columns = await getColumnSet(db, tableName)
       const supportsOrg = columns.has('organization_id')
       const supportsTenant = columns.has('tenant_id')
       const supportsDeleted = columns.has('deleted_at')
@@ -355,7 +375,7 @@ const rebuild: ModuleCli = {
 
       const result = await rebuildEntityIndexes({
         em,
-        knex,
+        db,
         entityType: entity,
         tableName,
         orgOverride: orgId,
@@ -440,7 +460,7 @@ const rebuildAll: ModuleCli = {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     try {
-      const knex = em.getConnection().getKnex()
+      const db = em.getKysely<any>()
 
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
       const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
@@ -453,7 +473,7 @@ const rebuildAll: ModuleCli = {
       for (let idx = 0; idx < entityIds.length; idx += 1) {
         const entity = entityIds[idx]!
         const tableName = resolveEntityTableName(em, entity)
-        const columns = await getColumnSet(knex, tableName)
+        const columns = await getColumnSet(db, tableName)
         const supportsOrg = columns.has('organization_id')
         const supportsTenant = columns.has('tenant_id')
         const supportsDeleted = columns.has('deleted_at')
@@ -481,7 +501,7 @@ const rebuildAll: ModuleCli = {
         console.log(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)
         const result = await rebuildEntityIndexes({
           em,
-          knex,
+          db,
           entityType: entity,
           tableName,
           orgOverride: orgId,

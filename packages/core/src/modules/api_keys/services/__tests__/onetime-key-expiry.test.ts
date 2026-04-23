@@ -4,14 +4,17 @@ describe('withOnetimeApiKey — expiry guard', () => {
   let createdInput: Record<string, unknown> | null = null
   let createdRecord: Record<string, unknown> | null = null
 
+  const flushSpy = jest.fn(async () => undefined)
+  const persistSpy = jest.fn((_entity: unknown) => ({ flush: flushSpy }))
+  const removeSpy = jest.fn((_entity: unknown) => ({ flush: flushSpy }))
   const mockEm: any = {
     create: jest.fn((_Entity: unknown, data: Record<string, unknown>) => {
       createdInput = data
       createdRecord = { id: 'key-1', ...data, deletedAt: null }
       return createdRecord
     }),
-    persistAndFlush: jest.fn(async () => undefined),
-    removeAndFlush: jest.fn(async () => undefined),
+    persist: persistSpy,
+    remove: removeSpy,
   }
 
   beforeEach(() => {
@@ -43,7 +46,8 @@ describe('withOnetimeApiKey — expiry guard', () => {
     )
 
     expect(createdRecord!.deletedAt).toBeInstanceOf(Date)
-    expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    expect(persistSpy).toHaveBeenCalledWith(createdRecord)
+    expect(flushSpy).toHaveBeenCalled()
   })
 
   it('soft-deletes even when the function throws', async () => {
@@ -56,7 +60,8 @@ describe('withOnetimeApiKey — expiry guard', () => {
     ).rejects.toThrow('boom')
 
     expect(createdRecord!.deletedAt).toBeInstanceOf(Date)
-    expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    expect(persistSpy).toHaveBeenCalledWith(createdRecord)
+    expect(flushSpy).toHaveBeenCalled()
   })
 
   it('does not exceed 5 minute TTL even when caller requests longer', async () => {

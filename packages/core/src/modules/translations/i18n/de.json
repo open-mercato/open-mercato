@@ -13,6 +13,7 @@
   "translations.manager.description": "Verwalte Übersetzungen für Entitätsdatensätze in unterstützten Sprachen.",
   "translations.manager.errors.loadEntities": "Fehler beim Laden der Entitäten",
   "translations.manager.errors.loadTranslation": "Fehler beim Laden der Übersetzungen",
+  "translations.manager.errors.nothingToSave": "Nichts zu speichern — gib zuerst eine Übersetzung ein",
   "translations.manager.errors.save": "Fehler beim Speichern der Übersetzungen",
   "translations.manager.errors.selectRecord": "Wähle eine Entität und einen Datensatz vor dem Speichern",
   "translations.manager.fields.baseValue": "Basiswert",

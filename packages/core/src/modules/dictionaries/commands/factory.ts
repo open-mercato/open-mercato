@@ -296,7 +296,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
       scopeEnsurer(ctx, { tenantId: after.tenantId, organizationId: after.organizationId })
       const entry = await em.findOne(DictionaryEntry, after.id)
       if (entry) {
-      await em.removeAndFlush(entry)
+      await em.remove(entry).flush()
       return
     }
     await em.nativeDelete(DictionaryEntry, { id: after.id })

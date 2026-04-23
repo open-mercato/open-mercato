@@ -58,7 +58,7 @@ describe('Workflow Definitions API', () => {
       findAndCount: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     }
 
@@ -307,7 +307,7 @@ describe('Workflow Definitions API', () => {
           organizationId: testOrgId,
         })
       )
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should prevent duplicate workflowId even with a different version', async () => {
@@ -415,7 +415,7 @@ describe('Workflow Definitions API', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
       })
-      mockEm.persistAndFlush.mockRejectedValue({
+      mockEm.flush.mockRejectedValue({
         code: '23505',
         constraint: 'workflow_definitions_workflow_id_tenant_id_unique',
         detail: 'Key (workflow_id, tenant_id) already exists.',

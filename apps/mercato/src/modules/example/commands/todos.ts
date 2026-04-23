@@ -407,7 +407,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       restored.isDone = before.is_done
       restored.tenantId = before.tenantId ?? scope.tenantId
       restored.organizationId = before.organizationId ?? scope.organizationId
-      await em.persistAndFlush(restored)
+      await em.persist(restored).flush()
     } else {
       restored = await de.createOrmEntity({
         entity: Todo,

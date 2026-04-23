@@ -27,7 +27,9 @@ describe('Activity Executor (Unit Tests)', () => {
       findOne: jest.fn(),
       find: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     } as any
 

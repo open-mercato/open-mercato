@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date(),
     })
 
-    await em.persistAndFlush(definition)
+    await em.persist(definition).flush()
 
     return NextResponse.json(
       {

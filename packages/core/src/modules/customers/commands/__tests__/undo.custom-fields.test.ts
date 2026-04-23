@@ -42,26 +42,26 @@ const TEST_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 const TEST_ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
 const TEST_ENTITY_ID = '123e4567-e89b-41d3-a456-426614174001'
 
-function createKnexStub() {
-  const createChain = () => {
-    const chain = {
-      select: jest.fn(() => chain),
-      where: jest.fn(() => chain),
-      andWhere: jest.fn(() => chain),
-      whereNotNull: jest.fn(() => chain),
-      whereNull: jest.fn(() => chain),
-      orderBy: jest.fn(() => chain),
-      first: jest.fn(async () => null),
-      update: jest.fn(async () => 1),
-    }
-    return chain
+function createKyselyStub() {
+  const chain: any = {}
+  chain.select = jest.fn(() => chain)
+  chain.selectAll = jest.fn(() => chain)
+  chain.where = jest.fn(() => chain)
+  chain.orderBy = jest.fn(() => chain)
+  chain.limit = jest.fn(() => chain)
+  chain.offset = jest.fn(() => chain)
+  chain.values = jest.fn(() => chain)
+  chain.set = jest.fn(() => chain)
+  chain.onConflict = jest.fn(() => chain)
+  chain.returning = jest.fn(() => chain)
+  chain.executeTakeFirst = jest.fn(async () => undefined)
+  chain.execute = jest.fn(async () => [])
+  return {
+    selectFrom: jest.fn(() => chain),
+    insertInto: jest.fn(() => chain),
+    updateTable: jest.fn(() => chain),
+    deleteFrom: jest.fn(() => chain),
   }
-  const knex = Object.assign(jest.fn((_table: string) => createChain()), {
-    fn: {
-      now: jest.fn(() => new Date()),
-    },
-  })
-  return knex
 }
 
 function createMockContext(deps: {
@@ -70,10 +70,10 @@ function createMockContext(deps: {
   tenantId?: string
   organizationId?: string
 }): CommandRuntimeContext {
-  const em = deps.em as Record<string, unknown> & { getKnex?: () => unknown }
-  if (typeof em.getKnex !== 'function') {
-    const knex = createKnexStub()
-    em.getKnex = () => knex
+  const em = deps.em as Record<string, unknown> & { getKysely?: () => unknown }
+  if (typeof em.getKysely !== 'function') {
+    const db = createKyselyStub()
+    em.getKysely = () => db
   }
   if (typeof em.find !== 'function') {
     em.find = jest.fn(async () => [])

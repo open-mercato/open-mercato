@@ -1,12 +1,5 @@
-import {
-  Entity,
-  Index,
-  OptionalProps,
-  PrimaryKey,
-  Property,
-  Unique,
-  ManyToOne,
-} from '@mikro-orm/core'
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
 
 

@@ -229,12 +229,12 @@ export async function GET(req: Request) {
   const list = await actionLogs.list(listQuery)
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
-    tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
-    organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+    userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
+    tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
+    organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
   })
 
-  const items = list.items.map((entry) => ({
+  const items = list.items.map((entry: any) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,

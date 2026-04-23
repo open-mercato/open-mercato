@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -93,47 +94,49 @@ export async function GET(req: Request) {
 
     const checkUserId = query.userId ?? auth.userId
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
+    const kysely = em.getKysely<any>()
 
-    const baseQuery = knex('customer_interactions')
-      .where('tenant_id', auth.tenantId)
-      .where('status', 'planned')
-      .whereNotNull('scheduled_at')
-      .whereNull('deleted_at')
+    let baseQuery = (kysely as any)
+      .selectFrom('customer_interactions')
+      .select(['id', 'scheduled_at', 'duration_minutes', 'interaction_type'])
+      .where('tenant_id', '=', auth.tenantId)
+      .where('status', '=', 'planned')
+      .where('scheduled_at', 'is not', null)
+      .where('deleted_at', 'is', null)
 
     if (organizationIds.length === 1) {
-      baseQuery.where('organization_id', organizationIds[0])
+      baseQuery = baseQuery.where('organization_id', '=', organizationIds[0])
     } else if (organizationIds.length > 1) {
-      baseQuery.whereIn('organization_id', organizationIds)
+      baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
     if (checkUserId) {
-      baseQuery.where(function () {
-        this.where('author_user_id', checkUserId).orWhere('owner_user_id', checkUserId)
-      })
+      baseQuery = baseQuery.where((eb: any) =>
+        eb.or([
+          eb('author_user_id', '=', checkUserId),
+          eb('owner_user_id', '=', checkUserId),
+        ])
+      )
     }
 
     if (query.excludeId) {
-      baseQuery.whereNot('id', query.excludeId)
+      baseQuery = baseQuery.where('id', '!=', query.excludeId)
     }
 
     // Overlap condition: existing.start < windowEnd AND existing.end > windowStart
     // end = scheduled_at + duration_minutes (default 30 if null)
-    baseQuery.where(function () {
-      this.where('scheduled_at', '<', windowEnd.toISOString())
-        .andWhere(
-          knex.raw(
-            '(scheduled_at + make_interval(mins => COALESCE(duration_minutes, 30))) > ?',
-            [windowStart.toISOString()],
-          ),
-        )
-    })
+    baseQuery = baseQuery.where((eb: any) =>
+      eb.and([
+        eb('scheduled_at', '<', windowEnd.toISOString()),
+        eb(sql`(scheduled_at + make_interval(mins => COALESCE(duration_minutes, 30)))`, '>', windowStart.toISOString()),
+      ])
+    )
 
     // Raw SELECT: reads only unencrypted columns (id, scheduled_at, duration_minutes, interaction_type); title is excluded to avoid ciphertext leakage and is resolved below via findWithDecryption.
     const rows = await baseQuery
-      .select('id', 'scheduled_at', 'duration_minutes', 'interaction_type')
       .orderBy('scheduled_at', 'asc')
-      .limit(10) as Array<{
+      .limit(10)
+      .execute() as Array<{
         id: string
         scheduled_at: string | Date
         duration_minutes: number | null

@@ -25,9 +25,10 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
-    "@mikro-orm/core": "^6.6.10",
-    "@mikro-orm/migrations": "^6.6.10",
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/core": "^7.0.10",
+    "@mikro-orm/decorators": "^7.0.10",
+    "@mikro-orm/migrations": "^7.0.10",
+    "@mikro-orm/postgresql": "^7.0.10",
     "@napi-rs/canvas": "^0.1.78",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",

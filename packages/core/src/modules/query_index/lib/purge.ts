@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { sql } from 'kysely'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 
 export type PurgeOptions = {
@@ -12,7 +12,7 @@ export async function purgeIndexScope(
   em: EntityManager,
   options: PurgeOptions,
 ): Promise<void> {
-  const knex = (em as any).getConnection().getKnex() as Knex
+  const db = em.getKysely<any>()
   const scope: JobScope = {
     entityType: options.entityType,
     organizationId: options.organizationId ?? null,
@@ -21,28 +21,34 @@ export async function purgeIndexScope(
     partitionCount: null,
   }
 
-  const countQuery = knex('entity_indexes')
-    .where({ entity_type: options.entityType })
-    .modify((qb) => {
-      if (options.organizationId !== undefined) {
-        qb.andWhereRaw('organization_id is not distinct from ?', [options.organizationId ?? null])
-      }
-      if (options.tenantId !== undefined) {
-        qb.andWhereRaw('tenant_id is not distinct from ?', [options.tenantId ?? null])
-      }
-    })
-
-  const totalRow = await countQuery.clone().count<{ count: unknown }>({ count: '*' }).first()
-  const total = totalRow ? Number(totalRow.count) || 0 : 0
-
-  await prepareJob(knex, scope, 'purging', { totalCount: total })
-
-  if (total > 0) {
-    const removed = await countQuery.clone().del()
-    await updateJobProgress(knex, scope, typeof removed === 'number' ? removed : total)
-  } else {
-    await updateJobProgress(knex, scope, 0)
+  const applyScope = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+    let chain = q.where('entity_type' as any, '=', options.entityType)
+    if (options.organizationId !== undefined) {
+      chain = chain.where(sql`organization_id is not distinct from ${options.organizationId ?? null}`)
+    }
+    if (options.tenantId !== undefined) {
+      chain = chain.where(sql`tenant_id is not distinct from ${options.tenantId ?? null}`)
+    }
+    return chain
   }
 
-  await finalizeJob(knex, scope)
+  const totalRow = await applyScope(
+    db.selectFrom('entity_indexes' as any).select(sql`count(*)`.as('count')),
+  ).executeTakeFirst() as { count: unknown } | undefined
+
+  const total = totalRow ? Number(totalRow.count) || 0 : 0
+
+  await prepareJob(db, scope, 'purging', { totalCount: total })
+
+  if (total > 0) {
+    const result = await applyScope(
+      db.deleteFrom('entity_indexes' as any) as any,
+    ).executeTakeFirst() as { numDeletedRows?: bigint | number } | undefined
+    const removed = Number(result?.numDeletedRows ?? 0)
+    await updateJobProgress(db, scope, removed || total)
+  } else {
+    await updateJobProgress(db, scope, 0)
+  }
+
+  await finalizeJob(db, scope)
 }

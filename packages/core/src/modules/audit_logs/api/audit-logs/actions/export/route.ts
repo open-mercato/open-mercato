@@ -178,12 +178,12 @@ export async function GET(req: Request) {
   const entries = entriesResult.items
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value)),
-    tenantIds: entries.map((entry) => entry.tenantId).filter((value): value is string => Boolean(value)),
-    organizationIds: entries.map((entry) => entry.organizationId).filter((value): value is string => Boolean(value)),
+    userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),
+    tenantIds: entries.map((entry: any) => entry.tenantId).filter((value: any): value is string => Boolean(value)),
+    organizationIds: entries.map((entry: any) => entry.organizationId).filter((value: any): value is string => Boolean(value)),
   })
 
-  const rows = entries.flatMap((entry) => {
+  const rows = entries.flatMap((entry: any) => {
     const actionType = deriveActionLogActionType(entry)
     const actionLabel = actionType === 'system'
       ? entry.actionLabel ?? 'System'

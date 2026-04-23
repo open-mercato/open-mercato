@@ -294,7 +294,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
         { tenantId: after.tenantId, organizationId: after.organizationId },
       )
       if (entry) {
-        await em.removeAndFlush(entry)
+        await em.remove(entry).flush()
         await invalidateCache(ctx, after)
         return
       }

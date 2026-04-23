@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -314,7 +315,7 @@ export async function GET(req: Request) {
         : []
     const selectedOrganizationId = scope?.selectedId ?? auth.orgId ?? organizationIds[0] ?? null
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
+    const db = em.getKysely<any>() as any
 
     const requestedSortField = query.sortField ?? 'scheduledAt'
     const sortConfig = interactionSortConfig[requestedSortField]
@@ -327,8 +328,9 @@ export async function GET(req: Request) {
       })
     }
 
-    const rowsQuery = knex('customer_interactions')
-      .select<InteractionListRow[]>([
+    let rowsQuery = db
+      .selectFrom('customer_interactions')
+      .select([
         'id',
         'entity_id',
         'deal_id',
@@ -359,72 +361,58 @@ export async function GET(req: Request) {
         'tenant_id',
         'created_at',
         'updated_at',
-        knex.raw(`${sortSql} as __sort_value`),
+        sql`${sql.raw(sortSql)}`.as('__sort_value'),
       ])
-      .whereNull('deleted_at')
-      .andWhere('tenant_id', auth.tenantId)
+      .where('deleted_at', 'is', null)
+      .where('tenant_id', '=', auth.tenantId)
       .limit(query.limit + 1)
 
     if (organizationIds.length > 0) {
-      rowsQuery.whereIn('organization_id', organizationIds)
+      rowsQuery = rowsQuery.where('organization_id', 'in', organizationIds)
     }
-    if (query.entityId) {
-      rowsQuery.andWhere('entity_id', query.entityId)
-    }
-    if (query.dealId) {
-      rowsQuery.andWhere('deal_id', query.dealId)
-    }
-    if (query.status) {
-      rowsQuery.andWhere('status', query.status)
-    }
-    if (query.interactionType) {
-      rowsQuery.andWhere('interaction_type', query.interactionType)
-    }
+    if (query.entityId) rowsQuery = rowsQuery.where('entity_id', '=', query.entityId)
+    if (query.dealId) rowsQuery = rowsQuery.where('deal_id', '=', query.dealId)
+    if (query.status) rowsQuery = rowsQuery.where('status', '=', query.status)
+    if (query.interactionType) rowsQuery = rowsQuery.where('interaction_type', '=', query.interactionType)
     if (query.type) {
       const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
       if (types.length > 0) {
-        rowsQuery.whereIn('interaction_type', types)
+        rowsQuery = rowsQuery.where('interaction_type', 'in', types)
       }
     }
     if (query.pinned === 'true') {
-      rowsQuery.andWhere('pinned', true)
+      rowsQuery = rowsQuery.where('pinned', '=', true)
     } else if (query.pinned === 'false') {
-      rowsQuery.andWhere('pinned', false)
+      rowsQuery = rowsQuery.where('pinned', '=', false)
     }
-    if (query.excludeInteractionType) {
-      rowsQuery.andWhereNot('interaction_type', query.excludeInteractionType)
-    }
+    if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
     if (query.search) {
       const searchTerm = `%${query.search}%`
-      rowsQuery.andWhere(function applySearch() {
-        this.whereRaw("coalesce(title, '') ilike ?", [searchTerm]).orWhereRaw("coalesce(body, '') ilike ?", [searchTerm])
-      })
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
     }
     if (query.from) {
-      rowsQuery.andWhereRaw(
-        "coalesce(occurred_at, scheduled_at, created_at) >= ?",
-        [new Date(query.from)],
-      )
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
     }
     if (query.to) {
-      rowsQuery.andWhereRaw(
-        "coalesce(occurred_at, scheduled_at, created_at) <= ?",
-        [new Date(query.to)],
-      )
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
     }
+
     if (cursor) {
       const op = sortDir === 'asc' ? '>' : '<'
-      rowsQuery.andWhere(function applyCursor() {
-        this.whereRaw(`${sortSql} ${op} ?`, [cursor.sortValue]).orWhere(function applyTieBreaker() {
-          this.whereRaw(`${sortSql} = ?`, [cursor.sortValue]).andWhere('id', op, cursor.id)
-        })
-      })
+      const opRaw = sql.raw(op)
+      const sortRaw = sql.raw(sortSql)
+      rowsQuery = rowsQuery.where((eb: any) => eb.or([
+        sql<boolean>`${sortRaw} ${opRaw} ${cursor.sortValue}`,
+        eb.and([
+          sql<boolean>`${sortRaw} = ${cursor.sortValue}`,
+          eb('id', op, cursor.id),
+        ]),
+      ]))
     }
 
-    rowsQuery.orderByRaw(`${sortSql} ${sortDir}`)
-    rowsQuery.orderBy('id', sortDir)
+    rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
 
-    const rows = await rowsQuery
+    const rows = await rowsQuery.execute() as InteractionListRow[]
     const pageRows = rows.slice(0, query.limit)
     const hasMore = rows.length > query.limit
 

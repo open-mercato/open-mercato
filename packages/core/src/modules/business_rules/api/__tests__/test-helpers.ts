@@ -9,9 +9,10 @@ export type MockEntityManager = {
   find: AsyncMock<any[]>
   findAndCount: AsyncMock<[any[], number]>
   create: SyncMock<any>
-  persistAndFlush: AsyncMock<void>
+  persist: SyncMock<any>
+  remove: SyncMock<any>
+  flush: AsyncMock<void>
   assign: SyncMock<any, [any, any]>
-  removeAndFlush: AsyncMock<void>
 }
 
 export function createAuthMock(defaultValue?: AuthContext): AsyncMock<AuthContext> {
@@ -28,9 +29,10 @@ export function createMockEntityManager(overrides: Partial<MockEntityManager> = 
     find: jest.fn() as AsyncMock<any[]>,
     findAndCount: jest.fn() as AsyncMock<[any[], number]>,
     create: jest.fn() as SyncMock<any>,
-    persistAndFlush: jest.fn() as AsyncMock<void>,
+    persist: jest.fn(function persist(this: any) { return this }) as unknown as SyncMock<any>,
+    remove: jest.fn(function remove(this: any) { return this }) as unknown as SyncMock<any>,
+    flush: jest.fn() as AsyncMock<void>,
     assign: jest.fn() as SyncMock<any, [any, any]>,
-    removeAndFlush: jest.fn() as AsyncMock<void>,
   }
   return { ...base, ...overrides }
 }
