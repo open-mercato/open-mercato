@@ -37,11 +37,6 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
-const mockEmitInboxOpsEvent = jest.fn()
-jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
-  emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
-}))
-
 const mockEmitSourceSubmissionRequested = jest.fn()
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-submission-request', () => ({
   emitSourceSubmissionRequested: (...args: unknown[]) => mockEmitSourceSubmissionRequested(...args),
@@ -100,7 +95,6 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     process.env.INBOX_OPS_WEBHOOK_SECRET = WEBHOOK_SECRET
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
-    mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockEmitSourceSubmissionRequested.mockResolvedValue(undefined)
     mockEm.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({
       id: 'email-1',
@@ -200,7 +194,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(mockEm.create).not.toHaveBeenCalled()
   })
 
-  it('creates email and emits event for valid payload', async () => {
+  it('creates email and enqueues a source submission for valid payload', async () => {
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings) // InboxSettings found
       .mockResolvedValueOnce(null)         // no duplicate by messageId
@@ -234,17 +228,9 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
         legacyInboxEmailId: 'email-1',
       }),
     )
-    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
-      'inbox_ops.email.received',
-      expect.objectContaining({
-        emailId: 'email-1',
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
-      }),
-    )
   })
 
-  it('deduplicates by messageId and returns OK without creating', async () => {
+  it('deduplicates by messageId, skips creation, and re-enqueues the existing email source', async () => {
     const existingEmail = { id: 'existing-1', messageId: '<msg-001@example.com>' }
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings)   // settings
@@ -256,16 +242,20 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.status).toBe(200)
     expect(result.ok).toBe(true)
     expect(mockEm.create).not.toHaveBeenCalled()
-    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
-      'inbox_ops.email.deduplicated',
+    expect(mockEmitSourceSubmissionRequested).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
+        descriptor: expect.objectContaining({
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: 'existing-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+        legacyInboxEmailId: 'existing-1',
       }),
     )
   })
 
-  it('deduplicates by contentHash when messageId is new', async () => {
+  it('deduplicates by contentHash when messageId is new and re-enqueues the existing email source', async () => {
     const existingByHash = { id: 'existing-2', contentHash: 'abc123' }
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings)   // settings
@@ -278,6 +268,17 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.status).toBe(200)
     expect(result.ok).toBe(true)
     expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEmitSourceSubmissionRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptor: expect.objectContaining({
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: 'existing-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+        legacyInboxEmailId: 'existing-2',
+      }),
+    )
   })
 
   it('handles missing signature header', async () => {

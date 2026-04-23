@@ -353,12 +353,7 @@ Internal commands:
 - `inbox_ops.source_submission.mark_processed`
 - `inbox_ops.source_submission.mark_failed`
 
-Legacy compatibility commands/events remain unchanged:
-
-- `inbox_ops.email.received`
-- `inbox_ops.email.processed`
-- `inbox_ops.email.failed`
-- proposal/action/reply events
+Email-backed ingress persists `InboxEmail`, but extraction orchestration now uses only the source-submission event contract.
 
 New internal events:
 
@@ -562,7 +557,7 @@ Internal behavior change:
 
 - still persists `InboxEmail`
 - emits `inbox_ops.source_submission.requested` for the extraction pipeline
-- still emits `inbox_ops.email.received`
+- does not emit legacy `inbox_ops.email.*` lifecycle events
 - the request event carries a descriptor equivalent to:
 
 ```ts
@@ -719,10 +714,15 @@ A follow-up compatibility migration covers only legacy records that could get st
 ### Backward Compatibility Strategy
 
 - `InboxEmail` routes remain intact
-- legacy `inbox_ops.email.*` events remain declared for contract stability, but new runtime processing no longer emits them
+- `inbox_ops.email.*` event IDs are removed from the active InboxOps event registry; consumers must use `inbox_ops.source_submission.*`
 - proposal read APIs are additive-only
 - `POST /api/inbox_ops/extract` keeps its URL and retains deprecated `emailId` in the response for one minor version
 - new optional module file `inbox-ops-sources.ts` is additive and does not affect existing modules
+
+Event migration note:
+
+- webhook ingress, manual extract, and email reprocess publish only `inbox_ops.source_submission.requested`
+- the registry cleanup is an intentional contract simplification for the single-ingress model and must be documented with the spec/update that removes the old IDs
 
 ### Generator Compatibility
 
@@ -909,6 +909,11 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+### 2026-04-22
+- Removed legacy `inbox_ops.email.*` webhook test expectations and aligned ingress coverage around `inbox_ops.source_submission.requested`.
+- Dropped `inbox_ops.email.*` from the active InboxOps event registry so the module exposes one extraction-ingress contract.
+- Corrected the spec to state that email-backed intake persists `InboxEmail` but no longer emits separate email lifecycle events.
+
 ### 2026-04-19
 - Replaced wildcard trigger dispatch with the explicit `inbox_ops.source_submission.requested` ingress event.
 - Simplified the generator/shared contract so `inbox-ops-sources.ts` exports only source adapters.

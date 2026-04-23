@@ -1,11 +1,6 @@
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
-  { id: 'inbox_ops.email.received', label: 'Email Received', entity: 'email', category: 'custom' },
-  { id: 'inbox_ops.email.processed', label: 'Email Processed', entity: 'email', category: 'lifecycle' },
-  { id: 'inbox_ops.email.failed', label: 'Email Processing Failed', entity: 'email', category: 'lifecycle' },
-  { id: 'inbox_ops.email.reprocessed', label: 'Email Re-extracted', entity: 'email', category: 'custom' },
-  { id: 'inbox_ops.email.deduplicated', label: 'Duplicate Email Skipped', entity: 'email', category: 'custom' },
   { id: 'inbox_ops.source_submission.requested', label: 'Source Submission Requested', entity: 'source_submission', category: 'custom' },
   { id: 'inbox_ops.source_submission.received', label: 'Source Submission Received', entity: 'source_submission', category: 'lifecycle' },
   { id: 'inbox_ops.source_submission.processed', label: 'Source Submission Processed', entity: 'source_submission', category: 'lifecycle' },
