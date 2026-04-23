@@ -49,5 +49,5 @@
 
 ### Phase 3: Validate and prepare PR
 
-- [ ] 3.1 Run targeted tests and typechecks for touched packages, then the required full validation gate
-- [ ] 3.2 Self-review for backward compatibility and open the PR with labels, comments, and summary
+- [x] 3.1 Run targeted tests and typechecks for touched packages, then the required full validation gate — 7f63c93d2
+- [x] 3.2 Self-review for backward compatibility and open the PR with labels, comments, and summary — PR #1682
