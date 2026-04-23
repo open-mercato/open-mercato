@@ -6232,6 +6232,7 @@ __metadata:
     bullmq: "npm:^5.75.2"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
+    cross-spawn: "npm:^7.0.6"
     dotenv: "npm:^17.4.2"
     eslint: "npm:^10.2.1"
     eslint-config-next: "npm:16.2.4"
@@ -6349,6 +6350,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
+    "@mikro-orm/core": "npm:^7.0.10"
+    "@mikro-orm/decorators": "npm:^7.0.10"
+    "@mikro-orm/postgresql": "npm:^7.0.10"
     "@open-mercato/shared": "workspace:*"
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/jest-dom": "npm:^6.9.1"
@@ -6517,10 +6521,15 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/shared@workspace:packages/shared"
   dependencies:
+    "@mikro-orm/core": "npm:^7.0.10"
+    "@mikro-orm/decorators": "npm:^7.0.10"
+    "@mikro-orm/postgresql": "npm:^7.0.10"
     "@types/jest": "npm:^30.0.0"
     "@types/sanitize-html": "npm:^2.16.1"
+    dotenv: "npm:^17.4.2"
     jest: "npm:^30.3.0"
     rate-limiter-flexible: "npm:^11.0.1"
+    reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.2"
     ts-jest: "npm:^29.4.9"
   languageName: unknown
@@ -10345,10 +10354,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmldom/xmldom@npm:^0.8.6":
-  version: 0.8.12
-  resolution: "@xmldom/xmldom@npm:0.8.12"
-  checksum: 10/0fc20bc72a057a939ed17afc3fb35d6be2eb19e42aa9ba3c78aa8bdf471da0b4b17c2710581ce6a2cd68ce3995c2ee7d689593a70a26df1273c0c9c29dfca257
+"@xmldom/xmldom@npm:0.8.13":
+  version: 0.8.13
+  resolution: "@xmldom/xmldom@npm:0.8.13"
+  checksum: 10/f8f3d56fa91d5026885c0c5c00b07eae47647bda0d742ecbf8e51e06bb287ab30222977b20529ee15c364031606225ebca58907a8ecc76a3add6b3f10e6ddfc6
   languageName: node
   linkType: hard
 

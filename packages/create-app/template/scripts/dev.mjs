@@ -1482,6 +1482,7 @@ function startPackageWatch() {
     'run',
     'watch',
     '--filter=./packages/*',
+    '--concurrency=32',
     '--output-logs=errors-only',
     '--log-order=grouped',
     '--log-prefix=none',
