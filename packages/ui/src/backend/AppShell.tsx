@@ -753,7 +753,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
   const asideWidth = effectiveCollapsed ? '72px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh`;
+  const asideClassesBase = `border-r bg-background/80 py-4 min-h-svh`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
@@ -932,18 +932,18 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           ) : null}
           <div className="flex flex-1 flex-col gap-3 pr-1">
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
                 <div className="h-8 rounded bg-muted/50" />
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
           </div>
@@ -1029,7 +1029,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 onChange={(event) => setItemLabel(itemKey, event.target.value)}
                 placeholder={placeholder}
                 disabled={savingPreferences}
-                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               />
             </div>
             {baseItem.children && baseItem.children.length > 0 ? (
@@ -1044,7 +1044,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
     const customizationEditor = customizing ? (
       customDraft ? (
-        <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/20 p-3">
+        <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/30 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold">{t('appShell.sidebarCustomizationHeading')}</div>
             <div className="flex items-center gap-2">
@@ -1076,7 +1076,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           </div>
           <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
           {canApplyToRoles ? (
-            <div className="flex flex-col gap-2 rounded border bg-background/70 p-3 shadow-sm">
+            <div className="flex flex-col gap-2 rounded border bg-background/80 p-3 shadow-sm">
               <div>
                 <div className="text-sm font-semibold">{t('appShell.sidebarApplyToRolesTitle')}</div>
                 <p className="text-xs text-muted-foreground">{t('appShell.sidebarApplyToRolesDescription')}</p>
@@ -1128,7 +1128,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                         onChange={(event) => setGroupLabel(groupId, event.target.value)}
                         placeholder={placeholder}
                         disabled={savingPreferences}
-                        className="mt-1 h-8 w-full rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                        className="mt-1 h-8 w-full rounded border bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       />
                     </div>
                     <div className="flex items-center gap-1 self-start">
@@ -1163,7 +1163,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           </div>
         </div>
       ) : (
-        <div className="rounded border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
+        <div className="rounded border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
           {t('appShell.sidebarCustomizationLoading')}
         </div>
       )
@@ -1320,7 +1320,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             })()
           )}
         </div>
-        <div className="sticky bottom-0 pt-4 border-t bg-background/60 backdrop-blur-sm pb-1">
+        <div className="sticky bottom-0 pt-4 border-t bg-background/80 backdrop-blur-sm pb-1">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1440,7 +1440,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1518,8 +1518,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-10" />
-        <main className="flex-1 p-4 lg:p-6">
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
@@ -1534,7 +1534,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           {children}
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
@@ -1553,8 +1553,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+        <div className="lg:hidden fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setMobileOpen(false)} aria-hidden="true" />
           <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
             <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
