@@ -44,5 +44,5 @@
 
 ### Phase 3: Validation and PR delivery
 
-- [ ] 3.1 Run docs-focused validation and re-read the diff for scope/BC issues
+- [x] 3.1 Run docs-focused validation and re-read the diff for scope/BC issues — 6470d0b98
 - [ ] 3.2 Commit progress updates, push the branch, open the PR, label it, and post the required summary
