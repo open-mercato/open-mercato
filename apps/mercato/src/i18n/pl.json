@@ -912,7 +912,7 @@
   "upgrades.v042.message": "Wersja {{version}} została zainstalowana. Włącz widżety analityczne dla ról admin i pracownik.",
   "upgrades.v042.success": "Widżety analityczne włączone dla ról admin i pracownik.",
   "upgrades.versionLabel": "Wersja {{version}}",
-  "vector.api.errors.autoIndexingDisabled": "Automatyczne indeksowanie jest wyłączone przez DISABLE_VECTOR_SEARCH_AUTOINDEXING.",
+  "vector.api.errors.autoIndexingDisabled": "Automatyczne indeksowanie jest wyłączone przez OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (stary alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "vector.api.errors.configUnavailable": "Usługa konfiguracji niedostępna",
   "vector.api.errors.indexFetchFailed": "Pobieranie indeksu wektorowego nie powiodło się",
   "vector.api.errors.indexUnavailable": "Indeks wektorowy niedostępny",

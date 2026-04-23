@@ -71,7 +71,7 @@ The pgvector extension is automatically installed in all databases, enabling vec
 
 ### Embedding Provider API Keys (optional)
 
-Vector search requires at least one embedding provider. Configure the API key(s) for your preferred provider(s):
+Vector search requires at least one embedding provider. The shipped example env keeps vector auto-indexing off by default; enable it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` after you choose a provider. Configure the API key(s) for your preferred provider(s):
 
 ```bash
 # OpenAI (default provider)
@@ -89,7 +89,7 @@ AWS_REGION=us-east-1
 OLLAMA_BASE_URL=http://localhost:11434  # Optional, defaults to localhost
 ```
 
-You can configure multiple providers and switch between them in **Backend -> Configuration -> Vector Search**. See the [Vector Search API reference](/api/vector) for details.
+You can configure multiple providers and switch between them in **Backend -> Configuration -> Vector Search**. After adding a provider key, enable automatic vector indexing with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` if you want real-time embeddings, or leave the default disable flag in place and run manual reindex jobs instead. See the [Vector Search API reference](/api/vector) for details.
 
 Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
 

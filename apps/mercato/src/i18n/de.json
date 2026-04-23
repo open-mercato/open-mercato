@@ -912,7 +912,7 @@
   "upgrades.v042.message": "Version {{version}} wurde installiert. Analytics-Widgets für Admin- und Mitarbeiter-Rollen aktivieren.",
   "upgrades.v042.success": "Analytics-Widgets für Admin- und Mitarbeiter-Rollen aktiviert.",
   "upgrades.versionLabel": "Version {{version}}",
-  "vector.api.errors.autoIndexingDisabled": "Auto-Indexierung ist über DISABLE_VECTOR_SEARCH_AUTOINDEXING deaktiviert.",
+  "vector.api.errors.autoIndexingDisabled": "Die Auto-Indizierung ist über OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING deaktiviert (Legacy-Alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "vector.api.errors.configUnavailable": "Konfigurationsdienst nicht verfügbar",
   "vector.api.errors.indexFetchFailed": "Vektor-Index-Abruf fehlgeschlagen",
   "vector.api.errors.indexUnavailable": "Vektor-Index nicht verfügbar",
