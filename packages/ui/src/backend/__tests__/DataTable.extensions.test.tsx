@@ -41,19 +41,21 @@ class ResizeObserverMock {
 
 function renderTable(elementProps: Record<string, unknown>) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
-  const view = render(
+  const renderElement = (props: Record<string, unknown>) => React.createElement(
+    QueryClientProvider as any,
+    { client: queryClient },
     React.createElement(
-      QueryClientProvider as any,
-      { client: queryClient },
-      React.createElement(
-        I18nProvider as any,
-        { locale: 'en', dict: {} },
-        React.createElement(DataTable as any, elementProps),
-      ),
+      I18nProvider as any,
+      { locale: 'en', dict: {} },
+      React.createElement(DataTable as any, props),
     ),
+  )
+  const view = render(
+    renderElement(elementProps),
   )
   return {
     ...view,
+    rerenderTable: (nextProps: Record<string, unknown>) => view.rerender(renderElement(nextProps)),
     cleanupQueryClient: () => queryClient.clear(),
   }
 }
@@ -310,6 +312,57 @@ describe('DataTable extensions', () => {
 
       await waitFor(() => expect(refreshButtonMock).toHaveBeenCalledTimes(1))
       expect(mockRouterRefresh).not.toHaveBeenCalled()
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('clears selection when selectionScopeKey changes', async () => {
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      bulkActions: [{ id: 'bulk', label: 'Bulk', onExecute: jest.fn() }],
+      selectionScopeKey: 'scope-1',
+    })
+
+    try {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows' }))
+
+      await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument())
+
+      rendered.rerenderTable({
+        columns: [{ accessorKey: 'name', header: 'Name' }],
+        data: [{ id: 'r1', name: 'Alice' }],
+        bulkActions: [{ id: 'bulk', label: 'Bulk', onExecute: jest.fn() }],
+        selectionScopeKey: 'scope-2',
+      })
+
+      await waitFor(() => expect(screen.queryByText('1 selected')).not.toBeInTheDocument())
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('keeps selection unchanged when selectionScopeKey is omitted', async () => {
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      bulkActions: [{ id: 'bulk', label: 'Bulk', onExecute: jest.fn() }],
+    })
+
+    try {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows' }))
+
+      await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument())
+
+      rendered.rerenderTable({
+        columns: [{ accessorKey: 'name', header: 'Name' }],
+        data: [{ id: 'r1', name: 'Alice' }],
+        bulkActions: [{ id: 'bulk', label: 'Bulk', onExecute: jest.fn() }],
+        title: 'Messages',
+      })
+
+      await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument())
     } finally {
       rendered.cleanupQueryClient()
     }
