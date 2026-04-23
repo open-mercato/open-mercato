@@ -346,7 +346,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run integration tests
-        run: BASE_URL=http://localhost:3001 yarn test:integration
+        run: BASE_URL=http://localhost:3001 OM_TEST_APP_ROOT=/tmp/standalone-app yarn test:integration
 
       - name: Upload test artifacts
         if: always()

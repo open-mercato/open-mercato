@@ -4,7 +4,6 @@ import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import '@open-mercato/core/modules/customers/commands/index';
-import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService';
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap';
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
@@ -20,9 +19,9 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
-loadEnv({ path: path.resolve(process.cwd(), 'apps/mercato/.env') });
-
-const APP_ROOT = path.resolve(process.cwd(), 'apps/mercato');
+const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
+  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
+  : path.resolve(process.cwd(), 'apps/mercato');
 const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const EXAMPLE_CUSTOMERS_SYNC_API_BASE = '/api/example-customers-sync';
@@ -33,6 +32,8 @@ const SYNC_TOGGLE_IDS = {
 const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound';
 const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound';
 const EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE = 'example-customers-sync-reconcile';
+
+loadEnv({ path: path.resolve(APP_ROOT, '.env'), override: true });
 
 process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
 
@@ -482,16 +483,22 @@ async function waitForMappingRemoval(
     .toBe(0);
 }
 
-async function listInteractionActionLogCommandIds(interactionId: string): Promise<string[]> {
-  const container = await createRequestContainer();
-  const actionLogService = container.resolve<ActionLogService>('actionLogService');
-  const result = await actionLogService.list({
-    page: 1,
-    pageSize: 20,
-    resourceKind: 'customers.interaction',
-    resourceId: interactionId,
-  });
-  return result.items.map((item: { commandId: string }) => item.commandId);
+async function listInteractionActionLogCommandIds(
+  request: APIRequestContext,
+  token: string,
+  interactionId: string,
+): Promise<string[]> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/audit_logs/audit-logs/actions?resourceKind=${encodeURIComponent('customers.interaction')}&resourceId=${encodeURIComponent(interactionId)}&page=1&pageSize=20`,
+    { token },
+  );
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<{ items?: Array<{ commandId?: string | null }> }>(response);
+  return (body?.items ?? [])
+    .map((item) => item.commandId)
+    .filter((commandId): commandId is string => typeof commandId === 'string' && commandId.length > 0);
 }
 
 async function waitForExampleTodo(
@@ -793,7 +800,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         .toBe('done');
 
       await expect
-        .poll(async () => await listInteractionActionLogCommandIds(interactionId!), {
+        .poll(async () => await listInteractionActionLogCommandIds(request, adminToken, interactionId!), {
           timeout: 15_000,
           intervals: [250, 500, 1_000],
         })
