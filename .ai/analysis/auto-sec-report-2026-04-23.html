@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auto Security Report — 2026-04-16 through 2026-04-23 UTC</title>
+<style>
+body { font-family: Georgia, serif; margin: 40px auto; max-width: 1100px; line-height: 1.5; color: #1f2937; padding: 0 20px; }
+h1,h2,h3 { color: #111827; }
+code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #d1d5db; padding: 0.5rem; vertical-align: top; }
+th { background: #f9fafb; text-align: left; }
+ul { padding-left: 1.25rem; }
+pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<pre># Auto Security Report — 2026-04-16 through 2026-04-23 UTC
+
+Window: **2026-04-16 through 2026-04-23 UTC** (base: `develop`).
+Units analyzed: 8 completed of 50 queued PR units.
+Partial / skipped units: 42 units remain pending in the execution plan for this invocation.
+
+## Executive Summary
+
+- Total findings: 0 blocker, 0 major, 0 minor, 0 nit, 8 info.
+- Top OWASP categories: A01, A10, A06.
+- Top paranoid vectors surfaced across completed units: workflow CALL_API privilege scoping, host-header poisoning on security-email links, tenant-scope preservation after ORM raw-SQL rewrites.
+- Riskiest residual area: PR #1513 is materially broader than the sampled pass and should be re-run with `--deep-scan` before treating the migration window as fully reviewed.
+
+## Consolidated Next Steps — Go Deeper
+
+- `auto-sec-report-pr pr:1590` — realtime messages changes the same inbox and notification boundary and deserves a deeper broadcast/auth review.
+- `auto-sec-report-pr pr:1581` — the encryption hardening in auth and messages is closely related to message confidentiality guarantees.
+- Audit `packages/core/src/modules/messages/` for SSE channel scoping and unread-event fanout — this fix restored access, but the broader realtime path is where cross-user bleed would surface.
+- **[recommended]** `auto-sec-report-pr pr:1513 --deep-scan` — this migration is too broad to fully certify from a sampled pass and is the highest-impact unfinished review in the current batch.
+- `auto-sec-report-pr pr:1672` — bootstrap recovery and build artifact integrity should be checked together for generated-code safety regressions.
+- Audit `packages/shared/src/lib/bootstrap/` for fail-open import fallback paths — recovery code is safe here, but bootstrap remains a sensitive execution boundary.
+- `auto-sec-report-pr spec:.ai/specs/2026-04-02-empty-app-starter-presets.md` — the spec should confirm which files a preset may remove and whether that list stays intentionally closed.
+- `auto-sec-report-pr pr:1630` — CLI enforcement changes landed nearby and touch the same create-app workflow boundary.
+- `auto-sec-report-pr pr:1641` — that PR changes actual auth and feature gating and is more meaningful than UI-only migrations.
+- `auto-sec-report-pr pr:1523` — reset-link hardening is the nearest comparable security-email surface and should match signup exactly.
+- `auto-sec-report-pr pr:1601` — workflow definition payload handling is the most relevant nearby surface for keeping CALL_API authorization safe.
+
+## Risk Heatmap
+
+| OWASP Category | Blocker | Major | Minor | Notes |
+|---|---|---|---|---|
+| A01 Broken Access Control | 0 | 0 | 0 | initiator-scoped CALL_API and message recipient checks held in reviewed units |
+| A02 Cryptographic Failures | 0 | 0 | 0 | no new crypto regressions confirmed in sampled units |
+| A03 Injection | 0 | 0 | 0 | UI alert migration stayed on React-escaped primitives |
+| A04 Insecure Design | 0 | 0 | 0 | starter presets stayed on a closed static manifest |
+| A05 Security Misconfiguration | 0 | 0 | 0 | no new misconfiguration sink confirmed in sampled units |
+| A06 Vulnerable and Outdated Components | 0 | 0 | 0 | generated-cache recovery stayed local to stale bootstrap artifacts |
+| A07 Identification and Authentication Failures | 0 | 0 | 0 | signup route kept rate limits and 202 anti-enumeration semantics |
+| A08 Software and Data Integrity Failures | 0 | 0 | 0 | build artifact writes were hardened, not weakened |
+| A09 Security Logging and Monitoring Failures | 0 | 0 | 0 | no logging regressions surfaced in reviewed fragments |
+| A10 SSRF / URL trust boundary | 0 | 0 | 0 | signup email origin handling now fails closed against host-header poisoning |
+| Out of scope (not OWASP) | 0 | 0 | 0 | build race fix improves integrity but is not itself an OWASP issue |
+
+## Paranoid Deep Vectors — Coverage Matrix
+
+| Vector | Completed-unit outcome | Notes |
+|---|---|---|
+| Workflow API privilege escalation | covered | PR #1643 moved CALL_API identity to the instance initiator and removed unsafe author fallback |
+| Host-header poisoning in security emails | covered | PR #1642 moved signup URLs onto the hardened security-email base URL helper |
+| Tenant-scope drift after Kysely rewrites | inconclusive | sampled hotspots in PR #1513 looked correct, but the migration needs a dedicated deep scan |
+| Generated artifact corruption / stale bootstrap code | covered | PR #1667 and PR #1672 hardened build output writes and generated-cache recovery |
+| Message recipient access drift | covered | PR #1639 retained sender-or-recipient authorization in handlers after feature-gate removal |
+| UI injection via alert migration | covered | PR #1649 stayed on shared React alert primitives |
+
+## Per-Unit Findings
+
+## PR #1639 — `fix(messages): restore recipient access to inbox and detail pages (#1633)`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A01`.
+- Top paranoid vectors surfaced: access-control regression prevention on message read surfaces.
+- Recommended next run: `auto-sec-report-pr pr:1590` — the realtime-messages feature expands the same inbox/detail surface more broadly than this corrective follow-up.
+
+### [Info] A01 Broken Access Control — `packages/core/src/modules/messages/api/[id]/route.ts:21`
+
+- **What:** The PR removes feature gating from recipient read surfaces but keeps the real authorization checks inside the handlers.
+- **Why:** The reviewed routes still scope by tenant, organization, and sender-or-recipient membership before returning message data, so the auth-only metadata change does not by itself expose cross-user content.
+- **Fix:** None for this unit; keep the new regression coverage in place and re-check if future refactors widen handler logic.
+- **Apply elsewhere:**
+  - `packages/core/src/modules/messages/api/[id]/attachments/route.ts:16` — attachment listing relies on the same sender-or-recipient rule and should stay aligned with the detail route.
+  - `packages/core/src/modules/messages/api/unread-count/route.ts:20` — unread counts stay safe only while recipient, tenant, and organization scoping remains intact.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Broken access control on inbox/detail reads | covered | `packages/core/src/modules/messages/api/[id]/route.ts:21` |
+| Cross-tenant leakage via unread counters | covered | `packages/core/src/modules/messages/api/unread-count/route.ts:20` |
+| SSE / realtime bleed | inconclusive (next step) | not touched here; broader messages rollout lives in `#1590` |
+| Attachment access drift | covered | `packages/core/src/modules/messages/api/[id]/attachments/route.ts:16` |
+| CSRF on read-side effects | not applicable | this PR did not add new state-changing routes |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1590` — realtime messages changes the same inbox and notification boundary and deserves a deeper broadcast/auth review.
+- `auto-sec-report-pr pr:1581` — the encryption hardening in auth and messages is closely related to message confidentiality guarantees.
+- Audit `packages/core/src/modules/messages/` for SSE channel scoping and unread-event fanout — this fix restored access, but the broader realtime path is where cross-user bleed would surface.
+
+## PR #1672 — `fix(MikroORM): v7 generated cache recovery`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A06`.
+- Top paranoid vectors surfaced: bootstrap recovery safety and generated-artifact integrity.
+- Recommended next run: `auto-sec-report-pr pr:1513 --deep-scan` — this PR is a mitigation around the much larger ORM migration surface and the parent migration still warrants the full deep scan.
+
+### [Info] A06 Vulnerable and Outdated Components — `packages/shared/src/lib/bootstrap/generatedCacheRecovery.ts:152`
+
+- **What:** The recovery helper only scans the app-local generated cache, deletes stale generated `.mjs` artifacts, and rewrites a marker file; it does not broaden runtime trust or load external code.
+- **Why:** The reviewed logic limits itself to `.mercato/generated`, keys recovery on a narrow stale-import signature, and avoids arbitrary-path deletion or remote fetch behavior.
+- **Fix:** None for this unit; the remaining risk is in the migration that produced stale generated output, not in the recovery shim itself.
+- **Apply elsewhere:**
+  - `packages/shared/src/lib/bootstrap/dynamicLoader.ts` — the bootstrap loader is part of the same recovery path and should keep failing closed on invalid generated output.
+  - `packages/cli/src/lib/generators/module-registry.ts` — generator output still controls what lands in `.mercato/generated`, so stale-cache assumptions should stay explicit there.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Supply-chain / stale generated code execution | covered | `packages/shared/src/lib/bootstrap/generatedCacheRecovery.ts:152` |
+| Arbitrary file deletion | covered | deletion remains scoped to `.mercato/generated` |
+| Path traversal in cleanup | covered | generated directory is derived from app root, not request input |
+| Bootstrap import error loops | inconclusive (next step) | broad migration still needs repo-wide follow-up |
+| Secret leakage through warning text | covered | warning text is static and does not emit env contents |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1513 --deep-scan` — the underlying MikroORM v7 migration is materially larger and has a much wider tenant-scope risk surface.
+- `auto-sec-report-pr pr:1667` — build-pipeline changes also touch generated artifacts and are worth checking together with the recovery shim.
+- Audit `packages/shared/src/lib/bootstrap/` for fail-open import fallback paths — recovery code is safe here, but bootstrap remains a sensitive execution boundary.
+
+## PR #1670 — `Feat/starter preset`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A04`.
+- Top paranoid vectors surfaced: scaffold-time module selection and file deletion scope.
+- Recommended next run: `auto-sec-report-pr spec:.ai/specs/2026-04-02-empty-app-starter-presets.md` — the governing spec is the right place to verify the intended trust boundaries around preset application.
+
+### [Info] A04 Insecure Design — `packages/create-app/src/lib/apply-starter-preset.ts:23`
+
+- **What:** The preset applier resolves only known preset IDs, validates duplicates, and mutates a fixed set of scaffold files under the target app directory.
+- **Why:** The reviewed implementation does not accept arbitrary module manifests from user input and does not introduce new runtime network or auth surfaces.
+- **Fix:** None for this unit; the main residual risk is future expansion of preset inheritance or file-removal rules without keeping the allow-list model.
+- **Apply elsewhere:**
+  - `packages/create-app/src/index.ts` — CLI argument parsing is part of the same trust boundary and should keep `--preset` mutually exclusive with remote app templates.
+  - `packages/create-app/src/lib/starter-presets.ts` — preset data remains the single source of truth for what can be scaffolded or removed.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Mass assignment of arbitrary module IDs | covered | `packages/create-app/src/lib/apply-starter-preset.ts:23` |
+| Path traversal in file removal | covered | removal paths come from the static preset manifest |
+| Remote template / supply-chain injection | not applicable | this PR does not fetch remote content |
+| Privilege bypass in generated defaults | inconclusive (next step) | verify intended preset semantics against the spec |
+| Sensitive file overwrite | covered | writes are limited to scaffold-controlled files |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr spec:.ai/specs/2026-04-02-empty-app-starter-presets.md` — the spec should confirm which files a preset may remove and whether that list stays intentionally closed.
+- `auto-sec-report-pr pr:1630` — CLI enforcement changes landed nearby and touch the same create-app workflow boundary.
+- Audit `packages/create-app/` for any future preset sources that come from remote templates or untrusted manifests — this PR is safe because the data is static.
+
+## PR #1513 — `migration: mikro-orm v7, use Kysely`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A01`, `A02`.
+- Top paranoid vectors surfaced: tenant-scope preservation across raw SQL rewrites and decryption-helper parity after ORM API changes.
+- Recommended next run: `auto-sec-report-pr pr:1513 --deep-scan` — this migration is too broad to fully certify from a sampled pass and is the highest-impact unfinished review in the current batch.
+
+### [Info] A01 Broken Access Control — `packages/core/src/modules/customer_accounts/services/customerTokenService.ts:78`
+
+- **What:** Sampled hotspots in the migration preserve the expected tenant and lifecycle guards after the `getKysely()` rewrites, but the unit is large enough that this pass only establishes partial confidence rather than full closure.
+- **Why:** The reviewed token-consumption and unread-count paths still keep tenant scoping, expiration checks, and single-use semantics, yet the PR rewired enough raw-query surfaces that a dedicated deep scan is still warranted.
+- **Fix:** No concrete exploit is confirmed in the sampled code; run the recommended deep scan before treating the migration as fully closed from a security perspective.
+- **Apply elsewhere:**
+  - `packages/core/src/modules/messages/api/unread-count/route.ts:20` — tenant and organization scoping survived the Kysely rewrite in a sampled read-side query.
+  - `packages/shared/src/lib/db/mikro.ts:73` — ORM bootstrap changed materially and remains a central trust boundary for every tenant-scoped entity lookup.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Tenant scoping after raw SQL rewrite | inconclusive (next step) | sampled paths looked correct, but PR breadth is high |
+| Decryption-helper regressions | inconclusive (next step) | sampled workflow preserved helper use, full diff still needs sweep |
+| Single-use token consumption races | covered | `packages/core/src/modules/customer_accounts/services/customerTokenService.ts:78` |
+| SSRF / remote fetch expansion | not applicable | migration does not add new outbound fetch surfaces |
+| Bootstrap metadata/provider hardening | covered | `packages/shared/src/lib/db/mikro.ts:73` |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1513 --deep-scan` — this is the riskiest unfinished unit in the current window because it rewired a large fraction of query and bootstrap code.
+- `auto-sec-report-pr pr:1672` — the generated-cache recovery shim is directly coupled to migration fallout and should stay paired with the main migration review.
+- Audit `packages/core/src/modules/` for `getKysely()` rewrites that bypassed `findWithDecryption` or lost `organization_id` filters — the sampled files held the line, but the migration was much larger than this first pass.
+
+## PR #1667 — `fix(build): eliminate race condition causing truncated dist files`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `Out of scope (not OWASP)`.
+- Top paranoid vectors surfaced: generated-artifact integrity and partial-write corruption.
+- Recommended next run: `auto-sec-report-pr pr:1672` — both PRs harden generated/build artifacts and should be reviewed together if the bootstrap path behaves oddly.
+
+### [Info] Out of scope (not OWASP) — `scripts/lib/add-js-extension.mjs:10`
+
+- **What:** The PR removes a build-time read-modify-write race by switching the extension rewriter to in-memory transforms plus atomic temp-file rename.
+- **Why:** The touched code improves artifact integrity and does not add new runtime auth, network, or tenant-boundary behavior.
+- **Fix:** None for this unit; keep the shared helper centralized so future package build changes do not reintroduce non-atomic writes.
+- **Apply elsewhere:**
+  - `scripts/build-package.mjs` — the helper is now a shared trust point for package builds and should keep using the atomic writer consistently.
+  - `scripts/watch.mjs` — watch-mode should stay behaviorally aligned with one-shot builds so integrity fixes do not diverge.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Partial artifact corruption | covered | `scripts/lib/add-js-extension.mjs:10` |
+| Supply-chain / remote code execution | not applicable | no new external fetch or install path |
+| Path traversal in output writing | covered | outputs come from esbuild result paths, not request input |
+| Symlink or overwrite abuse | inconclusive (next step) | no explicit symlink defense added; build environment assumptions remain |
+| Secret leakage in build logs | not applicable | this PR does not widen logging of sensitive inputs |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1672` — bootstrap recovery and build artifact integrity should be checked together for generated-code safety regressions.
+- `auto-sec-report-pr pr:1513 --deep-scan` — the big MikroORM migration is the upstream cause of some generated-artifact churn and remains the higher-risk review target.
+- Audit `scripts/` for any other temp-file writes that still rely on truncating `writeFileSync` semantics — this PR fixed one major hotspot but not necessarily every scripting path.
+
+## PR #1649 — `fix(ds): migrate deprecated Notice usages to Alert`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A03`.
+- Top paranoid vectors surfaced: UI-only alert rendering with no new auth or network behavior.
+- Recommended next run: `auto-sec-report-pr pr:1641` — module-aware auth gating is a much more meaningful security surface from the same day’s batch.
+
+### [Info] A03 Injection — `packages/ui/src/primitives/ErrorNotice.tsx:15`
+
+- **What:** The migration swaps deprecated notice components for the existing `Alert` primitive without changing how user-provided strings are rendered.
+- **Why:** React escaping remains intact, the component stays local to UI presentation, and the reviewed diff does not introduce HTML injection sinks or new data flows.
+- **Fix:** None for this unit; keep alert migrations using the existing primitive rather than bespoke HTML renderers.
+- **Apply elsewhere:**
+  - `packages/enterprise/src/modules/security/components/MfaEnrollmentNotice.tsx` — same migration pattern on another security-adjacent UI surface.
+  - `packages/webhooks/src/modules/webhooks/components/WebhookSecretPanel.tsx` — alert rendering near secret-facing UI should keep relying on the shared primitive.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| HTML / markdown injection | covered | `packages/ui/src/primitives/ErrorNotice.tsx:15` |
+| Secret exposure in alert UI | inconclusive (next step) | touched call sites should still be spot-checked where secrets are shown |
+| Clickjacking / CSP changes | not applicable | no headers or framing logic changed |
+| Auth bypass via UI-only gating | not applicable | this PR changes presentation only |
+| Design-system divergence causing unsafe custom markup | covered | migration uses the shared `Alert` primitive |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1641` — that PR changes actual auth and feature gating, unlike this UI-only migration.
+- `auto-sec-report-pr pr:1608` — Stripe payment page CSP updates are more relevant to UI security posture than this cosmetic component swap.
+- Audit secret-adjacent alert call sites in `packages/webhooks/` and `packages/enterprise/` for accidental value disclosure — the primitive is safe, but the copied message content still matters.
+
+## PR #1642 — `fix(customer_accounts): use security email URL helper in signup`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A10`, `A01`.
+- Top paranoid vectors surfaced: host-header poisoning and one-time token exfiltration through security emails.
+- Recommended next run: `auto-sec-report-pr pr:1523` — the reset-link hardening is the closest sibling surface and should be checked for parity with signup.
+
+### [Info] A10 Server-Side Request Forgery / URL trust boundary — `packages/core/src/modules/customer_accounts/api/signup.ts:71`
+
+- **What:** The PR correctly moves signup email links onto the hardened security-email base URL helper and now fails closed when origin configuration is unsafe.
+- **Why:** The reviewed route no longer derives portal verification or existing-account links from attacker-controlled `Host` headers, which closes the token-leak/phishing vector described in the PR body.
+- **Fix:** None for this unit; keep all security-email surfaces on the same helper and reject future fallbacks to request-derived origins.
+- **Apply elsewhere:**
+  - `packages/core/src/modules/auth/api/reset.ts` — password-reset links rely on the same trust boundary and should stay in lock-step with signup.
+  - `packages/core/src/modules/customer_accounts/api/signup.ts:143` — verification-token issuance remains sensitive and should always stay behind the hardened base URL path.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Host-header poisoning | covered | `packages/core/src/modules/customer_accounts/api/signup.ts:71` |
+| One-time token exfiltration via emailed links | covered | verification URL now uses the hardened helper |
+| Open redirect via portal route construction | covered | path composition remains local and encoded |
+| Account enumeration via error semantics | covered | route still returns 202 for both user-exists and user-created paths |
+| Rate-limit identifier weakness | covered | compound email + IP limiter remained intact in reviewed file |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1523` — reset-link hardening is the nearest comparable security-email surface and should match signup exactly.
+- `auto-sec-report-pr pr:1584` — customer-signup tenant binding changes touch the same onboarding flow from a different trust angle.
+- Audit `packages/core/src/modules/customer_accounts/` for any remaining `getAppBaseUrl` or request-origin fallbacks in customer-facing email flows — this PR fixed one important entry point, not necessarily all of them.
+
+## PR #1643 — `fix(workflows): resolve CALL_API roles from the instance initiator`
+
+- 1 finding: 0 blocker, 0 major, 0 minor, 0 nit, 1 info.
+- Top OWASP categories: `A01`.
+- Top paranoid vectors surfaced: privilege escalation through workflow-authored API calls and soft-deleted definition reuse.
+- Recommended next run: `auto-sec-report-pr pr:1601` — workflow definition editing changed nearby and is a good follow-up surface for CALL_API authorization drift.
+
+### [Info] A01 Broken Access Control — `packages/core/src/modules/workflows/lib/activity-executor.ts:941`
+
+- **What:** The PR correctly changes `CALL_API` role resolution to prefer the recorded initiator, refuse when that user has no active scoped roles, and only fall back to the definition author for event-triggered runs with no human initiator.
+- **Why:** The reviewed resolver now enforces the least-privilege policy described in the in-file security comment and closes the author-role privilege-escalation path.
+- **Fix:** None for this unit; preserve the soft-delete check and initiator-first ordering if the workflow engine is refactored again.
+- **Apply elsewhere:**
+  - `packages/core/src/modules/workflows/lib/activity-executor.ts:981` — the adjacent absolute-URL validation remains part of the same `CALL_API` attack surface.
+  - `packages/core/src/modules/workflows/lib/__tests__/resolve-call-api-role-ids.test.ts` — this regression suite is the guardrail that should grow with future workflow-auth changes.
+
+## Paranoid Deep Vectors — What Was Checked
+
+| Vector | Outcome | Location or note |
+|---|---|---|
+| Privilege escalation via delegated API keys | covered | `packages/core/src/modules/workflows/lib/activity-executor.ts:941` |
+| Soft-deleted definition reuse | covered | `deletedAt: null` added to definition lookup |
+| SSRF in CALL_API absolute URLs | covered | `packages/core/src/modules/workflows/lib/activity-executor.ts:981` |
+| Cross-tenant role resolution | covered | resolver scopes user and role lookups by tenant |
+| Replay / long-lived key reuse | not applicable | this PR did not change one-time key lifetime semantics |
+
+## Next Steps — Go Deeper
+
+- **[recommended]** `auto-sec-report-pr pr:1601` — workflow definition payload handling is the most relevant nearby surface for keeping CALL_API authorization safe.
+- `auto-sec-report-pr pr:1623` — workflow UI changes are lower risk, but still part of the same module and worth a lighter pass.
+- Audit `packages/core/src/modules/workflows/` for any other places where workflow authorship is used as an execution identity fallback — this PR fixed the hottest path, but similar assumptions can recur.
+
+## Appendix — Queue
+
+Each item below is one unit from the queued window with the exact invocation that was run or remains pending.
+
+- `auto-sec-report-pr pr:1639` — [#1639](https://github.com/open-mercato/open-mercato/pull/1639) fix(messages): restore recipient access to inbox and detail pages (#1633) — status: complete
+- `auto-sec-report-pr pr:1672` — [#1672](https://github.com/open-mercato/open-mercato/pull/1672) fix(MikroORM): v7 generated cache recovery — status: complete
+- `auto-sec-report-pr pr:1670` — [#1670](https://github.com/open-mercato/open-mercato/pull/1670) Feat/starter preset — status: complete
+- `auto-sec-report-pr pr:1513` — [#1513](https://github.com/open-mercato/open-mercato/pull/1513) migration: mikro-orm v7, use Kysely — status: complete
+- `auto-sec-report-pr pr:1667` — [#1667](https://github.com/open-mercato/open-mercato/pull/1667) fix(build): eliminate race condition causing truncated dist files — status: complete
+- `auto-sec-report-pr pr:1649` — [#1649](https://github.com/open-mercato/open-mercato/pull/1649) fix(ds): migrate deprecated Notice usages to Alert — status: complete
+- `auto-sec-report-pr pr:1642` — [#1642](https://github.com/open-mercato/open-mercato/pull/1642) fix(customer_accounts): use security email URL helper in signup — status: complete
+- `auto-sec-report-pr pr:1618` — [#1618](https://github.com/open-mercato/open-mercato/pull/1618) feat: CRM details screens revamp — status: pending
+- `auto-sec-report-pr pr:1643` — [#1643](https://github.com/open-mercato/open-mercato/pull/1643) fix(workflows): resolve CALL_API roles from the instance initiator — status: complete
+- `auto-sec-report-pr pr:1644` — [#1644](https://github.com/open-mercato/open-mercato/pull/1644) docs(skills): reassign authors on review and fix handoffs — status: pending
+- `auto-sec-report-pr pr:1641` — [#1641](https://github.com/open-mercato/open-mercato/pull/1641) fix(auth): hide UI and gate APIs when backing module is disabled — status: pending
+- `auto-sec-report-pr pr:1638` — [#1638](https://github.com/open-mercato/open-mercato/pull/1638) fix(messages): refresh inbox cache on unread events (#1634) — status: pending
+- `auto-sec-report-pr pr:1629` — [#1629](https://github.com/open-mercato/open-mercato/pull/1629) fix(customer_accounts,portal,directory): customer portal review fixes — status: pending
+- `auto-sec-report-pr pr:1646` — [#1646](https://github.com/open-mercato/open-mercato/pull/1646) docs: add Hall of Fame for Agentic Hackathon winners — status: pending
+- `auto-sec-report-pr pr:1626` — [#1626](https://github.com/open-mercato/open-mercato/pull/1626) release: v0.5.0 pre-release — status: pending
+- `auto-sec-report-pr pr:1628` — [#1628](https://github.com/open-mercato/open-mercato/pull/1628) fix: bug: [Business Logic] Shipment remains editable after full return and completed payment — missing state guards (#1624) — status: pending
+- `auto-sec-report-pr pr:1630` — [#1630](https://github.com/open-mercato/open-mercato/pull/1630) fix(create-app): use `yarn mercato db` commands in codex enforcement rules — status: pending
+- `auto-sec-report-pr pr:1613` — [#1613](https://github.com/open-mercato/open-mercato/pull/1613) perf(customer_accounts): eliminate N+1 queries in user listing and role validation (#1398) — status: pending
+- `auto-sec-report-pr pr:1616` — [#1616](https://github.com/open-mercato/open-mercato/pull/1616) fix(testing,i18n): restore Jest module resolution and reduce false-positive unused i18n keys — status: pending
+- `auto-sec-report-pr pr:1615` — [#1615](https://github.com/open-mercato/open-mercato/pull/1615) fix(ui): lazy-load heavy libraries for schedule, markdown, and API docs (#1408) — status: pending
+- `auto-sec-report-pr pr:1611` — [#1611](https://github.com/open-mercato/open-mercato/pull/1611) docs(inbox_ops): add local development walkthrough (#1435) — status: pending
+- `auto-sec-report-pr pr:1567` — [#1567](https://github.com/open-mercato/open-mercato/pull/1567) fix(ui): hide messages topbar icon when backing module is disabled — status: pending
+- `auto-sec-report-pr pr:1590` — [#1590](https://github.com/open-mercato/open-mercato/pull/1590) feat: realtime messages — status: pending
+- `auto-sec-report-pr pr:1581` — [#1581](https://github.com/open-mercato/open-mercato/pull/1581) fix(security): extend PII encryption maps + use decryption helpers in auth (#1413) — status: pending
+- `auto-sec-report-pr pr:1612` — [#1612](https://github.com/open-mercato/open-mercato/pull/1612) fix(portal): move layout above [...slug] to stop navigation remount (#1083) — status: pending
+- `auto-sec-report-pr pr:1610` — [#1610](https://github.com/open-mercato/open-mercato/pull/1610) perf(ui): memoize Tabs context value to prevent consumer re-renders (#1409) — status: pending
+- `auto-sec-report-pr pr:1608` — [#1608](https://github.com/open-mercato/open-mercato/pull/1608) fix(gateway-stripe): load Stripe.js only on payment pages and update CSP (#1606) — status: pending
+- `auto-sec-report-pr pr:1623` — [#1623](https://github.com/open-mercato/open-mercato/pull/1623) fix(workflows): prevent column truncation on definitions list — status: pending
+- `auto-sec-report-pr pr:1609` — [#1609](https://github.com/open-mercato/open-mercato/pull/1609) fix(customers,sales): link seeded deals to pipeline + prevent doc number increment on type switch — status: pending
+- `auto-sec-report-pr pr:1601` — [#1601](https://github.com/open-mercato/open-mercato/pull/1601) fix(workflows): accept edit form payload and embed triggers in definition (#1586) — status: pending
+- `auto-sec-report-pr pr:1614` — [#1614](https://github.com/open-mercato/open-mercato/pull/1614) fix(perf): parallelize entity defs, search availability, and dictionary resolution (#1404) — status: pending
+- `auto-sec-report-pr pr:1584` — [#1584](https://github.com/open-mercato/open-mercato/pull/1584) Fix/security customer signup tenant binding — status: pending
+- `auto-sec-report-pr pr:1603` — [#1603](https://github.com/open-mercato/open-mercato/pull/1603) fix(business_rules): validate effectiveTo is after effectiveFrom (#1596) — status: pending
+- `auto-sec-report-pr pr:1605` — [#1605](https://github.com/open-mercato/open-mercato/pull/1605) fix(scheduler,query): empty scheduled job list (supersedes #1594) — status: pending
+- `auto-sec-report-pr pr:1607` — [#1607](https://github.com/open-mercato/open-mercato/pull/1607) fix(scheduler): mark Target Queue/Command as required with DS status token (#1588) — status: pending
+- `auto-sec-report-pr pr:1604` — [#1604](https://github.com/open-mercato/open-mercato/pull/1604) fix(business_rules): sanitize DB errors and drop NOT NULL on condition_expression (#1598) — status: pending
+- `auto-sec-report-pr pr:1592` — [#1592](https://github.com/open-mercato/open-mercato/pull/1592) fix: dev HMR origins for non-localhost login — status: pending
+- `auto-sec-report-pr pr:1582` — [#1582](https://github.com/open-mercato/open-mercato/pull/1582) Fix/security dashboards mass assign scope — status: pending
+- `auto-sec-report-pr pr:1602` — [#1602](https://github.com/open-mercato/open-mercato/pull/1602) security(attachments): reject executable double extensions (#1597) — status: pending
+- `auto-sec-report-pr pr:1600` — [#1600](https://github.com/open-mercato/open-mercato/pull/1600) fix(workflows): close edit dialog before awaiting step delete confirm (#1585) — status: pending
+- `auto-sec-report-pr pr:1599` — [#1599](https://github.com/open-mercato/open-mercato/pull/1599) fix(cli): always register backend route manifests in bootstrap-registrations (#1595) — status: pending
+- `auto-sec-report-pr pr:1591` — [#1591](https://github.com/open-mercato/open-mercato/pull/1591) fix: missing asterisk — status: pending
+- `auto-sec-report-pr pr:1583` — [#1583](https://github.com/open-mercato/open-mercato/pull/1583) fix(business_rules): pin tenant scope on PUT, reject body-supplied te… — status: pending
+- `auto-sec-report-pr pr:1580` — [#1580](https://github.com/open-mercato/open-mercato/pull/1580) fix(workflows): i18n checkout-demo hardcoded strings (#1425) — status: pending
+- `auto-sec-report-pr pr:1579` — [#1579](https://github.com/open-mercato/open-mercato/pull/1579) fix(customers): bound memory on legacy todos/activities reads (#1397) — status: pending
+- `auto-sec-report-pr pr:1578` — [#1578](https://github.com/open-mercato/open-mercato/pull/1578) fix(reliability): add timeouts to external service calls (#1419) — status: pending
+- `auto-sec-report-pr pr:1576` — [#1576](https://github.com/open-mercato/open-mercato/pull/1576) perf(auth): cache API key auth resolution and debounce lastUsedAt writes (#1400) — status: pending
+- `auto-sec-report-pr pr:1577` — [#1577](https://github.com/open-mercato/open-mercato/pull/1577) fix(queue): replace synchronous file I/O with async fs.promises (#1401) — status: pending
+- `auto-sec-report-pr pr:1570` — [#1570](https://github.com/open-mercato/open-mercato/pull/1570) security(auth): reject // in redirect path to close open-redirect bypass (#1560) — status: pending
+- `auto-sec-report-pr pr:1573` — [#1573](https://github.com/open-mercato/open-mercato/pull/1573) fix(ui): show offline-specific error UI and auto-recover on network loss (#1563) — status: pending
+</pre>
+</body>
+</html>
