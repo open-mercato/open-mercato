@@ -2,7 +2,6 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressService } from '../../progress/lib/progressService'
 import {
-  CATALOG_PRODUCT_BULK_DELETE_QUEUE,
   deleteCatalogProductsWithProgress,
   type CatalogProductBulkDeleteJobPayload,
 } from '../lib/bulkDelete'
@@ -12,7 +11,7 @@ type HandlerContext = JobContext & {
 }
 
 export const metadata: WorkerMeta = {
-  queue: CATALOG_PRODUCT_BULK_DELETE_QUEUE,
+  queue: 'catalog-product-bulk-delete',
   id: 'catalog:product-bulk-delete',
   concurrency: 1,
 }
