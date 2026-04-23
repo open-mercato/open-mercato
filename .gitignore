@@ -72,6 +72,12 @@ packages/**/dist/
 # runtime/event state
 .events/
 
+# runtime SQLite cache (default CACHE_SQLITE_PATH target); rewritten on every dev run
+/data/*.db
+/data/*.db-journal
+/data/*.db-wal
+/data/*.db-shm
+
 # prevent accidental check-in of transpiled JS alongside TS sources
 src/**/*.js
 src/**/*.jsx
