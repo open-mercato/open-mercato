@@ -371,14 +371,14 @@ async function runModuleCommand(
   commandName: string,
   args: string[] = [],
   options: { optional?: boolean; silentOptional?: boolean } = {},
-): Promise<void> {
+): Promise<boolean> {
   const mod = allModules.find((m) => m.id === moduleName)
   if (!mod) {
     if (options.optional) {
       if (!options.silentOptional) {
         console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
       }
-      return
+      return false
     }
     throw new Error(`Module not found: "${moduleName}"`)
   }
@@ -387,7 +387,7 @@ async function runModuleCommand(
       if (!options.silentOptional) {
         console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
       }
-      return
+      return false
     }
     throw new Error(`Module "${moduleName}" has no CLI commands`)
   }
@@ -397,11 +397,12 @@ async function runModuleCommand(
       if (!options.silentOptional) {
         console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
       }
-      return
+      return false
     }
     throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
   }
   await cmd.run(args)
+  return true
 }
 
 async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
@@ -760,8 +761,11 @@ export async function run(argv = process.argv) {
       console.log('✅ RBAC setup complete:', { tenantId, organizationId: orgId }, '\n')
 
       console.log('🎛️  Seeding feature toggle defaults...')
-      await runModuleCommand(allModules, 'feature_toggles', 'seed-defaults', [])
-      console.log('🎛️  ✅ Feature toggle defaults seeded\n')
+      if (await runModuleCommand(allModules, 'feature_toggles', 'seed-defaults', [], { optional: true })) {
+        console.log('🎛️  ✅ Feature toggle defaults seeded\n')
+      } else {
+        console.log('')
+      }
 
       if (tenantId) {
         console.log('👥 Seeding tenant-scoped roles...')
@@ -828,22 +832,31 @@ export async function run(argv = process.argv) {
           )
           const stressArgs = ['--tenant', tenantId, '--org', orgId, '--count', String(stressTestCount)]
           if (stressTestLite) stressArgs.push('--lite')
-          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })
-          console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
+          if (await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })) {
+            console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
+          } else {
+            console.log('')
+          }
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })
-        console.log('✅ Dashboard widgets enabled\n')
+        if (await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })) {
+          console.log('✅ Dashboard widgets enabled\n')
+        } else {
+          console.log('')
+        }
 
         console.log('📊 Enabling analytics widgets for admin and employee roles...')
-        await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
+        if (await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
           '--tenant',
           tenantId,
           '--roles',
           'admin,employee',
-        ])
-        console.log('✅ Analytics widgets enabled for roles\n')
+        ], { optional: true })) {
+          console.log('✅ Analytics widgets enabled for roles\n')
+        } else {
+          console.log('')
+        }
 
       } else {
         console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
@@ -853,13 +866,19 @@ export async function run(argv = process.argv) {
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
-      console.log('✅ Search indexes built\n')
+      if (await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })) {
+        console.log('✅ Search indexes built\n')
+      } else {
+        console.log('')
+      }
 
       console.log('🔍 Rebuilding query indexes...')
       const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
-      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
-      console.log('✅ Query indexes rebuilt\n')
+      if (await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })) {
+        console.log('✅ Query indexes rebuilt\n')
+      } else {
+        console.log('')
+      }
 
       const adminPasswordOverride = derivedSecrets.adminPassword
       const employeePasswordOverride = derivedSecrets.employeePassword
