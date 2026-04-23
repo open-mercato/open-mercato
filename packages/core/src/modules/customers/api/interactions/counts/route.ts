@@ -88,8 +88,7 @@ export async function GET(req: Request) {
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.
     const rows = await baseQuery
-      .select('interaction_type')
-      .select((eb: any) => eb.fn.count('*').as('count'))
+      .select(['interaction_type', sql<string>`count(*)`.as('count')])
       .groupBy('interaction_type')
       .execute() as Array<{ interaction_type: string; count: string | number }>
 
