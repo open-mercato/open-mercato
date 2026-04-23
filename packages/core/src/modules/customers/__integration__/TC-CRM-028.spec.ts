@@ -19,8 +19,9 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
-const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
-  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
+const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim();
+const APP_ROOT = TEST_APP_ROOT
+  ? path.resolve(TEST_APP_ROOT)
   : path.resolve(process.cwd(), 'apps/mercato');
 const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
@@ -33,7 +34,7 @@ const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound';
 const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound';
 const EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE = 'example-customers-sync-reconcile';
 
-loadEnv({ path: path.resolve(APP_ROOT, '.env'), override: true });
+loadEnv({ path: path.resolve(APP_ROOT, '.env'), override: Boolean(TEST_APP_ROOT) });
 
 process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
 
