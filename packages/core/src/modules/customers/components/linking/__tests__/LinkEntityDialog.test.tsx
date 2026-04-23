@@ -80,7 +80,7 @@ describe('LinkEntityDialog', () => {
       />,
     )
 
-    await waitFor(() => expect(screen.getByText('Globex')).toBeInTheDocument())
+    await waitFor(() => expect(getSearchResultRow('Globex')).toBeInTheDocument())
 
     await act(async () => {
       fireEvent.click(getSearchResultRow('Acme Corp'))
@@ -116,7 +116,7 @@ describe('LinkEntityDialog', () => {
       />,
     )
 
-    await waitFor(() => expect(screen.getByText('Globex')).toBeInTheDocument())
+    await waitFor(() => expect(getSearchResultRow('Globex')).toBeInTheDocument())
     await act(async () => {
       fireEvent.click(getSearchResultRow('Globex'))
     })
@@ -155,7 +155,7 @@ describe('LinkEntityDialog', () => {
         onConfirm={async () => undefined}
       />,
     )
-    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument())
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
 
     const selectedItemButton = screen
       .getAllByRole('button')
@@ -228,7 +228,7 @@ describe('LinkEntityDialog', () => {
       />,
     )
 
-    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument())
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
     const saveButton = screen.getByRole('button', { name: /Link company/ })
     expect(saveButton).toBeDisabled()
   })
@@ -257,10 +257,10 @@ describe('LinkEntityDialog', () => {
       />,
     )
 
-    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument())
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Acme Corp').closest('[role="button"]')!)
+      fireEvent.click(getSearchResultRow('Acme Corp'))
     })
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply role' })).toBeInTheDocument())

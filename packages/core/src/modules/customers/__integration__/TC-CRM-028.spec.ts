@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import '@open-mercato/core/modules/customers/commands/index';
+import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService';
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap';
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
@@ -70,6 +72,15 @@ type CustomerTodoItem = {
   todoDescription?: string | null;
   todoSeverity?: string | null;
   todoSource: string;
+};
+
+type CanonicalInteractionItem = {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  body?: string | null;
+  customValues?: Record<string, unknown> | null;
 };
 
 const toggleIdCache = new Map<string, string>();
@@ -414,6 +425,30 @@ async function listCustomerTodos(
   return body?.items ?? [];
 }
 
+async function listCanonicalInteractions(
+  request: APIRequestContext,
+  token: string,
+  entityId: string,
+  scope?: { tenantId?: string | null; organizationId?: string | null },
+): Promise<CanonicalInteractionItem[]> {
+  const response = scope
+    ? await scopedApiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions?entityId=${encodeURIComponent(entityId)}&limit=100`,
+        { token, ...scope },
+      )
+    : await apiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions?entityId=${encodeURIComponent(entityId)}&limit=100`,
+        { token },
+      );
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<{ items?: CanonicalInteractionItem[] }>(response);
+  return body?.items ?? [];
+}
+
 async function waitForMapping(
   request: APIRequestContext,
   token: string,
@@ -448,20 +483,15 @@ async function waitForMappingRemoval(
 }
 
 async function listInteractionActionLogCommandIds(interactionId: string): Promise<string[]> {
-  const client = await getDbClient();
-  const result = await client.query<{ command_id: string }>(
-    `
-      select command_id
-      from action_logs
-      where resource_kind = 'customers.interaction'
-        and resource_id = $1
-        and deleted_at is null
-      order by created_at desc
-      limit 20
-    `,
-    [interactionId],
-  );
-  return result.rows.map((row) => row.command_id);
+  const container = await createRequestContainer();
+  const actionLogService = container.resolve<ActionLogService>('actionLogService');
+  const result = await actionLogService.list({
+    page: 1,
+    pageSize: 20,
+    resourceKind: 'customers.interaction',
+    resourceId: interactionId,
+  });
+  return result.items.map((item) => item.commandId);
 }
 
 async function waitForExampleTodo(
@@ -737,6 +767,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         title: `CRM027 inbound complete ${Date.now()}`,
         body: 'Complete me from example',
         priority: 2,
+        customValues: { severity: 'high' },
       });
       await flushExampleCustomersSyncQueues({ outbound: true });
 
@@ -756,10 +787,10 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
-          return rows.find((item) => item.id === interactionId)?.todoIsDone ?? null;
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
+          return rows.find((item) => item.id === interactionId)?.status ?? null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
-        .toBe(true);
+        .toBe('done');
 
       await expect
         .poll(async () => await listInteractionActionLogCommandIds(interactionId!), {
@@ -823,6 +854,8 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         entityId: companyId,
         interactionType: 'task',
         title: 'x'.repeat(201),
+        priority: 2,
+        customValues: { severity: 'high' },
       });
       await flushExampleCustomersSyncQueues({ outbound: true });
 
@@ -864,9 +897,9 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
-          return row?.todoSeverity ?? null;
+          return typeof row?.customValues?.severity === 'string' ? row.customValues.severity : null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
         .toBe('critical');
 
@@ -875,11 +908,9 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         data: {
           id: todoId,
           title: `CRM027 loop ${Date.now()}`,
-          customValues: {
-            priority: null,
-            description: null,
-            severity: null,
-          },
+          cf_priority: 4,
+          cf_severity: 'high',
+          cf_description: null,
         },
       });
       expect(updateResponse.status()).toBe(200);
@@ -887,20 +918,20 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
           return row
             ? {
-                priority: row.todoPriority ?? null,
-                description: row.todoDescription ?? null,
-                severity: row.todoSeverity ?? null,
+                priority: row.priority ?? null,
+                description: row.body ?? null,
+                severity: typeof row.customValues?.severity === 'string' ? row.customValues.severity : null,
               }
             : null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
         .toEqual({
-          priority: null,
+          priority: 4,
           description: null,
-          severity: null,
+          severity: 'critical',
         });
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);
