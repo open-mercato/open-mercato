@@ -22,7 +22,97 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.4.10 → 0.5.0 (unreleased)
+## 0.5.0 → 0.5.1 (unreleased)
+
+This window carries the MikroORM v6 → v7 migration
+([#1513](https://github.com/open-mercato/open-mercato/pull/1513)), the last of the three
+majors that were deferred out of the 0.5.0 consolidation. No other dependency majors are
+planned for this window.
+
+### Breaking dependency changes that may affect user code
+
+#### `@mikro-orm/*` `^6.6.10` → `^7.0.10`
+
+v7 is ESM-only, dropped Knex for [Kysely](https://github.com/kysely-org/kysely), moved
+decorators out of `@mikro-orm/core`, and removed the default `ReflectMetadataProvider`.
+Every downstream module with entities, raw SQL, or a standalone ORM bootstrap needs
+changes. The full mechanical recipe (incl. tests/Jest setup) lives in the companion skill
+[`.ai/skills/migrate-mikro-orm/SKILL.md`](.ai/skills/migrate-mikro-orm/SKILL.md); the
+highlights are:
+
+Decorators moved — import decorators from `@mikro-orm/decorators/legacy`; keep
+`OptionalProps`, `Collection`, `EntityManager`, `FilterQuery`, `RequiredEntityData`, etc.
+on `@mikro-orm/core`:
+
+```ts
+// before
+import { Entity, PrimaryKey, Property, ManyToOne, OptionalProps } from '@mikro-orm/core'
+
+// after
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, ManyToOne, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+```
+
+`persistAndFlush` / `removeAndFlush` removed — chain instead:
+
+```ts
+// before
+await em.persistAndFlush(entity)
+await em.removeAndFlush(entity)
+
+// after
+await em.persist(entity).flush()
+await em.remove(entity).flush()
+```
+
+Jest mocks must be updated accordingly (`persist: jest.fn().mockReturnThis(), flush: jest.fn()`).
+
+Knex → Kysely — `em.getConnection().getKnex()` is gone; use `em.getKysely<any>()` and the
+Kysely query builder. Operators are mandatory (`.where('col', '=', val)`), JSONB needs
+`` sql`${JSON.stringify(doc)}::jsonb` ``, `knex.fn.now()` becomes `` sql`now()` ``, and
+aggregate results come back as strings (wrap `count()` rows in `Number(...)`). Upserts use
+`.onConflict(oc => oc.columns([...]).doUpdateSet({...}))`.
+
+Migrator API renamed — `orm.getMigrator()` → `orm.migrator`,
+`migrator.createMigration()` → `migrator.create()`,
+`migrator.getPendingMigrations()` → `migrator.getPending()`.
+
+ORM bootstrap (if you call `MikroORM.init` yourself) — register the metadata provider
+explicitly, pass `EntityManager` as a generic, and reshape the pool config:
+
+```ts
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
+import { PostgreSqlDriver, EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
+
+await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
+  driver: PostgreSqlDriver,
+  metadataProvider: ReflectMetadataProvider, // v7 no longer installs this by default
+  pool: { min, max, idleTimeoutMillis },     // acquireTimeoutMillis / destroyTimeoutMillis removed
+  driverOptions: { connectionTimeoutMillis, ssl },
+  entities,
+})
+```
+
+Without `ReflectMetadataProvider` the legacy decorators silently emit wrong column
+metadata at runtime.
+
+Stricter typing — v7 tightens `FilterQuery<T>` / `RequiredEntityData<T>`. Expect to add
+occasional casts, wrap ambiguous generic filters with `NoInfer<T>`, and watch out for
+`em.create(Entity, { ...spread, override })`: v7's inference exposes cases where a
+trailing spread silently overwrites computed fields — put the spread first.
+
+Jest / ESM — v7 uses `import.meta.resolve`, which `ts-jest` on CJS can't run. The repo
+ships [`scripts/jest-mikroorm-transformer.cjs`](scripts/jest-mikroorm-transformer.cjs);
+wire it in every standalone `jest.config.cjs` and bump `tsconfig` `target` to `ES2022`:
+
+```js
+transform: { '^.+\\.(t|j)sx?$': '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs' },
+transformIgnorePatterns: ['node_modules/(?!(@mikro-orm)/)'],
+```
+
+---
+
+## 0.4.10 → 0.5.0 (2026-04-21)
 
 Release context:
 - Biggest Open Mercato release so far
@@ -301,7 +391,7 @@ are tracked as follow-up work:
 
 | Package | Current pin | Dependabot proposed | Why deferred |
 |---------|-------------|---------------------|--------------|
-| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths |
+| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths — **addressed in the [0.5.0 → 0.5.1](#050--051-unreleased) window** |
 | `typescript` | `^5.9.3` | `^6.0.3` | v6 deprecates `moduleResolution=node10` (`error TS5107`) across every package `tsconfig.json`; fix requires either `"ignoreDeprecations": "6.0"` everywhere or a real migration to `bundler`/`node16` |
 | `awilix` | `^12.0.5` | `^13.0.3` | v13 changed the `Cradle` generic default from `any` to `{}`, which makes every `container.resolve('em')` return `unknown` at 100+ DI call sites with no code change |
 
