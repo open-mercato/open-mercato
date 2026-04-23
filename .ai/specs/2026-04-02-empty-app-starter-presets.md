@@ -156,39 +156,187 @@ This is a preset concern only. No public module is removed from the repository.
 
 ### Starter preset manifest
 
-Add a single preset manifest in `packages/create-app` that owns:
+Add a single declarative preset manifest in `packages/create-app` that owns:
 
 - enabled module list
 - optional file deletions
 - optional quick-link/start-page behavior
 - optional package dependency pruning rules
 
+Suggested file split:
+
+- `packages/create-app/src/lib/starter-presets.ts` for preset definitions only
+- `packages/create-app/src/lib/apply-starter-preset.ts` for resolver, validator, and template mutation logic
+
+The manifest MUST be data-only. Presets MUST NOT embed ad hoc functions or imperative mutation code. All behavioral differences should flow through bounded strategies interpreted by the resolver. This keeps new presets additive, testable, and backward-compatible.
+
 Suggested shape:
 
 ```ts
-type StarterPresetId = 'classic' | 'empty' | 'crm'
+type StarterPresetId = 'classic' | 'empty' | 'crm' | (string & {})
+
+type StarterPresetModules = {
+  mode: 'replace' | 'patch'
+  enabled?: ModuleEntry[]
+  add?: ModuleEntry[]
+  remove?: string[]
+}
 
 type StarterPreset = {
   id: StarterPresetId
-  enabledModules: ModuleEntry[]
-  removePaths?: string[]
-  startPageLinks: 'classic' | 'minimal'
-  packageDependencyMode: 'classic' | 'lean-safe'
+  label: string
+  description: string
+  extends?: StarterPresetId
+  modules: StarterPresetModules
+  ui: {
+    startPageVariant: 'classic' | 'minimal' | 'crm'
+    hideDemoLinks: boolean
+  }
+  files?: {
+    remove?: string[]
+  }
+  packages?: {
+    mode: 'inherit' | 'classic' | 'lean-safe'
+    removeDependencies?: string[]
+    removeDevDependencies?: string[]
+  }
+  constraints?: {
+    rejectWithReadyApps?: boolean
+  }
 }
 ```
 
 This avoids copying the whole template three times.
 
+Notes:
+
+- `modules.mode = 'replace'` declares the full module manifest for a baseline preset
+- `modules.mode = 'patch'` allows derived presets such as `crm` to add or remove modules around a base preset
+- `extends` is optional and SHOULD be limited to a single parent to avoid deep inheritance trees
+- `StarterPresetId` remains open-ended for future built-in presets without changing resolver logic
+
+### Manifest design rules
+
+- `classic` remains an explicit first-class preset, not an implicit fallback hidden in CLI code
+- `empty` should be explicit, not derived, because it is the true lean baseline
+- `crm` should extend `empty`, because it is semantically "empty plus CRM"
+- Built-in presets are for template composition only: module selection, scaffold UI variants, and safe file/dependency pruning
+- If a future preset needs its own app module, domain seed data, dedicated README, or onboarding flow, it should become a ready app/example instead of expanding the built-in preset system
+- Resolver validation MUST reject duplicate module IDs, unresolved parents, cyclic inheritance, unknown strategy values, and broken `ModuleInfo.requires` combinations
+
+### Example built-in presets
+
+```ts
+const starterPresets = {
+  classic: {
+    id: 'classic',
+    label: 'Classic',
+    description: 'Current full starter behavior',
+    modules: {
+      mode: 'replace',
+      enabled: CLASSIC_MODULES,
+    },
+    ui: {
+      startPageVariant: 'classic',
+      hideDemoLinks: false,
+    },
+    packages: {
+      mode: 'classic',
+    },
+    constraints: {
+      rejectWithReadyApps: true,
+    },
+  },
+
+  empty: {
+    id: 'empty',
+    label: 'Empty',
+    description: 'Minimal builder-ready baseline',
+    modules: {
+      mode: 'replace',
+      enabled: [
+        { id: 'auth', from: '@open-mercato/core' },
+        { id: 'directory', from: '@open-mercato/core' },
+        { id: 'configs', from: '@open-mercato/core' },
+        { id: 'entities', from: '@open-mercato/core' },
+        { id: 'query_index', from: '@open-mercato/core' },
+        { id: 'api_docs', from: '@open-mercato/core' },
+      ],
+    },
+    ui: {
+      startPageVariant: 'minimal',
+      hideDemoLinks: true,
+    },
+    files: {
+      remove: ['src/modules/example'],
+    },
+    packages: {
+      mode: 'lean-safe',
+    },
+    constraints: {
+      rejectWithReadyApps: true,
+    },
+  },
+
+  crm: {
+    id: 'crm',
+    label: 'CRM',
+    description: 'Empty preset plus CRM capabilities',
+    extends: 'empty',
+    modules: {
+      mode: 'patch',
+      add: [
+        { id: 'customers', from: '@open-mercato/core' },
+        { id: 'dictionaries', from: '@open-mercato/core' },
+        { id: 'feature_toggles', from: '@open-mercato/core' },
+      ],
+    },
+    ui: {
+      startPageVariant: 'crm',
+      hideDemoLinks: true,
+    },
+    packages: {
+      mode: 'lean-safe',
+    },
+    constraints: {
+      rejectWithReadyApps: true,
+    },
+  },
+} satisfies Record<string, StarterPreset>
+```
+
+This example is illustrative, but the architecture intent is important: new built-in presets should mostly be additive manifest entries, not new imperative branches in `create-mercato-app`.
+
+### Preset resolver / applier
+
+The CLI entrypoint should parse `--preset` and then delegate to a single resolver/applier function. `packages/create-app/src/index.ts` SHOULD NOT accumulate preset-specific `if/else` branches beyond flag parsing, conflict checks, and passing the selected preset ID into the resolver.
+
+The resolver/applier should:
+
+1. resolve the selected preset from the manifest before any filesystem writes
+2. reject incompatible source-of-truth combinations such as `--preset` with `--app` or `--app-url`
+3. resolve one-level `extends` inheritance in memory
+4. validate the final module set for duplicate IDs and `ModuleInfo.requires` compatibility
+5. copy the base template
+6. write the resolved `src/modules.ts`
+7. remove preset-excluded paths such as `src/modules/example`
+8. apply start-page and quick-link strategies
+9. apply package mutation strategies
+10. optionally write `.mercato/starter-preset.json` for later diagnostics
+
 ### Template processing flow
 
 For built-in template scaffolding:
 
-1. copy the normal template
-2. apply preset mutations
-3. write preset-specific `src/modules.ts`
-4. remove preset-excluded app module folders such as `src/modules/example`
-5. rewrite `package.json` only for dependencies the preset explicitly changes
-6. rewrite the home page quick links and any visible demo CTA blocks
+1. parse CLI flags and resolve the selected preset in memory
+2. validate the preset before any filesystem writes
+3. copy the normal template
+4. apply preset mutations
+5. write preset-specific `src/modules.ts`
+6. remove preset-excluded app module folders such as `src/modules/example`
+7. rewrite `package.json` only for dependencies the preset explicitly changes
+8. rewrite the home page quick links and any visible demo CTA blocks
+9. optionally persist a scaffold marker such as `.mercato/starter-preset.json`
 
 ### Hidden dependency hardening
 
@@ -217,7 +365,8 @@ No application entity changes are required.
 
 Optional new create-app internal data:
 
-- starter preset manifest in `packages/create-app`
+- data-only starter preset manifest in `packages/create-app/src/lib/starter-presets.ts`
+- preset resolver/applier metadata in `packages/create-app/src/lib/apply-starter-preset.ts`
 - optional generated marker file such as `.mercato/starter-preset.json`
 
 Both are additive and internal.
@@ -331,20 +480,22 @@ This spec is explicitly BC-preserving.
 ## Implementation Plan
 
 1. Add `--preset` parsing, validation, help text, and mutual-exclusion rules in `packages/create-app/src/index.ts`.
-2. Add a preset manifest owned by `packages/create-app`.
-3. Refactor template scaffolding so preset mutations run after file copy and before agentic setup.
+2. Add a data-only preset manifest in `packages/create-app/src/lib/starter-presets.ts`.
+3. Add a resolver/applier in `packages/create-app/src/lib/apply-starter-preset.ts` that handles inheritance, validation, and template mutations.
 4. Replace the static template `src/modules.ts` with preset-generated content.
 5. Remove `src/modules/example/**` from `empty` and `crm`.
 6. Rewrite the start page and visible quick links for lean presets.
-7. Move default encryption-map seeding out of `packages/core/src/modules/auth/lib/setup-app.ts` into an entities-owned or shared optional path.
-8. Audit and add `ModuleInfo.requires` for currently implicit support-module dependencies:
+7. Add bounded strategy handlers for scaffold UI and package mutations instead of preset-specific imperative branches in the CLI.
+8. Move default encryption-map seeding out of `packages/core/src/modules/auth/lib/setup-app.ts` into an entities-owned or shared optional path.
+9. Audit and add `ModuleInfo.requires` for currently implicit support-module dependencies:
    - `customers`
    - `workflows`
    - `customer_accounts`
    - any other module found during implementation tests
-9. Keep `catalog`, `sales`, `checkout`, `staff`, `planner`, `resources`, `workflows`, `business_rules`, `customer_accounts`, `portal`, `dashboards`, and `example` disabled in lean presets.
-10. Add template/package dependency mutation rules, but keep bootstrap infrastructure packages unless verified safe to remove.
-11. Verify monorepo app and standalone template both scaffold and initialize correctly for all presets.
+10. Keep `catalog`, `sales`, `checkout`, `staff`, `planner`, `resources`, `workflows`, `business_rules`, `customer_accounts`, `portal`, `dashboards`, and `example` disabled in lean presets.
+11. Add template/package dependency mutation rules, but keep bootstrap infrastructure packages unless verified safe to remove.
+12. Optionally write `.mercato/starter-preset.json` after scaffold completion for diagnostics and future upgrade tooling.
+13. Verify monorepo app and standalone template both scaffold and initialize correctly for all presets.
 
 ## Integration Test Coverage
 
@@ -353,6 +504,8 @@ This spec is explicitly BC-preserving.
 | `create-mercato-app my-app` still produces current scaffold | Integration |
 | `create-mercato-app my-app --preset empty` produces the 6-module baseline | Integration |
 | `create-mercato-app my-app --preset crm` produces the 9-module baseline | Integration |
+| preset resolver merges `crm -> empty` inheritance correctly | Unit |
+| preset validator rejects duplicate module IDs or unresolved preset parents before filesystem writes | Unit |
 | `empty` scaffold: `yarn generate` succeeds | Integration |
 | `empty` scaffold: `yarn initialize` succeeds | Integration |
 | `empty` scaffold: login page works at `/login` | Integration |
@@ -384,3 +537,5 @@ This spec is explicitly BC-preserving.
 
 - 2026-04-02: Initial draft for additive `empty` and `crm` starter presets, with coupling audit and BC constraints.
 - 2026-04-11: Implemented the auth bootstrap encryption-map decoupling step by moving default encryption maps to per-module `encryption.ts` registration discovered by the module generator.
+- 2026-04-22: Expanded the spec with a declarative preset manifest contract, resolver/applier split, example preset definitions, and extensibility rules for future built-in presets.
+- 2026-04-23: Implemented Phase 1 preset plumbing — `packages/create-app/src/lib/starter-presets.ts` (data-only manifest), `packages/create-app/src/lib/apply-starter-preset.ts` (resolver/applier with inheritance, validation, and filesystem mutations), unit tests in `apply-starter-preset.test.ts` (9 tests, all passing), and `--preset` flag wiring in `packages/create-app/src/index.ts` with mutual-exclusion guard against `--app`/`--app-url`.

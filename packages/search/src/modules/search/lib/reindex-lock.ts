@@ -207,7 +207,7 @@ export async function updateReindexProgress(
       .executeTakeFirst()
 
     // Kysely returns numUpdatedRows as bigint; coerce
-    const updated = Number(result?.numUpdatedRows ?? 0n)
+    const updated = Number(result?.numUpdatedRows ?? 0)
 
     // If no active lock exists, recreate it
     if (updated === 0) {

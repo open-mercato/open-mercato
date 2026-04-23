@@ -13,6 +13,7 @@ const ALLOWED_FILES = new Set(
 
 const IGNORED_DIRS = new Set([
   'node_modules',
+  '.mercato',
   '.next',
   'dist',
   'build',

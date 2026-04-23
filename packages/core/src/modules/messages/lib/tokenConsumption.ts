@@ -30,7 +30,7 @@ export async function consumeMessageAccessToken(
     .where('use_count' as any, '<', MAX_TOKEN_USE_COUNT)
     .where('expires_at' as any, '>', now)
     .executeTakeFirst()
-  const consumed = Number(updateResult?.numUpdatedRows ?? 0n)
+  const consumed = Number(updateResult?.numUpdatedRows ?? 0)
   if (consumed > 0) return { ok: true }
 
   em.clear()

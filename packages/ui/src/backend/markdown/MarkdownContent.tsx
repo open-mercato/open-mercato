@@ -9,7 +9,9 @@ type ReactMarkdownProps = {
   remarkPlugins?: PluggableList
 }
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 const TestMarkdownComponent: React.ComponentType<ReactMarkdownProps> = ({ children }) => <>{children}</>
 
