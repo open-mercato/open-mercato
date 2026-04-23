@@ -31,7 +31,9 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 const MarkdownEditorTestStub: React.ComponentType<UiMarkdownEditorProps> = ({ value, onChange }) => (
   <textarea

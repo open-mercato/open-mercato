@@ -402,6 +402,83 @@ function collectLocalDeclarations(parsed: ts.SourceFile): Map<string, ts.Express
   return locals
 }
 
+type ImportedBinding =
+  | {
+    kind: 'named'
+    sourceFile: string
+    exportName: string
+  }
+  | {
+    kind: 'default'
+    sourceFile: string
+  }
+  | {
+    kind: 'namespace'
+    sourceFile: string
+  }
+
+type ParsedModuleResolutionContext = {
+  sourceFile: string
+  parsed: ts.SourceFile
+  locals: Map<string, ts.Expression>
+  exportedNames: Set<string>
+  imports: Map<string, ImportedBinding>
+}
+
+function resolveImportedModuleFile(sourceFile: string, moduleSpecifier: string): string | null {
+  if (!moduleSpecifier.startsWith('.')) return null
+  return findExistingModuleFileByBaseNames(path.dirname(sourceFile), [
+    moduleSpecifier,
+    path.join(moduleSpecifier, 'index'),
+  ])
+}
+
+function collectImportedBindings(
+  parsed: ts.SourceFile,
+  sourceFile: string,
+): Map<string, ImportedBinding> {
+  const bindings = new Map<string, ImportedBinding>()
+
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+
+    const resolvedSourceFile = resolveImportedModuleFile(sourceFile, statement.moduleSpecifier.text)
+    if (!resolvedSourceFile) continue
+
+    const importClause = statement.importClause
+    if (!importClause) continue
+
+    if (importClause.name) {
+      bindings.set(importClause.name.text, {
+        kind: 'default',
+        sourceFile: resolvedSourceFile,
+      })
+    }
+
+    const namedBindings = importClause.namedBindings
+    if (!namedBindings) continue
+
+    if (ts.isNamespaceImport(namedBindings)) {
+      bindings.set(namedBindings.name.text, {
+        kind: 'namespace',
+        sourceFile: resolvedSourceFile,
+      })
+      continue
+    }
+
+    for (const element of namedBindings.elements) {
+      bindings.set(element.name.text, {
+        kind: 'named',
+        sourceFile: resolvedSourceFile,
+        exportName: element.propertyName?.text ?? element.name.text,
+      })
+    }
+  }
+
+  return bindings
+}
+
 function collectReexportedNames(parsed: ts.SourceFile): Set<string> {
   const exportedNames = new Set<string>()
   for (const statement of parsed.statements) {
@@ -464,10 +541,128 @@ function findExportedInitializer(
   return null
 }
 
+function findDefaultExportInitializer(parsed: ts.SourceFile): ts.Expression | null {
+  for (const statement of parsed.statements) {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return statement.expression
+    }
+
+    if (!ts.isVariableStatement(statement)) continue
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+    const isDefaultExport = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ?? false
+    if (!isDefaultExport) continue
+
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.initializer) return declaration.initializer
+    }
+  }
+
+  return null
+}
+
+function loadParsedModuleResolutionContext(
+  sourceFile: string,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
+): ParsedModuleResolutionContext | null {
+  if (cache.has(sourceFile)) {
+    return cache.get(sourceFile) ?? null
+  }
+
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    cache.set(sourceFile, null)
+    return null
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const context: ParsedModuleResolutionContext = {
+    sourceFile,
+    parsed,
+    locals: collectLocalDeclarations(parsed),
+    exportedNames: collectReexportedNames(parsed),
+    imports: collectImportedBindings(parsed, sourceFile),
+  }
+  cache.set(sourceFile, context)
+  return context
+}
+
+function resolveImportedBindingValue(
+  binding: ImportedBinding,
+  pathSegments: string[],
+  visited: Set<string>,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
+): unknown {
+  const importedContext = loadParsedModuleResolutionContext(binding.sourceFile, cache)
+  if (!importedContext) return undefined
+
+  if (binding.kind === 'namespace') {
+    if (pathSegments.length === 0) return undefined
+    const [exportName, ...restPath] = pathSegments
+    const importKey = `${binding.sourceFile}::${exportName}`
+    if (visited.has(importKey)) return undefined
+
+    let initializer = findExportedInitializer(importedContext.parsed, exportName, importedContext.exportedNames)
+    if (!initializer && importedContext.exportedNames.has(exportName)) {
+      initializer = importedContext.locals.get(exportName) ?? null
+    }
+    if (!initializer) return undefined
+
+    const nextVisited = new Set(visited)
+    nextVisited.add(importKey)
+    let value = resolveExpressionValue(initializer, importedContext, nextVisited, cache)
+    for (const segment of restPath) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+        value = (value as Record<string, unknown>)[segment]
+      } else {
+        return undefined
+      }
+    }
+    return value
+  }
+
+  const importKey = binding.kind === 'default'
+    ? `${binding.sourceFile}::default`
+    : `${binding.sourceFile}::${binding.exportName}`
+  if (visited.has(importKey)) return undefined
+
+  let initializer = binding.kind === 'default'
+    ? findDefaultExportInitializer(importedContext.parsed)
+    : findExportedInitializer(importedContext.parsed, binding.exportName, importedContext.exportedNames)
+
+  if (!initializer && binding.kind === 'named' && importedContext.exportedNames.has(binding.exportName)) {
+    initializer = importedContext.locals.get(binding.exportName) ?? null
+  }
+  if (!initializer) return undefined
+
+  const nextVisited = new Set(visited)
+  nextVisited.add(importKey)
+  let value = resolveExpressionValue(initializer, importedContext, nextVisited, cache)
+
+  for (const segment of pathSegments) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+      value = (value as Record<string, unknown>)[segment]
+    } else {
+      return undefined
+    }
+  }
+
+  return value
+}
+
 function resolveExpressionValue(
   expression: ts.Expression,
-  locals: Map<string, ts.Expression>,
+  context: ParsedModuleResolutionContext,
   visited: Set<string>,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
 ): unknown {
   const expr = unwrapExpression(expression)
 
@@ -488,19 +683,19 @@ function resolveExpressionValue(
           : ts.isStringLiteral(property.name) ? property.name.text
           : null
         if (!key) continue
-        const value = resolveExpressionValue(property.initializer, locals, visited)
+        const value = resolveExpressionValue(property.initializer, context, visited, cache)
         if (value !== undefined) result[key] = value
       } else if (ts.isShorthandPropertyAssignment(property)) {
         const key = property.name.text
-        const initializer = locals.get(key)
+        const initializer = context.locals.get(key)
         if (initializer && !visited.has(key)) {
           const nextVisited = new Set(visited)
           nextVisited.add(key)
-          const value = resolveExpressionValue(initializer, locals, nextVisited)
+          const value = resolveExpressionValue(initializer, context, nextVisited, cache)
           if (value !== undefined) result[key] = value
         }
       } else if (ts.isSpreadAssignment(property)) {
-        const spread = resolveExpressionValue(property.expression, locals, visited)
+        const spread = resolveExpressionValue(property.expression, context, visited, cache)
         if (spread && typeof spread === 'object' && !Array.isArray(spread)) {
           Object.assign(result, spread)
         }
@@ -513,11 +708,11 @@ function resolveExpressionValue(
     const result: unknown[] = []
     for (const element of expr.elements) {
       if (ts.isSpreadElement(element)) {
-        const spread = resolveExpressionValue(element.expression, locals, visited)
+        const spread = resolveExpressionValue(element.expression, context, visited, cache)
         if (Array.isArray(spread)) result.push(...spread)
         continue
       }
-      const value = resolveExpressionValue(element as ts.Expression, locals, visited)
+      const value = resolveExpressionValue(element as ts.Expression, context, visited, cache)
       if (value !== undefined) result.push(value)
     }
     return result
@@ -525,11 +720,16 @@ function resolveExpressionValue(
 
   if (ts.isIdentifier(expr)) {
     if (visited.has(expr.text)) return undefined
-    const initializer = locals.get(expr.text)
-    if (!initializer) return undefined
-    const nextVisited = new Set(visited)
-    nextVisited.add(expr.text)
-    return resolveExpressionValue(initializer, locals, nextVisited)
+    const initializer = context.locals.get(expr.text)
+    if (initializer) {
+      const nextVisited = new Set(visited)
+      nextVisited.add(expr.text)
+      return resolveExpressionValue(initializer, context, nextVisited, cache)
+    }
+
+    const importBinding = context.imports.get(expr.text)
+    if (!importBinding) return undefined
+    return resolveImportedBindingValue(importBinding, [], visited, cache)
   }
 
   if (ts.isPropertyAccessExpression(expr)) {
@@ -542,40 +742,46 @@ function resolveExpressionValue(
     }
     if (!ts.isIdentifier(cursor)) return undefined
     const rootName = cursor.text
-    if (visited.has(rootName)) return undefined
-    const rootInit = locals.get(rootName)
-    if (!rootInit) return undefined
-    const unwrappedRoot = unwrapExpression(rootInit)
-    const nextVisited = new Set(visited)
-    nextVisited.add(rootName)
-    // Handle `const crud = makeCrudRoute({ metadata: routeMetadata, ... })`
-    if (ts.isCallExpression(unwrappedRoot) && unwrappedRoot.arguments.length > 0) {
-      const firstArg = unwrapExpression(unwrappedRoot.arguments[0])
-      if (ts.isObjectLiteralExpression(firstArg)) {
-        const argObject = resolveExpressionValue(firstArg, locals, nextVisited)
-        if (argObject && typeof argObject === 'object' && !Array.isArray(argObject)) {
-          let current: unknown = argObject
-          for (const segment of pathSegments) {
-            if (current && typeof current === 'object' && !Array.isArray(current) && segment in (current as Record<string, unknown>)) {
-              current = (current as Record<string, unknown>)[segment]
-            } else {
-              current = undefined
-              break
+    if (!visited.has(rootName)) {
+      const rootInit = context.locals.get(rootName)
+      if (rootInit) {
+        const unwrappedRoot = unwrapExpression(rootInit)
+        const nextVisited = new Set(visited)
+        nextVisited.add(rootName)
+        // Handle `const crud = makeCrudRoute({ metadata: routeMetadata, ... })`
+        if (ts.isCallExpression(unwrappedRoot) && unwrappedRoot.arguments.length > 0) {
+          const firstArg = unwrapExpression(unwrappedRoot.arguments[0])
+          if (ts.isObjectLiteralExpression(firstArg)) {
+            const argObject = resolveExpressionValue(firstArg, context, nextVisited, cache)
+            if (argObject && typeof argObject === 'object' && !Array.isArray(argObject)) {
+              let current: unknown = argObject
+              for (const segment of pathSegments) {
+                if (current && typeof current === 'object' && !Array.isArray(current) && segment in (current as Record<string, unknown>)) {
+                  current = (current as Record<string, unknown>)[segment]
+                } else {
+                  current = undefined
+                  break
+                }
+              }
+              if (current !== undefined) return current
             }
           }
-          if (current !== undefined) return current
         }
+        let value = resolveExpressionValue(rootInit, context, nextVisited, cache)
+        for (const segment of pathSegments) {
+          if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+            value = (value as Record<string, unknown>)[segment]
+          } else {
+            return undefined
+          }
+        }
+        return value
       }
     }
-    let value = resolveExpressionValue(rootInit, locals, nextVisited)
-    for (const segment of pathSegments) {
-      if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
-        value = (value as Record<string, unknown>)[segment]
-      } else {
-        return undefined
-      }
-    }
-    return value
+
+    const importBinding = context.imports.get(rootName)
+    if (!importBinding) return undefined
+    return resolveImportedBindingValue(importBinding, pathSegments, visited, cache)
   }
 
   return undefined
@@ -629,27 +835,16 @@ export function hasNamedExport(sourceFile: string, exportName: string): boolean 
 }
 
 export function resolveNamedObjectExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
-  let source = ''
-  try {
-    source = fs.readFileSync(sourceFile, 'utf8')
-  } catch {
-    return null
-  }
-  const parsed = ts.createSourceFile(
-    sourceFile,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    inferScriptKind(sourceFile),
-  )
-  const locals = collectLocalDeclarations(parsed)
-  const exportedNames = collectReexportedNames(parsed)
-  let initializer = findExportedInitializer(parsed, exportName, exportedNames)
-  if (!initializer && exportedNames.has(exportName)) {
-    initializer = locals.get(exportName) ?? null
+  const cache = new Map<string, ParsedModuleResolutionContext | null>()
+  const context = loadParsedModuleResolutionContext(sourceFile, cache)
+  if (!context) return null
+
+  let initializer = findExportedInitializer(context.parsed, exportName, context.exportedNames)
+  if (!initializer && context.exportedNames.has(exportName)) {
+    initializer = context.locals.get(exportName) ?? null
   }
   if (!initializer) return null
-  const value = resolveExpressionValue(initializer, locals, new Set<string>())
+  const value = resolveExpressionValue(initializer, context, new Set<string>(), cache)
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   return Object.keys(record).length > 0 ? record : null

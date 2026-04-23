@@ -5,7 +5,7 @@ import { resolveMessageContext } from '../../lib/routeHelpers'
 import { unreadCountResponseSchema } from '../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
 }
 
 function getDb(em: EntityManager): Kysely<any> {

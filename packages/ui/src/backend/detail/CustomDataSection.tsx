@@ -32,7 +32,9 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 

@@ -83,7 +83,7 @@ export class CustomerTokenService {
       .where('used_at' as any, 'is', null)
       .where('expires_at' as any, '>', new Date())
       .executeTakeFirst()
-    const consumed = Number(updateResult?.numUpdatedRows ?? 0n)
+    const consumed = Number(updateResult?.numUpdatedRows ?? 0)
     if (consumed === 0) return null
 
     const resolvedUserId = typeof user === 'string' ? user : user.id
@@ -111,7 +111,7 @@ export class CustomerTokenService {
       .where('used_at' as any, 'is', null)
       .where('expires_at' as any, '>', new Date())
       .executeTakeFirst()
-    const consumed = Number(updateResult?.numUpdatedRows ?? 0n)
+    const consumed = Number(updateResult?.numUpdatedRows ?? 0)
     if (consumed === 0) return null
 
     const resolvedUserId = typeof user === 'string' ? user : user.id
