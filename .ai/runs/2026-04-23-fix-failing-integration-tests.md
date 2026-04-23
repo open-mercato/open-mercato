@@ -84,6 +84,6 @@ The same asymmetry is now present in the interactions list API route (`packages/
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run targeted `yarn jest` for customers + example_customers_sync (passed locally pre-commit)
-- [ ] 4.2 Run full validation gate (typecheck, i18n, build:packages, test, build:app)
-- [ ] 4.3 Re-run TC-CRM-028 once stack is back (dev server was taken down during reproduction; CI will cover this end-to-end)
+- [x] 4.1 Run targeted `yarn jest` for customers + example_customers_sync (passed locally pre-commit) — 15b28c8e9
+- [x] 4.2 Run full validation gate (typecheck, i18n, build:packages, test, build:app) — 15b28c8e9
+- [x] 4.3 Re-run TC-CRM-028 once stack is back (dev server was taken down during reproduction; CI will cover this end-to-end) — 15b28c8e9
