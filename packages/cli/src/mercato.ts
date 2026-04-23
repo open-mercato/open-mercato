@@ -305,6 +305,38 @@ function buildServerProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.P
   return runtimeEnv
 }
 
+type ManagedProcessExitResult = {
+  label: string
+  code: number | null
+  signal: NodeJS.Signals | null
+}
+
+function waitForManagedProcessExit(proc: ChildProcess, label: string): Promise<ManagedProcessExitResult> {
+  return new Promise((resolve) => {
+    proc.on('exit', (code, signal) => {
+      resolve({ label, code, signal })
+    })
+  })
+}
+
+function isExpectedManagedExitSignal(signal: NodeJS.Signals | null): boolean {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function formatManagedProcessExitStatus(result: ManagedProcessExitResult): string {
+  if (typeof result.code === 'number') {
+    return `exit code ${result.code}`
+  }
+  if (result.signal) {
+    return `signal ${result.signal}`
+  }
+  return 'an unknown status'
+}
+
+function createManagedProcessExitError(result: ManagedProcessExitResult): Error {
+  return new Error(`[server] ${result.label} exited unexpectedly with ${formatManagedProcessExitStatus(result)}.`)
+}
+
 function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   const configuredDistDir = path.join(appDir, '.mercato', 'next')
   const configuredBuildIdPath = path.join(configuredDistDir, 'BUILD_ID')
@@ -1617,11 +1649,11 @@ export async function run(argv = process.argv) {
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
-          const startNextDev = (): Promise<void> =>
+          const startNextDev = (): Promise<ManagedProcessExitResult> =>
             new Promise((resolve) => {
               const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: process.env,
+                env: runtimeEnv,
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -1645,19 +1677,23 @@ export async function run(argv = process.argv) {
                 appendOutput(text)
               })
 
-              nextProcess.on('exit', async () => {
+              nextProcess.on('exit', async (code, signal) => {
                 if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
                   didRetryCorruptedTurbopackCache = true
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
-                  await startNextDev()
-                  return resolve()
+                  return resolve(await startNextDev())
                 }
-                resolve()
+                resolve({
+                  label: 'Next.js dev server',
+                  code,
+                  signal,
+                })
               })
             })
 
           const nextExitPromise = startNextDev()
+          const managedExitPromises: Promise<ManagedProcessExitResult>[] = [nextExitPromise]
 
           // Start workers if enabled
           if (autoSpawnWorkers) {
@@ -1668,10 +1704,11 @@ export async function run(argv = process.argv) {
               console.log('[server] Starting workers for all queues...')
               const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
                 stdio: 'inherit',
-                env: process.env,
+                env: runtimeEnv,
                 cwd: appDir,
               })
               processes.push(workerProcess)
+              managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
             }
           }
 
@@ -1679,28 +1716,20 @@ export async function run(argv = process.argv) {
             console.log('[server] Starting scheduler polling engine...')
             const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
               stdio: 'inherit',
-              env: process.env,
+              env: runtimeEnv,
               cwd: appDir,
             })
             processes.push(schedulerProcess)
+            managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
           }
 
-          // Wait for any process to exit
-          await Promise.race(
-            [
-              nextExitPromise,
-              ...processes
-                .filter((proc) => proc.spawnargs[1] !== nextBin)
-                .map(
-                  (proc) =>
-                    new Promise<void>((resolve) => {
-                      proc.on('exit', () => resolve())
-                    })
-                ),
-            ]
-          )
+          const firstExit = await Promise.race(managedExitPromises)
 
           await cleanupAndWait()
+
+          if (!isExpectedManagedExitSignal(firstExit.signal)) {
+            throw createManagedProcessExitError(firstExit)
+          }
         },
       },
       {

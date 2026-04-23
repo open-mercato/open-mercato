@@ -1,7 +1,41 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
-import { resolveSpawnCommand } from '../dev-spawn-utils.mjs'
+import { resolveProjectBinary, resolveSpawnCommand } from '../dev-spawn-utils.mjs'
+
+test('resolveProjectBinary prefers node_modules/.bin executables in the current project', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-project-binary-'))
+  const binDir = path.join(root, 'node_modules', '.bin')
+  const binaryPath = path.join(binDir, 'mercato')
+
+  try {
+    fs.mkdirSync(binDir, { recursive: true })
+    fs.writeFileSync(binaryPath, '')
+
+    assert.equal(
+      resolveProjectBinary('mercato', { cwd: root, platform: 'linux' }),
+      binaryPath,
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveProjectBinary leaves commands unchanged when no local executable exists', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-project-binary-miss-'))
+
+  try {
+    assert.equal(
+      resolveProjectBinary('mercato', { cwd: root, platform: 'linux' }),
+      'mercato',
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('resolveSpawnCommand keeps non-Windows commands unchanged', () => {
   const result = resolveSpawnCommand('yarn', ['--version'], { platform: 'linux' })
