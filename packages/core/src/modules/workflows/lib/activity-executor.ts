@@ -191,6 +191,41 @@ export async function enqueueActivity(
   return jobId
 }
 
+/**
+ * Enqueue a delayed timer job for a WAIT_FOR_TIMER step.
+ *
+ * The activity worker handles `kind: 'timer'` jobs by calling
+ * `timerHandler.fireTimer`, which resumes the paused workflow instance.
+ */
+export async function enqueueTimerJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  tenantId: string
+  organizationId: string
+  userId?: string
+  fireAt: string
+  delayMs: number
+}): Promise<string> {
+  const { workflowInstanceId, stepInstanceId, tenantId, organizationId, userId, fireAt, delayMs } =
+    params
+
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(
+    {
+      kind: 'timer',
+      workflowInstanceId,
+      stepInstanceId,
+      tenantId,
+      organizationId,
+      userId,
+      fireAt,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
+
+  return jobId
+}
+
 // ============================================================================
 // Main Activity Execution Functions
 // ============================================================================
