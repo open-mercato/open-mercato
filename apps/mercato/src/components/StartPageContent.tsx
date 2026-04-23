@@ -125,7 +125,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             </div>
           </div>
           <div className="md:ml-auto">
-            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-600 px-6 py-5 text-base font-semibold text-white shadow-md">
+            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-ring px-6 py-5 text-base font-semibold text-white shadow-md">
               <Link href="/onboarding">
                 {t('startPage.onboarding.cta', 'Start onboarding')}
                 <ArrowRight className="size-4" aria-hidden />
@@ -248,7 +248,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </div>
         <p className="text-xs text-muted-foreground">
           {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
-          <code className="rounded bg-muted px-2 py-0.5 text-[10px] text-foreground">{baseUrl}</code>
+          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{baseUrl}</code>
         </p>
       </section>
 
@@ -260,7 +260,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         />
         <label
           htmlFor="show-start-page"
-          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 cursor-pointer"
         >
           {t('startPage.showNextTime', 'Display this start page next time')}
         </label>

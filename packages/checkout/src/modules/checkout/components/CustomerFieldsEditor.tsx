@@ -133,7 +133,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
   )
 
   const inputClassName = React.useCallback(
-    (error?: string) => (error ? 'border-destructive focus-visible:ring-destructive/30' : undefined),
+    (error?: string) => (error ? 'border-destructive aria-invalid:ring-destructive' : undefined),
     [],
   )
 
@@ -210,7 +210,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       <Label>{t('checkout.customerFieldsEditor.columns.type')}</Label>
                       <select
                         className={kindError
-                          ? 'w-full rounded-md border border-destructive bg-background px-3 py-2 text-sm focus-visible:ring-destructive/30'
+                          ? 'w-full rounded-md border border-destructive bg-background px-3 py-2 text-sm aria-invalid:ring-destructive'
                           : 'w-full rounded-md border bg-background px-3 py-2 text-sm'}
                         value={field.kind}
                         onChange={(event) => updateField(index, { kind: event.target.value as CustomerFieldDefinitionInput['kind'] })}
@@ -226,7 +226,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       {kindError ? <p className="text-xs text-destructive">{kindError}</p> : null}
                     </div>
 
-                    <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3 text-sm">
+                    <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-3 text-sm">
                       <input
                         type="checkbox"
                         checked={field.required}
@@ -255,7 +255,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                   </div>
 
                   {(field.kind === 'select' || field.kind === 'radio') ? (
-                    <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
+                    <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/30 p-3">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <Settings2 className="h-4 w-4 text-muted-foreground" />
                         {t('checkout.customerFieldsEditor.options.title')}

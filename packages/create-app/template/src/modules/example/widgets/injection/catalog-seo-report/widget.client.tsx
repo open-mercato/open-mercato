@@ -96,15 +96,15 @@ export default function CatalogSeoReportWidget(_props: InjectionWidgetComponentP
       ) : loading ? (
         <p className="mt-2 text-xs text-muted-foreground">{t('common.loading', 'Loading…')}</p>
       ) : issues.length === 0 ? (
-        <p className="mt-2 text-xs text-emerald-700">{t('example.widgets.catalogSeoReport.healthy', 'All reviewed items look good!')}</p>
+        <p className="mt-2 text-xs text-status-success-text">{t('example.widgets.catalogSeoReport.healthy', 'All reviewed items look good!')}</p>
       ) : (
         <ul className="mt-3 space-y-2">
           {issues.map((issue) => (
-            <li key={issue.id} className="rounded border border-amber-200 dark:border-amber-900/70 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+            <li key={issue.id} className="rounded border border-status-warning-border bg-status-warning-bg px-3 py-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium text-foreground dark:text-amber-50">{issue.title}</div>
-                  <div className="text-[11px] text-amber-800 dark:text-amber-300">{issue.issue}</div>
+                  <div className="text-sm font-medium text-foreground">{issue.title}</div>
+                  <div className="text-overline text-status-warning-text">{issue.issue}</div>
                 </div>
                 <Button asChild size="sm" variant="outline">
                   <a href={`/backend/catalog/products/${issue.id}`} className="text-xs">
