@@ -34,7 +34,7 @@
 
 ### Phase 1: Plan and BC-safe env support
 
-- [ ] 1.1 Add the run plan on the task branch
+- [x] 1.1 Add the run plan on the task branch — 57e7fab22
 - [ ] 1.2 Introduce `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` as the preferred env name while preserving `DISABLE_VECTOR_SEARCH_AUTOINDEXING` as a supported legacy alias in runtime/config surfaces
 
 ### Phase 2: Default-off examples and docs
