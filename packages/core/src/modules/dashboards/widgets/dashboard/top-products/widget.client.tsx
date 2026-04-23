@@ -122,7 +122,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.limit}
             onChange={(e) => {
               const next = Number(e.target.value)
@@ -139,7 +139,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           </label>
           <select
             id="top-products-layout"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.layout}
             onChange={(e) => onSettingsChange({ ...hydrated, layout: e.target.value as 'horizontal' | 'vertical' })}
           >

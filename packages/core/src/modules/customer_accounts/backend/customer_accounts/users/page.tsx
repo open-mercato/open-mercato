@@ -428,8 +428,8 @@ export default function CustomerAccountsPage() {
         cell: ({ row }) => (
           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
             row.original.emailVerified
-              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+              ? 'bg-status-success-bg text-status-success-text'
+              : 'bg-status-warning-bg text-status-warning-text'
           }`}>
             {row.original.emailVerified
               ? t('customer_accounts.admin.verified', 'Yes')
@@ -443,8 +443,8 @@ export default function CustomerAccountsPage() {
         cell: ({ row }) => (
           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
             row.original.isActive
-              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+              ? 'bg-status-success-bg text-status-success-text'
+              : 'bg-status-error-bg text-status-error-text'
           }`}>
             {row.original.isActive
               ? t('customer_accounts.admin.active', 'Active')
@@ -477,21 +477,21 @@ export default function CustomerAccountsPage() {
   return (
     <Page>
       <PageBody className="space-y-4">
-        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              <h3 className="text-sm font-medium text-status-info-text">
                 {t('customer_accounts.admin.portalInfo.title', 'Customer Portal')}
               </h3>
-              <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+              <p className="mt-1 text-sm text-status-info-text">
                 {t('customer_accounts.admin.portalInfo.description', 'Manage customer portal accounts. Customers can self-register, log in, and access orders, quotes, and invoices through the portal.')}
               </p>
-              <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-400">
+              <p className="mt-1.5 text-xs text-status-info-text">
                 {t('customer_accounts.admin.portalInfo.url', 'Portal URL: {url}', {
                   url: `${typeof window !== 'undefined' ? window.location.origin : ''}/[org-slug]/portal`,
                 })}
               </p>
-              <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400">
+              <p className="mt-0.5 text-xs text-status-info-text">
                 {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
               </p>
             </div>

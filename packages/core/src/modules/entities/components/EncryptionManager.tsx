@@ -269,7 +269,7 @@ export function EncryptionManager() {
     }
     if (!fields.length) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('entities.encryption.empty', 'No fields are encrypted yet. Add the first one below.')}
         </div>
       )
@@ -329,7 +329,7 @@ export function EncryptionManager() {
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-overline text-muted-foreground">
                       {t('entities.encryption.fields.hashHint', 'Use when lookups must stay deterministic (e.g., login by email).')}
                     </p>
                   </td>
@@ -401,7 +401,7 @@ export function EncryptionManager() {
             </label>
           </div>
         </div>
-        <div className="rounded-lg border bg-background/70 p-4">
+        <div className="rounded-lg border bg-background/80 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium">{t('entities.encryption.fields.title', 'Encrypted fields')}</h3>

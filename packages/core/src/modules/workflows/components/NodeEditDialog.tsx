@@ -512,7 +512,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   value={stepName}
                   onChange={(e) => setStepName(e.target.value)}
                   placeholder={t('workflows.form.placeholders.stepName')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                   autoFocus
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -530,7 +530,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('workflows.form.placeholders.description')}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   {t('workflows.form.descriptions.description')}
@@ -547,7 +547,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   value={timeout}
                   onChange={(e) => setTimeout(e.target.value)}
                   placeholder={t('workflows.form.placeholders.timeout')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   {t('workflows.form.descriptions.timeout')}
@@ -572,7 +572,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={assignedTo}
                       onChange={(e) => setAssignedTo(e.target.value)}
                       placeholder={t('workflows.form.placeholders.userId')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.assignedTo')}
@@ -588,7 +588,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={assignedToRoles}
                       onChange={(e) => setAssignedToRoles(e.target.value)}
                       placeholder={t('workflows.form.placeholders.roles')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.assignedToRoles')}
@@ -604,7 +604,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={formKey}
                       onChange={(e) => setFormKey(e.target.value)}
                       placeholder={t('workflows.form.placeholders.formKey')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.formKey')}
@@ -690,7 +690,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     type="text"
                                     value={field.name}
                                     onChange={(e) => updateFormField(index, 'name', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                     placeholder={t('workflows.form.placeholders.fieldName')}
                                   />
                                   <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.fieldName')}</p>
@@ -703,7 +703,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     type="text"
                                     value={field.label}
                                     onChange={(e) => updateFormField(index, 'label', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                     placeholder={t('workflows.form.placeholders.fieldLabel')}
                                   />
                                   <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.fieldLabel')}</p>
@@ -715,7 +715,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <select
                                     value={field.type}
                                     onChange={(e) => updateFormField(index, 'type', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   >
                                     <option value="text">{t('workflows.form.fieldTypes.text')}</option>
                                     <option value="number">{t('workflows.form.fieldTypes.number')}</option>
@@ -739,7 +739,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     type="text"
                                     value={field.placeholder || ''}
                                     onChange={(e) => updateFormField(index, 'placeholder', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                     placeholder={t('workflows.form.placeholders.placeholder')}
                                   />
                                 </div>
@@ -751,7 +751,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     type="text"
                                     value={field.defaultValue || ''}
                                     onChange={(e) => updateFormField(index, 'defaultValue', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                     placeholder={t('workflows.form.placeholders.defaultValue')}
                                   />
                                 </div>
@@ -764,7 +764,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       type="text"
                                       value={field.options?.join(', ') || ''}
                                       onChange={(e) => updateFormField(index, 'options', e.target.value.split(',').map(o => o.trim()).filter(Boolean))}
-                                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                       placeholder={t('workflows.form.placeholders.options')}
                                     />
                                     <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.options')}</p>
@@ -778,7 +778,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       type="checkbox"
                                       checked={field.required}
                                       onChange={(e) => updateFormField(index, 'required', e.target.checked)}
-                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                      className="rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
                                     />
                                     {t('workflows.form.requiredField')}
                                   </label>
@@ -904,7 +904,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityId = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring"
                                     placeholder={t('workflows.form.placeholders.activityId')}
                                   />
                                 </div>
@@ -922,7 +922,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityName = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring"
                                     placeholder={t('workflows.form.placeholders.activityName')}
                                   />
                                 </div>
@@ -939,7 +939,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityType = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring"
                                   >
                                     <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
                                     <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
@@ -963,7 +963,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].timeoutMs = e.target.value ? parseInt(e.target.value) : undefined
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring"
                                     placeholder={t('workflows.form.placeholders.timeoutMs')}
                                   />
                                   <p className="text-xs text-gray-500 mt-1">{t('workflows.form.descriptions.timeoutMs')}</p>
@@ -1048,7 +1048,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                         updated[index].async = e.target.checked
                                         setStepActivities(updated)
                                       }}
-                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus-visible:ring-ring"
                                     />
                                     <span className="text-xs text-gray-700">{t('workflows.form.executeAsync')}</span>
                                   </label>
@@ -1118,7 +1118,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         value={subWorkflowId}
                         onChange={(e) => setSubWorkflowId(e.target.value)}
                         placeholder={t('workflows.form.placeholders.subWorkflowId')}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                         readOnly
                       />
                       <Button
@@ -1143,7 +1143,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={subWorkflowVersion}
                       onChange={(e) => setSubWorkflowVersion(e.target.value)}
                       placeholder={t('workflows.form.placeholders.version')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.subWorkflowVersion')}
@@ -1189,7 +1189,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setInputMappings(newMappings)
                                 }}
                                 placeholder={t('workflows.form.placeholders.childKey')}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus-visible:ring-2 focus-visible:ring-ring"
                               />
                               <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.childKey')}</p>
                             </div>
@@ -1204,7 +1204,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setInputMappings(newMappings)
                                 }}
                                 placeholder={t('workflows.form.placeholders.parentPath')}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus-visible:ring-2 focus-visible:ring-ring"
                               />
                               <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.parentPath')}</p>
                             </div>
@@ -1264,7 +1264,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setOutputMappings(newMappings)
                                 }}
                                 placeholder={t('workflows.form.placeholders.parentKey')}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus-visible:ring-2 focus-visible:ring-ring"
                               />
                               <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.parentKey')}</p>
                             </div>
@@ -1279,7 +1279,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setOutputMappings(newMappings)
                                 }}
                                 placeholder={t('workflows.form.placeholders.childPath')}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus-visible:ring-2 focus-visible:ring-ring"
                               />
                               <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.childPath')}</p>
                             </div>
@@ -1320,7 +1320,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={signalName}
                       onChange={(e) => setSignalName(e.target.value)}
                       placeholder={t('workflows.form.placeholders.signalName')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.signalName')}
@@ -1336,7 +1336,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={signalTimeout}
                       onChange={(e) => setSignalTimeout(e.target.value)}
                       placeholder={t('workflows.form.placeholders.signalTimeout')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.signalTimeout')}

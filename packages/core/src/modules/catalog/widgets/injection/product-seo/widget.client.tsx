@@ -112,7 +112,7 @@ export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps
         </div>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-overline text-muted-foreground">
         {t('catalog.products.create.seoWidget.footer', 'Example widget powered by the injection system.')}{' '}
         <a className="text-primary underline" href="/docs/framework/admin-ui/widget-injection" target="_blank" rel="noreferrer">
           {t('catalog.products.create.seoWidget.learnMore', 'Learn how to build your own')}

@@ -318,7 +318,7 @@ export function TranslationManager({
   const renderFieldTable = () => {
     if (!entityType || !recordId) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('translations.manager.selectFirst', 'Select an entity and record to manage translations.')}
         </div>
       )
@@ -345,7 +345,7 @@ export function TranslationManager({
     }
     if (!fieldList.length) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('translations.manager.noFields', 'No translatable fields found for this entity type.')}
         </div>
       )
@@ -492,7 +492,7 @@ export function TranslationManager({
           </div>
         )}
 
-        <div className="rounded-lg border bg-background/70 p-4">
+        <div className="rounded-lg border bg-background/80 p-4">
           {renderLocaleTabs()}
           <div className="mt-3">
             {renderFieldTable()}

@@ -60,7 +60,7 @@ export default function PortalProfilePage({ params }: Props) {
               value={
                 <span className="flex items-center gap-2">
                   <span className="truncate">{user.email}</span>
-                  <Badge variant={user.emailVerified ? 'default' : 'outline'} className="shrink-0 text-[10px]">
+                  <Badge variant={user.emailVerified ? 'default' : 'outline'} className="shrink-0 text-overline">
                     {user.emailVerified ? t('portal.dashboard.emailVerified', 'Verified') : t('portal.dashboard.emailNotVerified', 'Unverified')}
                   </Badge>
                 </span>
@@ -73,7 +73,7 @@ export default function PortalProfilePage({ params }: Props) {
             {isPortalAdmin ? (
               <>
                 <PortalCardDivider />
-                <PortalStatRow label={t('portal.dashboard.roles', 'Role')} value={<Badge className="text-[10px]">{t('portal.dashboard.portalAdmin', 'Portal Admin')}</Badge>} />
+                <PortalStatRow label={t('portal.dashboard.roles', 'Role')} value={<Badge className="text-overline">{t('portal.dashboard.portalAdmin', 'Portal Admin')}</Badge>} />
               </>
             ) : null}
           </div>
@@ -84,7 +84,7 @@ export default function PortalProfilePage({ params }: Props) {
           {roles.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {roles.map((role) => (
-                <span key={role.id} className="inline-flex items-center rounded-lg border px-3 py-1.5 text-[12px] font-medium">{role.name}</span>
+                <span key={role.id} className="inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-medium">{role.name}</span>
               ))}
             </div>
           ) : (
@@ -97,7 +97,7 @@ export default function PortalProfilePage({ params }: Props) {
           {resolvedFeatures.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {resolvedFeatures.map((feature) => (
-                <span key={feature} className="inline-flex items-center rounded-md border bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">{feature}</span>
+                <span key={feature} className="inline-flex items-center rounded-md border bg-muted/50 px-2 py-1 font-mono text-overline text-muted-foreground">{feature}</span>
               ))}
             </div>
           ) : (

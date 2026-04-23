@@ -107,7 +107,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
         <select
           value={group.operator}
           onChange={handleOperatorChange}
-          className="px-3 py-1.5 text-sm font-semibold border border-border rounded bg-card focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-1.5 text-sm font-semibold border border-border rounded bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {logicalOperators.map((op) => (
             <option key={op.value} value={op.value}>
@@ -124,7 +124,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            className="ml-auto p-1 text-muted-foreground hover:text-status-error-text hover:bg-status-error-bg rounded transition-colors"
             title={t('business_rules.components.conditionGroup.deleteGroup')}
           >
             <X className="w-4 h-4" />
