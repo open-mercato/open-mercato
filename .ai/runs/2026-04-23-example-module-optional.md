@@ -61,5 +61,5 @@ The preset resolver already removes `example` and `example_customers_sync` from 
 
 ### Phase 3: Final validation and review
 
-- [ ] 3.1 Run generation/build/typecheck/i18n/full test gates required by the touched areas
+- [x] 3.1 Run generation/build/typecheck/i18n/full test gates required by the touched areas — 2ad4ed9bb
 - [ ] 3.2 Perform code-review and backward-compatibility self-review, then open the PR and run `auto-review-pr`
