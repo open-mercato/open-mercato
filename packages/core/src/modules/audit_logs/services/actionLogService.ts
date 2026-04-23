@@ -354,14 +354,14 @@ export class ActionLogService {
   }
 
   private async loadEntries(parsed: ActionLogListQuery, options?: { paginate?: boolean }) {
-    const query = (this.buildListQuery(parsed) as any).select('action_logs.id as id')
+    let query = (this.buildListQuery(parsed) as any).select('action_logs.id as id')
 
     if (options?.paginate !== false) {
       const { limit, offset } = this.resolvePagination(parsed)
-      query.limit(limit).offset(offset)
+      query = query.limit(limit).offset(offset)
     }
 
-    const rows = await query
+    const rows = await query.execute()
     const ids = rows.map((row: any) => row.id).filter(Boolean)
     if (ids.length === 0) return []
 
@@ -421,7 +421,7 @@ export class ActionLogService {
     if (actionTypes.length > 1) query = query.where('action_logs.action_type', 'in', actionTypes)
 
     if (parsed.sortField === 'user') {
-      query = query.leftJoin('users as audit_actor', 'audit_actor.id', '=', 'action_logs.actor_user_id')
+      query = query.leftJoin('users as audit_actor', 'audit_actor.id', 'action_logs.actor_user_id')
     }
 
     const sortDir = parsed.sortDir === 'asc' ? 'asc' : 'desc'
@@ -453,9 +453,10 @@ export class ActionLogService {
   async count(query: Partial<ActionLogListQuery>) {
     const parsed = this.parseListQuery(query)
     const row = await (this.buildListQuery(parsed) as any)
-      .clearOrder()
-      .count({ count: '*' })
-      .first()
+      .clearSelect()
+      .clearOrderBy()
+      .select(sql<string>`count(*)`.as('count'))
+      .executeTakeFirst()
 
     if (!row) return 0
     const rawCount = row.count ?? 0
