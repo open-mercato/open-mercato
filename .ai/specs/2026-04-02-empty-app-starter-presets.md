@@ -538,3 +538,4 @@ This spec is explicitly BC-preserving.
 - 2026-04-02: Initial draft for additive `empty` and `crm` starter presets, with coupling audit and BC constraints.
 - 2026-04-11: Implemented the auth bootstrap encryption-map decoupling step by moving default encryption maps to per-module `encryption.ts` registration discovered by the module generator.
 - 2026-04-22: Expanded the spec with a declarative preset manifest contract, resolver/applier split, example preset definitions, and extensibility rules for future built-in presets.
+- 2026-04-23: Implemented Phase 1 preset plumbing — `packages/create-app/src/lib/starter-presets.ts` (data-only manifest), `packages/create-app/src/lib/apply-starter-preset.ts` (resolver/applier with inheritance, validation, and filesystem mutations), unit tests in `apply-starter-preset.test.ts` (9 tests, all passing), and `--preset` flag wiring in `packages/create-app/src/index.ts` with mutual-exclusion guard against `--app`/`--app-url`.
