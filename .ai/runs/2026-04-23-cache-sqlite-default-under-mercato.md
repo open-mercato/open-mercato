@@ -39,13 +39,13 @@
 
 ### Phase 1: Confirm and align default paths
 
-- [ ] 1.1 Identify every authoritative default for SQLite cache file locations that currently points outside `.mercato`
-- [ ] 1.2 Choose a single `.mercato` default path and update runtime-facing defaults consistently
+- [x] 1.1 Identify every authoritative default for SQLite cache file locations that currently points outside `.mercato` — 301179662
+- [x] 1.2 Choose a single `.mercato` default path and update runtime-facing defaults consistently — 301179662
 
 ### Phase 2: Add regression coverage
 
-- [ ] 2.1 Add unit tests for the cache service default path resolution
-- [ ] 2.2 Add or extend tests for surfaced config metadata so the default path cannot drift back
+- [x] 2.1 Add unit tests for the cache service default path resolution — 301179662
+- [x] 2.2 Add or extend tests for surfaced config metadata so the default path cannot drift back — 301179662
 
 ### Phase 3: Validate and prepare PR
 
