@@ -51,13 +51,13 @@ The preset resolver already removes `example` and `example_customers_sync` from 
 
 ### Phase 1: Audit and harden starter surfaces
 
-- [ ] 1.1 Confirm the current lean-preset output and identify starter UI that still assumes `example` exists
-- [ ] 1.2 Update the monorepo app and standalone template starter surfaces so example-only affordances are shown only when `example` is enabled
+- [x] 1.1 Confirm the current lean-preset output and identify starter UI that still assumes `example` exists — 8a9312962
+- [x] 1.2 Update the monorepo app and standalone template starter surfaces so example-only affordances are shown only when `example` is enabled — 8a9312962
 
 ### Phase 2: Add regression coverage
 
-- [ ] 2.1 Add or extend tests covering lean preset output and start-page/example-link behavior for `classic`, `empty`, and `crm`
-- [ ] 2.2 Run targeted package tests for create-app, CLI, app, and any touched core coverage until the no-example path is green
+- [x] 2.1 Add or extend tests covering lean preset output and start-page/example-link behavior for `classic`, `empty`, and `crm` — 8a9312962
+- [x] 2.2 Run targeted package tests for create-app, CLI, app, and any touched core coverage until the no-example path is green — 8a9312962
 
 ### Phase 3: Final validation and review
 
