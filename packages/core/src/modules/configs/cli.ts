@@ -259,7 +259,9 @@ async function runStructuralCachePurge(args: ParsedArgs) {
 }
 
 function envDisablesAutoIndexing(): boolean {
-  const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
+  const raw =
+    process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING ??
+    process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
   if (!raw) return false
   return parseBooleanToken(raw) === true
 }
@@ -296,7 +298,9 @@ const restoreDefaults: ModuleCli = {
       )
       console.log(
         `[configs] Vector auto-indexing default set to ${defaultEnabled ? 'enabled' : 'disabled'}${
-          disabledByEnv ? ' (forced by DISABLE_VECTOR_SEARCH_AUTOINDEXING)' : ''
+          disabledByEnv
+            ? ' (forced by OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING or legacy DISABLE_VECTOR_SEARCH_AUTOINDEXING)'
+            : ''
         }.`,
       )
     } finally {

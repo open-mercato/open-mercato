@@ -177,7 +177,12 @@ export async function POST(req: Request) {
     if (parsed.data.autoIndexingEnabled !== undefined) {
       if (envDisablesAutoIndexing()) {
         return NextResponse.json(
-          { error: t('search.api.errors.autoIndexingDisabled', 'Auto-indexing is disabled via DISABLE_VECTOR_SEARCH_AUTOINDEXING.') },
+          {
+            error: t(
+              'search.api.errors.autoIndexingDisabled',
+              'Auto-indexing is disabled via OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (legacy alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).',
+            ),
+          },
           { status: 409 },
         )
       }
