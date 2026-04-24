@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
 const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim();
+const IS_STANDALONE_APP = Boolean(TEST_APP_ROOT);
 const APP_ROOT = TEST_APP_ROOT
   ? path.resolve(TEST_APP_ROOT)
   : path.resolve(process.cwd(), 'apps/mercato');
@@ -34,9 +35,10 @@ const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound';
 const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound';
 const EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE = 'example-customers-sync-reconcile';
 
-loadEnv({ path: path.resolve(APP_ROOT, '.env'), override: Boolean(TEST_APP_ROOT) });
-
-process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
+if (!IS_STANDALONE_APP) {
+  loadEnv({ path: path.resolve(APP_ROOT, '.env') });
+  process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
+}
 
 type TokenScope = ReturnType<typeof getTokenScope>;
 
@@ -604,6 +606,10 @@ test.describe('TC-CRM-028: Example customer sync', () => {
   let adminScope: TokenScope;
 
   test.beforeAll(async ({ request }) => {
+    test.skip(
+      IS_STANDALONE_APP,
+      'TC-CRM-028 uses monorepo-only in-process queue/bootstrap assertions and is skipped for standalone parity runs',
+    );
     const data = await getBootstrapData();
     test.skip(!hasSyncWorkers(data), 'example_customers_sync workers not registered — skipping sync tests');
     adminToken = await getAuthToken(request, 'admin');
