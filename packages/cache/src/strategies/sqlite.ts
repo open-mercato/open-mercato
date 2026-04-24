@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { CacheDependencyUnavailableError } from '../errors'
+import { DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
 
 type SqliteStatement<TResult = unknown> = {
   get(...args: unknown[]): TResult | undefined
@@ -35,7 +36,7 @@ const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
 export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: number }): CacheStrategy {
   let db: SqliteDatabase | null = null
   const defaultTtl = options?.defaultTtl
-  const filePath = dbPath || process.env.CACHE_SQLITE_PATH || '.cache.db'
+  const filePath = dbPath || process.env.CACHE_SQLITE_PATH || DEFAULT_SQLITE_CACHE_PATH
 
   async function getDb(): Promise<SqliteDatabase> {
     if (db) return db
