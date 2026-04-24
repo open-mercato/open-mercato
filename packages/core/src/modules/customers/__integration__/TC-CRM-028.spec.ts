@@ -598,6 +598,54 @@ async function cleanupDbRows(input: {
   }
 }
 
+test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
+  test.beforeAll(async ({ request }) => {
+    test.skip(!IS_STANDALONE_APP, 'Standalone smoke coverage runs only when OM_TEST_APP_ROOT is set');
+  });
+
+  test('exposes sync diagnostics APIs and accepts reconcile jobs', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const adminScope = getTokenScope(adminToken);
+
+    try {
+      const enabledToggleId = await resolveToggleId(request, superadminToken, SYNC_TOGGLE_IDS.enabled);
+      const bidirectionalToggleId = await resolveToggleId(request, superadminToken, SYNC_TOGGLE_IDS.bidirectional);
+
+      expect(enabledToggleId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+      expect(bidirectionalToggleId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        `${EXAMPLE_CUSTOMERS_SYNC_API_BASE}/mappings?limit=5`,
+        { token: superadminToken },
+      );
+      expect(listResponse.status()).toBe(200);
+      const listBody = await readJsonSafe<{ items?: MappingItem[] }>(listResponse);
+      expect(Array.isArray(listBody?.items)).toBe(true);
+
+      const reconcileResponse = await apiRequest(request, 'POST', `${EXAMPLE_CUSTOMERS_SYNC_API_BASE}/reconcile`, {
+        token: superadminToken,
+        data: {
+          organizationId: adminScope.organizationId,
+          tenantId: adminScope.tenantId,
+          limit: 5,
+        },
+      });
+      expect(reconcileResponse.status()).toBe(202);
+      const reconcileBody = await readJsonSafe<{ queued?: number }>(reconcileResponse);
+      expect(reconcileBody?.queued).toBe(1);
+    } finally {
+      await clearSyncFlagOverrides(request, superadminToken);
+    }
+  });
+});
+
 test.describe('TC-CRM-028: Example customer sync', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -608,7 +656,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
   test.beforeAll(async ({ request }) => {
     test.skip(
       IS_STANDALONE_APP,
-      'TC-CRM-028 uses monorepo-only in-process queue/bootstrap assertions and is skipped for standalone parity runs',
+      'Full CRM28 queue/bootstrap coverage is monorepo-only; standalone uses the smoke suite above',
     );
     const data = await getBootstrapData();
     test.skip(!hasSyncWorkers(data), 'example_customers_sync workers not registered — skipping sync tests');
