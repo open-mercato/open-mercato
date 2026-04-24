@@ -5,6 +5,7 @@ import { sql } from 'kysely'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -495,7 +496,7 @@ export async function GET(req: Request) {
       authorName: row.author_user_id ? userMap.get(row.author_user_id)?.name ?? null : null,
       authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
-      customValues: customFieldValues[row.id] ?? null,
+      customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }))
 
     const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId)

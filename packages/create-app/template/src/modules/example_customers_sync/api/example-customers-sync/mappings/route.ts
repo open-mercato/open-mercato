@@ -24,11 +24,11 @@ type MappingRow = {
   interaction_id: string
   todo_id: string
   sync_status: string
-  last_synced_at: Date | null
+  last_synced_at: Date | string | null
   last_error: string | null
-  source_updated_at: Date | null
-  created_at: Date
-  updated_at: Date
+  source_updated_at: Date | string | null
+  created_at: Date | string
+  updated_at: Date | string
   organization_id: string
   tenant_id: string
 }
@@ -51,6 +51,15 @@ function decodeCursor(token: string | undefined): CursorPayload | null {
   } catch {
     return null
   }
+}
+
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
 export async function GET(request: Request) {
@@ -163,11 +172,11 @@ export async function GET(request: Request) {
         interactionId: row.interaction_id,
         todoId: row.todo_id,
         syncStatus: row.sync_status,
-        lastSyncedAt: row.last_synced_at?.toISOString() ?? null,
+        lastSyncedAt: toIsoString(row.last_synced_at),
         lastError: row.last_error ?? null,
-        sourceUpdatedAt: row.source_updated_at?.toISOString() ?? null,
-        createdAt: row.created_at.toISOString(),
-        updatedAt: row.updated_at.toISOString(),
+        sourceUpdatedAt: toIsoString(row.source_updated_at),
+        createdAt: toIsoString(row.created_at),
+        updatedAt: toIsoString(row.updated_at),
         organizationId: row.organization_id,
         tenantId: row.tenant_id,
         exampleHref: `/backend/todos/${encodeURIComponent(row.todo_id)}/edit`,
@@ -186,7 +195,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       items,
-      ...(last ? { nextCursor: encodeCursor({ updatedAt: last.updated_at.toISOString(), id: last.id }) } : {}),
+      ...(last ? { nextCursor: encodeCursor({ updatedAt: toIsoString(last.updated_at) ?? new Date(0).toISOString(), id: last.id }) } : {}),
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
