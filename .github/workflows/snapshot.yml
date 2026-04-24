@@ -274,8 +274,8 @@ jobs:
           cp .env.example .env
           cat >> .env << 'EOF'
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
-          APP_URL=http://localhost:3001
-          NEXT_PUBLIC_APP_URL=http://localhost:3001
+          APP_URL=http://localhost:3000
+          NEXT_PUBLIC_APP_URL=http://localhost:3000
           JWT_SECRET=ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
@@ -285,7 +285,6 @@ jobs:
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
-          MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
@@ -322,7 +321,26 @@ jobs:
       - name: Run standalone integration tests
         working-directory: /tmp/standalone-app
         env:
+          APP_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          JWT_SECRET: ci-standalone-test-jwt-secret
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
+          OM_TEST_MODE: '1'
+          OM_TEST_AUTH_RATE_LIMIT_MODE: opt-in
+          OM_DISABLE_EMAIL_DELIVERY: '1'
+          OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+          ENABLE_CRUD_API_CACHE: 'true'
+          MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
+          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true'
+          OM_ENABLE_ENTERPRISE_MODULES: 'true'
+          OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+          OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+          AUTO_SPAWN_WORKERS: 'false'
+          AUTO_SPAWN_SCHEDULER: 'false'
+          CACHE_STRATEGY: memory
           OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
+          NODE_ENV: test
         run: yarn test:integration:ephemeral --no-reuse-env
 
       - name: Upload test artifacts
