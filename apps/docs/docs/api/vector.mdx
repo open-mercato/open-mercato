@@ -66,6 +66,8 @@ Each result includes a similarity `score` (higher is better), a primary URL, opt
 
 The `configuredProviders` array lists providers with valid API keys. Use this to populate provider dropdowns in custom UIs.
 
+If `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true`, the API reports auto-indexing as locked off and rejects attempts to re-enable it from the UI or API. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` is still accepted for existing deployments.
+
 ### Settings payloads
 
 ```bash

@@ -1,9 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // resolvePreset tests
 
@@ -144,4 +147,12 @@ test('applyStarterPreset: crm writes 9-module modules.ts and removes example dir
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('template baseline modules keep example enabled for classic', () => {
+  const content = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
+
+  assert.ok(content.includes("id: 'example'"))
+  assert.ok(content.includes("enabledModules.some((entry) => entry.id === 'example')"))
+  assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
 })

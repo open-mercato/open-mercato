@@ -1,5 +1,5 @@
 {
-  "search.api.errors.autoIndexingDisabled": "Automatyczne indeksowanie jest wyłączone.",
+  "search.api.errors.autoIndexingDisabled": "Automatyczne indeksowanie jest wyłączone przez OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (stary alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "search.api.errors.configUnavailable": "Usługa konfiguracji jest niedostępna.",
   "search.api.errors.confirmAllRequired": "Wymagane jest potwierdzenie dla wszystkich elementów.",
   "search.api.errors.indexFetchFailed": "Nie udało się pobrać danych indeksu.",

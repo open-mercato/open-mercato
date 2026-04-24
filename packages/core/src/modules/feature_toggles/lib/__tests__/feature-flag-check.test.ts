@@ -1,6 +1,6 @@
 import { FeatureTogglesService } from '../feature-flag-check';
 import { FeatureToggle, FeatureToggleOverride } from '../../data/entities';
-import { CacheService } from '@open-mercato/cache';
+import { CacheService, runWithCacheTenant } from '@open-mercato/cache';
 import { EntityManager } from '@mikro-orm/core';
 
 jest.mock('@open-mercato/cache');
@@ -10,12 +10,15 @@ describe('FeatureTogglesService', () => {
     let service: FeatureTogglesService;
     let mockCache: jest.Mocked<CacheService>;
     let mockEm: jest.Mocked<EntityManager>;
+    let mockRunWithCacheTenant: jest.MockedFunction<typeof runWithCacheTenant>;
 
     const mockIdentifier = 'test-feature';
     const mockTenantId = 'tenant-123';
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockRunWithCacheTenant = runWithCacheTenant as jest.MockedFunction<typeof runWithCacheTenant>;
+        mockRunWithCacheTenant.mockImplementation(async (_tenantId, operation) => await operation());
 
         mockCache = {
             get: jest.fn(),

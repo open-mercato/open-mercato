@@ -6266,7 +6266,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
+"@open-mercato/cache@npm:0.5.0, @open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cache@workspace:packages/cache"
   dependencies:
@@ -6524,6 +6524,7 @@ __metadata:
     "@mikro-orm/core": "npm:^7.0.10"
     "@mikro-orm/decorators": "npm:^7.0.10"
     "@mikro-orm/postgresql": "npm:^7.0.10"
+    "@open-mercato/cache": "npm:0.5.0"
     "@types/jest": "npm:^30.0.0"
     "@types/sanitize-html": "npm:^2.16.1"
     dotenv: "npm:^17.4.2"

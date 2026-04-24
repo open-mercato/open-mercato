@@ -10,6 +10,8 @@ on:
         options:
           - qa1
           - qa2
+          - qa3
+          - qa4
 
       branch:
         description: "Branch to build and deploy"
@@ -110,14 +112,24 @@ jobs:
 
           SLOT="${{ steps.meta.outputs.slot }}"
 
-          if [[ "$SLOT" == "qa1" ]]; then
-            APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
-          elif [[ "$SLOT" == "qa2" ]]; then
-            APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
-          else
-            echo "Unknown slot: $SLOT"
-            exit 1
-          fi
+          case "$SLOT" in
+            qa1)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
+              ;;
+            qa2)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
+              ;;
+            qa3)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA3 }}"
+              ;;
+            qa4)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA4 }}"
+              ;;
+            *)
+              echo "Unknown slot: $SLOT"
+              exit 1
+              ;;
+          esac
 
           if [[ -z "$APP_ID" ]]; then
             echo "Missing Dokploy app id for $SLOT"
@@ -133,8 +145,15 @@ jobs:
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           APP_ID: ${{ steps.app.outputs.application_id }}
           DOCKER_IMAGE: ${{ steps.meta.outputs.image_full }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [[ -z "$GHCR_USERNAME" || -z "$GHCR_TOKEN" ]]; then
+            echo "Missing GHCR_USERNAME or GHCR_TOKEN secret"
+            exit 1
+          fi
 
           curl -fsS -X POST "${DOKPLOY_URL}/api/application.saveDockerProvider" \
             -H "x-api-key: ${DOKPLOY_API_KEY}" \
@@ -142,7 +161,16 @@ jobs:
             -d "$(jq -n \
               --arg applicationId "$APP_ID" \
               --arg dockerImage "$DOCKER_IMAGE" \
-              '{applicationId: $applicationId, dockerImage: $dockerImage}')"
+              --arg registryUrl "ghcr.io" \
+              --arg username "$GHCR_USERNAME" \
+              --arg password "$GHCR_TOKEN" \
+              '{
+                applicationId: $applicationId,
+                dockerImage: $dockerImage,
+                registryUrl: $registryUrl,
+                username: $username,
+                password: $password
+              }')"
 
       - name: Trigger Dokploy deploy
         shell: bash

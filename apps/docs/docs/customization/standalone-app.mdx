@@ -311,7 +311,8 @@ The `.env.example` file documents all available variables. Key sections:
 | `JWT_SECRET` | Yes | Secret for signing auth tokens. |
 | `REDIS_URL` | Yes | Redis connection for caching and events. |
 | `MEILISEARCH_HOST` | No | Meilisearch URL for full-text search. |
-| `OPENAI_API_KEY` | No | Required for vector search and AI features. |
+| `OPENAI_API_KEY` | No | Enables OpenAI-backed AI features; pair it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` when you want vector auto-indexing. |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | No | Defaults to `true` in the example env. Set to `false` or remove it to enable automatic vector indexing. |
 | `CACHE_STRATEGY` | No | `memory`, `sqlite`, `redis`, or `jsonfile`. Defaults to `memory`. |
 | `QUEUE_STRATEGY` | No | `local` or `async`. Use `async` with Redis for production. |
 | `APP_URL` | No | Public URL, used in emails and onboarding. |

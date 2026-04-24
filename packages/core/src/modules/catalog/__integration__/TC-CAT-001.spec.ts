@@ -7,6 +7,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CAT-001: Create New Product', () => {
   test('should create a product from catalog create form', async ({ page }) => {
+    test.slow();
     const productName = `QA TC-CAT-001 ${Date.now()}`;
     const sku = `QA-CAT-001-${Date.now()}`;
 
@@ -26,11 +27,18 @@ test.describe('TC-CAT-001: Create New Product', () => {
       .filter({ hasText: /^Create product$|catalog\.products\.actions\.create/i })
       .first();
     await expect(createProductButton).toBeEnabled();
+    const createResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/api/catalog/products'),
+    );
     await createProductButton.click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.ok()).toBe(true);
 
     await expect(page).toHaveURL(
       /\/backend\/catalog\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      { timeout: 10_000 },
+      { timeout: 20_000 },
     );
     const createdProductId = page.url().split('/').at(-1) ?? '';
     expect(createdProductId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);

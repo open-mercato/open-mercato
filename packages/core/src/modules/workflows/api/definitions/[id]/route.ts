@@ -19,6 +19,7 @@ import {
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
 import { serializeWorkflowDefinition } from '../serialize'
+import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 
 export const metadata = {
   requireAuth: true,
@@ -178,6 +179,10 @@ export async function PUT(
 
     await em.flush()
 
+    // Embedded triggers may have changed; invalidate the in-memory cache so
+    // the wildcard event subscriber reloads them on the next event.
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
+
     return NextResponse.json({
       data: serializeWorkflowDefinition(definition),
       message: 'Workflow definition updated successfully',
@@ -268,6 +273,8 @@ export async function DELETE(
     definition.updatedAt = new Date()
 
     await em.flush()
+
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
     return NextResponse.json({
       message: 'Workflow definition deleted successfully',

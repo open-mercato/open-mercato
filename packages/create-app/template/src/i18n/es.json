@@ -912,7 +912,7 @@
   "upgrades.v042.message": "La versión {{version}} se ha instalado. Habilita los widgets de analíticas para los roles admin y empleado.",
   "upgrades.v042.success": "Widgets de analíticas habilitados para admin y empleado.",
   "upgrades.versionLabel": "Versión {{version}}",
-  "vector.api.errors.autoIndexingDisabled": "La indexación automática está deshabilitada mediante DISABLE_VECTOR_SEARCH_AUTOINDEXING.",
+  "vector.api.errors.autoIndexingDisabled": "La indexación automática está deshabilitada mediante OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (alias heredado: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "vector.api.errors.configUnavailable": "Servicio de configuración no disponible",
   "vector.api.errors.indexFetchFailed": "Error al obtener el índice vectorial",
   "vector.api.errors.indexUnavailable": "Índice vectorial no disponible",
