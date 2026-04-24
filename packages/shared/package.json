@@ -89,6 +89,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/cache": "0.5.0",
     "@mikro-orm/core": "^7.0.10",
     "@mikro-orm/decorators": "^7.0.10",
     "@mikro-orm/postgresql": "^7.0.10",

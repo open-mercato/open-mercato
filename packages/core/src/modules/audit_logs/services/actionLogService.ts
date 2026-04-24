@@ -271,10 +271,17 @@ export class ActionLogService {
       }
     }
 
+    const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
     const toNullableUuid = (value: unknown) => {
       if (typeof value !== 'string' || value.length === 0) return null
-      if (value.startsWith('api_key:')) return value.slice('api_key:'.length)
-      return value
+      // Extract UUID from "api_key:<uuid>" format (used by workflow authentication).
+      const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
+      // System actors (outbound sync workers, scheduler, etc.) carry subjects like
+      // "system:example_customers_sync:outbound" that are not UUIDs. Writing them into
+      // `actor_user_id` (uuid column) trips the Postgres driver with
+      // `invalid input syntax for type uuid`. Reject anything that isn't a UUID so the
+      // action log safely records a null actor for system-originated commands.
+      return UUID_REGEX.test(candidate) ? candidate : null
     }
 
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
