@@ -132,14 +132,14 @@ None — no `--skill-url` passed. Guidance derived from root `AGENTS.md` (PR wor
 
 ### Phase 2: Make service methods transaction-aware
 
-- [ ] 2.1 Add optional em param to CustomerUserService.updatePassword
-- [ ] 2.2 Add optional em param to CustomerSessionService.revokeAllUserSessions
+- [x] 2.1 Add optional em param to CustomerUserService.updatePassword — 35add3054
+- [x] 2.2 Add optional em param to CustomerSessionService.revokeAllUserSessions — 35add3054
 
 ### Phase 3: Wire portal password-change.ts
 
-- [ ] 3.1 Wrap mutations in em.transactional and emit event
-- [ ] 3.2 Extend password-change.route.test.ts
-- [ ] 3.3 Verify pre-existing invariants still pass
+- [x] 3.1 Wrap mutations in em.transactional and emit event — 77d4334a8
+- [x] 3.2 Extend password-change.route.test.ts — 77d4334a8
+- [x] 3.3 Verify pre-existing invariants still pass — 77d4334a8
 
 ### Phase 4: Wire reset-confirm.ts
 
