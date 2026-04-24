@@ -18,6 +18,26 @@ cleanup() {
 
 trap cleanup EXIT
 
+read_package_json_field() {
+  local manifest="$1"
+  local field="$2"
+
+  node -e '
+    const fs = require("node:fs");
+    const [manifestPath, fieldPath] = process.argv.slice(1);
+    const data = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const value = fieldPath.split(".").reduce((current, key) => current == null ? undefined : current[key], data);
+    if (value === undefined || value === null) {
+      process.exit(0);
+    }
+    if (typeof value === "object") {
+      process.stdout.write(JSON.stringify(value));
+    } else {
+      process.stdout.write(String(value));
+    }
+  ' "$manifest" "$field"
+}
+
 reset_verdaccio_storage() {
   docker compose rm -sf verdaccio > /dev/null 2>&1 || true
   docker volume rm -f mercato-verdaccio-storage mercato-verdaccio-plugins > /dev/null 2>&1 || true
@@ -58,7 +78,7 @@ while IFS= read -r pkg_dir; do
     continue
   fi
 
-  is_private=$(jq -r '.private // false' "$manifest" 2>/dev/null)
+  is_private="$(read_package_json_field "$manifest" "private")"
   if [ "$is_private" = "true" ]; then
     continue
   fi
@@ -76,8 +96,8 @@ echo ""
 echo "Step 1: Removing existing packages..."
 for pkg in "${PACKAGES[@]}"; do
   # Get actual package name and version from package.json
-  PKG_NAME=$(jq -r '.name' "$ROOT_DIR/packages/$pkg/package.json" 2>/dev/null)
-  VERSION=$(jq -r '.version' "$ROOT_DIR/packages/$pkg/package.json" 2>/dev/null)
+  PKG_NAME="$(read_package_json_field "$ROOT_DIR/packages/$pkg/package.json" "name")"
+  VERSION="$(read_package_json_field "$ROOT_DIR/packages/$pkg/package.json" "version")"
   if [ -n "$VERSION" ] && [ "$VERSION" != "null" ] && [ -n "$PKG_NAME" ] && [ "$PKG_NAME" != "null" ]; then
     echo "  Unpublishing $PKG_NAME@$VERSION..."
     npm unpublish "$PKG_NAME@$VERSION" --registry "$REGISTRY_URL" --force 2>/dev/null || true
@@ -97,7 +117,7 @@ echo ""
 echo "Step 3: Publishing packages..."
 for pkg in "${PACKAGES[@]}"; do
   PKG_DIR="$ROOT_DIR/packages/$pkg"
-  PKG_NAME=$(jq -r '.name' "$PKG_DIR/package.json" 2>/dev/null)
+  PKG_NAME="$(read_package_json_field "$PKG_DIR/package.json" "name")"
 
   if [ -d "$PKG_DIR" ]; then
     echo "  Publishing $PKG_NAME..."

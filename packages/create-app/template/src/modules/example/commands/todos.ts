@@ -27,13 +27,13 @@ import {
 
 export const todoCreateSchema = z.object({
   id: z.string().uuid().optional(),
-  title: z.string().min(1),
+  title: z.string().min(1).max(200),
   is_done: z.boolean().optional(),
 })
 
 export const todoUpdateSchema = z.object({
   id: z.string().uuid(),
-  title: z.string().min(1).optional(),
+  title: z.string().min(1).max(200).optional(),
   is_done: z.boolean().optional(),
 })
 
