@@ -103,6 +103,22 @@ TODO: Fix that latter to have reference by the package names
   --z-index-tooltip: 60;
   --z-index-banner: 70;
   --z-index-top: 100;
+
+  /* ═══ Design System: Shadow Scale ═══
+     Tuned to ink #101828. Dark mode overrides in .dark below.
+     xs  → flat controls (button, input, icon-button)
+     sm  → cards, panels, sections
+     md  → hover elevation, slightly raised cards
+     lg  → dialogs, overlays, popovers
+     xl  → floating panels (drawers, side sheets)
+     2xl → top-level modals, command palette
+  */
+  --shadow-xs:  0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-sm:  0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md:  0 4px 12px rgb(16 24 40 / 0.08);
+  --shadow-lg:  0 12px 32px rgb(16 24 40 / 0.10);
+  --shadow-xl:  0 20px 40px rgb(16 24 40 / 0.12);
+  --shadow-2xl: 0 25px 50px rgb(16 24 40 / 0.20);
 }
 
 :root {
@@ -192,6 +208,13 @@ TODO: Fix that latter to have reference by the package names
 
 .dark {
   color-scheme: dark;
+  /* Shadow scale — dark mode: use pure black, higher opacity for visibility */
+  --shadow-xs:  0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-sm:  0 1px 3px rgb(0 0 0 / 0.40), 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-md:  0 4px 12px rgb(0 0 0 / 0.50);
+  --shadow-lg:  0 12px 32px rgb(0 0 0 / 0.60);
+  --shadow-xl:  0 20px 40px rgb(0 0 0 / 0.70);
+  --shadow-2xl: 0 25px 50px rgb(0 0 0 / 0.80);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

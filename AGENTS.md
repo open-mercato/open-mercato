@@ -185,6 +185,8 @@ All packages use the `@open-mercato/<package>` naming convention:
 | UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
 | Entity tag pill | `import { Tag } from '@open-mercato/ui/primitives/tag'` |
 | Entity tag variant map | `import type { TagMap } from '@open-mercato/ui/primitives/tag'` |
+| User / entity avatar | `import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'` |
+| Keyboard shortcut key | `import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'` |
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 | API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
@@ -681,6 +683,9 @@ Decision tree — ask "what icon do I need?":
 | Confirm a destructive action | `useConfirmDialog()` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
 | Display a user-applied entity tag (Customer, Hot, Renewal) | `<Tag variant={tagMap[tag.type]} dot>` |
+| Display a user / entity avatar with initials | `<Avatar name="Jan Kowalski" size="default">` |
+| Display multiple avatars overlapping | `<AvatarStack max={4}><Avatar .../></AvatarStack>` |
+| Show a keyboard shortcut hint | `<KbdShortcut keys={['⌘', 'Enter']}>` |
 | Wrap a form field with label + error | `<FormField label="..." error={...}>` |
 | Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
 | Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
