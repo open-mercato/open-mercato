@@ -18,6 +18,7 @@ export type StarterPreset = {
 }
 
 const CORE = '@open-mercato/core'
+const EVENTS = '@open-mercato/events'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -59,6 +60,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'customers', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
+        { id: 'notifications', from: CORE },
+        { id: 'dashboards', from: CORE },
+        { id: 'events', from: EVENTS },
       ],
     },
     ui: { startPageVariant: 'crm', hideDemoLinks: true },
