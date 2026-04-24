@@ -156,8 +156,8 @@ None — no `--skill-url` passed. Guidance derived from root `AGENTS.md` (PR wor
 
 ### Phase 6: Full validation gate + PR
 
-- [ ] 6.1 Run full validation gate
-- [ ] 6.2 Self code-review + BC self-review
-- [ ] 6.3 Open PR with labels
-- [ ] 6.4 Run auto-review-pr autofix loop
+- [x] 6.1 Run full validation gate — passed (cf6d3886f)
+- [x] 6.2 Self code-review + BC self-review — cf6d3886f
+- [x] 6.3 Open PR with labels — PR #1692
+- [x] 6.4 Run auto-review-pr autofix loop — 13927fc0b (M-1 reset-confirm 404→400, L-1 admin fallback cleanup)
 - [ ] 6.5 Post summary comment, flip Status to complete
