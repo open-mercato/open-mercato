@@ -85,6 +85,10 @@ TODO: Fix that latter to have reference by the package names
   --color-status-neutral-border: var(--status-neutral-border);
   --color-status-neutral-icon: var(--status-neutral-icon);
 
+  /* ═══ Design System: Brand Colors ═══ */
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-lime: var(--brand-lime);
+
   /* ═══ Design System: Typography ═══ */
   --font-size-overline: 0.6875rem;
   --font-size-overline--line-height: 1rem;
@@ -106,6 +110,9 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
+  /* Brand colors — theme-invariant (do NOT override in .dark) */
+  --brand-violet: #BC9AFF;
+  --brand-lime: #D4F372;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

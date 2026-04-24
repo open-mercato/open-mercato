@@ -183,6 +183,8 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Menu injection hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
 | Component replacement hook | `import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'` |
 | UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
+| Entity tag pill | `import { Tag } from '@open-mercato/ui/primitives/tag'` |
+| Entity tag variant map | `import type { TagMap } from '@open-mercato/ui/primitives/tag'` |
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 | API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
@@ -380,7 +382,7 @@ Open Mercato has a distinct brand palette that is **separate from semantic token
 
 | Token | Hex | Character |
 |-------|-----|-----------|
-| Brand Lime | `#B4F372` | Energetic, fresh — gradient start |
+| Brand Lime | `#D4F372` | Energetic, fresh — gradient start |
 | Brand Yellow | `#EEFB63` | Optimistic, bright — gradient middle |
 | Brand Violet | `#BC9AFF` | Innovative, AI, premium — gradient end |
 | Brand Black | `#0C0C0C` | Hero moments, marketing typography |
@@ -397,7 +399,7 @@ Brand colors **do NOT flip in dark mode** — brand identity must stay recogniza
 |----------|-------|---------|
 | **AI / intelligence touchpoints** (buttons, dots, chips marking AI features) | Brand Violet (`brand-violet` CSS token or `#BC9AFF`) | AiDot, "Ask AI" buttons, AI-generated content markers |
 | **Custom views / perspectives pills** (user-created views saved by user) | `brand-violet` | `ViewChip`, `NewViewForm` checkmarks |
-| **Floating feedback / onboarding widgets** | Full 3-stop gradient (`#B4F372 → #EEFB63 → #BC9AFF`) | `DemoFeedbackWidget`, welcome splash screens |
+| **Floating feedback / onboarding widgets** | Full 3-stop gradient (`#D4F372 → #EEFB63 → #BC9AFF`) | `DemoFeedbackWidget`, welcome splash screens |
 | **Hero sections on marketing / landing pages** | Full gradient OR Brand Lime as standalone hero bg | Landing page heroes, product announcement banners |
 | **Loading / progress for AI operations** (not regular progress bars) | `brand-violet` or gradient stroke | AI task progress, generative content loading |
 | **Splash / onboarding / success celebration moments** | Full gradient | First-time user experience, "You did it!" confetti |
@@ -421,7 +423,7 @@ Decision tree — ask "is this a brand moment?":
 |----------|--------|-------|
 | Is it flagging AI functionality or AI-generated content? | Yes → | `brand-violet` |
 | Is it a user-saved view / perspective / custom entity pill? | Yes → | `brand-violet` (10% bg, 30% border, 100% text) |
-| Is it a landing page hero, marketing banner, or splash screen? | Yes → | Full gradient `from-[#B4F372] via-[#EEFB63] to-[#BC9AFF]` |
+| Is it a landing page hero, marketing banner, or splash screen? | Yes → | Full gradient `from-[#D4F372] via-[#EEFB63] to-[#BC9AFF]` |
 | Is it a floating CTA widget (feedback, onboarding invite, celebration)? | Yes → | Full gradient |
 | Is it a standard UI element in the backend admin (button, input, card, table)? | **No brand** → | Use semantic tokens (`primary`, `muted`, `border`, etc.) |
 | Is it a status indicator (error/success/warning/info)? | **No brand** → | Use status tokens |
@@ -437,7 +439,7 @@ Rule of thumb: **If you're asking "should I use a brand color here?", the answer
 
 // Brand gradient — inline style (only for floating widgets and hero sections)
 <div style={{
-  background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
+  background: 'linear-gradient(135deg, #D4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
 }} />
 
 // Brand neutrals — only on marketing / landing pages
@@ -445,7 +447,7 @@ Rule of thumb: **If you're asking "should I use a brand color here?", the answer
 ```
 
 **MUST NOT**:
-- Introduce a new `bg-lime-500` or `bg-[#B4F372]` utility for regular UI — the gradient is the brand, individual stops are not meant for solo use outside designated contexts
+- Introduce a new `bg-lime-500` or `bg-[#D4F372]` utility for regular UI — the gradient is the brand, individual stops are not meant for solo use outside designated contexts
 - Replace semantic tokens with brand colors to "make it look more branded"
 - Apply brand colors to accessibility-critical elements (focus rings, error states) — they have their own tokens
 
@@ -678,6 +680,7 @@ Decision tree — ask "what icon do I need?":
 | Show a toast notification | `flash('message', 'success\|error\|warning\|info')` |
 | Confirm a destructive action | `useConfirmDialog()` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
+| Display a user-applied entity tag (Customer, Hot, Renewal) | `<Tag variant={tagMap[tag.type]} dot>` |
 | Wrap a form field with label + error | `<FormField label="..." error={...}>` |
 | Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
 | Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
