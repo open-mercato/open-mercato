@@ -88,3 +88,4 @@ The same asymmetry is now present in the interactions list API route (`packages/
 - [x] 4.2 Run full validation gate (typecheck, i18n, build:packages, test, build:app) — 15b28c8e9
 - [x] 4.3 Re-run TC-CRM-028 once stack is back (dev server was taken down during reproduction; CI will cover this end-to-end) — 15b28c8e9
 - [x] Post-review fix: align Snapshot Release standalone integration with the scaffolded app harness and verify via `yarn test:create-app:integration` — 4a9ef154f
+- [x] Post-review fix: align Snapshot Release standalone `.env` and runtime env with `scripts/test-create-app-integration.ts` to remove port/secret drift — 51311a498
