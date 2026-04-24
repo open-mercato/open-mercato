@@ -11,6 +11,7 @@ scripts/publish-packages.sh            @open-mercato/maintainers
 scripts/release-patch.sh               @open-mercato/maintainers
 scripts/release-minor.sh               @open-mercato/maintainers
 scripts/release-major.sh               @open-mercato/maintainers
+scripts/release-existing.sh            @open-mercato/maintainers
 scripts/release-snapshot.sh            @open-mercato/maintainers
 
 # Container and infrastructure definitions

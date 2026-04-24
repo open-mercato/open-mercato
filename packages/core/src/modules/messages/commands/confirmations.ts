@@ -102,7 +102,7 @@ const confirmMessageCommand: CommandHandler<unknown, ConfirmMessageResult> = {
     confirmation.confirmedByUserId = actorUserId
     confirmation.confirmedAt = input.confirmed ? new Date() : null
 
-    await em.persistAndFlush(confirmation)
+    await em.persist(confirmation).flush()
 
     return {
       messageId: confirmation.messageId,

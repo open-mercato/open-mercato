@@ -33,7 +33,7 @@ const createTagCommand: CommandHandler<SalesTagCreateInput, { tagId: string }> =
       color: parsed.color ?? null,
       description: parsed.description ?? null,
     })
-    await em.persistAndFlush(tag)
+    await em.persist(tag).flush()
     return { tagId: tag.id }
   },
 }

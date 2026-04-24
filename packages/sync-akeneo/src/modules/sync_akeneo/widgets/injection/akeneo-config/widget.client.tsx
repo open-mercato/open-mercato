@@ -8,7 +8,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Progress } from '@open-mercato/ui/primitives/progress'
@@ -1452,17 +1452,20 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
             <h3 className="text-sm font-semibold">
               {t('sync_akeneo.setup.heading', 'Akeneo API setup')}
             </h3>
-        <Notice
-          compact
-          message={t('sync_akeneo.setup.scheduleTab', 'Run once and recurring schedules now live in the dedicated Sync schedules tab, shared by all data sync integrations.')}
-        />
-        <Notice
-          title={t('sync_akeneo.setup.order.title', 'Recommended sync order')}
-          message={t(
-            'sync_akeneo.setup.order.message',
-            'Run category sync first, attribute sync second, and product sync last. Product import expects local categories and family-based schemas to exist already.',
-          )}
-        />
+        <Alert variant="info">
+          <AlertDescription>
+            {t('sync_akeneo.setup.scheduleTab', 'Run once and recurring schedules now live in the dedicated Sync schedules tab, shared by all data sync integrations.')}
+          </AlertDescription>
+        </Alert>
+        <Alert variant="info">
+          <AlertTitle>{t('sync_akeneo.setup.order.title', 'Recommended sync order')}</AlertTitle>
+          <AlertDescription>
+            {t(
+              'sync_akeneo.setup.order.message',
+              'Run category sync first, attribute sync second, and product sync last. Product import expects local categories and family-based schemas to exist already.',
+            )}
+          </AlertDescription>
+        </Alert>
         {shouldShowFirstImportCallout ? (
           <NextStepCallout
             icon={<Sparkles className="h-6 w-6" />}
@@ -1611,9 +1614,9 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
         ) : null}
 
         {discovery?.message ? (
-          <Notice compact variant={discovery.ok ? 'info' : 'warning'}>
-            {discovery.message}
-          </Notice>
+          <Alert variant={discovery.ok ? 'info' : 'warning'}>
+            <AlertDescription>{discovery.message}</AlertDescription>
+          </Alert>
         ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -1828,9 +1831,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     </table>
                   </div>
                 ) : (
-                  <Notice compact>
-                    {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are shown yet. They are discovered and mapped automatically after credentials are saved or when you use Refresh discovery. Use the editor only if you want to review or override the automatic mapping.')}
-                  </Notice>
+                  <Alert variant="info">
+                    <AlertDescription>
+                      {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are shown yet. They are discovered and mapped automatically after credentials are saved or when you use Refresh discovery. Use the editor only if you want to review or override the automatic mapping.')}
+                    </AlertDescription>
+                  </Alert>
                 )}
                 {customFieldRows.length > 0 ? (
                   <div className="flex flex-wrap gap-2 text-xs">

@@ -19,9 +19,10 @@ import {
 } from '../../../components/formConfig'
 import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
-import { EventTriggersEditor } from '../../../components/EventTriggersEditor'
+import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileDefinitionDetail } from '../../../components/mobile/MobileDefinitionDetail'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
+import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
@@ -57,8 +58,14 @@ export default function EditWorkflowDefinitionPage() {
     return null
   }, [definition])
 
+  const [triggers, setTriggers] = React.useState<WorkflowDefinitionTrigger[]>([])
+
+  React.useEffect(() => {
+    setTriggers(initialValues?.triggers ?? [])
+  }, [initialValues])
+
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
-    const payload = buildWorkflowPayload(values)
+    const payload = buildWorkflowPayload({ ...values, triggers })
 
     const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
       method: 'PUT',
@@ -171,9 +178,9 @@ export default function EditWorkflowDefinitionPage() {
 
         {/* Event Triggers Section */}
         <div className="mt-8">
-          <EventTriggersEditor
-            workflowDefinitionId={definitionId!}
-            workflowId={definition?.workflowId}
+          <DefinitionTriggersEditor
+            value={triggers}
+            onChange={setTriggers}
           />
         </div>
       </PageBody>

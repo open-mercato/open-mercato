@@ -52,14 +52,13 @@ function buildTestContext() {
     name: null,
   } as unknown as User
 
-  const em = {
+  const em: any = {
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
     create: jest.fn((_entity: unknown, data: unknown) => data),
-    persistAndFlush: jest.fn(async () => undefined),
     flush: jest.fn(async () => undefined),
-    remove: jest.fn(),
-    persist: jest.fn(),
+    remove: jest.fn(function remove(this: any) { return this }),
+    persist: jest.fn(function persist(this: any) { return this }),
     nativeDelete: jest.fn(async () => 0),
     fork: jest.fn(() => em),
   }
@@ -142,7 +141,7 @@ describe('auth.user.create — invite flow', () => {
     }, ctx)
 
     expect(em.create).toHaveBeenCalled()
-    expect(em.persistAndFlush).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 

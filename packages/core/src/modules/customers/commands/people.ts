@@ -18,6 +18,7 @@ import {
   CustomerInteraction,
   CustomerDeal,
   CustomerDealPersonLink,
+  CustomerPersonCompanyLink,
   CustomerTodoLink,
   CustomerEntity,
   CustomerPersonProfile,
@@ -43,6 +44,7 @@ import {
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
 } from './shared'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -52,6 +54,11 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  loadPersonCompanyLinks,
+  summarizePersonCompanies,
+  syncLegacyPrimaryCompanyLink,
+} from '../lib/personCompanies'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 
@@ -158,6 +165,12 @@ type PersonSnapshot = {
     twitterUrl: string | null
     companyEntityId: string | null
   }
+  companies: Array<{
+    linkId: string | null
+    companyId: string
+    displayName: string
+    isPrimary: boolean
+  }>
   tagIds: string[]
   addresses: PersonAddressSnapshot[]
   comments: PersonCommentSnapshot[]
@@ -232,6 +245,7 @@ function serializePersonSnapshot(
   interactions: Array<PersonInteractionSnapshot>,
   custom?: Record<string, unknown>
 ): PersonSnapshot {
+  const companies = summarizePersonCompanies(profile, [])
   return {
     entity: {
       id: entity.id,
@@ -269,6 +283,7 @@ function serializePersonSnapshot(
           : profile.company.id
         : null,
     },
+    companies,
     tagIds,
     addresses: addresses.map((address) => ({
       id: address.id,
@@ -347,6 +362,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
   if (!profile) return null
+  const companyLinks = await loadPersonCompanyLinks(em, entity)
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
   const comments = await findWithDecryption(
@@ -418,7 +434,9 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
       }),
     })),
   )
-  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, interactionSnapshots, custom)
+  const snapshot = serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, interactionSnapshots, custom)
+  snapshot.companies = summarizePersonCompanies(profile, companyLinks)
+  return snapshot
 }
 
 async function resolveCompanyReference(
@@ -517,76 +535,81 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       throw new CrudHttpError(400, { error: 'Display name is required' })
     }
 
-    const entity = em.create(CustomerEntity, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      kind: 'person',
-      displayName,
-      description,
-      ownerUserId: parsed.ownerUserId ?? null,
-      primaryEmail,
-      primaryPhone,
-      status,
-      lifecycleStage,
-      source,
-      nextInteractionAt: parsed.nextInteraction?.at ?? null,
-      nextInteractionName,
-      nextInteractionRefId,
-      nextInteractionIcon,
-      nextInteractionColor,
-      isActive: parsed.isActive ?? true,
-    })
+    let entity!: CustomerEntity
+    let profile!: CustomerPersonProfile
+    await withAtomicFlush(em, [
+      () => {
+        entity = em.create(CustomerEntity, {
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          kind: 'person',
+          displayName,
+          description,
+          ownerUserId: parsed.ownerUserId ?? null,
+          primaryEmail,
+          primaryPhone,
+          status,
+          lifecycleStage,
+          source,
+          nextInteractionAt: parsed.nextInteraction?.at ?? null,
+          nextInteractionName,
+          nextInteractionRefId,
+          nextInteractionIcon,
+          nextInteractionColor,
+          isActive: parsed.isActive ?? true,
+        })
 
-    const company = await resolveCompanyReference(em, parsed.companyEntityId ?? null, parsed.organizationId, parsed.tenantId)
+        profile = em.create(CustomerPersonProfile, {
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          entity,
+          firstName,
+          lastName,
+          preferredName,
+          jobTitle,
+          department,
+          seniority,
+          timezone,
+          linkedInUrl,
+          twitterUrl,
+          company: null,
+        })
 
-    const profile = em.create(CustomerPersonProfile, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      entity,
-      firstName,
-      lastName,
-      preferredName,
-      jobTitle,
-      department,
-      seniority,
-      timezone,
-      linkedInUrl,
-      twitterUrl,
-      company,
-    })
-
-    em.persist(entity)
-    em.persist(profile)
-    if (status) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'status',
-        value: status,
-      })
-    }
-    if (jobTitle) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'job_title',
-        value: jobTitle,
-      })
-    }
-    if (source) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'source',
-        value: source,
-      })
-    }
-    await em.flush()
+        em.persist(entity)
+        em.persist(profile)
+      },
+      async () => {
+        if (status) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'status',
+            value: status,
+          })
+        }
+        if (jobTitle) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'job_title',
+            value: jobTitle,
+          })
+        }
+        if (source) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'source',
+            value: source,
+          })
+        }
+      },
+      () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
+      () => syncEntityTags(em, entity, parsed.tags),
+    ], { transaction: true })
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
-    await syncEntityTags(em, entity, parsed.tags)
-    await em.flush()
     await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -634,17 +657,25 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: entityId })
     if (!entity) return
-    const profile = await em.findOne(CustomerPersonProfile, { entity })
+    const profile = await findOneWithDecryption(
+      em,
+      CustomerPersonProfile,
+      { entity },
+      undefined,
+      { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    )
     const identifiers = {
       id: payload?.after?.profile.id ?? profile?.id ?? entity.id,
       organizationId: entity.organizationId,
       tenantId: entity.tenantId,
     }
-    await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-    if (profile) {
-      await em.remove(profile).flush()
-    }
-    await em.remove(entity).flush()
+    await withAtomicFlush(em, [
+      () => em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
+      () => {
+        if (profile) em.remove(profile)
+      },
+      () => em.remove(entity),
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -663,7 +694,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   id: 'customers.person.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadPersonSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -677,95 +708,108 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const profile = await em.findOne(CustomerPersonProfile, { entity: record })
     if (!profile) throw new CrudHttpError(404, { error: 'Person profile not found' })
 
-    if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
-    if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-    if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
-    if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
-    if (parsed.status !== undefined) {
-      const normalizedStatus = normalizeOptionalString(parsed.status)
-      record.status = normalizedStatus
-      if (normalizedStatus) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'status',
-          value: normalizedStatus,
-        })
-      }
-    }
-    if (parsed.lifecycleStage !== undefined) record.lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
-    if (parsed.source !== undefined) {
-      const normalizedSource = normalizeOptionalString(parsed.source)
-      record.source = normalizedSource
-      if (normalizedSource) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'source',
-          value: normalizedSource,
-        })
-      }
-    }
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    if (parsed.nextInteraction) {
-      record.nextInteractionAt = parsed.nextInteraction.at
-      record.nextInteractionName = parsed.nextInteraction.name.trim()
-      record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
-      record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
-      record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
-    } else if (parsed.nextInteraction === null) {
-      record.nextInteractionAt = null
-      record.nextInteractionName = null
-      record.nextInteractionRefId = null
-      record.nextInteractionIcon = null
-      record.nextInteractionColor = null
-    }
-
-    if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
-    if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
-    if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
-    if (parsed.jobTitle !== undefined) {
-      const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
-      profile.jobTitle = normalizedJobTitle
-      if (normalizedJobTitle) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'job_title',
-          value: normalizedJobTitle,
-        })
-      }
-    }
-    if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
-    if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
-    if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
-    if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
-    if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
-
-    if (parsed.companyEntityId !== undefined) {
-      profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
-    }
-
-    const profileFieldsUpdated = [
-      parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
-      parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
-      parsed.twitterUrl, parsed.companyEntityId,
-    ].some((v) => v !== undefined)
-    if (profileFieldsUpdated) {
-      record.updatedAt = new Date()
-    }
-
     if (parsed.displayName !== undefined) {
       const nextDisplayName = parsed.displayName.trim()
       if (!nextDisplayName) {
         throw new CrudHttpError(400, { error: 'Display name is required' })
       }
-      record.displayName = nextDisplayName
     }
 
-    await em.flush()
-    await syncEntityTags(em, record, parsed.tags)
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
+        if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
+        if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
+        if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+        if (parsed.status !== undefined) {
+          record.status = normalizeOptionalString(parsed.status)
+        }
+        if (parsed.lifecycleStage !== undefined) record.lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
+        if (parsed.source !== undefined) {
+          record.source = normalizeOptionalString(parsed.source)
+        }
+        if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        if (parsed.nextInteraction) {
+          record.nextInteractionAt = parsed.nextInteraction.at
+          record.nextInteractionName = parsed.nextInteraction.name.trim()
+          record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
+          record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
+          record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
+        } else if (parsed.nextInteraction === null) {
+          record.nextInteractionAt = null
+          record.nextInteractionName = null
+          record.nextInteractionRefId = null
+          record.nextInteractionIcon = null
+          record.nextInteractionColor = null
+        }
+
+        if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
+        if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
+        if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
+        if (parsed.jobTitle !== undefined) {
+          profile.jobTitle = normalizeOptionalString(parsed.jobTitle)
+        }
+        if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
+        if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
+        if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
+        if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
+        if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
+
+        const profileFieldsUpdated = [
+          parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
+          parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
+          parsed.twitterUrl, parsed.companyEntityId,
+        ].some((v) => v !== undefined)
+        if (profileFieldsUpdated) {
+          record.updatedAt = new Date()
+        }
+
+        if (parsed.displayName !== undefined) {
+          record.displayName = parsed.displayName.trim()
+        }
+      },
+      async () => {
+        if (parsed.status !== undefined) {
+          const normalizedStatus = normalizeOptionalString(parsed.status)
+          if (normalizedStatus) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'status',
+              value: normalizedStatus,
+            })
+          }
+        }
+        if (parsed.source !== undefined) {
+          const normalizedSource = normalizeOptionalString(parsed.source)
+          if (normalizedSource) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'source',
+              value: normalizedSource,
+            })
+          }
+        }
+        if (parsed.jobTitle !== undefined) {
+          const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
+          if (normalizedJobTitle) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'job_title',
+              value: normalizedJobTitle,
+            })
+          }
+        }
+      },
+      async () => {
+        if (parsed.companyEntityId !== undefined) {
+          await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
+        }
+      },
+      () => syncEntityTags(em, record, parsed.tags),
+    ], { transaction: true })
 
     await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
@@ -821,92 +865,92 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
-      const newEntity = em.create(CustomerEntity, {
-        id: before.entity.id,
-        organizationId: before.entity.organizationId,
-        tenantId: before.entity.tenantId,
-        kind: 'person',
-        displayName: before.entity.displayName,
-        description: before.entity.description,
-        ownerUserId: before.entity.ownerUserId,
-        primaryEmail: before.entity.primaryEmail,
-        primaryPhone: before.entity.primaryPhone,
-        status: before.entity.status,
-        lifecycleStage: before.entity.lifecycleStage,
-        source: before.entity.source,
-        nextInteractionAt: before.entity.nextInteractionAt,
-        nextInteractionName: before.entity.nextInteractionName,
-        nextInteractionRefId: before.entity.nextInteractionRefId,
-        nextInteractionIcon: before.entity.nextInteractionIcon,
-        nextInteractionColor: before.entity.nextInteractionColor,
-        isActive: before.entity.isActive,
-      })
-      em.persist(newEntity)
-      const profile = em.create(CustomerPersonProfile, {
-        id: before.profile.id,
-        organizationId: before.entity.organizationId,
-        tenantId: before.entity.tenantId,
-        entity: newEntity,
-        firstName: before.profile.firstName,
-        lastName: before.profile.lastName,
-        preferredName: before.profile.preferredName,
-        jobTitle: before.profile.jobTitle,
-        department: before.profile.department,
-        seniority: before.profile.seniority,
-        timezone: before.profile.timezone,
-        linkedInUrl: before.profile.linkedInUrl,
-        twitterUrl: before.profile.twitterUrl,
-      })
-      em.persist(profile)
-      if (before.profile.companyEntityId) {
-        profile.company = await resolveCompanyReference(
-          em,
-          before.profile.companyEntityId,
-          before.entity.organizationId,
-          before.entity.tenantId
-        )
-      }
-      await em.flush()
-      await syncEntityTags(em, newEntity, before.tagIds)
-      await em.flush()
+      let newEntity!: CustomerEntity
+      let newProfile!: CustomerPersonProfile
+      await withAtomicFlush(em, [
+        () => {
+          newEntity = em.create(CustomerEntity, {
+            id: before.entity.id,
+            organizationId: before.entity.organizationId,
+            tenantId: before.entity.tenantId,
+            kind: 'person',
+            displayName: before.entity.displayName,
+            description: before.entity.description,
+            ownerUserId: before.entity.ownerUserId,
+            primaryEmail: before.entity.primaryEmail,
+            primaryPhone: before.entity.primaryPhone,
+            status: before.entity.status,
+            lifecycleStage: before.entity.lifecycleStage,
+            source: before.entity.source,
+            nextInteractionAt: before.entity.nextInteractionAt,
+            nextInteractionName: before.entity.nextInteractionName,
+            nextInteractionRefId: before.entity.nextInteractionRefId,
+            nextInteractionIcon: before.entity.nextInteractionIcon,
+            nextInteractionColor: before.entity.nextInteractionColor,
+            isActive: before.entity.isActive,
+          })
+          em.persist(newEntity)
+          newProfile = em.create(CustomerPersonProfile, {
+            id: before.profile.id,
+            organizationId: before.entity.organizationId,
+            tenantId: before.entity.tenantId,
+            entity: newEntity,
+            firstName: before.profile.firstName,
+            lastName: before.profile.lastName,
+            preferredName: before.profile.preferredName,
+            jobTitle: before.profile.jobTitle,
+            department: before.profile.department,
+            seniority: before.profile.seniority,
+            timezone: before.profile.timezone,
+            linkedInUrl: before.profile.linkedInUrl,
+            twitterUrl: before.profile.twitterUrl,
+          })
+          em.persist(newProfile)
+        },
+        () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, before.profile.companyEntityId),
+        () => syncEntityTags(em, newEntity, before.tagIds),
+      ], { transaction: true })
     } else {
-      entity.displayName = before.entity.displayName
-      entity.description = before.entity.description
-      entity.ownerUserId = before.entity.ownerUserId
-      entity.primaryEmail = before.entity.primaryEmail
-      entity.primaryPhone = before.entity.primaryPhone
-      entity.status = before.entity.status
-      entity.lifecycleStage = before.entity.lifecycleStage
-      entity.source = before.entity.source
-      entity.nextInteractionAt = before.entity.nextInteractionAt
-      entity.nextInteractionName = before.entity.nextInteractionName
-      entity.nextInteractionRefId = before.entity.nextInteractionRefId
-      entity.nextInteractionIcon = before.entity.nextInteractionIcon
-      entity.nextInteractionColor = before.entity.nextInteractionColor
-      entity.isActive = before.entity.isActive
-      await em.flush()
-      const profile = await em.findOne(CustomerPersonProfile, { entity })
-      if (profile) {
-        profile.firstName = before.profile.firstName
-        profile.lastName = before.profile.lastName
-        profile.preferredName = before.profile.preferredName
-        profile.jobTitle = before.profile.jobTitle
-        profile.department = before.profile.department
-        profile.seniority = before.profile.seniority
-        profile.timezone = before.profile.timezone
-        profile.linkedInUrl = before.profile.linkedInUrl
-        profile.twitterUrl = before.profile.twitterUrl
-        profile.company = before.profile.companyEntityId
-          ? await resolveCompanyReference(
-              em,
-              before.profile.companyEntityId,
-              before.entity.organizationId,
-              before.entity.tenantId
-            )
-          : null
-      }
-      await syncEntityTags(em, entity, before.tagIds)
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => {
+          entity.displayName = before.entity.displayName
+          entity.description = before.entity.description
+          entity.ownerUserId = before.entity.ownerUserId
+          entity.primaryEmail = before.entity.primaryEmail
+          entity.primaryPhone = before.entity.primaryPhone
+          entity.status = before.entity.status
+          entity.lifecycleStage = before.entity.lifecycleStage
+          entity.source = before.entity.source
+          entity.nextInteractionAt = before.entity.nextInteractionAt
+          entity.nextInteractionName = before.entity.nextInteractionName
+          entity.nextInteractionRefId = before.entity.nextInteractionRefId
+          entity.nextInteractionIcon = before.entity.nextInteractionIcon
+          entity.nextInteractionColor = before.entity.nextInteractionColor
+          entity.isActive = before.entity.isActive
+        },
+        async () => {
+          const profile = await findOneWithDecryption(
+            em,
+            CustomerPersonProfile,
+            { entity },
+            undefined,
+            { tenantId: before.entity.tenantId, organizationId: before.entity.organizationId },
+          )
+          if (profile) {
+            profile.firstName = before.profile.firstName
+            profile.lastName = before.profile.lastName
+            profile.preferredName = before.profile.preferredName
+            profile.jobTitle = before.profile.jobTitle
+            profile.department = before.profile.department
+            profile.seniority = before.profile.seniority
+            profile.timezone = before.profile.timezone
+            profile.linkedInUrl = before.profile.linkedInUrl
+            profile.twitterUrl = before.profile.twitterUrl
+            await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
+          }
+        },
+        () => syncEntityTags(em, entity, before.tagIds),
+      ], { transaction: true })
     }
 
     const indexedEntity = await em.findOne(CustomerEntity, { id: before.entity.id })
@@ -939,7 +983,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     id: 'customers.person.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
@@ -960,6 +1004,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
       await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
+      await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
       if (profile) {
         await em.nativeDelete(CustomFieldValue, { entityId: PERSON_ENTITY_ID, recordId: profile.id })
       }
@@ -1064,7 +1109,37 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+
+      const decryptionScope = {
+        tenantId: before.entity.tenantId ?? null,
+        organizationId: before.entity.organizationId ?? null,
+      }
+      // Bind the outer EntityManager to an explicit transaction so every
+      // `em.flush()` below participates in the same unit of work. Using
+      // `em.transactional(cb)` would pass a forked em into `cb` and the
+      // surrounding closures would mutate the unwrapped em, escaping the
+      // transaction (see SPEC-018 and H8 in the CRM details screens review).
+      await em.begin()
+      let txResult: {
+        entity: CustomerEntity
+        profile: CustomerPersonProfile
+        beforeInteractions: PersonInteractionSnapshot[]
+        beforeTodos: PersonTodoSnapshot[]
+      }
+      try {
+        txResult = await (async () => {
+        let entity = await findOneWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: before.entity.id,
+            tenantId: before.entity.tenantId,
+            organizationId: before.entity.organizationId,
+          },
+          {},
+          decryptionScope,
+        )
       if (!entity) {
         entity = em.create(CustomerEntity, {
           id: before.entity.id,
@@ -1105,7 +1180,17 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       entity.isActive = before.entity.isActive
       entity.deletedAt = null
 
-      let profile = await em.findOne(CustomerPersonProfile, { entity })
+      let profile = await findOneWithDecryption(
+        em,
+        CustomerPersonProfile,
+        {
+          entity,
+          tenantId: before.entity.tenantId,
+          organizationId: before.entity.organizationId,
+        },
+        {},
+        decryptionScope,
+      )
       if (!profile) {
         profile = em.create(CustomerPersonProfile, {
           id: before.profile.id,
@@ -1134,20 +1219,34 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         profile.twitterUrl = before.profile.twitterUrl
       }
 
-      if (before.profile.companyEntityId) {
-        profile.company = await resolveCompanyReference(
-          em,
-          before.profile.companyEntityId,
-          before.entity.organizationId,
-          before.entity.tenantId
-        )
-      } else {
-        profile.company = null
-      }
+      await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
 
       await em.flush()
-      await syncEntityTags(em, entity, before.tagIds)
-      await em.flush()
+      await em.nativeDelete(CustomerPersonCompanyLink, { person: entity })
+      for (const companyLink of before.companies ?? []) {
+        const company = await resolveCompanyReference(
+          em,
+          companyLink.companyId,
+          before.entity.organizationId,
+          before.entity.tenantId,
+        )
+        if (!company) continue
+        const restoredLink = em.create(CustomerPersonCompanyLink, {
+          id: companyLink.linkId ?? undefined,
+          organizationId: before.entity.organizationId,
+          tenantId: before.entity.tenantId,
+          person: entity,
+          company,
+          isPrimary: companyLink.isPrimary,
+        })
+        em.persist(restoredLink)
+        if (companyLink.isPrimary) {
+          profile.company = company
+        }
+      }
+      await withAtomicFlush(em, [
+        () => syncEntityTags(em, entity, before.tagIds),
+      ])
 
       const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
       const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []
@@ -1267,7 +1366,6 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const interaction of beforeInteractions) {
         const restoredInteraction = em.create(CustomerInteraction, {
@@ -1295,18 +1393,34 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         em.persist(restoredInteraction)
       }
       await em.flush()
-      for (const interaction of beforeInteractions) {
+
+      return { entity, profile, beforeInteractions, beforeTodos }
+        })()
+        await em.commit()
+      } catch (err) {
+        try {
+          await em.rollback()
+        } catch {
+          // rollback failure should not mask the original error
+        }
+        throw err
+      }
+
+      for (const interaction of txResult.beforeInteractions) {
         if (!interaction.custom || !Object.keys(interaction.custom).length) continue
         await setCustomFieldsIfAny({
           dataEngine: de,
           entityId: INTERACTION_ENTITY_ID,
           recordId: interaction.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
+          organizationId: txResult.entity.organizationId,
+          tenantId: txResult.entity.tenantId,
           values: interaction.custom,
           notify: false,
         })
       }
+
+      const entity = txResult.entity
+      const profile = txResult.profile
 
       await emitCrudUndoSideEffects({
         dataEngine: de,
@@ -1346,7 +1460,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
         })
       }
-      for (const todo of beforeTodos ?? []) {
+      for (const todo of txResult.beforeTodos ?? []) {
         upsertEntries.push({
           entityType: E.customers.customer_todo_link,
           recordId: todo.id,
@@ -1354,7 +1468,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
         })
       }
-      for (const interaction of beforeInteractions ?? []) {
+      for (const interaction of txResult.beforeInteractions ?? []) {
         upsertEntries.push({
           entityType: E.customers.customer_interaction,
           recordId: interaction.id,

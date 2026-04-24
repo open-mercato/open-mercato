@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'scheduled_jobs' })
 @Index({ name: 'scheduled_jobs_org_tenant_idx', properties: ['organizationId', 'tenantId'] })

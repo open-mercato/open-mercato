@@ -14,6 +14,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXPECTED_REPOSITORY_URL="https://github.com/open-mercato/open-mercato"
 
 # Collect non-private packages with topological ordering (dependencies first)
 PACKAGES=$(yarn workspaces list --json --no-private 2>/dev/null | jq -r '.location' | grep '^packages/' || true)
@@ -31,9 +32,25 @@ for pkg_dir in $PACKAGES; do
   PKG_PATH="$ROOT_DIR/$pkg_dir"
   PKG_NAME=$(jq -r '.name' "$PKG_PATH/package.json" 2>/dev/null)
   PKG_VERSION=$(jq -r '.version' "$PKG_PATH/package.json" 2>/dev/null)
+  PKG_REPOSITORY_URL=$(jq -r '.repository.url // empty' "$PKG_PATH/package.json" 2>/dev/null)
 
   echo "  Publishing $PKG_NAME@$PKG_VERSION..."
   cd "$PKG_PATH"
+
+  if [ -z "$PKG_REPOSITORY_URL" ]; then
+    echo "    ✗ Missing repository.url in $pkg_dir/package.json"
+    FAILED+=("$PKG_NAME")
+    cd "$ROOT_DIR"
+    continue
+  fi
+
+  if [ "$PKG_REPOSITORY_URL" != "$EXPECTED_REPOSITORY_URL" ]; then
+    echo "    ✗ Invalid repository.url in $pkg_dir/package.json: $PKG_REPOSITORY_URL"
+    echo "      Expected: $EXPECTED_REPOSITORY_URL"
+    FAILED+=("$PKG_NAME")
+    cd "$ROOT_DIR"
+    continue
+  fi
 
   # Clean any existing tarballs
   rm -f *.tgz @open-mercato-*.tgz create-mercato-app-*.tgz 2>/dev/null || true
@@ -47,7 +64,7 @@ for pkg_dir in $PACKAGES; do
   fi
 
   if [ -f "package.tgz" ]; then
-    if npm publish "package.tgz" --access public --tag "$TAG" 2>&1; then
+    if npm publish "package.tgz" --access public --tag "$TAG" --provenance 2>&1; then
       echo "    ✓ Published"
     else
       echo "    ✗ Failed to publish"

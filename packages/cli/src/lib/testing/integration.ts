@@ -1,5 +1,5 @@
 import { GenericContainer } from 'testcontainers'
-import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
+import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
+import spawn from 'cross-spawn'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
@@ -216,6 +217,8 @@ const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ep
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
+const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
+const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
@@ -2854,9 +2857,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    await rm(EPHEMERAL_CACHE_DB_PATH, { force: true }).catch(() => undefined)
+    await rm(EPHEMERAL_QUEUE_BASE_DIR, { recursive: true, force: true }).catch(() => undefined)
     const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
+      CACHE_STRATEGY: 'sqlite',
+      CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
       BASE_URL: applicationBaseUrl,
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
@@ -2888,6 +2895,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       AUTO_SPAWN_SCHEDULER: 'false',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
+      QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,
       NODE_NO_WARNINGS: '1',
       PORT: String(applicationPort),
       PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',

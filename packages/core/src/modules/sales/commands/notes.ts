@@ -122,7 +122,7 @@ async function requireContext(
     }
   }
   const repo = contextType === 'invoice' ? SalesInvoice : SalesCreditMemo
-  const entity = await em.findOne(repo, { id: contextId })
+  const entity = await em.findOne(repo as any, { id: contextId }) as (SalesInvoice | SalesCreditMemo) | null
   if (!entity) {
     throw new CrudHttpError(404, { error: 'sales.note.context_not_found' })
   }

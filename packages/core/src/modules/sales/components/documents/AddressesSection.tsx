@@ -6,6 +6,7 @@ import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -219,6 +220,40 @@ export function SalesDocumentAddressesSection({
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)
+  const mutationContextId = React.useMemo(
+    () => `sales-document-addresses:${kind}:${documentId}`,
+    [documentId, kind],
+  )
+  const resourceKind = React.useMemo(() => (kind === 'order' ? 'sales.order' : 'sales.quote'), [kind])
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    kind: 'order' | 'quote'
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      resourceKind,
+      resourceId: documentId,
+      kind,
+      retryLastMutation,
+    }),
+    [documentId, kind, mutationContextId, resourceKind, retryLastMutation],
+  )
+  const runGuardedMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) =>
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      }),
+    [mutationContext, runMutation],
+  )
 
   const customerRequired = !customerId
   const addressOptionsMap = React.useMemo(() => {
@@ -630,30 +665,35 @@ export function SalesDocumentAddressesSection({
 
     setEditingSaving(true)
     try {
-      await apiCallOrThrow(
-        '/api/sales/document-addresses',
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: editingAddressId,
-            documentId,
-            documentKind: kind,
-            customerAddressId: current.customerAddressId ?? undefined,
-            name: nameValue,
-            purpose: purposeValue,
-            companyName: updatedValue.companyName,
-            addressLine1: updatedValue.addressLine1,
-            addressLine2: updatedValue.addressLine2,
-            buildingNumber: updatedValue.buildingNumber,
-            flatNumber: updatedValue.flatNumber,
-            city: updatedValue.city,
-            region: updatedValue.region,
-            postalCode: updatedValue.postalCode,
-            country: updatedValue.country,
-          }),
-        },
-        { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') }
+      const payload = {
+        id: editingAddressId,
+        documentId,
+        documentKind: kind,
+        customerAddressId: current.customerAddressId ?? undefined,
+        name: nameValue,
+        purpose: purposeValue,
+        companyName: updatedValue.companyName,
+        addressLine1: updatedValue.addressLine1,
+        addressLine2: updatedValue.addressLine2,
+        buildingNumber: updatedValue.buildingNumber,
+        flatNumber: updatedValue.flatNumber,
+        city: updatedValue.city,
+        region: updatedValue.region,
+        postalCode: updatedValue.postalCode,
+        country: updatedValue.country,
+      }
+      await runGuardedMutation(
+        () =>
+          apiCallOrThrow(
+            '/api/sales/document-addresses',
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') },
+          ),
+        payload,
       )
       setDocumentAddresses((prev) =>
         prev.map((entry) =>
@@ -680,7 +720,7 @@ export function SalesDocumentAddressesSection({
     } finally {
       setEditingSaving(false)
     }
-  }, [documentAddresses, documentId, editingAddressId, editingDraft, handleCancelEdit, kind, resolveAddressSummary, t])
+  }, [documentAddresses, documentId, editingAddressId, editingDraft, handleCancelEdit, kind, resolveAddressSummary, runGuardedMutation, t])
 
   const handleDeleteDocumentAddress = React.useCallback(
     async (id: string) => {
@@ -700,14 +740,19 @@ export function SalesDocumentAddressesSection({
         return next
       })
       try {
-        await apiCallOrThrow(
-          '/api/sales/document-addresses',
-          {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, documentId, documentKind: kind }),
-          },
-          { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') }
+        const payload = { id, documentId, documentKind: kind }
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow(
+              '/api/sales/document-addresses',
+              {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') },
+            ),
+          payload,
         )
         setDocumentAddresses((prev) => prev.filter((entry) => entry.id !== id))
         if (editingAddressId === id) {
@@ -728,7 +773,7 @@ export function SalesDocumentAddressesSection({
         })
       }
     },
-    [confirm, documentId, editingAddressId, handleCancelEdit, kind, t]
+    [confirm, documentId, editingAddressId, handleCancelEdit, kind, runGuardedMutation, t]
   )
 
   const handleSave = React.useCallback(async () => {
@@ -795,14 +840,18 @@ export function SalesDocumentAddressesSection({
       payload.billingAddressId = billingSnapshot ? null : billingId
 
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      const call = await apiCallOrThrow<Record<string, unknown>>(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      const call = await runGuardedMutation(
+        () =>
+          apiCallOrThrow<Record<string, unknown>>(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+          ),
+        payload,
       )
       const result = call.result ?? {}
       onUpdated?.({
@@ -843,6 +892,7 @@ export function SalesDocumentAddressesSection({
     shippingDraft,
     t,
     loadAddresses,
+    runGuardedMutation,
     useCustomBilling,
     useCustomShipping,
   ])

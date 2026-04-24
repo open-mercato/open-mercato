@@ -16,7 +16,7 @@ import {
 } from '../../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['messages.attach_files'] },
   DELETE: { requireAuth: true, requireFeatures: ['messages.attach_files'] },
 }

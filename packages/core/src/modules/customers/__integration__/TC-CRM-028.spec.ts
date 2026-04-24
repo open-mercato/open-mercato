@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import '@open-mercato/core/modules/customers/commands/index';
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap';
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
@@ -18,9 +19,11 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
-loadEnv({ path: path.resolve(process.cwd(), 'apps/mercato/.env') });
-
-const APP_ROOT = path.resolve(process.cwd(), 'apps/mercato');
+const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim();
+const IS_STANDALONE_APP = Boolean(TEST_APP_ROOT);
+const APP_ROOT = TEST_APP_ROOT
+  ? path.resolve(TEST_APP_ROOT)
+  : path.resolve(process.cwd(), 'apps/mercato');
 const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const EXAMPLE_CUSTOMERS_SYNC_API_BASE = '/api/example-customers-sync';
@@ -32,7 +35,10 @@ const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound';
 const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound';
 const EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE = 'example-customers-sync-reconcile';
 
-process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
+if (!IS_STANDALONE_APP) {
+  loadEnv({ path: path.resolve(APP_ROOT, '.env') });
+  process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
+}
 
 type TokenScope = ReturnType<typeof getTokenScope>;
 
@@ -70,6 +76,15 @@ type CustomerTodoItem = {
   todoDescription?: string | null;
   todoSeverity?: string | null;
   todoSource: string;
+};
+
+type CanonicalInteractionItem = {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  body?: string | null;
+  customValues?: Record<string, unknown> | null;
 };
 
 const toggleIdCache = new Map<string, string>();
@@ -414,6 +429,30 @@ async function listCustomerTodos(
   return body?.items ?? [];
 }
 
+async function listCanonicalInteractions(
+  request: APIRequestContext,
+  token: string,
+  entityId: string,
+  scope?: { tenantId?: string | null; organizationId?: string | null },
+): Promise<CanonicalInteractionItem[]> {
+  const response = scope
+    ? await scopedApiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions?entityId=${encodeURIComponent(entityId)}&limit=100`,
+        { token, ...scope },
+      )
+    : await apiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions?entityId=${encodeURIComponent(entityId)}&limit=100`,
+        { token },
+      );
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<{ items?: CanonicalInteractionItem[] }>(response);
+  return body?.items ?? [];
+}
+
 async function waitForMapping(
   request: APIRequestContext,
   token: string,
@@ -447,21 +486,22 @@ async function waitForMappingRemoval(
     .toBe(0);
 }
 
-async function listInteractionActionLogCommandIds(interactionId: string): Promise<string[]> {
-  const client = await getDbClient();
-  const result = await client.query<{ command_id: string }>(
-    `
-      select command_id
-      from action_logs
-      where resource_kind = 'customers.interaction'
-        and resource_id = $1
-        and deleted_at is null
-      order by created_at desc
-      limit 20
-    `,
-    [interactionId],
+async function listInteractionActionLogCommandIds(
+  request: APIRequestContext,
+  token: string,
+  interactionId: string,
+): Promise<string[]> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/audit_logs/audit-logs/actions?resourceKind=${encodeURIComponent('customers.interaction')}&resourceId=${encodeURIComponent(interactionId)}&page=1&pageSize=20`,
+    { token },
   );
-  return result.rows.map((row) => row.command_id);
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<{ items?: Array<{ commandId?: string | null }> }>(response);
+  return (body?.items ?? [])
+    .map((item) => item.commandId)
+    .filter((commandId): commandId is string => typeof commandId === 'string' && commandId.length > 0);
 }
 
 async function waitForExampleTodo(
@@ -558,6 +598,54 @@ async function cleanupDbRows(input: {
   }
 }
 
+test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
+  test.beforeAll(async ({ request }) => {
+    test.skip(!IS_STANDALONE_APP, 'Standalone smoke coverage runs only when OM_TEST_APP_ROOT is set');
+  });
+
+  test('exposes sync diagnostics APIs and accepts reconcile jobs', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const adminScope = getTokenScope(adminToken);
+
+    try {
+      const enabledToggleId = await resolveToggleId(request, superadminToken, SYNC_TOGGLE_IDS.enabled);
+      const bidirectionalToggleId = await resolveToggleId(request, superadminToken, SYNC_TOGGLE_IDS.bidirectional);
+
+      expect(enabledToggleId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+      expect(bidirectionalToggleId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        `${EXAMPLE_CUSTOMERS_SYNC_API_BASE}/mappings?limit=5`,
+        { token: superadminToken },
+      );
+      expect(listResponse.status()).toBe(200);
+      const listBody = await readJsonSafe<{ items?: MappingItem[] }>(listResponse);
+      expect(Array.isArray(listBody?.items)).toBe(true);
+
+      const reconcileResponse = await apiRequest(request, 'POST', `${EXAMPLE_CUSTOMERS_SYNC_API_BASE}/reconcile`, {
+        token: superadminToken,
+        data: {
+          organizationId: adminScope.organizationId,
+          tenantId: adminScope.tenantId,
+          limit: 5,
+        },
+      });
+      expect(reconcileResponse.status()).toBe(202);
+      const reconcileBody = await readJsonSafe<{ queued?: number }>(reconcileResponse);
+      expect(reconcileBody?.queued).toBe(1);
+    } finally {
+      await clearSyncFlagOverrides(request, superadminToken);
+    }
+  });
+});
+
 test.describe('TC-CRM-028: Example customer sync', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -566,6 +654,10 @@ test.describe('TC-CRM-028: Example customer sync', () => {
   let adminScope: TokenScope;
 
   test.beforeAll(async ({ request }) => {
+    test.skip(
+      IS_STANDALONE_APP,
+      'Full CRM28 queue/bootstrap coverage is monorepo-only; standalone uses the smoke suite above',
+    );
     const data = await getBootstrapData();
     test.skip(!hasSyncWorkers(data), 'example_customers_sync workers not registered — skipping sync tests');
     adminToken = await getAuthToken(request, 'admin');
@@ -737,6 +829,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         title: `CRM027 inbound complete ${Date.now()}`,
         body: 'Complete me from example',
         priority: 2,
+        customValues: { severity: 'high' },
       });
       await flushExampleCustomersSyncQueues({ outbound: true });
 
@@ -756,13 +849,13 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
-          return rows.find((item) => item.id === interactionId)?.todoIsDone ?? null;
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
+          return rows.find((item) => item.id === interactionId)?.status ?? null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
-        .toBe(true);
+        .toBe('done');
 
       await expect
-        .poll(async () => await listInteractionActionLogCommandIds(interactionId!), {
+        .poll(async () => await listInteractionActionLogCommandIds(request, adminToken, interactionId!), {
           timeout: 15_000,
           intervals: [250, 500, 1_000],
         })
@@ -823,6 +916,8 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         entityId: companyId,
         interactionType: 'task',
         title: 'x'.repeat(201),
+        priority: 2,
+        customValues: { severity: 'high' },
       });
       await flushExampleCustomersSyncQueues({ outbound: true });
 
@@ -864,9 +959,9 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
-          return row?.todoSeverity ?? null;
+          return typeof row?.customValues?.severity === 'string' ? row.customValues.severity : null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
         .toBe('critical');
 
@@ -875,11 +970,9 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         data: {
           id: todoId,
           title: `CRM027 loop ${Date.now()}`,
-          customValues: {
-            priority: null,
-            description: null,
-            severity: null,
-          },
+          cf_priority: 4,
+          cf_severity: 'high',
+          cf_description: null,
         },
       });
       expect(updateResponse.status()).toBe(200);
@@ -887,20 +980,20 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       await expect
         .poll(async () => {
-          const rows = await listCustomerTodos(request, adminToken, companyId!);
+          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
           return row
             ? {
-                priority: row.todoPriority ?? null,
-                description: row.todoDescription ?? null,
-                severity: row.todoSeverity ?? null,
+                priority: row.priority ?? null,
+                description: row.body ?? null,
+                severity: typeof row.customValues?.severity === 'string' ? row.customValues.severity : null,
               }
             : null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
         .toEqual({
-          priority: null,
+          priority: 4,
           description: null,
-          severity: null,
+          severity: 'critical',
         });
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);

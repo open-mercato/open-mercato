@@ -140,7 +140,7 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
       organizationId: parsed.organizationId,
     })
     if (!existing) throw new CrudHttpError(404, { error: 'Tag assignment not found.' })
-    await em.remove(existing)
+    await em.remove(existing).flush()
     await em.flush()
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)

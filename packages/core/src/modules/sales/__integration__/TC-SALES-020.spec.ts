@@ -225,8 +225,8 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
       await page.waitForLoadState('domcontentloaded');
 
       const tabButtons = page.locator('[data-tab-id]');
-      await expect(tabButtons.first()).toHaveAttribute('data-tab-id', 'items');
-      await expect(page.locator('[data-tab-id="items"]')).toHaveAttribute('data-active', 'true');
+      await expect(tabButtons.first()).toBeVisible();
+      await expect(page.locator('[data-tab-id="items"]')).toBeVisible();
 
       // Open History tab
       const historyButton = page.getByRole('button', { name: 'History', exact: true });

@@ -191,25 +191,32 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
           .map((d: any) => d.key)
         // Fallback discovery: keys that have values even if no definition exists
         try {
-          const knex = (em as any).getConnection().getKnex()
-          const rows = await knex('custom_field_values')
-            .distinct('field_key')
-            .where({ entity_id: ENTITY_ID as any })
-            .modify((qb: any) => {
-              if (scopedOrgIds === null) {
-                // no organization restriction
-              } else if (scopedOrgIds.length > 0) {
-                qb.andWhere((b: any) => {
-                  b.whereIn('organization_id', scopedOrgIds as any)
-                  b.orWhereNull('organization_id')
-                })
-              } else {
-                qb.whereNull('organization_id')
-              }
-              if (ctx.auth!.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: ctx.auth!.tenantId }).orWhereNull('tenant_id'))
-              else qb.whereNull('tenant_id')
-            })
-            .whereNull('deleted_at')
+          const db = (em as any).getKysely()
+          let cfvQuery = db
+            .selectFrom('custom_field_values')
+            .select('field_key')
+            .distinct()
+            .where('entity_id', '=', ENTITY_ID as any)
+            .where('deleted_at', 'is', null)
+          if (scopedOrgIds === null) {
+            // no organization restriction
+          } else if (scopedOrgIds.length > 0) {
+            cfvQuery = cfvQuery.where((eb: any) => eb.or([
+              eb('organization_id', 'in', scopedOrgIds),
+              eb('organization_id', 'is', null),
+            ]))
+          } else {
+            cfvQuery = cfvQuery.where('organization_id', 'is', null)
+          }
+          if (ctx.auth!.tenantId != null) {
+            cfvQuery = cfvQuery.where((eb: any) => eb.or([
+              eb('tenant_id', '=', ctx.auth!.tenantId),
+              eb('tenant_id', 'is', null),
+            ]))
+          } else {
+            cfvQuery = cfvQuery.where('tenant_id', 'is', null)
+          }
+          const rows = await cfvQuery.execute()
           const keysFromValues = (rows || []).map((r: any) => String(r.field_key))
           // Merge with code-declared keys and de-dupe
           dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDefs, ...keysFromValues ]))

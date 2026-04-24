@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primi
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -937,20 +937,20 @@ export default function SyncRunsDashboardPage() {
             </div>
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
-              <Notice compact variant="warning">
-                <span className="inline-flex items-center gap-2">
+              <Alert variant="warning">
+                <AlertDescription className="inline-flex items-center gap-2">
                   <CircleAlert className="size-4" />
                   <span>{t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}</span>
-                </span>
-              </Notice>
+                </AlertDescription>
+              </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
-              <Notice compact variant="warning">
-                <span className="inline-flex items-center gap-2">
+              <Alert variant="warning">
+                <AlertDescription className="inline-flex items-center gap-2">
                   <CircleAlert className="size-4" />
                   <span>{t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}</span>
-                </span>
-              </Notice>
+                </AlertDescription>
+              </Alert>
             ) : null}
           </CardContent>
         </Card>

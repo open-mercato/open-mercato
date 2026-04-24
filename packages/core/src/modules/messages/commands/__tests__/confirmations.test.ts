@@ -27,7 +27,8 @@ describe('messages.confirmation.confirm command', () => {
         ...data,
         confirmedAt: createdAt,
       })),
-      persistAndFlush: jest.fn(async () => {}),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(async () => {}),
     }
 
     const result = await command!.execute(
@@ -47,7 +48,8 @@ describe('messages.confirmation.confirm command', () => {
     )
 
     expect(emFork.create).toHaveBeenCalledTimes(1)
-    expect(emFork.persistAndFlush).toHaveBeenCalledTimes(1)
+    expect(emFork.persist).toHaveBeenCalled()
+    expect(emFork.flush).toHaveBeenCalled()
     expect(result.messageId).toBe('11111111-1111-4111-8111-111111111111')
     expect(result.confirmed).toBe(true)
     expect(result.confirmedByUserId).toBe('44444444-4444-4444-8444-444444444444')

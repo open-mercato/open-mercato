@@ -4,17 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: 'Version bump type (`existing` uses root package.json as-is)'
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+          - existing
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write  # required for npm provenance attestation
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -24,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     # Only allow releases from main branch
     if: github.ref == 'refs/heads/main'
+    # Requires approval from the 'production' environment — prevents a single
+    # compromised account from publishing unilaterally. Configure reviewers at:
+    # Settings → Environments → production → Required reviewers
+    environment: production
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -62,8 +67,11 @@ jobs:
         run: |
           ./scripts/release-${{ inputs.bump }}.sh 2>&1 | tee release-output.txt
 
-          # Get the new version from the first package
-          NEW_VERSION=$(cat packages/shared/package.json | jq -r '.version')
+          if [ "${{ inputs.bump }}" = "existing" ]; then
+            NEW_VERSION=$(jq -r '.version' package.json)
+          else
+            NEW_VERSION=$(jq -r '.version' packages/shared/package.json)
+          fi
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
           # Build packages list from package.json files
@@ -77,6 +85,11 @@ jobs:
       - name: Commit version changes
         run: |
           git add -A
+          if git diff --cached --quiet; then
+            echo "No release changes to commit"
+            exit 0
+          fi
+
           git commit -m "chore: release v${{ steps.release.outputs.version }}"
           git push
 

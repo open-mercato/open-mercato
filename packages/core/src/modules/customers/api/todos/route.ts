@@ -78,6 +78,12 @@ const DEPRECATION_HEADERS = {
   Link: '</api/customers/interactions>; rel="successor-version"',
 }
 
+// Caps the per-source fetch window used by the deprecated merged (legacy +
+// canonical bridge) read path. Keeps memory bounded on tenants with large
+// todo history; deep-pagination beyond this window is not supported here —
+// use /api/customers/interactions instead.
+const MERGED_TODO_FETCH_CAP = 2000
+
 function resolveGuardUserId(auth: {
   sub?: string | null
   userId?: string | null
@@ -175,6 +181,8 @@ async function ensureCanonicalTodoBridge(
   await commandBus.execute('customers.interaction.create', {
     input: {
       id: link.todoId,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
       entityId,
       interactionType: 'task',
       title: detail?.title ?? null,
@@ -232,34 +240,56 @@ export async function GET(request: Request): Promise<Response> {
     const exportAll = parseBooleanToken(query.all) === true
     const search = normalizeTodoSearch(query.search)
 
-    const mergedRows = flags.unified
-      ? (await listCanonicalTodoRows(
-          em,
-          container,
-          auth,
-          selectedOrganizationId,
-          organizationIds,
-          { entityId: query.entityId },
-        )).items
-      : await Promise.all([
-        listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId),
-        listCanonicalTodoRows(
-          em,
-          container,
-          auth,
-          selectedOrganizationId,
-          organizationIds,
-          {
-            entityId: query.entityId,
-            includeDeleted: true,
-            source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
-          },
-        ),
-      ]).then(([legacyRows, canonicalRows]) => [
-        ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
-        ...canonicalRows.items,
-      ])
+    if (flags.unified) {
+      const canonical = await listCanonicalTodoRows(
+        em,
+        container,
+        auth,
+        selectedOrganizationId,
+        organizationIds,
+        {
+          entityId: query.entityId,
+          pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
+          searchText: search,
+        },
+      )
+      const total = canonical.total
+      return withAdapterHeaders(
+        NextResponse.json({
+          items: canonical.items,
+          total,
+          page: exportAll ? 1 : query.page,
+          pageSize: exportAll ? canonical.items.length : query.pageSize,
+          totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / query.pageSize)),
+        }),
+      )
+    }
 
+    const legacyWindow = exportAll
+      ? null
+      : Math.min(MERGED_TODO_FETCH_CAP, Math.max(query.pageSize, query.page * query.pageSize + query.pageSize))
+    const [legacyRows, canonicalRows] = await Promise.all([
+      listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
+        limit: legacyWindow,
+      }),
+      listCanonicalTodoRows(
+        em,
+        container,
+        auth,
+        selectedOrganizationId,
+        organizationIds,
+        {
+          entityId: query.entityId,
+          includeDeleted: true,
+          source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+          limit: legacyWindow,
+        },
+      ),
+    ])
+    const mergedRows = [
+      ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
+      ...canonicalRows.items,
+    ]
     const filteredRows = filterTodoRows(sortTodoRows(mergedRows), search)
     const paged = paginateTodoRows(filteredRows, query.page, query.pageSize, exportAll)
 
@@ -316,6 +346,8 @@ export async function POST(request: Request): Promise<Response> {
 
     const { result } = await commandBus.execute('customers.interaction.create', {
       input: {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId ?? auth.orgId,
         entityId: body.entityId,
         interactionType: 'task',
         title: body.title,

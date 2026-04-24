@@ -5,7 +5,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -75,7 +75,9 @@ export default function PortalLoginPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
+        <Alert variant="destructive">
+          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -90,7 +92,11 @@ export default function PortalLoginPage({ params }: Props) {
       <InjectionSpot spotId={PortalInjectionSpots.pageBefore('login')} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        {error ? <Notice variant="error">{error}</Notice> : null}
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="login-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.email', 'Email')}</Label>

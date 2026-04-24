@@ -211,10 +211,13 @@ export async function POST(req: Request) {
   const rule = em.create(BusinessRule, data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: `Failed to create rule: ${message}` }, { status: 500 })
+    console.error('[business_rules.rules] Failed to persist new rule:', error)
+    return NextResponse.json(
+      { error: t('business_rules.errors.createFailed') },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ id: rule.id }, { status: 201 })
@@ -244,6 +247,9 @@ export async function PUT(req: Request) {
     ...body,
     updatedBy: auth.sub ?? auth.email ?? null,
   }
+  delete (payload as Record<string, unknown>).tenantId
+  delete (payload as Record<string, unknown>).organizationId
+  delete (payload as Record<string, unknown>).createdBy
 
   const { t } = await resolveTranslations()
   const schema = createLocalizedUpdateBusinessRuleSchema(t)
@@ -267,10 +273,13 @@ export async function PUT(req: Request) {
   em.assign(rule, parsed.data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: `Failed to update rule: ${message}` }, { status: 500 })
+    console.error('[business_rules.rules] Failed to persist rule update:', error)
+    return NextResponse.json(
+      { error: t('business_rules.errors.updateFailed') },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ ok: true })
@@ -304,7 +313,7 @@ export async function DELETE(req: Request) {
   }
 
   rule.deletedAt = new Date()
-  await em.persistAndFlush(rule)
+  await em.persist(rule).flush()
 
   return NextResponse.json({ ok: true })
 }

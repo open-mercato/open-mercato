@@ -54,6 +54,7 @@ export type AppShellProps = {
       title: string
       defaultTitle?: string
       icon?: React.ReactNode
+      iconName?: string
       iconMarkup?: string
       enabled?: boolean
       hidden?: boolean
@@ -64,6 +65,7 @@ export type AppShellProps = {
         title: string
         defaultTitle?: string
         icon?: React.ReactNode
+        iconName?: string
         iconMarkup?: string
         enabled?: boolean
         hidden?: boolean
@@ -109,6 +111,7 @@ function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: st
     title,
     defaultTitle: title,
     icon: resolveInjectedIcon(item.icon) ?? undefined,
+    iconName: item.icon,
     enabled: true,
     hidden: false,
     pageContext: 'main',
@@ -302,8 +305,17 @@ function SerializedIcon({ markup }: { markup: string }) {
   return <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: markup }} />
 }
 
-function renderIcon(icon: React.ReactNode | undefined, iconMarkup: string | undefined, fallback: React.ReactNode) {
+function renderIcon(
+  icon: React.ReactNode | undefined,
+  iconName: string | undefined,
+  iconMarkup: string | undefined,
+  fallback: React.ReactNode,
+) {
   if (icon) return icon
+  if (iconName) {
+    const resolved = resolveInjectedIcon(iconName)
+    if (resolved) return resolved
+  }
   if (iconMarkup) return <SerializedIcon markup={iconMarkup} />
   return fallback
 }
@@ -862,6 +874,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                     <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
                       {renderIcon(
                         item.icon,
+                        item.iconName,
                         item.iconMarkup,
                         item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
                       )}
@@ -1243,7 +1256,12 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                         <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                       ) : null}
                                       <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                        {renderIcon(i.icon, i.iconMarkup, DefaultIcon)}
+                                        {renderIcon(
+                                          i.icon,
+                                          i.iconName,
+                                          i.iconMarkup,
+                                          DefaultIcon,
+                                        )}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
                                     </Link>
@@ -1270,6 +1288,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                               <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
                                                 {renderIcon(
                                                   c.icon,
+                                                  c.iconName,
                                                   c.iconMarkup,
                                                   c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
                                                 )}
@@ -1564,6 +1583,7 @@ AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): Ap
     title: item.title,
     defaultTitle: item.defaultTitle,
     icon: item.icon,
+    iconName: item.iconName,
     iconMarkup: item.iconMarkup,
     enabled: item.enabled,
     hidden: item.hidden,

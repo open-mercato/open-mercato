@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -268,8 +268,8 @@ function isActiveLockScopeUniqueViolation(error: unknown): boolean {
   return false
 }
 
-function getKnex(em: EntityManager): Knex {
-  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+function getKysely(em: EntityManager): Kysely<any> {
+  return (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 }
 
 const SKIPPED_CONFLICT_FIELDS = new Set([
@@ -1260,39 +1260,44 @@ export class RecordLockService {
 
   private async cleanupHistoricalRecords(tenantId: string): Promise<void> {
     try {
-      const knex = getKnex(this.em)
+      const db = getKysely(this.em)
       const now = Date.now()
       const lockCutoff = new Date(now - LOCK_RETENTION_MS)
       const resolvedConflictCutoff = new Date(now - RESOLVED_CONFLICT_RETENTION_MS)
       const pendingConflictCutoff = new Date(now - PENDING_CONFLICT_RETENTION_MS)
       const deletedAt = new Date(now)
 
-      await knex('record_locks')
-        .where({ tenant_id: tenantId })
-        .whereNull('deleted_at')
-        .whereNot('status', ACTIVE_LOCK_STATUS)
-        .andWhere('updated_at', '<', lockCutoff)
-        .update({
+      await db
+        .updateTable('record_locks' as any)
+        .set({
           deleted_at: deletedAt,
           updated_at: deletedAt,
-        })
+        } as any)
+        .where('tenant_id' as any, '=', tenantId)
+        .where('deleted_at' as any, 'is', null as any)
+        .where('status' as any, '!=', ACTIVE_LOCK_STATUS)
+        .where('updated_at' as any, '<', lockCutoff)
+        .execute()
 
-      await knex('record_lock_conflicts')
-        .where({ tenant_id: tenantId })
-        .whereNull('deleted_at')
-        .andWhere((query) => {
-          query
-            .where((pending) => {
-              pending.where('status', 'pending').andWhere('created_at', '<', pendingConflictCutoff)
-            })
-            .orWhere((resolved) => {
-              resolved.whereNot('status', 'pending').andWhere('updated_at', '<', resolvedConflictCutoff)
-            })
-        })
-        .update({
+      await db
+        .updateTable('record_lock_conflicts' as any)
+        .set({
           deleted_at: deletedAt,
           updated_at: deletedAt,
-        })
+        } as any)
+        .where('tenant_id' as any, '=', tenantId)
+        .where('deleted_at' as any, 'is', null as any)
+        .where((eb: any) => eb.or([
+          eb.and([
+            eb('status' as any, '=', 'pending'),
+            eb('created_at' as any, '<', pendingConflictCutoff),
+          ]),
+          eb.and([
+            eb('status' as any, '!=', 'pending'),
+            eb('updated_at' as any, '<', resolvedConflictCutoff),
+          ]),
+        ]))
+        .execute()
     } catch {
       // Best-effort cleanup must never fail lock workflows.
     }
@@ -1644,8 +1649,8 @@ export class RecordLockService {
 
     const result = await this.em.transactional(async (tx) => {
       try {
-        const knex = getKnex(tx as EntityManager)
-        await knex.raw('select pg_advisory_xact_lock(hashtext(?))', [dedupeKey])
+        const db = getKysely(tx as EntityManager)
+        await sql`select pg_advisory_xact_lock(hashtext(${dedupeKey}))`.execute(db)
       } catch {
         // Best-effort lock; fallback to find-first behavior below.
       }

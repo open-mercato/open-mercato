@@ -111,7 +111,7 @@ export async function PUT(req: Request) {
   const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
   if (!hasCustomAcl) {
-    if (acl) await em.removeAndFlush(acl)
+    if (acl) await em.remove(acl).flush()
   } else {
     if (!acl) {
       acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
@@ -120,7 +120,7 @@ export async function PUT(req: Request) {
     aclRecord.isSuperAdmin = effectiveIsSuperAdmin
     aclRecord.featuresJson = effectiveFeatures
     aclRecord.organizationsJson = organizations
-    await em.persistAndFlush(acl)
+    await em.persist(acl).flush()
   }
 
   // Invalidate cache for this user

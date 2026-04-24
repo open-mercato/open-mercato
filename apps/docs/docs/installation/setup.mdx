@@ -471,7 +471,8 @@ Key variables you may want to override:
 | `POSTGRES_USER` | `postgres` | Database username |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `JWT_SECRET` | `JWT` | Auth token secret |
-| `OPENAI_API_KEY` | — | Required for vector search and AI features |
+| `OPENAI_API_KEY` | — | Enables OpenAI-backed AI features; add it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` only when you want vector auto-indexing on |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | `true` in the shipped example env | Set to `false` or remove it to enable automatic vector indexing |
 | `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
 
 If you need a different splash port in Docker, set it before startup so the host/container mapping stays aligned:
@@ -568,7 +569,13 @@ MEILISEARCH_MASTER_KEY=meilisearch-dev-key
 
 # AI Features (optional)
 OPENAI_API_KEY=sk-your-openai-key
+
+# Vector search auto-indexing is off by default in the shipped example env.
+# Enable it only when you want real-time embedding jobs:
+OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false
 ```
+
+If you keep `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` (the default in `apps/mercato/.env.example`), semantic search can still be configured and reindexed manually, but record changes will not enqueue embeddings automatically. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` still works, but prefer the `OM_` name for new setups.
 
 **Note:** The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`.
 

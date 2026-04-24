@@ -11,7 +11,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './labels'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { humanizeResourceKind } from './labels'
 
 export type VersionHistoryPanelProps = {
@@ -189,9 +189,11 @@ export function VersionHistoryPanel({
             ) : (
               <div className="space-y-3">
                 {shouldAutoCheck && !permissions.isLoading && !permissions.canViewTenant && permissions.currentUserId ? (
-                  <Notice compact>
-                    {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
-                  </Notice>
+                  <Alert variant="info">
+                    <AlertDescription>
+                      {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
 
                 {isInitialLoading ? (

@@ -40,8 +40,9 @@ describe('executeCallApi', () => {
         createdApiKeys.push(record)
         return record
       }),
-      persistAndFlush: jest.fn(),
-      removeAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      remove: jest.fn(function remove(this: any) { return this }),
       findOne: jest.fn((Entity: any, query: any) => {
         const entityName = Entity?.name ?? ''
         if (entityName === 'WorkflowDefinition') {
@@ -139,7 +140,7 @@ describe('executeCallApi', () => {
 
     // Verify API key was soft-deleted
     expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
-    expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    expect(mockEm.flush).toHaveBeenCalled()
   })
 
   it('should interpolate workflow variables in request body', async () => {
@@ -303,7 +304,8 @@ describe('executeCallApi', () => {
       .rejects.toThrow('Network error')
 
     expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
-    expect(mockEm.persistAndFlush).toHaveBeenLastCalledWith(createdApiKeys[0])
+    expect(mockEm.persist).toHaveBeenLastCalledWith(createdApiKeys[0])
+    expect(mockEm.flush).toHaveBeenCalled()
   })
 
   it('should parse non-JSON response as text', async () => {

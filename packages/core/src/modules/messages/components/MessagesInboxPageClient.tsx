@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -12,6 +12,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
@@ -88,7 +89,16 @@ function toErrorMessage(payload: unknown): string | null {
 export function MessagesInboxPageClient() {
   const router = useRouter()
   const t = useT()
+  const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+
+  const invalidateMessageListQueries = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
+  }, [queryClient])
+
+  useAppEvent('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
+
+  useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)

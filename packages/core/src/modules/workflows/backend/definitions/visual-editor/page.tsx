@@ -10,6 +10,7 @@ import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, No
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -227,34 +228,28 @@ export default function VisualEditorPage() {
 
   // Delete edge
   const handleDeleteEdge = useCallback(async (edgeId: string) => {
-    const confirmed = await confirm({
-      title: t('workflows.confirm.deleteTransitionTitle'),
-      text: t('workflows.confirm.deleteTransitionText'),
-      variant: 'destructive',
+    await performDeleteEdgeFlow(edgeId, {
+      confirm,
+      t,
+      setShowEdgeDialog,
+      setSelectedEdge,
+      setEdges,
+      notifyDeleted: () => flash('Transition deleted successfully', 'success'),
     })
-    if (!confirmed) return
-    setShowEdgeDialog(false)
-    setSelectedEdge(null)
-    setEdges((eds) => eds.filter((edge) => edge.id !== edgeId))
-    flash('Transition deleted successfully', 'success')
   }, [confirm, t])
 
   // Delete node
   const handleDeleteNode = useCallback(async (nodeId: string) => {
-    const node = nodes.find((n) => n.id === nodeId)
-    const nodeData = node?.data as { stepName?: string; label?: string } | undefined
-    const stepName = nodeData?.stepName || nodeData?.label || nodeId
-    const confirmed = await confirm({
-      title: t('workflows.confirm.deleteStepTitle'),
-      text: t('workflows.confirm.deleteStep', { name: stepName }),
-      variant: 'destructive',
+    await performDeleteNodeFlow(nodeId, {
+      nodes,
+      confirm,
+      t,
+      setShowNodeDialog,
+      setSelectedNode,
+      setNodes,
+      setEdges,
+      notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
-    if (!confirmed) return
-    setShowNodeDialog(false)
-    setSelectedNode(null)
-    setNodes((nds) => nds.filter((n) => n.id !== nodeId))
-    setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
-    flash('Step deleted successfully', 'success')
   }, [confirm, nodes, t])
 
   // Handle new connections

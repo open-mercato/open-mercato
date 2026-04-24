@@ -8,7 +8,7 @@ import {
 } from '../../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
 }
 
 function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined): boolean {

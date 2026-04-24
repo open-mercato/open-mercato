@@ -1,9 +1,10 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import type { Kysely } from 'kysely'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -61,14 +62,14 @@ export async function handleVectorIndexJob(
       return
     }
 
-    // Get knex for heartbeat updates
-    let knex: Knex | null = null
+    // Get Kysely for heartbeat updates
+    let db: Kysely<any> | null = null
     let em: EntityManager | null = null
     try {
       em = ctx.resolve('em') as EntityManager
-      knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+      db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
     } catch {
-      knex = null
+      db = null
       em = null
     }
 
@@ -117,8 +118,8 @@ export async function handleVectorIndexJob(
     }
 
     // Update heartbeat to signal worker is still processing
-    if (knex && records.length > 0) {
-      await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
+    if (db && records.length > 0) {
+      await updateReindexProgress(db, tenantId, 'vector', successCount, organizationId ?? null)
     }
     if (progressService && em && records.length > 0) {
       const completed = await incrementReindexProgress({
@@ -129,8 +130,8 @@ export async function handleVectorIndexJob(
         organizationId: organizationId ?? null,
         delta: successCount,
       })
-      if (completed && knex) {
-        await clearReindexLock(knex, tenantId, 'vector', organizationId ?? null)
+      if (completed && db) {
+        await clearReindexLock(db, tenantId, 'vector', organizationId ?? null)
       }
     }
 

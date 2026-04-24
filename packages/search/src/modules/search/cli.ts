@@ -367,8 +367,8 @@ async function testMeilisearchCommand(): Promise<void> {
   console.log('')
 
   try {
-    const { MeiliSearch } = await import('meilisearch')
-    const client = new MeiliSearch({ host, apiKey })
+    const { Meilisearch } = await import('meilisearch')
+    const client = new Meilisearch({ host, apiKey })
 
     console.log('Testing connection...')
     const health = await client.health()

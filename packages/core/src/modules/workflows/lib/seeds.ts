@@ -160,8 +160,23 @@ async function seedGuardRules(
       continue
     }
     const entry = em.create(BusinessRule, {
-      ...rule,
       ruleId,
+      ruleName: rule.ruleName,
+      ruleType: rule.ruleType,
+      entityType: rule.entityType,
+      conditionExpression: rule.conditionExpression,
+      eventType: rule.eventType,
+      ruleCategory: rule.ruleCategory,
+      description: rule.description,
+      successActions: rule.successActions,
+      failureActions: rule.failureActions,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      version: rule.version,
+      effectiveFrom: rule.effectiveFrom,
+      effectiveTo: rule.effectiveTo,
+      createdBy: rule.createdBy,
+      updatedBy: rule.updatedBy,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })

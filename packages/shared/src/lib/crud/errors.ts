@@ -7,9 +7,13 @@ export class CrudHttpError extends Error {
   status: number
   body: Record<string, any>
 
-  constructor(status: number, body?: Record<string, any> | string) {
+  constructor(
+    status: number,
+    body?: Record<string, any> | string,
+    options?: { cause?: unknown },
+  ) {
     const normalizedBody = typeof body === 'string' ? { error: body } : body ?? {}
-    super(typeof body === 'string' ? body : normalizedBody.error ?? 'Request failed')
+    super(typeof body === 'string' ? body : normalizedBody.error ?? 'Request failed', options)
     this.status = status
     this.body = normalizedBody
   }

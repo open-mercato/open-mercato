@@ -120,7 +120,7 @@ export class AccountLinkingService {
       createdAt: now,
       updatedAt: now,
     } as RequiredEntityData<SsoIdentity>)
-    await this.em.persistAndFlush(identity)
+    await this.em.persist(identity).flush()
 
     void emitSsoEvent('sso.identity.linked', {
       id: identity.id,
@@ -147,7 +147,7 @@ export class AccountLinkingService {
         isConfirmed: true,
         createdAt: new Date(),
       })
-      await txEm.persistAndFlush(user)
+      await txEm.persist(user).flush()
 
       await this.assignRolesFromSso(txEm, user, config, tenantId, idpPayload.groups)
 
@@ -167,7 +167,7 @@ export class AccountLinkingService {
         createdAt: now,
         updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
-      await txEm.persistAndFlush(identity)
+      await txEm.persist(identity).flush()
 
       void emitSsoEvent('sso.identity.created', {
         id: identity.id,
@@ -290,7 +290,7 @@ export class AccountLinkingService {
     if (existingLink) return
 
     const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
-    await em.persistAndFlush(userRole)
+    await em.persist(userRole).flush()
   }
 }
 

@@ -33,8 +33,8 @@ import { createCacheService } from '@open-mercato/cache'
 const cache = createCacheService({
   strategy: process.env.CACHE_STRATEGY || 'memory',
   redisUrl: process.env.CACHE_REDIS_URL,
-  sqlitePath: './data/cache.db',
-  jsonFilePath: './data/cache.json',
+  sqlitePath: './.mercato/cache/cache.db',
+  jsonFilePath: './.mercato/cache/cache.json',
   defaultTtl: 5 * 60_000,
 })
 
@@ -72,8 +72,8 @@ Switch the strategy via:
 CACHE_STRATEGY=memory|redis|sqlite|jsonfile
 CACHE_TTL=300000
 CACHE_REDIS_URL=redis://localhost:6379
-CACHE_SQLITE_PATH=.cache/cache.db
-CACHE_JSON_FILE_PATH=.cache/cache.json
+CACHE_SQLITE_PATH=./.mercato/cache/cache.db
+CACHE_JSON_FILE_PATH=./.mercato/cache/cache.json
 ```
 
 ### Programmatic
@@ -81,7 +81,7 @@ CACHE_JSON_FILE_PATH=.cache/cache.json
 ```ts
 const sqliteCache = createCacheService({
   strategy: 'sqlite',
-  sqlitePath: './data/cache.db',
+  sqlitePath: './.mercato/cache/cache.db',
   defaultTtl: 30 * 60_000,
 })
 ```

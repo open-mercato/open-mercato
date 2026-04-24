@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import { MikroORM, type Logger } from '@mikro-orm/core'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
@@ -28,13 +29,13 @@ function createProgressRenderer(total: number) {
 
 function createMinimalLogger(): Logger {
   return {
-    log: () => {},
+    log: () => { },
     error: (_namespace, message) => console.error(message),
     warn: (_namespace, message) => {
       if (!QUIET_MODE) console.warn(message)
     },
-    logQuery: () => {},
-    setDebugMode: () => {},
+    logQuery: () => { },
+    setDebugMode: () => { },
     isEnabled: () => false,
   }
 }
@@ -248,6 +249,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities,
+      metadataProvider: ReflectMetadataProvider,
       migrations: {
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
@@ -262,18 +264,15 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         min: 1,
         max: 3,
         idleTimeoutMillis: 30000,
-        acquireTimeoutMillis: 60000,
-        destroyTimeoutMillis: 30000,
+        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
       },
       driverOptions: sslConfig ? {
-        connection: {
-          ssl: sslConfig,
-        },
+        ssl: sslConfig,
       } : undefined,
     })
 
     try {
-      const diff = await orm.getMigrator().createMigration()
+      const diff = await orm.migrator.create()
       if (diff && diff.fileName) {
         try {
           const orig = diff.fileName
@@ -346,6 +345,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities: [],
+      metadataProvider: ReflectMetadataProvider,
       discovery: { warnWhenNoEntities: false },
       migrations: {
         path: migrationsPath,
@@ -361,18 +361,15 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         min: 1,
         max: 3,
         idleTimeoutMillis: 30000,
-        acquireTimeoutMillis: 60000,
-        destroyTimeoutMillis: 30000,
+        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
       },
       driverOptions: sslConfig ? {
-        connection: {
-          ssl: sslConfig,
-        },
+        ssl: sslConfig,
       } : undefined,
     })
 
-    const migrator = orm.getMigrator() as Migrator
-    const pending = await migrator.getPendingMigrations()
+    const migrator = orm.migrator as Migrator
+    const pending = await migrator.getPending()
     if (!pending.length) {
       results.push(formatResult(modId, 'no pending migrations', ''))
     } else {
@@ -491,7 +488,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
     } finally {
       try {
         await client.end()
-      } catch {}
+      } catch { }
     }
   } catch (e) {
     console.error('Failed to drop migration tables:', (e as any)?.message || e)
@@ -527,7 +524,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
     } finally {
       try {
         await client.end()
-      } catch {}
+      } catch { }
     }
   } catch (e) {
     console.error('Failed to drop public tables:', (e as any)?.message || e)

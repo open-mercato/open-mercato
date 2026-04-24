@@ -27,6 +27,8 @@
   "record_locks.conflict.record_deleted_description": "Dieser Datensatz wurde von einem anderen Benutzer gelöscht, während Sie ihn bearbeitet haben. Speichern ist blockiert, um unerwartete Ergebnisse zu vermeiden.",
   "record_locks.conflict.record_deleted_title": "Datensatz wurde gelöscht",
   "record_locks.conflict.refresh_page": "Seite neu laden",
+  "record_locks.conflict.refresh_required": "Could not confirm conflict details. Save again to refresh conflict data.",
+  "record_locks.conflict.retry_save_after_accept_mine": "Click save again to apply your changes.",
   "record_locks.conflict.title": "Konflikt erkannt",
   "record_locks.errors.acquire_failed": "Der Sperrstatus des Datensatzes konnte nicht geladen werden.",
   "record_locks.errors.force_release_failed": "Die Bearbeitung konnte nicht ubernommen werden.",

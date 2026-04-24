@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
 }))
 
 import type { AwilixContainer } from 'awilix'
+import { getCurrentCacheTenant } from '@open-mercato/cache'
 import { deleteCatalogProductsWithProgress } from '../bulkDelete'
 
 describe('deleteCatalogProductsWithProgress', () => {
@@ -104,5 +105,41 @@ describe('deleteCatalogProductsWithProgress', () => {
         userId: 'user-1',
       },
     )
+  })
+
+  it('invokes cache invalidation inside the correct cache tenant scope so tag deletes match stored entries', async () => {
+    const execute = jest.fn().mockResolvedValue({ result: { productId: 'prod-1' } })
+    const startJob = jest.fn().mockResolvedValue(undefined)
+    const updateProgress = jest.fn().mockResolvedValue(undefined)
+    const completeJob = jest.fn().mockResolvedValue(undefined)
+
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'commandBus') return { execute }
+        if (name === 'progressService') {
+          return { startJob, updateProgress, completeJob }
+        }
+        return undefined
+      }),
+    } as unknown as AwilixContainer
+
+    const observedTenants: Array<string | null> = []
+    mockInvalidateCrudCache.mockImplementation(async () => {
+      observedTenants.push(getCurrentCacheTenant())
+    })
+
+    await deleteCatalogProductsWithProgress({
+      container,
+      progressJobId: 'job-2',
+      ids: ['prod-1'],
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      },
+    })
+
+    expect(mockInvalidateCrudCache).toHaveBeenCalledTimes(1)
+    expect(observedTenants).toEqual(['tenant-1'])
   })
 })
