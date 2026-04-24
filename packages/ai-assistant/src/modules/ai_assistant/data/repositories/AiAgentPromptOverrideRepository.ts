@@ -109,7 +109,7 @@ export class AiAgentPromptOverrideRepository {
         notes: input.notes ?? null,
         createdByUserId: ctx.userId ?? null,
       } as unknown as AiAgentPromptOverride)
-      await tx.persistAndFlush(row)
+      await tx.persist(row).flush()
       return row
     })
   }

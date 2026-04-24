@@ -110,12 +110,21 @@ function mockEm() {
       }
       return row
     },
-    persistAndFlush: async (row: Row) => {
-      const idx = store.findIndex((candidate) => candidate.id === row.id)
-      if (idx >= 0) store[idx] = row
-      else store.push(row)
+    persist: (row: Row) => {
+      em.__pendingPersist = row
+      return em
+    },
+    flush: async () => {
+      if (em.__pendingPersist) {
+        const row = em.__pendingPersist as Row
+        const idx = store.findIndex((candidate) => candidate.id === row.id)
+        if (idx >= 0) store[idx] = row
+        else store.push(row)
+        em.__pendingPersist = null
+      }
     },
     transactional: async (fn: (tx: any) => Promise<unknown>) => fn(em),
+    __pendingPersist: null as Row | null,
     __store: store,
   }
 

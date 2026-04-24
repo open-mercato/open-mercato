@@ -42,9 +42,12 @@ function makeCtxWithSearch(overrides: {
   searchService?: { search: jest.Mock } | null
   pricingService?: { resolvePrice: jest.Mock } | null
 } = {}) {
-  const em = {
+  const em: any = {
     count: jest.fn().mockResolvedValue(0),
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
+    persist: jest.fn(function (this: any) {
+      return em
+    }),
+    flush: jest.fn().mockResolvedValue(undefined),
   }
   const container = {
     resolve: jest.fn((name: string) => {

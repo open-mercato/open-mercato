@@ -51,19 +51,32 @@ function mockEm() {
       }
       return row
     },
-    persistAndFlush: async (row: Row) => {
-      const existingIndex = store.findIndex((r) => r.id === row.id)
-      if (existingIndex >= 0) {
-        store[existingIndex] = row
-        return
-      }
-      store.push(row)
+    persist: (row: Row) => {
+      em.__pendingPersist = row
+      return em
     },
-    removeAndFlush: async (row: Row) => {
-      const index = store.findIndex((r) => r.id === row.id)
-      if (index >= 0) store.splice(index, 1)
+    remove: (row: Row) => {
+      em.__pendingRemove = row
+      return em
+    },
+    flush: async () => {
+      if (em.__pendingPersist) {
+        const row = em.__pendingPersist as Row
+        const existingIndex = store.findIndex((r) => r.id === row.id)
+        if (existingIndex >= 0) store[existingIndex] = row
+        else store.push(row)
+        em.__pendingPersist = null
+      }
+      if (em.__pendingRemove) {
+        const row = em.__pendingRemove as Row
+        const index = store.findIndex((r) => r.id === row.id)
+        if (index >= 0) store.splice(index, 1)
+        em.__pendingRemove = null
+      }
     },
     transactional: async (fn: (tx: any) => Promise<unknown>) => fn(em),
+    __pendingPersist: null as Row | null,
+    __pendingRemove: null as Row | null,
     __store: store,
   }
 

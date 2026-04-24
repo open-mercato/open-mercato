@@ -52,9 +52,15 @@ type Ctx = {
   isSuperAdmin: boolean
 }
 
-function makeCtx(overrides: Partial<Ctx> = {}): { ctx: Ctx; em: { persistAndFlush: jest.Mock } } {
-  const em = {
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
+function makeCtx(overrides: Partial<Ctx> = {}): {
+  ctx: Ctx
+  em: { persist: jest.Mock; flush: jest.Mock }
+} {
+  const em: any = {
+    persist: jest.fn(function (this: any) {
+      return em
+    }),
+    flush: jest.fn().mockResolvedValue(undefined),
   }
   const container = {
     resolve: jest.fn((name: string) => {
@@ -241,7 +247,8 @@ describe('attachments.transfer_record_attachments', () => {
       type: 'customers:customer_person_profile',
       id: 'person-9',
     })
-    expect(em.persistAndFlush).toHaveBeenCalledWith([row])
+    expect(em.persist).toHaveBeenCalledWith([row])
+    expect(em.flush).toHaveBeenCalled()
   })
 
   it('returns transferred: 0 when no matching attachments exist', async () => {
@@ -257,7 +264,8 @@ describe('attachments.transfer_record_attachments', () => {
       ctx as any,
     )) as Record<string, unknown>
     expect(result.transferred).toBe(0)
-    expect(em.persistAndFlush).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('rejects cross-entity transfers', async () => {

@@ -79,7 +79,7 @@ export class AiAgentMutationPolicyOverrideRepository {
         existing.notes = normalized
         existing.createdByUserId = ctx.userId ?? existing.createdByUserId ?? null
         existing.updatedAt = new Date()
-        await tx.persistAndFlush(existing)
+        await tx.persist(existing).flush()
         return existing
       }
       const row = tx.create(AiAgentMutationPolicyOverride, {
@@ -90,7 +90,7 @@ export class AiAgentMutationPolicyOverrideRepository {
         notes: normalized,
         createdByUserId: ctx.userId ?? null,
       } as unknown as AiAgentMutationPolicyOverride)
-      await tx.persistAndFlush(row)
+      await tx.persist(row).flush()
       return row
     })
   }
@@ -113,7 +113,7 @@ export class AiAgentMutationPolicyOverrideRepository {
         { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
       )
       if (!existing) return false
-      await tx.removeAndFlush(existing)
+      await tx.remove(existing).flush()
       return true
     })
   }

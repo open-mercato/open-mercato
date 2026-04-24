@@ -12,14 +12,18 @@ export type FakeCtx = {
   isSuperAdmin: boolean
   em: {
     count: jest.Mock
-    persistAndFlush: jest.Mock
+    persist: jest.Mock
+    flush: jest.Mock
   }
 }
 
 export function makeCtx(overrides: Partial<FakeCtx & { organizationId: string | null }> = {}): FakeCtx {
-  const em = {
+  const em: any = {
     count: jest.fn().mockResolvedValue(0),
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
+    persist: jest.fn(function (this: any) {
+      return em
+    }),
+    flush: jest.fn().mockResolvedValue(undefined),
   }
   const container = {
     resolve: jest.fn((name: string) => {

@@ -62,12 +62,20 @@ function mockEm() {
       }
       return row
     },
-    persistAndFlush: async (row: Row) => {
-      store.push(row)
+    persist: (row: Row) => {
+      em.__pendingPersist = row
+      return em
+    },
+    flush: async () => {
+      if (em.__pendingPersist) {
+        store.push(em.__pendingPersist as Row)
+        em.__pendingPersist = null
+      }
     },
     transactional: async (fn: (tx: any) => Promise<unknown>) => {
       return fn(em)
     },
+    __pendingPersist: null as Row | null,
     __store: store,
   }
 

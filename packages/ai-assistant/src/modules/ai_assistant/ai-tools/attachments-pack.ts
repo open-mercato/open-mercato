@@ -248,7 +248,7 @@ const transferRecordAttachmentsTool = defineAiTool({
         assignments: nextAssignments,
       })
     }
-    await em.persistAndFlush(rows)
+    await em.persist(rows).flush()
     return {
       transferred: rows.length,
       fromEntityType: input.fromEntityType,

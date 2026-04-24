@@ -1,11 +1,11 @@
+import { OptionalProps } from '@mikro-orm/core'
 import {
   Entity,
   Index,
-  OptionalProps,
   PrimaryKey,
   Property,
   Unique,
-} from '@mikro-orm/core'
+} from '@mikro-orm/decorators/legacy'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,

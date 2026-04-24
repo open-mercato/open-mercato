@@ -45,9 +45,12 @@ function findTool(name: string) {
 function makeAuthoringCtx(overrides: {
   pricingService?: { resolvePrice: jest.Mock } | null
 } = {}) {
-  const em = {
+  const em: any = {
     count: jest.fn().mockResolvedValue(0),
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
+    persist: jest.fn(function (this: any) {
+      return em
+    }),
+    flush: jest.fn().mockResolvedValue(undefined),
   }
   const container = {
     resolve: jest.fn((name: string) => {

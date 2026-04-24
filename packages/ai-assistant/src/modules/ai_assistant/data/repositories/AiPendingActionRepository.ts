@@ -153,7 +153,7 @@ export class AiPendingActionRepository {
         resolvedAt: null,
         resolvedByUserId: null,
       } as unknown as AiPendingAction)
-      await tx.persistAndFlush(row)
+      await tx.persist(row).flush()
       return row
     })
   }
@@ -266,7 +266,7 @@ export class AiPendingActionRepository {
       if (extra && Object.prototype.hasOwnProperty.call(extra, 'failedRecords')) {
         existing.failedRecords = normalizeFailedRecords(extra.failedRecords)
       }
-      await tx.persistAndFlush(existing)
+      await tx.persist(existing).flush()
       return existing
     })
   }
