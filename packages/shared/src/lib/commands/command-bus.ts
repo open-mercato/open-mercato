@@ -44,6 +44,28 @@ function asRecord(input: unknown): Record<string, unknown> | null {
   return input as Record<string, unknown>
 }
 
+/** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
+function extractPrimaryIdFromCommandResult(result: unknown): string | null {
+  const r = asRecord(result)
+  if (!r) return null
+  const direct = pickFirstIdentifier(r.id, r.entityId, r.recordId)
+  if (direct) return direct
+  for (const key of [
+    'warehouseId',
+    'zoneId',
+    'locationId',
+    'lotId',
+    'reservationId',
+    'profileId',
+    'movementId',
+    'balanceId',
+  ]) {
+    const v = r[key]
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim()
+  }
+  return null
+}
+
 function toISOString(value: unknown): string | null {
   if (value instanceof Date) {
     const iso = value.toISOString()
@@ -552,6 +574,7 @@ export class CommandBus {
 
       const recordId = pickFirstIdentifier(
         metadata?.resourceId,
+        extractPrimaryIdFromCommandResult(result),
         resultRecord?.entityId,
         resultRecord?.id,
         resultRecord?.recordId,

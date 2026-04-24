@@ -745,6 +745,9 @@ const crud = makeCrudRoute({
   indexer: {
     entityType: E.catalog.catalog_product,
   },
+  enrichers: {
+    entityId: E.catalog.catalog_product,
+  },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product,
