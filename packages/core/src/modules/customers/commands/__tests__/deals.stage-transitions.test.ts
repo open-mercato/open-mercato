@@ -105,7 +105,7 @@ describe('customers.deals.update stage transitions', () => {
   })
 
   it('prepares successfully when the stage transition table is missing', async () => {
-    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    const handler = commandRegistry.get('customers.deal.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const existingDeal: CustomerDeal = {
@@ -177,7 +177,7 @@ describe('customers.deals.update stage transitions', () => {
   })
 
   it('persists a stage transition when the pipeline stage changes', async () => {
-    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    const handler = commandRegistry.get('customers.deal.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const existingDeal: CustomerDeal = {
@@ -273,7 +273,7 @@ describe('customers.deals.update stage transitions', () => {
   })
 
   it('skips transition persistence when the stage transition table is missing', async () => {
-    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    const handler = commandRegistry.get('customers.deal.update') as CommandHandler
     expect(handler).toBeDefined()
 
     const existingDeal: CustomerDeal = {
