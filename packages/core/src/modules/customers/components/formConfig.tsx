@@ -1553,7 +1553,13 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="company" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="company"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {
@@ -1645,7 +1651,13 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="person" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="person"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {

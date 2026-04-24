@@ -7,7 +7,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { CompanyTagsDialog } from './CompanyTagsDialog'
+import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { TagSummary } from './types'
@@ -15,6 +17,8 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { CompanyOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { formatFallbackLabel } from './utils'
+
+const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
 type CompanyDetailHeaderProps = {
   data: CompanyOverview
@@ -191,6 +195,27 @@ export function CompanyDetailHeader({
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 flex-col items-start gap-3 sm:w-auto sm:items-end">
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'customers',
+                entityType: 'company',
+                entityId: company.id,
+                previewData: {
+                  title: displayName,
+                  subtitle: company.primaryEmail ?? profile?.websiteUrl ?? undefined,
+                },
+              }}
+              viewHref={`/backend/customers/companies-v2/${company.id}`}
+              buttonVariant="outline"
+              buttonSize="icon"
+              buttonClassName={HEADER_ICON_BUTTON_CLASS}
+              buttonLabel={t('customers.companies.detail.actions.sendMessage', 'Send message')}
+            />
+            <ObjectHistoryButton
+              resourceKind="customers.company"
+              resourceId={company.id}
+              organizationId={company.organizationId ?? undefined}
+            />
             <IconButton
               variant="outline"
               size="sm"

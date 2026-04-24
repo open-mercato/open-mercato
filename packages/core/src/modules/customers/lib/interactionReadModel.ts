@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerDeal, CustomerEntity, CustomerInteraction } from '../data/entities'
@@ -60,6 +61,10 @@ function mergeAdditiveRecord<T extends Record<string, unknown>>(base: T, candida
     ...base,
     ...additions,
   }
+}
+
+function normalizeInteractionCustomValues(values: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  return normalizeCustomFieldResponse(values) ?? null
 }
 
 async function resolveUserFeatures(
@@ -200,7 +205,7 @@ export async function hydrateCanonicalInteractions({
       authorName: interaction.authorUserId ? userMap.get(interaction.authorUserId)?.name ?? null : null,
       authorEmail: interaction.authorUserId ? userMap.get(interaction.authorUserId)?.email ?? null : null,
       dealTitle: interaction.dealId ? dealMap.get(interaction.dealId) ?? null : null,
-      customValues: customFieldValues[interaction.id] ?? null,
+      customValues: normalizeInteractionCustomValues(customFieldValues[interaction.id]),
     }
   })
 
