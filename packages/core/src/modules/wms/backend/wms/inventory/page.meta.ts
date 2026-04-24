@@ -1,6 +1,3 @@
-import React from 'react'
-import { Boxes } from 'lucide-react'
-
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['wms.view'],
@@ -10,5 +7,5 @@ export const metadata = {
     { label: 'WMS', labelKey: 'wms.backend.nav.title', href: '/backend/wms' },
     { label: 'Inventory', labelKey: 'wms.backend.inventory.nav.title' },
   ],
-  icon: React.createElement(Boxes, { size: 16 }),
+  icon: 'boxes',
 } as const

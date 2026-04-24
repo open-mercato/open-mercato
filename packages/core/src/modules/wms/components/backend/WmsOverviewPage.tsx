@@ -11,7 +11,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Warehouse, MapPinned, Boxes, Layers, Settings } from 'lucide-react'
+import { Warehouse, MapPinned, Boxes, Layers, Settings, ClipboardList, Truck } from 'lucide-react'
 
 type WarehouseRow = {
   id: string
@@ -222,13 +222,13 @@ export default function WmsOverviewPage() {
                 </Button>
                 <Button asChild type="button" variant="outline" size="sm">
                   <Link href="/backend/wms/reservations">
-                    <Boxes className="size-4" />
+                    <ClipboardList className="size-4" />
                     {t('wms.backend.overview.actions.reservations', 'Reservations')}
                   </Link>
                 </Button>
                 <Button asChild type="button" variant="outline" size="sm">
                   <Link href="/backend/wms/movements">
-                    <Boxes className="size-4" />
+                    <Truck className="size-4" />
                     {t('wms.backend.overview.actions.movements', 'Movements')}
                   </Link>
                 </Button>

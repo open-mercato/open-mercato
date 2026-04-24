@@ -1,6 +1,3 @@
-import React from 'react'
-import { Layers } from 'lucide-react'
-
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['wms.view'],
@@ -10,5 +7,5 @@ export const metadata = {
     { label: 'WMS', labelKey: 'wms.backend.nav.title', href: '/backend/wms' },
     { label: 'Zones', labelKey: 'wms.backend.zones.nav.title' },
   ],
-  icon: React.createElement(Layers, { size: 16 }),
+  icon: 'layers',
 } as const

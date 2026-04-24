@@ -1,6 +1,3 @@
-import React from 'react'
-import { Settings } from 'lucide-react'
-
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['wms.view'],
@@ -10,7 +7,7 @@ export const metadata = {
   pageGroupKey: 'settings.sections.moduleConfigs',
   pageOrder: 35,
   pageContext: 'settings' as const,
-  icon: React.createElement(Settings, { size: 16 }),
+  icon: 'settings',
   breadcrumb: [
     { label: 'WMS', labelKey: 'wms.backend.config.nav.title' },
   ],
