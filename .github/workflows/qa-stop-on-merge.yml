@@ -35,12 +35,14 @@ jobs:
             let slot = "";
             if (names.includes("qa:qa1")) slot = "qa1";
             if (names.includes("qa:qa2")) slot = "qa2";
+            if (names.includes("qa:qa3")) slot = "qa3";
+            if (names.includes("qa:qa4")) slot = "qa4";
 
             core.setOutput("slot", slot);
 
       - name: Skip if no QA label
         if: ${{ steps.slot.outputs.slot == '' }}
-        run: echo "No qa:qa1/qa:qa2 label -> nothing to stop."
+        run: echo "No qa:qa1/qa:qa2/qa:qa3/qa:qa4 label -> nothing to stop."
 
       - name: Resolve Dokploy applicationId
         if: ${{ steps.slot.outputs.slot != '' }}
@@ -48,11 +50,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ steps.slot.outputs.slot }}" == "qa1" ]]; then
-            APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
-          else
-            APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
-          fi
+          case "${{ steps.slot.outputs.slot }}" in
+            qa1)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
+              ;;
+            qa2)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
+              ;;
+            qa3)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA3 }}"
+              ;;
+            qa4)
+              APP_ID="${{ vars.DOKPLOY_APP_ID_QA4 }}"
+              ;;
+            *)
+              echo "Unknown slot: ${{ steps.slot.outputs.slot }}" >&2
+              exit 1
+              ;;
+          esac
 
           if [[ -z "$APP_ID" ]]; then
             echo "Missing Dokploy app id for slot=${{ steps.slot.outputs.slot }}" >&2
