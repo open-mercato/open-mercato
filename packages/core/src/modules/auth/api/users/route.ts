@@ -14,8 +14,10 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { sql } from 'kysely'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -162,7 +164,6 @@ export async function GET(req: Request) {
     where.tenantId = auth.tenantId
   }
   if (organizationId) where.organizationId = organizationId
-  if (search) where.email = { $ilike: `%${escapeLikePattern(search)}%` } as any
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
@@ -181,6 +182,28 @@ export async function GET(req: Request) {
       idFilter = roleUserIds
     }
     if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+  }
+  if (search) {
+    // Email is encrypted at rest, so $ilike on the column cannot match plaintext input.
+    // Resolve candidate users via search_tokens (tokens are built from the decrypted index doc).
+    const tenantScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
+    const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, search, tenantScope)
+    if (matchedIds !== null) {
+      if (matchedIds.length === 0) {
+        return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+      }
+      const matchedSet = new Set(matchedIds)
+      if (idFilter) {
+        for (const uid of Array.from(idFilter)) {
+          if (!matchedSet.has(uid)) idFilter.delete(uid)
+        }
+        if (idFilter.size === 0) {
+          return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+        }
+      } else {
+        idFilter = matchedSet
+      }
+    }
   }
   if (idFilter && idFilter.size) {
     where.id = { $in: Array.from(idFilter) as any }
@@ -310,6 +333,36 @@ export const PUT = async (req: Request) => {
 }
 
 export const DELETE = crud.DELETE
+
+async function findUserIdsBySearchTokens(
+  em: EntityManager,
+  entityType: string,
+  search: string,
+  tenantScope: string | null | undefined,
+): Promise<string[] | null> {
+  const trimmed = search.trim()
+  if (!trimmed) return null
+  const searchConfig = resolveSearchConfig()
+  if (!searchConfig.enabled) return []
+  const { hashes } = tokenizeText(trimmed, searchConfig)
+  if (!hashes.length) return []
+
+  const db = (em as any).getKysely() as any
+  let query = db
+    .selectFrom('search_tokens')
+    .select('entity_id')
+    .where('entity_type', '=', entityType)
+    .where('token_hash', 'in', hashes)
+    .groupBy('entity_id')
+    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (tenantScope !== undefined) {
+    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
+  }
+  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
+  return rows
+    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
