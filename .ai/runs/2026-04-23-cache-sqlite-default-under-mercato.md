@@ -51,3 +51,4 @@
 
 - [x] 3.1 Run targeted tests and typechecks for touched packages, then the required full validation gate — 7f63c93d2
 - [x] 3.2 Self-review for backward compatibility and open the PR with labels, comments, and summary — PR #1682
+- [x] Post-review fix: Drop legacy `apps/mercato/data` entry from root `.gitignore` so the ignore list matches the new `.mercato/cache/*` convention — 6d7a802b4
