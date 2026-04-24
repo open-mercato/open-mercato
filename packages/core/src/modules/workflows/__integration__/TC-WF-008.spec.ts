@@ -96,7 +96,7 @@ async function addEventTriggerViaUi(page: Page, triggerName: string, eventPatter
   await expect(dialog).toBeVisible()
 
   await fillText(page, dialog.locator('#trigger-name'), triggerName)
-  const patternInput = dialog.getByPlaceholder('sales.orders.updated')
+  const patternInput = dialog.getByPlaceholder('sales.order.updated')
   await fillText(page, patternInput, eventPattern)
   // EventPatternInput only commits via blur/Enter; press Tab to trigger confirmSelection
   await patternInput.press('Tab')
