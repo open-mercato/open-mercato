@@ -2,13 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
-import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -21,30 +20,8 @@ import { Users } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 const MARKDOWN_CLASSNAME =
   'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
-
-type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
-
-const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
-
-let markdownPluginsPromise: Promise<PluggableList> | null = null
-
-async function loadMarkdownPlugins(): Promise<PluggableList> {
-  if (isTestEnv) return []
-  if (!markdownPluginsPromise) {
-    markdownPluginsPromise = import('remark-gfm')
-      .then((mod) => [mod.default ?? mod] as PluggableList)
-      .catch(() => [])
-  }
-  return markdownPluginsPromise
-}
 
 type TeamRow = {
   id: string
@@ -74,11 +51,6 @@ export default function StaffTeamsPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
-
-  React.useEffect(() => {
-    void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
-  }, [])
 
   const labels = React.useMemo(() => ({
     title: t('staff.teams.page.title', 'Teams'),
@@ -120,7 +92,6 @@ export default function StaffTeamsPage() {
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
             <MarkdownPreview
-              remarkPlugins={markdownPlugins}
               className={`${MARKDOWN_CLASSNAME} text-xs text-muted-foreground line-clamp-2`}
             >
               {row.original.description}
@@ -135,7 +106,7 @@ export default function StaffTeamsPage() {
       meta: { priority: 4 },
       cell: ({ row }) => row.original.description
         ? (
-          <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
+          <MarkdownPreview className={MARKDOWN_CLASSNAME}>
             {row.original.description}
           </MarkdownPreview>
         )
@@ -178,7 +149,6 @@ export default function StaffTeamsPage() {
     labels.table.members,
     labels.table.name,
     labels.table.updatedAt,
-    markdownPlugins,
   ])
 
   const loadTeams = React.useCallback(async () => {
@@ -319,4 +289,3 @@ function mapApiTeam(item: Record<string, unknown>): TeamRow {
       : 0
   return withDataTableNamespaces({ id, name, description, isActive, updatedAt, memberCount }, item)
 }
-

@@ -8,6 +8,7 @@ export type BackendChromeNavItem = {
   enabled?: boolean
   hidden?: boolean
   pageContext?: BackendChromePageContext
+  iconName?: string
   iconMarkup?: string
   children?: BackendChromeNavItem[]
 }
@@ -25,6 +26,7 @@ export type BackendChromeSectionItem = {
   labelKey?: string
   href: string
   order?: number
+  iconName?: string
   iconMarkup?: string
   children?: BackendChromeSectionItem[]
 }

@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'customer_users' })
 @Unique({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_uniq' })

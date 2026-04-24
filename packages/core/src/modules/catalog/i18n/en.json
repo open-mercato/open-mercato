@@ -414,6 +414,7 @@
   "catalog.products.edit.weight.unit": "Weight unit",
   "catalog.products.edit.weight.value": "Weight",
   "catalog.products.errors.handleExists": "Handle already in use.",
+  "catalog.products.errors.notFound": "Catalog product not found.",
   "catalog.products.errors.skuExists": "SKU already in use.",
   "catalog.products.errors.taxClassNotFound": "Tax class not found.",
   "catalog.products.filters.active": "Active",

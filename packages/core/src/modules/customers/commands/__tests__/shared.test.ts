@@ -138,16 +138,37 @@ describe('customers commands shared utilities', () => {
       expect(em.findOne).not.toHaveBeenCalled()
     })
 
-    it('throws when dictionary kind is unsupported', async () => {
+    it('throws when dictionary kind is invalid', async () => {
       const em = createEm()
       await expect(
         ensureDictionaryEntry(em as any, {
           tenantId: 't1',
           organizationId: 'o1',
-          kind: 'unsupported' as any,
+          kind: 'unsupported kind' as any,
           value: 'Hot',
         })
       ).rejects.toThrow(CrudHttpError)
+    })
+
+    it('accepts custom dictionary kind slugs', async () => {
+      const em = createEm()
+      em.findOne.mockResolvedValue(null)
+
+      await ensureDictionaryEntry(em as any, {
+        tenantId: 't1',
+        organizationId: 'o1',
+        kind: 'partner-stage',
+        value: 'Active',
+      })
+
+      expect(em.create).toHaveBeenCalledWith(
+        CustomerDictionaryEntry,
+        expect.objectContaining({
+          kind: 'partner-stage',
+          value: 'Active',
+          normalizedValue: 'active',
+        }),
+      )
     })
 
     it('updates existing entry with normalized color and icon', async () => {

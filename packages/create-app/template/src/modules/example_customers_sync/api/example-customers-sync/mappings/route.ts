@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { type Kysely } from 'kysely'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -23,11 +24,11 @@ type MappingRow = {
   interaction_id: string
   todo_id: string
   sync_status: string
-  last_synced_at: Date | null
+  last_synced_at: Date | string | null
   last_error: string | null
-  source_updated_at: Date | null
-  created_at: Date
-  updated_at: Date
+  source_updated_at: Date | string | null
+  created_at: Date | string
+  updated_at: Date | string
   organization_id: string
   tenant_id: string
 }
@@ -50,6 +51,15 @@ function decodeCursor(token: string | undefined): CursorPayload | null {
   } catch {
     return null
   }
+}
+
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
 export async function GET(request: Request) {
@@ -82,9 +92,10 @@ export async function GET(request: Request) {
         : []
 
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
-    const rowsQuery = knex('example_customer_interaction_mappings')
-      .select<MappingRow[]>([
+    const db = (em as any).getKysely() as Kysely<any>
+    let rowsQuery = db
+      .selectFrom('example_customer_interaction_mappings')
+      .select([
         'id',
         'interaction_id',
         'todo_id',
@@ -97,29 +108,32 @@ export async function GET(request: Request) {
         'organization_id',
         'tenant_id',
       ])
-      .where('tenant_id', auth.tenantId)
+      .where('tenant_id', '=', auth.tenantId)
       .orderBy('updated_at', 'desc')
       .orderBy('id', 'desc')
       .limit(query.limit + 1)
 
     if (organizationIds.length > 0) {
-      rowsQuery.whereIn('organization_id', organizationIds)
+      rowsQuery = rowsQuery.where('organization_id', 'in', organizationIds)
     }
     if (query.interactionId) {
-      rowsQuery.andWhere('interaction_id', query.interactionId)
+      rowsQuery = rowsQuery.where('interaction_id', '=', query.interactionId)
     }
     if (query.todoId) {
-      rowsQuery.andWhere('todo_id', query.todoId)
+      rowsQuery = rowsQuery.where('todo_id', '=', query.todoId)
     }
     if (cursor) {
-      rowsQuery.andWhere(function applyCursor() {
-        this.where('updated_at', '<', new Date(cursor.updatedAt)).orWhere(function applyTieBreaker() {
-          this.where('updated_at', new Date(cursor.updatedAt)).andWhere('id', '<', cursor.id)
-        })
-      })
+      const cursorDate = new Date(cursor.updatedAt)
+      rowsQuery = rowsQuery.where(eb => eb.or([
+        eb('updated_at', '<', cursorDate),
+        eb.and([
+          eb('updated_at', '=', cursorDate),
+          eb('id', '<', cursor.id),
+        ]),
+      ]))
     }
 
-    const rows = await rowsQuery
+    const rows = (await rowsQuery.execute()) as MappingRow[]
     const pageRows = rows.slice(0, query.limit)
     const interactionIds = Array.from(new Set(pageRows.map((row) => row.interaction_id)))
     const interactions = interactionIds.length > 0
@@ -158,11 +172,11 @@ export async function GET(request: Request) {
         interactionId: row.interaction_id,
         todoId: row.todo_id,
         syncStatus: row.sync_status,
-        lastSyncedAt: row.last_synced_at?.toISOString() ?? null,
+        lastSyncedAt: toIsoString(row.last_synced_at),
         lastError: row.last_error ?? null,
-        sourceUpdatedAt: row.source_updated_at?.toISOString() ?? null,
-        createdAt: row.created_at.toISOString(),
-        updatedAt: row.updated_at.toISOString(),
+        sourceUpdatedAt: toIsoString(row.source_updated_at),
+        createdAt: toIsoString(row.created_at),
+        updatedAt: toIsoString(row.updated_at),
         organizationId: row.organization_id,
         tenantId: row.tenant_id,
         exampleHref: `/backend/todos/${encodeURIComponent(row.todo_id)}/edit`,
@@ -181,7 +195,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       items,
-      ...(last ? { nextCursor: encodeCursor({ updatedAt: last.updated_at.toISOString(), id: last.id }) } : {}),
+      ...(last ? { nextCursor: encodeCursor({ updatedAt: toIsoString(last.updated_at) ?? new Date(0).toISOString(), id: last.id }) } : {}),
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -3,6 +3,8 @@ import {
   upsertDictionarySchema,
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
+  reorderDictionaryEntriesSchema,
+  setDefaultDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 
 export const dictionariesTag = 'Dictionaries'
@@ -45,6 +47,8 @@ export const dictionaryEntrySchema = z.object({
   label: z.string(),
   color: z.string().nullable(),
   icon: z.string().nullable(),
+  position: z.number(),
+  isDefault: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 })
@@ -66,9 +70,22 @@ export const dictionaryEntryParamsSchema = z.object({
 
 export const dictionaryUpdateSchema = upsertDictionarySchema.partial()
 
+export const reorderEntriesRequestSchema = z.object({
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    position: z.number().int().min(0),
+  })).min(1),
+})
+
+export const setDefaultEntryRequestSchema = z.object({
+  entryId: z.string().uuid(),
+})
+
 export {
   upsertDictionarySchema,
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
+  reorderDictionaryEntriesSchema,
+  setDefaultDictionaryEntrySchema,
 }
 

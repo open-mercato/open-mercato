@@ -33,9 +33,10 @@
     "@ai-sdk/cohere": "^3.0.4",
     "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^3.0.5",
-    "@mikro-orm/core": "^6.6.2",
-    "@mikro-orm/migrations": "^6.6.2",
-    "@mikro-orm/postgresql": "^6.6.2",
+    "@mikro-orm/core": "^7.0.10",
+    "@mikro-orm/decorators": "^7.0.10",
+    "@mikro-orm/migrations": "^7.0.10",
+    "@mikro-orm/postgresql": "^7.0.10",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@open-mercato/ai-assistant": "{{PACKAGE_VERSION}}",
     "@open-mercato/cache": "{{PACKAGE_VERSION}}",
@@ -92,6 +93,7 @@
     "react-big-calendar": "^1.19.4",
     "react-dom": "19.2.1",
     "react-email": "^5.0.6",
+    "reflect-metadata": "^0.2.2",
     "remark-gfm": "^4.0.1",
     "resend": "^6.5.2",
     "sanitize-html": "^2.17.2",
@@ -116,6 +118,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "16.0.7",
     "jest": "^30.2.0",
+    "cross-spawn": "^7.0.6",
     "tailwindcss": "^4.1.17",
     "ts-morph": "^25.0.0",
     "ts-jest": "^29.4.6",
@@ -127,6 +130,10 @@
     "better-sqlite3": "^12.5.0",
     "bullmq": "^5.34.8",
     "ioredis": "^5.8.2"
+  },
+  "resolutions": {
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1"
   },
   "imports": {
     "#generated/entities.ids.generated": {

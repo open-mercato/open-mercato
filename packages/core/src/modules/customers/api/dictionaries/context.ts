@@ -9,7 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
-export const dictionaryKindSchema = z.enum([
+const BUILTIN_DICTIONARY_ROUTE_KINDS = [
   'statuses',
   'sources',
   'lifecycle-stages',
@@ -19,21 +19,27 @@ export const dictionaryKindSchema = z.enum([
   'pipeline-stages',
   'job-titles',
   'industries',
+  'temperature',
+  'renewal-quarters',
+  'person-company-roles',
+] as const
+
+type BuiltinDictionaryRouteKind = (typeof BUILTIN_DICTIONARY_ROUTE_KINDS)[number]
+
+const dictionaryCustomKindSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Invalid dictionary kind')
+
+export const dictionaryKindSchema = z.union([
+  z.enum(BUILTIN_DICTIONARY_ROUTE_KINDS),
+  dictionaryCustomKindSchema,
 ])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
-export type DictionaryEntityKind =
-  | 'status'
-  | 'source'
-  | 'lifecycle_stage'
-  | 'address_type'
-  | 'activity_type'
-  | 'deal_status'
-  | 'pipeline_stage'
-  | 'job_title'
-  | 'industry'
+export type DictionaryEntityKind = string
 
-const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
+const KIND_MAP: Record<BuiltinDictionaryRouteKind, DictionaryEntityKind> = {
   statuses: 'status',
   sources: 'source',
   'lifecycle-stages': 'lifecycle_stage',
@@ -43,6 +49,9 @@ const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   'pipeline-stages': 'pipeline_stage',
   'job-titles': 'job_title',
   industries: 'industry',
+  temperature: 'temperature',
+  'renewal-quarters': 'renewal_quarter',
+  'person-company-roles': 'person_company_role',
 }
 
 export const paramsSchema = z.object({
@@ -61,15 +70,30 @@ export type DictionaryRouteContext = {
   ctx: CommandRuntimeContext
 }
 
+export function resolveDictionaryActorId(
+  auth: Awaited<ReturnType<typeof getAuthFromRequest>>,
+): string {
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export function mapDictionaryKind(kind: string | undefined) {
   const parsed = paramsSchema.parse({ kind })
+  const mappedKind = Object.prototype.hasOwnProperty.call(KIND_MAP, parsed.kind)
+    ? KIND_MAP[parsed.kind as BuiltinDictionaryRouteKind]
+    : parsed.kind
   return {
     kind: parsed.kind,
-    mappedKind: KIND_MAP[parsed.kind],
+    mappedKind,
   }
 }
 
-export async function resolveDictionaryRouteContext(req: Request): Promise<DictionaryRouteContext> {
+export async function resolveDictionaryRouteContext(
+  req: Request,
+  options?: { selectedId?: string | null },
+): Promise<DictionaryRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
@@ -77,7 +101,12 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
   }
 
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const scope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    selectedId: options?.selectedId,
+  })
   const em = (container.resolve('em') as EntityManager)
   const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = scope?.selectedId ?? auth.orgId ?? null

@@ -6,6 +6,10 @@ import { SsoService } from '../../services/ssoService'
 import { ssoInitiateSchema } from '../../data/validators'
 import { emitSsoEvent } from '../../events'
 
+export const metadata = {
+  GET: { requireAuth: false },
+}
+
 function sanitizeReturnUrl(raw: string | null): string {
   const value = raw || '/backend'
   if (!value.startsWith('/') || value.startsWith('//')) return '/backend'

@@ -591,6 +591,10 @@
         border-radius: 18px;
         border: 1px solid rgba(239, 68, 68, 0.24);
         background: var(--danger-surface);
+        min-width: 0;
+        min-height: 0;
+        max-width: 100%;
+        overflow: hidden;
       }
       .failure-box[hidden] {
         display: none;
@@ -614,6 +618,24 @@
         font: 500 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         white-space: pre-wrap;
         word-break: break-word;
+        overflow-wrap: anywhere;
+        max-height: clamp(140px, 26vh, 300px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(239, 68, 68, 0.45) transparent;
+      }
+      .failure-lines::-webkit-scrollbar {
+        width: 8px;
+      }
+      .failure-lines::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .failure-lines::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(239, 68, 68, 0.45);
+        border: 2px solid transparent;
+        background-clip: padding-box;
       }
       @keyframes spin {
         to { transform: rotate(360deg); }

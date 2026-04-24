@@ -11,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { LoadingMessage } from './LoadingMessage'
 import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
+import { MarkdownPreview } from '../markdown'
 
 function resolveInlineErrorMessage(err: unknown, fallbackMessage: string): string {
   const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -390,13 +391,9 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-type MarkdownPreviewProps = {
-  children: string
-  className?: string
-  remarkPlugins?: PluggableList
-}
-
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 function MarkdownEditorFallback() {
   const t = useT()
@@ -420,13 +417,6 @@ const MarkdownEditorComponent: React.ComponentType<UiMarkdownEditorProps> = isTe
       ssr: false,
       loading: () => <MarkdownEditorFallback />,
     }) as unknown as React.ComponentType<UiMarkdownEditorProps>)
-
-const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -708,12 +698,12 @@ export function InlineMultilineEditor({
               {renderDisplay ? (
                 renderDisplay({ value, emptyLabel })
               ) : value && value.length ? (
-                <MarkdownPreviewComponent
+                <MarkdownPreview
                   remarkPlugins={markdownPlugins}
                   className="prose prose-sm max-w-none text-foreground [&>*]:my-2 [&>*:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5"
                 >
                   {value}
-                </MarkdownPreviewComponent>
+                </MarkdownPreview>
               ) : (
                 <span className="text-muted-foreground">{emptyLabel}</span>
               )}

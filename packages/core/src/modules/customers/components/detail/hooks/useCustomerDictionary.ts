@@ -26,16 +26,19 @@ const DICTIONARY_STALE_TIME = 5 * 60 * 1000
 
 const BASE_DICTIONARY_QUERY_KEY = ['customers', 'dictionaries'] as const
 
-export const customerDictionaryQueryKey = (kind: CustomerDictionaryKind, scopeVersion = 0) =>
-  [...BASE_DICTIONARY_QUERY_KEY, kind, `scope:${scopeVersion}`] as const
+export const customerDictionaryQueryKey = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null) =>
+  [...BASE_DICTIONARY_QUERY_KEY, kind, `scope:${scopeVersion}`, organizationId ? `org:${organizationId}` : 'org:default'] as const
 
-export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, scopeVersion = 0) => ({
-  queryKey: customerDictionaryQueryKey(kind, scopeVersion),
+export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null) => ({
+  queryKey: customerDictionaryQueryKey(kind, scopeVersion, organizationId),
   staleTime: DICTIONARY_STALE_TIME,
   gcTime: DICTIONARY_STALE_TIME,
   queryFn: async (): Promise<CustomerDictionaryQueryData> => {
+    const url = organizationId
+      ? `/api/customers/dictionaries/${kind}?organizationId=${encodeURIComponent(organizationId)}`
+      : `/api/customers/dictionaries/${kind}`
     const payload = await readApiResultOrThrow<Record<string, unknown>>(
-      `/api/customers/dictionaries/${kind}`,
+      url,
       undefined,
       { errorMessage: 'Failed to load dictionary entries.' },
     )
@@ -81,8 +84,9 @@ export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, sco
 export function useCustomerDictionary(
   kind: CustomerDictionaryKind,
   scopeVersion = 0,
+  organizationId?: string | null,
 ): UseQueryResult<CustomerDictionaryQueryData> {
-  return useQuery(customerDictionaryQueryOptions(kind, scopeVersion))
+  return useQuery(customerDictionaryQueryOptions(kind, scopeVersion, organizationId))
 }
 
 export async function invalidateCustomerDictionary(queryClient: QueryClient, kind: CustomerDictionaryKind) {

@@ -517,7 +517,7 @@ async function ensureRoleAclFor(
       isSuperAdmin: !!options.isSuperAdmin,
       createdAt: new Date(),
     })
-    await em.persistAndFlush(acl)
+    await em.persist(acl).flush()
     return
   }
   const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
@@ -530,7 +530,7 @@ async function ensureRoleAclFor(
     existing.isSuperAdmin = true
   }
   if (changed || options.isSuperAdmin) {
-    await em.persistAndFlush(existing)
+    await em.persist(existing).flush()
   }
 }
 
@@ -550,7 +550,7 @@ async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager
       dirty = true
     }
     if (dirty) {
-      await em.persistAndFlush(user)
+      await em.persist(user).flush()
     }
   } catch (error) {
     console.error('[auth.setup] failed to deactivate demo superadmin user', error)

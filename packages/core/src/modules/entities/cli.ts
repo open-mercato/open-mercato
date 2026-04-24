@@ -223,7 +223,7 @@ const addField: ModuleCli = {
       if (description !== undefined) configJson.description = description
 
       if (!existing) {
-        await em.persistAndFlush(em.create(CustomFieldDef, {
+        await em.persist(em.create(CustomFieldDef, {
           entityId,
           organizationId: orgId,
           tenantId: tenantId,
@@ -231,7 +231,7 @@ const addField: ModuleCli = {
           kind,
           configJson,
           isActive: true,
-        }))
+        })).flush()
         console.log(`Created custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}, tenant=${tenantId}]`}`)
       } else {
         existing.kind = kind as any
@@ -272,7 +272,7 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
       existing.isActive = true
       existing.updatedAt = new Date()
       logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
-      await em.persistAndFlush(existing)
+      await em.persist(existing).flush()
       continue
     }
     const map = em.create(EncryptionMap, {
@@ -282,7 +282,7 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
       fieldsJson: spec.fields,
       isActive: true,
     })
-    await em.persistAndFlush(map)
+    await em.persist(map).flush()
     logger(`Created encryption map for ${spec.entityId}`)
   }
 }

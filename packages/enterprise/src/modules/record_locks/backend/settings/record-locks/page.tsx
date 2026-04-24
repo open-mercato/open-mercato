@@ -9,7 +9,7 @@ import { TagsInput } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
@@ -159,22 +159,24 @@ export default function RecordLockingSettingsPage() {
             <option value="optimistic">{t('record_locks.settings.strategy_optimistic', 'Optimistic')}</option>
             <option value="pessimistic">{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}</option>
           </select>
-          <Notice compact variant="info">
-            <p>
-              <strong>{t('record_locks.settings.strategy_optimistic', 'Optimistic')}:</strong>{' '}
-              {t(
-                'record_locks.settings.strategy_help_optimistic',
-                'Multiple users can edit at the same time; conflicts are checked on save.',
-              )}
-            </p>
-            <p className="mt-1">
-              <strong>{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}:</strong>{' '}
-              {t(
-                'record_locks.settings.strategy_help_pessimistic',
-                'First editor acquires the lock and blocks concurrent edits until release.',
-              )}
-            </p>
-          </Notice>
+          <Alert variant="info">
+            <AlertDescription>
+              <p>
+                <strong>{t('record_locks.settings.strategy_optimistic', 'Optimistic')}:</strong>{' '}
+                {t(
+                  'record_locks.settings.strategy_help_optimistic',
+                  'Multiple users can edit at the same time; conflicts are checked on save.',
+                )}
+              </p>
+              <p className="mt-1">
+                <strong>{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}:</strong>{' '}
+                {t(
+                  'record_locks.settings.strategy_help_pessimistic',
+                  'First editor acquires the lock and blocks concurrent edits until release.',
+                )}
+              </p>
+            </AlertDescription>
+          </Alert>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

@@ -43,12 +43,13 @@ After clicking the deploy button, Railway will prompt you to fill in the require
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | Enables AI features (OCR, vector search, AI assistant). |
+| `OPENAI_API_KEY` | Enables OpenAI-backed AI features (OCR, AI assistant, and vector search when auto-indexing is enabled). |
 | `AI_PENDING_ACTION_TTL_SECONDS` | Expiry window for pending AI mutation approvals. Defaults to `900` (15 minutes). |
 | `<MODULE>_AI_MODEL` | Per-module AI model override, uppercased from the module id (e.g. `CATALOG_AI_MODEL`, `INBOX_OPS_AI_MODEL`). Overrides the agent default for that module only. |
 | `RESEND_API_KEY` | Transactional emails (invitations, password resets). |
 | `RESEND_FROM_EMAIL` | Sender address, e.g. `no-reply@yourdomain.com`. |
 | `DEMO_MODE` | Set to `false` to skip seeding demo CRM data on first boot. Defaults to `true`. |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | Keep `true` to leave vector auto-indexing off; set to `false` when you want automatic embedding jobs. |
 
 :::info Railway auto-wires services
 Railway automatically injects `DATABASE_URL`, `REDIS_URL`, and `MEILISEARCH_HOST` / `MEILISEARCH_API_KEY` from the provisioned services. You do not need to set these manually.

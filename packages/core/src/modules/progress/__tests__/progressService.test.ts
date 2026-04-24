@@ -18,10 +18,12 @@ const baseCtx = {
 }
 
 const buildEm = () => {
+  const flush = jest.fn().mockResolvedValue(undefined)
+  const persist = jest.fn((_entity: unknown) => ({ flush }))
   const em = {
     create: jest.fn(),
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
-    flush: jest.fn().mockResolvedValue(undefined),
+    persist,
+    flush,
     findOne: jest.fn(),
     findOneOrFail: jest.fn(),
     find: jest.fn(),
@@ -50,7 +52,8 @@ describe('progress service', () => {
     expect(job.status).toBe('pending')
     expect(job.jobType).toBe('import')
     expect(job.cancellable).toBe(true)
-    expect(em.persistAndFlush).toHaveBeenCalledWith(job)
+    expect(em.persist).toHaveBeenCalledWith(job)
+    expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CREATED,
       expect.objectContaining({

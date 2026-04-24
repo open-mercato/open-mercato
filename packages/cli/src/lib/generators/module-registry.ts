@@ -130,6 +130,13 @@ type SerializablePageMetadata = {
     sectionLabelKey?: string
     order?: number
   }
+  nav?: {
+    label: string
+    labelKey?: string
+    group?: 'main' | 'account'
+    order?: number
+    icon?: string
+  }
   icon?: string
 }
 
@@ -351,15 +358,496 @@ function extractObjectPropertiesFromAst(sourceFile: string, exportName: string):
   return Object.keys(result).length > 0 ? result : null
 }
 
-function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+export function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
   const literal = extractNamedObjectLiteralSource(sourceFile, exportName)
-  if (!literal) return null
-  try {
-    const extracted = Function(`"use strict"; return (${literal});`)()
-    return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
-  } catch {
-    return extractObjectPropertiesFromAst(sourceFile, exportName)
+  if (literal) {
+    try {
+      const extracted = Function(`"use strict"; return (${literal});`)()
+      if (extracted && typeof extracted === 'object') {
+        return extracted as Record<string, unknown>
+      }
+    } catch {
+      // fall through to AST-based resolver
+    }
   }
+  const resolved = resolveNamedObjectExport(sourceFile, exportName)
+  if (resolved) return resolved
+  return extractObjectPropertiesFromAst(sourceFile, exportName)
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current: ts.Expression = expression
+  while (
+    ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isParenthesizedExpression(current)
+    || ts.isSatisfiesExpression?.(current)
+    || ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+function collectLocalDeclarations(parsed: ts.SourceFile): Map<string, ts.Expression> {
+  const locals = new Map<string, ts.Expression>()
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        locals.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  return locals
+}
+
+type ImportedBinding =
+  | {
+    kind: 'named'
+    sourceFile: string
+    exportName: string
+  }
+  | {
+    kind: 'default'
+    sourceFile: string
+  }
+  | {
+    kind: 'namespace'
+    sourceFile: string
+  }
+
+type ParsedModuleResolutionContext = {
+  sourceFile: string
+  parsed: ts.SourceFile
+  locals: Map<string, ts.Expression>
+  exportedNames: Set<string>
+  imports: Map<string, ImportedBinding>
+}
+
+function resolveImportedModuleFile(sourceFile: string, moduleSpecifier: string): string | null {
+  if (!moduleSpecifier.startsWith('.')) return null
+  return findExistingModuleFileByBaseNames(path.dirname(sourceFile), [
+    moduleSpecifier,
+    path.join(moduleSpecifier, 'index'),
+  ])
+}
+
+function collectImportedBindings(
+  parsed: ts.SourceFile,
+  sourceFile: string,
+): Map<string, ImportedBinding> {
+  const bindings = new Map<string, ImportedBinding>()
+
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+
+    const resolvedSourceFile = resolveImportedModuleFile(sourceFile, statement.moduleSpecifier.text)
+    if (!resolvedSourceFile) continue
+
+    const importClause = statement.importClause
+    if (!importClause) continue
+
+    if (importClause.name) {
+      bindings.set(importClause.name.text, {
+        kind: 'default',
+        sourceFile: resolvedSourceFile,
+      })
+    }
+
+    const namedBindings = importClause.namedBindings
+    if (!namedBindings) continue
+
+    if (ts.isNamespaceImport(namedBindings)) {
+      bindings.set(namedBindings.name.text, {
+        kind: 'namespace',
+        sourceFile: resolvedSourceFile,
+      })
+      continue
+    }
+
+    for (const element of namedBindings.elements) {
+      bindings.set(element.name.text, {
+        kind: 'named',
+        sourceFile: resolvedSourceFile,
+        exportName: element.propertyName?.text ?? element.name.text,
+      })
+    }
+  }
+
+  return bindings
+}
+
+function collectReexportedNames(parsed: ts.SourceFile): Set<string> {
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
+    }
+  }
+  return exportedNames
+}
+
+function findExportedInitializer(
+  parsed: ts.SourceFile,
+  exportName: string,
+  exportedNames: Set<string>,
+): ts.Expression | null {
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const isExported = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+    for (const declaration of statement.declarationList.declarations) {
+      if (!declaration.initializer) continue
+      if (ts.isIdentifier(declaration.name)) {
+        if (declaration.name.text !== exportName) continue
+        if (!isExported && !exportedNames.has(exportName)) continue
+        return declaration.initializer
+      }
+      if ((isExported || exportedNames.has(exportName)) && ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          const bindingName = ts.isIdentifier(element.name) ? element.name.text : null
+          const propertyName = element.propertyName && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : null
+          const targetKey = propertyName ?? bindingName
+          if (targetKey !== exportName) continue
+          const initializer = unwrapExpression(declaration.initializer)
+          if (ts.isCallExpression(initializer) && initializer.arguments.length > 0) {
+            const firstArg = unwrapExpression(initializer.arguments[0])
+            if (ts.isObjectLiteralExpression(firstArg)) {
+              for (const prop of firstArg.properties) {
+                if (!ts.isPropertyAssignment(prop)) continue
+                const key = ts.isIdentifier(prop.name) ? prop.name.text
+                  : ts.isStringLiteral(prop.name) ? prop.name.text
+                  : null
+                if (key === exportName) return prop.initializer
+              }
+            }
+          }
+          return null
+        }
+      }
+    }
+  }
+  return null
+}
+
+function findDefaultExportInitializer(parsed: ts.SourceFile): ts.Expression | null {
+  for (const statement of parsed.statements) {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return statement.expression
+    }
+
+    if (!ts.isVariableStatement(statement)) continue
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+    const isDefaultExport = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ?? false
+    if (!isDefaultExport) continue
+
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.initializer) return declaration.initializer
+    }
+  }
+
+  return null
+}
+
+function loadParsedModuleResolutionContext(
+  sourceFile: string,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
+): ParsedModuleResolutionContext | null {
+  if (cache.has(sourceFile)) {
+    return cache.get(sourceFile) ?? null
+  }
+
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    cache.set(sourceFile, null)
+    return null
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const context: ParsedModuleResolutionContext = {
+    sourceFile,
+    parsed,
+    locals: collectLocalDeclarations(parsed),
+    exportedNames: collectReexportedNames(parsed),
+    imports: collectImportedBindings(parsed, sourceFile),
+  }
+  cache.set(sourceFile, context)
+  return context
+}
+
+function resolveImportedBindingValue(
+  binding: ImportedBinding,
+  pathSegments: string[],
+  visited: Set<string>,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
+): unknown {
+  const importedContext = loadParsedModuleResolutionContext(binding.sourceFile, cache)
+  if (!importedContext) return undefined
+
+  if (binding.kind === 'namespace') {
+    if (pathSegments.length === 0) return undefined
+    const [exportName, ...restPath] = pathSegments
+    const importKey = `${binding.sourceFile}::${exportName}`
+    if (visited.has(importKey)) return undefined
+
+    let initializer = findExportedInitializer(importedContext.parsed, exportName, importedContext.exportedNames)
+    if (!initializer && importedContext.exportedNames.has(exportName)) {
+      initializer = importedContext.locals.get(exportName) ?? null
+    }
+    if (!initializer) return undefined
+
+    const nextVisited = new Set(visited)
+    nextVisited.add(importKey)
+    let value = resolveExpressionValue(initializer, importedContext, nextVisited, cache)
+    for (const segment of restPath) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+        value = (value as Record<string, unknown>)[segment]
+      } else {
+        return undefined
+      }
+    }
+    return value
+  }
+
+  const importKey = binding.kind === 'default'
+    ? `${binding.sourceFile}::default`
+    : `${binding.sourceFile}::${binding.exportName}`
+  if (visited.has(importKey)) return undefined
+
+  let initializer = binding.kind === 'default'
+    ? findDefaultExportInitializer(importedContext.parsed)
+    : findExportedInitializer(importedContext.parsed, binding.exportName, importedContext.exportedNames)
+
+  if (!initializer && binding.kind === 'named' && importedContext.exportedNames.has(binding.exportName)) {
+    initializer = importedContext.locals.get(binding.exportName) ?? null
+  }
+  if (!initializer) return undefined
+
+  const nextVisited = new Set(visited)
+  nextVisited.add(importKey)
+  let value = resolveExpressionValue(initializer, importedContext, nextVisited, cache)
+
+  for (const segment of pathSegments) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+      value = (value as Record<string, unknown>)[segment]
+    } else {
+      return undefined
+    }
+  }
+
+  return value
+}
+
+function resolveExpressionValue(
+  expression: ts.Expression,
+  context: ParsedModuleResolutionContext,
+  visited: Set<string>,
+  cache: Map<string, ParsedModuleResolutionContext | null>,
+): unknown {
+  const expr = unwrapExpression(expression)
+
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text
+  if (ts.isNumericLiteral(expr)) return Number(expr.text)
+  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false
+  if (expr.kind === ts.SyntaxKind.NullKeyword) return null
+  if (ts.isPrefixUnaryExpression(expr) && expr.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(expr.operand)) {
+    return -Number(expr.operand.text)
+  }
+
+  if (ts.isObjectLiteralExpression(expr)) {
+    const result: Record<string, unknown> = {}
+    for (const property of expr.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        const key = ts.isIdentifier(property.name) ? property.name.text
+          : ts.isStringLiteral(property.name) ? property.name.text
+          : null
+        if (!key) continue
+        const value = resolveExpressionValue(property.initializer, context, visited, cache)
+        if (value !== undefined) result[key] = value
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        const key = property.name.text
+        const initializer = context.locals.get(key)
+        if (initializer && !visited.has(key)) {
+          const nextVisited = new Set(visited)
+          nextVisited.add(key)
+          const value = resolveExpressionValue(initializer, context, nextVisited, cache)
+          if (value !== undefined) result[key] = value
+        }
+      } else if (ts.isSpreadAssignment(property)) {
+        const spread = resolveExpressionValue(property.expression, context, visited, cache)
+        if (spread && typeof spread === 'object' && !Array.isArray(spread)) {
+          Object.assign(result, spread)
+        }
+      }
+    }
+    return result
+  }
+
+  if (ts.isArrayLiteralExpression(expr)) {
+    const result: unknown[] = []
+    for (const element of expr.elements) {
+      if (ts.isSpreadElement(element)) {
+        const spread = resolveExpressionValue(element.expression, context, visited, cache)
+        if (Array.isArray(spread)) result.push(...spread)
+        continue
+      }
+      const value = resolveExpressionValue(element as ts.Expression, context, visited, cache)
+      if (value !== undefined) result.push(value)
+    }
+    return result
+  }
+
+  if (ts.isIdentifier(expr)) {
+    if (visited.has(expr.text)) return undefined
+    const initializer = context.locals.get(expr.text)
+    if (initializer) {
+      const nextVisited = new Set(visited)
+      nextVisited.add(expr.text)
+      return resolveExpressionValue(initializer, context, nextVisited, cache)
+    }
+
+    const importBinding = context.imports.get(expr.text)
+    if (!importBinding) return undefined
+    return resolveImportedBindingValue(importBinding, [], visited, cache)
+  }
+
+  if (ts.isPropertyAccessExpression(expr)) {
+    const pathSegments: string[] = []
+    let cursor: ts.Expression = expr
+    while (ts.isPropertyAccessExpression(cursor)) {
+      if (!ts.isIdentifier(cursor.name)) return undefined
+      pathSegments.unshift(cursor.name.text)
+      cursor = cursor.expression
+    }
+    if (!ts.isIdentifier(cursor)) return undefined
+    const rootName = cursor.text
+    if (!visited.has(rootName)) {
+      const rootInit = context.locals.get(rootName)
+      if (rootInit) {
+        const unwrappedRoot = unwrapExpression(rootInit)
+        const nextVisited = new Set(visited)
+        nextVisited.add(rootName)
+        // Handle `const crud = makeCrudRoute({ metadata: routeMetadata, ... })`
+        if (ts.isCallExpression(unwrappedRoot) && unwrappedRoot.arguments.length > 0) {
+          const firstArg = unwrapExpression(unwrappedRoot.arguments[0])
+          if (ts.isObjectLiteralExpression(firstArg)) {
+            const argObject = resolveExpressionValue(firstArg, context, nextVisited, cache)
+            if (argObject && typeof argObject === 'object' && !Array.isArray(argObject)) {
+              let current: unknown = argObject
+              for (const segment of pathSegments) {
+                if (current && typeof current === 'object' && !Array.isArray(current) && segment in (current as Record<string, unknown>)) {
+                  current = (current as Record<string, unknown>)[segment]
+                } else {
+                  current = undefined
+                  break
+                }
+              }
+              if (current !== undefined) return current
+            }
+          }
+        }
+        let value = resolveExpressionValue(rootInit, context, nextVisited, cache)
+        for (const segment of pathSegments) {
+          if (value && typeof value === 'object' && !Array.isArray(value) && segment in (value as Record<string, unknown>)) {
+            value = (value as Record<string, unknown>)[segment]
+          } else {
+            return undefined
+          }
+        }
+        return value
+      }
+    }
+
+    const importBinding = context.imports.get(rootName)
+    if (!importBinding) return undefined
+    return resolveImportedBindingValue(importBinding, pathSegments, visited, cache)
+  }
+
+  return undefined
+}
+
+export function hasNamedExport(sourceFile: string, exportName: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+  for (const statement of parsed.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const isExported = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+      if (!isExported) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === exportName) return true
+        if (ts.isObjectBindingPattern(declaration.name)) {
+          for (const element of declaration.name.elements) {
+            const bindingName = ts.isIdentifier(element.name) ? element.name.text : null
+            const propertyName = element.propertyName && ts.isIdentifier(element.propertyName)
+              ? element.propertyName.text
+              : null
+            if ((propertyName ?? bindingName) === exportName) return true
+          }
+        }
+      }
+    }
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        const exposedName = element.name.text
+        const sourceName = element.propertyName?.text ?? exposedName
+        if (exposedName === exportName || sourceName === exportName) return true
+      }
+    }
+  }
+  return false
+}
+
+export function resolveNamedObjectExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  const cache = new Map<string, ParsedModuleResolutionContext | null>()
+  const context = loadParsedModuleResolutionContext(sourceFile, cache)
+  if (!context) return null
+
+  let initializer = findExportedInitializer(context.parsed, exportName, context.exportedNames)
+  if (!initializer && context.exportedNames.has(exportName)) {
+    initializer = context.locals.get(exportName) ?? null
+  }
+  if (!initializer) return null
+  const value = resolveExpressionValue(initializer, context, new Set<string>(), cache)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return Object.keys(record).length > 0 ? record : null
 }
 
 function inferScriptKind(filePath: string): ts.ScriptKind {
@@ -430,6 +918,10 @@ function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean 
 
 function toLiteral(value: unknown): string {
   return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 const GENERATED_MODULE_SPECIFIER_PREFIXES = ['@/', '@open-mercato/', '../../src/modules/', './'] as const
@@ -651,7 +1143,7 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
-  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
+  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
 }
 
 function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
@@ -680,6 +1172,20 @@ function normalizePlacement(raw: unknown): SerializablePageMetadata['placement']
     sectionLabel: typeof source.sectionLabel === 'string' ? source.sectionLabel : undefined,
     sectionLabelKey: typeof source.sectionLabelKey === 'string' ? source.sectionLabelKey : undefined,
     order: typeof source.order === 'number' ? source.order : undefined,
+  }
+}
+
+function normalizePortalNav(raw: unknown): SerializablePageMetadata['nav'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const source = raw as Record<string, unknown>
+  if (typeof source.label !== 'string' || source.label.length === 0) return undefined
+  const group = source.group === 'main' || source.group === 'account' ? source.group : undefined
+  return {
+    label: source.label,
+    labelKey: typeof source.labelKey === 'string' ? source.labelKey : undefined,
+    group,
+    order: typeof source.order === 'number' ? source.order : undefined,
+    icon: typeof source.icon === 'string' ? source.icon : undefined,
   }
 }
 
@@ -713,6 +1219,8 @@ function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
   if (breadcrumb) normalized.breadcrumb = breadcrumb
   const placement = normalizePlacement(source.placement)
   if (placement) normalized.placement = placement
+  const nav = normalizePortalNav(source.nav)
+  if (nav) normalized.nav = nav
   if (typeof source.icon === 'string') normalized.icon = source.icon
 
   return Object.keys(normalized).length > 0 ? normalized : null
@@ -1001,7 +1509,7 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
-    if (!metadata) {
+    if (!metadata && !hasNamedExport(sourceFile, 'metadata')) {
       console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
     }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
@@ -1033,7 +1541,7 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
-    if (!metadata) {
+    if (!metadata && !hasNamedExport(sourceFile, 'metadata')) {
       console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
     }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
@@ -1570,6 +2078,7 @@ function buildPageRouteEntries(metaExpr: WriterFunction, routePath: string): Gen
     { name: 'requireFeatures', value: optionalPropertyAccess(meta, 'requireFeatures') },
     { name: 'requireCustomerAuth', value: optionalPropertyAccess(meta, 'requireCustomerAuth') },
     { name: 'requireCustomerFeatures', value: optionalPropertyAccess(meta, 'requireCustomerFeatures') },
+    { name: 'nav', value: optionalPropertyAccess(meta, 'nav') },
     {
       name: 'title',
       value: nullishCoalesce([
@@ -2535,12 +3044,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
     const allEntryImports: string[] = [
       buildImportStatement(`{ backendRoutes }`, `./backend-routes.generated`),
+      buildImportStatement(`{ frontendRoutes }`, `./frontend-routes.generated`),
     ]
     const allRegImports: string[] = [
-      `import { registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'`,
+      `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
     ]
     const allCalls: string[] = [
       `registerBackendRouteManifests(backendRoutes)`,
+      `registerFrontendRouteManifests(frontendRoutes)`,
     ]
     for (const plugin of bootstrapPlugins) {
       const reg = plugin.bootstrapRegistration!

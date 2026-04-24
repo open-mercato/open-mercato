@@ -15,7 +15,8 @@ const mockEm = {
   find: jest.fn(),
   findOne: jest.fn(),
   create: jest.fn(),
-  persistAndFlush: jest.fn(),
+  persist: jest.fn().mockReturnThis(),
+  flush: jest.fn(),
 }
 
 const mockRbacService = {

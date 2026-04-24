@@ -148,6 +148,12 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
   )
 
+  // 0.4.10 -> 0.5.0 upgrade companion skill
+  copyFile(
+    'ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
+  )
+
   // .ai/qa/tests/ — Playwright config for integration tests
   copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 

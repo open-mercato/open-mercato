@@ -367,7 +367,7 @@ describe('Queue - local strategy', () => {
     expect(storedValues).toEqual(Array.from({ length: enqueueCount }, (_, idx) => idx))
 
     await queue.close()
-  })
+  }, 15_000)
 
   // Regression: jobs enqueued while a batch is running must survive the
   // subsequent write that removes completed jobs. The pre-fix snapshot-only

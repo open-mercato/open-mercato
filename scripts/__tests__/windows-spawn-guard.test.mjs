@@ -7,6 +7,7 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..')
 const scanRoots = ['scripts', 'apps', 'packages']
 const sourceExtensions = new Set(['.js', '.mjs', '.ts'])
 const excludedPathSegments = new Set([
+  'build',
   'dist',
   'node_modules',
   '.mercato',

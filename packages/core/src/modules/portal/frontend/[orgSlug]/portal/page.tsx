@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -62,7 +62,9 @@ export default function PortalLandingPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
+        <Alert variant="destructive">
+          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
+        </Alert>
       </div>
     )
   }

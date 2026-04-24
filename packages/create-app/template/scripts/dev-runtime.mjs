@@ -1,12 +1,11 @@
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import spawn from 'cross-spawn'
 import {
   createRuntimeNoiseFilter,
   isStatelessRuntimeNoiseLine,
 } from './dev-runtime-log-policy.mjs'
-import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -21,6 +20,21 @@ function resolveSplashHelpersImport() {
   }
 
   throw new Error('Unable to resolve dev splash helpers module')
+}
+
+function resolveSpawnUtilsImport() {
+  const candidates = [
+    new URL('./dev-spawn-utils.mjs', import.meta.url),
+    new URL('../../../scripts/dev-spawn-utils.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev spawn utils module')
 }
 
 function isEnabledEnvFlag(value) {
@@ -41,8 +55,9 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
+const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
-const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
+const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
 const rawPassthrough = classic || verbose
@@ -352,8 +367,17 @@ function publishRuntimeFailure(detail, options = {}) {
   })
 }
 
+function looksLikeWarningLine(line) {
+  if (typeof line !== 'string') return false
+
+  return line.startsWith('⚠')
+    || /^\(node:\d+\)\s+Warning:/i.test(line)
+    || /^Warning:/i.test(line)
+    || /^warn\s+-/i.test(line)
+}
+
 function looksLikeFailure(line) {
-  if (isStatelessRuntimeNoiseLine(line)) return false
+  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -388,10 +412,10 @@ function spawnMercato(args) {
   return child
 }
 
-function waitForExit(child) {
+function waitForExit(child, label = 'Child process') {
   return new Promise((resolve) => {
     child.on('exit', (code, signal) => {
-      resolve({ code, signal })
+      resolve({ label, code, signal })
     })
   })
 }
@@ -415,6 +439,32 @@ function resolveChildExitCode(result, fallback = 1) {
     return 143
   }
   return fallback
+}
+
+function formatChildExitStatus(result) {
+  if (typeof result?.code === 'number') {
+    return `exit code ${result.code}`
+  }
+  if (result?.signal) {
+    return `signal ${result.signal}`
+  }
+  return 'an unknown status'
+}
+
+function resolveUnexpectedExitCode(result) {
+  const exitCode = resolveChildExitCode(result, 1)
+  return exitCode === 0 ? 1 : exitCode
+}
+
+function reportUnexpectedChildExit(result) {
+  const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
+  console.error(message)
+  rememberRawLog(message)
+  publishRuntimeFailure(message, {
+    progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
+    progressLabel: splashState.progressLabel || startupProgress.label,
+    failureLines: [...collectRuntimeFailureLines(), message].slice(-10),
+  })
 }
 
 function joinBaseUrl(baseUrl, pathname) {
@@ -1456,7 +1506,7 @@ function classifyServerLine(line) {
     }
   }
 
-  if (line.startsWith('⚠ ')) {
+  if (looksLikeWarningLine(line)) {
     return { type: 'status', message: line }
   }
 
@@ -1497,12 +1547,16 @@ async function runClassicRuntime() {
 
   const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
   const server = spawnMercato(['server', 'dev'])
-  const result = await Promise.race([waitForExit(watch), waitForExit(server)])
+  const result = await Promise.race([
+    waitForExit(watch, 'Generator watch'),
+    waitForExit(server, 'App runtime'),
+  ])
   if (isGracefulShutdownResult(result)) {
     return
   }
 
-  shutdown(resolveChildExitCode(result, 0))
+  reportUnexpectedChildExit(result)
+  shutdown(resolveUnexpectedExitCode(result))
 }
 
 if (classic) {
@@ -1517,7 +1571,11 @@ printRuntimePackagesSummary()
 const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch', classifyWatchLine)
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
 
-const result = await Promise.race([waitForExit(watch), waitForExit(server)])
+const result = await Promise.race([
+  waitForExit(watch, 'Generator watch'),
+  waitForExit(server, 'App runtime'),
+])
 if (!isGracefulShutdownResult(result)) {
-  shutdown(resolveChildExitCode(result, 0))
+  reportUnexpectedChildExit(result)
+  shutdown(resolveUnexpectedExitCode(result))
 }

@@ -1,10 +1,13 @@
 import 'dotenv/config'
 import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
-import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
+import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
 
-let ormInstance: MikroORM<PostgreSqlDriver> | null = null
+export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
+
+let ormInstance: AppMikroORM | null = null
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
@@ -14,7 +17,7 @@ function getRegisteredEntities(): any[] | null {
 }
 
 function setRegisteredEntities(entities: any[]): void {
-  ;(globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] = entities
+  (globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] = entities
 }
 
 export function registerOrmEntities(entities: any[]) {
@@ -36,10 +39,13 @@ export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
+
   const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
-  if (!clientUrl) throw new Error('DATABASE_URL is not set')
-  
+  if (!clientUrl) {
+    throw new Error('DATABASE_URL is not set')
+  }
+
   // Parse connection pool settings from environment
   const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
   const poolMax = parseInt(process.env.DB_POOL_MAX || '20')
@@ -64,38 +70,33 @@ export async function getOrm() {
 
   const sslConfig = getSslConfig()
 
-  ormInstance = await MikroORM.init<PostgreSqlDriver>({
+  ormInstance = await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
     driver: PostgreSqlDriver,
     clientUrl,
     entities,
     debug: false,
-    // Connection pooling configuration
+    // v7 no longer defaults to ReflectMetadataProvider. Entities in this repo use
+    // `@mikro-orm/decorators/legacy`, which relies on TypeScript `emitDecoratorMetadata`
+    // + reflect-metadata for type inference (nullability, column types). Without this,
+    // inferred types are silently wrong at runtime.
+    metadataProvider: ReflectMetadataProvider,
+    // MikroORM v7 pool shape (min/max/idleTimeoutMillis). Knex-era `acquireTimeoutMillis` /
+    // `destroyTimeoutMillis` were removed; acquire wait maps to pg `connectionTimeoutMillis`
+    // below under `driverOptions`.
     pool: {
       min: poolMin,
       max: poolMax,
       idleTimeoutMillis: poolIdleTimeout,
-      acquireTimeoutMillis: poolAcquireTimeout,
-      // Close idle connections after 30 seconds
-      destroyTimeoutMillis: process.env.NODE_ENV === 'production' ? 30000 : 3000,
     },
-    // Connection options
+    // Driver options are merged into pg.PoolConfig (ClientConfig + pg-pool).
     driverOptions: {
-      // Enable connection pooling
-      connection: {
-        // Maximum number of connections in the pool
-        max: poolMax,
-        // Minimum number of connections in the pool
-        min: poolMin,
-        // Close connections after this many milliseconds of inactivity
-        idleTimeoutMillis: poolIdleTimeout,
-        // Maximum time to wait for a connection from the pool
-        acquireTimeoutMillis: poolAcquireTimeout,
-        idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
-        options: connectionOptions,
-        ssl: sslConfig,
-      },
+      connectionTimeoutMillis: poolAcquireTimeout,
+      idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+      options: connectionOptions,
+      ssl: sslConfig,
     },
   })
+
   return ormInstance
 }
 

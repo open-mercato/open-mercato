@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { compare as bcryptCompare } from 'bcryptjs'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -19,14 +20,14 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
-function resolveBaseUrl(req: Request): string {
-  return getAppBaseUrl(req)
-}
-
+// Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
+// response latency between the existing-user and new-user signup branches so the endpoint's
+// 202-for-both contract is not undone by a timing side channel.
+const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
     ? `${baseUrl}/${organizationSlug}/portal/login`
@@ -67,12 +68,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'tenantId and organizationId are required' }, { status: 400 })
   }
 
+  let baseUrl: string
+  try {
+    baseUrl = getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'customer_accounts.signup',
+      configMessage: 'Customer signup is not configured',
+    })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
+    throw error
+  }
+
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const { translate } = await resolveTranslations()
-  const baseUrl = resolveBaseUrl(req)
 
   const orgRow = await findOrganizationInTenant(em, organizationId, tenantId)
   if (!orgRow) {
@@ -81,7 +93,9 @@ export async function POST(req: Request) {
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    const loginUrl = resolvePortalLoginUrl(baseUrl, orgRow.slug)
+    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
+    const loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
     const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
     const copy = {
       preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),
@@ -124,7 +138,7 @@ export async function POST(req: Request) {
     em.persist(userRole)
   }
 
-  await em.persistAndFlush(user)
+  await em.persist(user).flush()
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
   const verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
@@ -180,8 +194,9 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 202, description: 'Signup accepted', schema: signupAcceptedSchema },
   ],
   errors: [
-    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 400, description: 'Validation failed or invalid request origin', schema: errorSchema },
     { status: 429, description: 'Too many signup attempts', schema: rateLimitErrorSchema },
+    { status: 500, description: 'Signup email origin is not configured', schema: errorSchema },
   ],
 }
 

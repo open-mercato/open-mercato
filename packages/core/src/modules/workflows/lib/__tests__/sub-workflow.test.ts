@@ -161,7 +161,9 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
       findOneOrFail: jest.fn(),
       find: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     } as any
 
@@ -173,7 +175,7 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
 
     // Setup default mock implementations
     mockEm.create.mockImplementation((entity: any, data: any) => ({ ...data, id: childInstanceId } as any))
-    mockEm.persistAndFlush.mockResolvedValue(undefined as any)
+    mockEm.flush.mockResolvedValue(undefined as any)
     mockEm.flush.mockResolvedValue(undefined as any)
   })
 

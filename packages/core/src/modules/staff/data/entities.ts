@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index, ManyToOne, Enum } from '@mikro-orm/core'
+import { Entity, Enum, Index, ManyToOne, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 export type StaffLeaveRequestStatus = 'pending' | 'approved' | 'rejected'
 

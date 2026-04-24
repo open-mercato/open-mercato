@@ -444,9 +444,15 @@ describe('SearchService', () => {
       const start = Date.now()
       await service.search('q', { tenantId: 't-1' })
       const elapsed = Date.now() - start
+      const timings = Object.values(probeTimings)
+      const latestStart = Math.max(...timings.map((timing) => timing.start))
+      const earliestEnd = Math.min(...timings.map((timing) => timing.end))
 
-      // Sequential would be ~180ms; parallel should land near the slowest probe.
-      expect(elapsed).toBeLessThan(150)
+      // Sequential probes would not overlap. Parallel probes must overlap in time,
+      // and total elapsed time should stay well below a fully sequential run.
+      expect(timings).toHaveLength(3)
+      expect(latestStart).toBeLessThan(earliestEnd)
+      expect(elapsed).toBeLessThan(450)
       expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
       expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
       expect(slowC.isAvailable).toHaveBeenCalledTimes(1)

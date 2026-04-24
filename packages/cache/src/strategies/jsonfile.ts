@@ -1,6 +1,7 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import fs from 'node:fs'
 import path from 'node:path'
+import { DEFAULT_JSON_FILE_CACHE_PATH } from '../defaults'
 
 /**
  * JSON file cache strategy with tag support
@@ -9,7 +10,7 @@ import path from 'node:path'
  */
 export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl?: number }): CacheStrategy {
   const defaultTtl = options?.defaultTtl
-  const cacheFile = filePath || process.env.CACHE_JSON_FILE_PATH || '.cache.json'
+  const cacheFile = filePath || process.env.CACHE_JSON_FILE_PATH || DEFAULT_JSON_FILE_CACHE_PATH
   const dir = path.dirname(cacheFile)
 
   type StorageData = {

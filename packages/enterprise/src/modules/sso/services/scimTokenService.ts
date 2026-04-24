@@ -58,7 +58,7 @@ export class ScimTokenService {
       organizationId: scope.organizationId!,
     } as RequiredEntityData<ScimToken>)
 
-    await this.em.persistAndFlush(token)
+    await this.em.persist(token).flush()
 
     return { id: token.id, token: raw, prefix: tokenPrefix, name }
   }

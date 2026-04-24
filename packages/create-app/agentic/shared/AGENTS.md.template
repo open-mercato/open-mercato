@@ -82,6 +82,7 @@ These guides ship automatically when the corresponding module is installed.
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
 | Implement a spec (or selected phases) | `.ai/skills/implement-spec/SKILL.md` |
 | Create / run integration tests | `.ai/skills/integration-tests/SKILL.md` |
+| Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
 
 ## Module Anatomy
 

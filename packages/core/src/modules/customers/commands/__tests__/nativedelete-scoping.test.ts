@@ -16,9 +16,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+const mockFindWithDecryption = jest.fn(async () => [])
+const mockFindOneWithDecryption = jest.fn(async () => null)
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async () => null),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args as []),
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args as []),
 }))
 
 import '@open-mercato/core/modules/customers/commands'
@@ -92,6 +95,10 @@ function makeEm(entity: CustomerEntity): jest.Mocked<Pick<EntityManager,
     nativeDelete: jest.fn(async () => undefined),
     remove: jest.fn().mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) }),
     flush: jest.fn().mockResolvedValue(undefined),
+    transactional: jest.fn(async (fn: any) => fn(em)),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
     create: jest.fn((_ctor: any, data: any) => ({ id: 'new-id', ...data })),
     persist: jest.fn(),
     getReference: jest.fn((_ctor: any, id: string) => ({ id })),
@@ -205,6 +212,10 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
+      mockFindOneWithDecryption.mockImplementation(async (_em: unknown, ctor: unknown) => {
+        if (ctor === CustomerEntity) return entity
+        return null
+      })
       const handler = commandRegistry.get('customers.people.delete') as CommandHandler
       expect(handler).toBeDefined()
       expect(handler.undo).toBeDefined()
@@ -267,6 +278,10 @@ describe('people commands — nativeDelete tenant/org scoping', () => {
       const entity = makeEntity()
       const em = makeEm(entity)
       const ctx = makeCtx(em)
+      mockFindOneWithDecryption.mockImplementation(async (_em: unknown, ctor: unknown) => {
+        if (ctor === CustomerEntity) return entity
+        return null
+      })
       const handler = commandRegistry.get('customers.people.delete') as CommandHandler
 
       const before = {

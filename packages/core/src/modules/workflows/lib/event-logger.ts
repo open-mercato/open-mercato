@@ -135,7 +135,7 @@ export async function logWorkflowEvent(
     occurredAt: new Date(),
   })
 
-  await em.persistAndFlush(workflowEvent)
+  await em.persist(workflowEvent).flush()
 
   return workflowEvent
 }
@@ -164,7 +164,7 @@ export async function logWorkflowEvents(
     })
   )
 
-  await em.persistAndFlush(workflowEvents)
+  await em.persist(workflowEvents).flush()
 
   return workflowEvents
 }

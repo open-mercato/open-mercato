@@ -343,6 +343,28 @@ Suggested label comments:
 - `review`: `Label set to \`review\` because the fix PR is ready for code review.`
 - `skip-qa`: `Label set to \`skip-qa\` because this change is low-risk and does not need manual QA.`
 
+#### Author handoff on the fixed issue
+
+Once the fix PR exists, hand the issue back to the original issue author for verification, unless the author is the current fixer, a bot account, or otherwise unavailable.
+
+Suggested flow:
+
+```bash
+ISSUE_AUTHOR=$(gh issue view {issueId} --repo {owner}/{repo} --json author --jq '.author.login')
+
+if [ -n "$ISSUE_AUTHOR" ] && [ "$ISSUE_AUTHOR" != "$CURRENT_USER" ] && [ -n "${PR_URL:-}" ]; then
+  gh issue edit {issueId} --repo {owner}/{repo} --remove-assignee "$CURRENT_USER"
+  gh issue edit {issueId} --repo {owner}/{repo} --add-assignee "$ISSUE_AUTHOR"
+  gh issue comment {issueId} --repo {owner}/{repo} --body "Thanks @${ISSUE_AUTHOR} — a fix PR is ready for this issue: ${PR_URL}. Reassigning the issue to you for recheck/verification of the proposed fix."
+fi
+```
+
+Rules:
+
+- Do this only after a concrete fix PR exists, or when you are explicitly handing the issue back after confirming the fix landed elsewhere.
+- If the author cannot be assigned (bot/deleted account/permission issue), keep the current assignee and still leave the verification handoff comment.
+- Keep this handoff comment separate from the lock-release comment so the timeline clearly shows both the human handoff and the automation completion.
+
 #### Release the in-progress lock on the issue
 
 Always run this as a finally-block — even if the PR open failed or the run was aborted earlier:
@@ -354,7 +376,8 @@ gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`auto-fix-github\
 
 Rules:
 
-- Keep the issue assignee as the current user — it shows who owns the resulting PR
+- Once a fix PR is opened, the issue assignee should already be handed back to the original issue author before the lock is released
+- If no fix PR exists or the author cannot be reassigned, keep the current assignee and explain the fallback in the handoff/completion comments
 - Remove the `in-progress` label so other auto-skills can act on the issue (e.g., a follow-up reviewer)
 - Post a completion comment that links the PR (or notes the abort) so the timeline stays auditable
 
@@ -389,5 +412,6 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - New PRs opened by this skill must start in the `review` pipeline state
 - Add `skip-qa` only for clearly low-risk non-customer-facing fixes; otherwise leave QA routing to the author/reviewer
 - When this skill adds PR labels, it must also add a short PR comment explaining why
+- After opening the fix PR, always hand the issue back to the original author with an explicit reassignment/comment handoff when possible
 - Always clean up any temporary worktree created by the current run
 - Branches opened by this skill must use `fix/` for corrective work or `feat/` for enhancement work; never `codex/`

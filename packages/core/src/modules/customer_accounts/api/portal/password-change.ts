@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
+import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { passwordChangeSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -28,6 +29,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
+  const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
   const user = await customerUserService.findById(auth.sub, auth.tenantId)
   if (!user) {
@@ -41,6 +43,9 @@ export async function POST(req: Request) {
 
   await customerUserService.updatePassword(user, parsed.data.newPassword)
 
+  // Revoke all existing sessions for security
+  await customerSessionService.revokeAllUserSessions(user.id)
+
   return NextResponse.json({ ok: true })
 }
 
@@ -49,7 +54,7 @@ const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Change customer password',
-  description: 'Changes the authenticated customer user password after verifying the current password.',
+  description: 'Changes the authenticated customer user password after verifying the current password. Revokes all existing sessions.',
   tags: ['Customer Portal'],
   requestBody: { schema: passwordChangeSchema },
   responses: [{ status: 200, description: 'Password changed', schema: successSchema }],
