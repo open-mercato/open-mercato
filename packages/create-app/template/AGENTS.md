@@ -149,6 +149,8 @@ Install official package-backed modules with `yarn mercato module add @open-merc
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
 
+Detail/read-model APIs that expose `customFields` must return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
+
 ### Path Aliases
 
 - `@/*` → `./src/*`
