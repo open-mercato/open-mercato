@@ -127,8 +127,8 @@ None — no `--skill-url` passed. Guidance derived from root `AGENTS.md` (PR wor
 
 ### Phase 1: Declare the audit event
 
-- [ ] 1.1 Add `customer_accounts.password.changed` to events.ts
-- [ ] 1.2 Run yarn generate
+- [x] 1.1 Add `customer_accounts.password.changed` to events.ts — d56779fc1
+- [x] 1.2 Run yarn generate — d56779fc1
 
 ### Phase 2: Make service methods transaction-aware
 
