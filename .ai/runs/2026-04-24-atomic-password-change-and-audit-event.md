@@ -143,16 +143,16 @@ None — no `--skill-url` passed. Guidance derived from root `AGENTS.md` (PR wor
 
 ### Phase 4: Wire reset-confirm.ts
 
-- [ ] 4.1 Look up user to obtain organizationId
-- [ ] 4.2 Wrap mutations in em.transactional
-- [ ] 4.3 Emit event with changedBy: 'reset'
-- [ ] 4.4 Add reset-confirm.route.test.ts
+- [x] 4.1 Look up user to obtain organizationId — 7c2f0d275
+- [x] 4.2 Wrap mutations in em.transactional — 7c2f0d275
+- [x] 4.3 Emit event with changedBy: 'reset' — 7c2f0d275
+- [x] 4.4 Add reset-confirm.route.test.ts — 7c2f0d275
 
 ### Phase 5: Wire admin reset-password.ts
 
-- [ ] 5.1 Wrap mutations in em.transactional
-- [ ] 5.2 Emit password.changed alongside existing password.reset
-- [ ] 5.3 Add reset-password.route.test.ts
+- [x] 5.1 Wrap mutations in em.transactional — f378b534c
+- [x] 5.2 Emit password.changed alongside existing password.reset — f378b534c
+- [x] 5.3 Add reset-password.route.test.ts — f378b534c
 
 ### Phase 6: Full validation gate + PR
 
