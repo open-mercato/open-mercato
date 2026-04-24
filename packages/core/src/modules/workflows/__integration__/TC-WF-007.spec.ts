@@ -1,7 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  createWorkflowDefinitionFixture,
+  deleteWorkflowDefinitionIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -114,105 +117,76 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
   })
 
   // Covers branch: NodeEditDialog's activity-type dropdown now lists WAIT
-  // (d8aa7f499) and a WAIT_FOR_TIMER step is a valid node type (db48d0295).
-  // Creates a definition via UI that includes a WAIT_FOR_TIMER step, opens the
-  // visual editor, and verifies both show up: the timer node renders alongside
-  // start/end, and the per-node activity-type dropdown offers the WAIT option.
+  // (d8aa7f499) and WAIT_FOR_TIMER renders as a node in the visual editor
+  // (db48d0295). The definition is created via API to keep the test scoped to
+  // the visual editor surface — end-to-end creation via the Create form is
+  // already exercised by the first test in this describe.
   test('exposes WAIT activity option and renders WAIT_FOR_TIMER node in visual editor', async ({ page, request }) => {
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-timer-${timestamp}`
-    const workflowName = `QA TC-WF-007 timer ${timestamp}`
     let token: string | null = null
+    let definitionId: string | null = null
 
     try {
       token = await getAuthToken(request, 'admin')
 
+      definitionId = await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName: `QA TC-WF-007 timer ${timestamp}`,
+        description: 'Integration test: timer node renders in visual editor',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            {
+              stepId: 'wait_for_timer',
+              stepName: 'Wait',
+              stepType: 'WAIT_FOR_TIMER',
+              config: { duration: 'PT5M' },
+            },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start-to-timer', fromStepId: 'start', toStepId: 'wait_for_timer', trigger: 'auto' },
+            { transitionId: 'timer-to-end', fromStepId: 'wait_for_timer', toStepId: 'end', trigger: 'auto' },
+          ],
+        },
+      })
+
       await login(page, 'admin')
-      await page.goto('/backend/definitions/create')
-      await expect(page).toHaveURL(/\/backend\/definitions\/create/)
-
-      await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-      await fillText(page, page.getByPlaceholder('Enter a descriptive workflow name'), workflowName)
-
-      const addStepBtn = page.getByRole('button', { name: /^add step$/i })
-      await addStepBtn.click()
-      await fillText(page, page.locator('#step-0-id'), 'start')
-      await fillText(page, page.locator('#step-0-name'), 'Start')
-      await page.locator('#step-0-type').selectOption('START')
-
-      await addStepBtn.click()
-      await fillText(page, page.locator('#step-1-id'), 'wait_for_timer')
-      await fillText(page, page.locator('#step-1-name'), 'Wait')
-      await page.locator('#step-1-type').selectOption('WAIT_FOR_TIMER')
-      await fillText(page, page.locator('#step-1-duration'), 'PT5M')
-
-      await addStepBtn.click()
-      await fillText(page, page.locator('#step-2-id'), 'end')
-      await fillText(page, page.locator('#step-2-name'), 'End')
-      await page.locator('#step-2-type').selectOption('END')
-
-      const addTransitionBtn = page.getByRole('button', { name: /^add transition$/i })
-      await addTransitionBtn.click()
-      await fillText(page, page.locator('#transition-0-id'), 'start-to-timer')
-      await fillText(page, page.locator('#transition-0-name'), 'To timer')
-      await page.locator('#transition-0-from').selectOption('start')
-      await page.locator('#transition-0-to').selectOption('wait_for_timer')
-
-      await addTransitionBtn.click()
-      await fillText(page, page.locator('#transition-1-id'), 'timer-to-end')
-      await fillText(page, page.locator('#transition-1-name'), 'Timer fired')
-      await page.locator('#transition-1-from').selectOption('wait_for_timer')
-      await page.locator('#transition-1-to').selectOption('end')
-
-      await page.getByRole('button', { name: /^create workflow$/i }).first().click()
-      await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
-
-      // Open in visual editor via row action.
-      const searchBox = page.getByPlaceholder(/search/i).first()
-      if (await searchBox.isVisible().catch(() => false)) {
-        await fillText(page, searchBox, workflowId)
-        await searchBox.press('Enter').catch(() => undefined)
-      }
-
-      const row = page.getByRole('row').filter({ hasText: workflowId })
-      await expect(row).toBeVisible({ timeout: 10_000 })
-      await row.getByRole('button', { name: /open actions/i }).hover()
-      await page.getByRole('menuitem', { name: /edit visually/i }).click()
-
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
 
+      // All three nodes render, including the WAIT_FOR_TIMER step.
       const nodes = page.locator('.react-flow__node')
       await expect(nodes).toHaveCount(3, { timeout: 15_000 })
       await expect(nodes.filter({ hasText: 'Wait' })).toHaveCount(1)
       await expect(page.locator('.react-flow__edge')).toHaveCount(2, { timeout: 10_000 })
 
-      // NodeEditDialog opens on single click. Pick the timer node so the dialog
-      // shows its step-scoped activity editor (where the WAIT dropdown option lives).
+      // Open NodeEditDialog by clicking the timer node.
       await nodes.filter({ hasText: 'Wait' }).first().click()
-
       const dialog = page.getByRole('dialog').first()
       await expect(dialog).toBeVisible({ timeout: 10_000 })
 
-      // The activity-type dropdown is rendered per-activity. Adding one reveals
-      // the select; the branch d8aa7f499 added the WAIT option to that select.
-      const addActivity = dialog.getByRole('button', { name: /add.*activity/i }).first()
-      if (await addActivity.isVisible().catch(() => false)) {
-        await addActivity.click()
+      // Add a fresh activity so the activity-type <select> mounts, then expand
+      // it (the default UI shows each activity as a collapsed accordion button).
+      await dialog.getByRole('button', { name: /add activity/i }).first().click()
+      const activityAccordion = dialog.getByRole('button', { name: /Activity \d/i }).first()
+      if (await activityAccordion.isVisible().catch(() => false)) {
+        await activityAccordion.click()
       }
 
-      // Assert the WAIT option exists in at least one activity-type select.
-      // We locate it structurally instead of by role — native <select><option>
-      // doesn't expose combobox semantics reliably in headless runs.
+      // The branch d8aa7f499 added WAIT to the activity-type dropdown. Native
+      // <select><option> doesn't expose reliable combobox semantics in headless
+      // runs, so we assert structurally.
       const waitOption = dialog.locator('select >> option[value="WAIT"]').first()
       await expect(
         waitOption,
-        'NodeEditDialog activity type dropdown should offer the WAIT option (branch d8aa7f499)',
-      ).toHaveCount(1)
+        'NodeEditDialog activity type dropdown should offer the WAIT option',
+      ).toHaveCount(1, { timeout: 10_000 })
     } finally {
-      if (token) {
-        const leftoverId = await findDefinitionIdByWorkflowId(request, token, workflowId)
-        await deleteWorkflowDefinitionIfExists(request, token, leftoverId)
-      }
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
 })
