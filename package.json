@@ -159,6 +159,7 @@
     "typescript": "^5.9.3"
   },
   "resolutions": {
+    "@xmldom/xmldom": "0.8.13",
     "@hono/node-server": "1.19.14",
     "hono": "4.12.14",
     "pg": "8.20.0",

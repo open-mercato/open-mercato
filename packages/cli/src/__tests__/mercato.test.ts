@@ -350,6 +350,109 @@ describe('init command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('keeps init successful when lean presets disable optional modules', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const configsRestoreDefaults = jest.fn().mockResolvedValue(undefined)
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    const authSeedRoles = jest.fn().mockResolvedValue(undefined)
+    const entitiesSeedEncryption = jest.fn().mockResolvedValue(undefined)
+    const queryIndexReindex = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({
+          rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }],
+        }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: authSeedRoles },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: entitiesSeedEncryption }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: queryIndexReindex }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(0)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '⏭️  Skipping "feature_toggles:seed-defaults" — module not enabled',
+    )
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '⏭️  Skipping "dashboards:seed-defaults" — module not enabled',
+    )
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '⏭️  Skipping "dashboards:enable-analytics-widgets" — module not enabled',
+    )
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '⏭️  Skipping "search:reindex" — module not enabled',
+    )
+    expect(configsRestoreDefaults).toHaveBeenCalled()
+    expect(authSetup).toHaveBeenCalled()
+    expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('generate post-step structural cache purge', () => {
@@ -451,6 +554,128 @@ describe('generate post-step structural cache purge', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('server dev managed process exits', () => {
+  const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.AUTO_SPAWN_SCHEDULER = 'false'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('node:fs')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.AUTO_SPAWN_SCHEDULER = originalAutoSpawnScheduler
+  })
+
+  it('fails loudly when a managed child exits cleanly but unexpectedly', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+
+      const createChild = (
+        spawnargs: string[],
+        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
+      ) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.spawnargs = spawnargs
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
+          child.killed = true
+          if (child.exitCode !== null || child.signalCode !== null) {
+            return true
+          }
+          child.signalCode = signal
+          queueMicrotask(() => {
+            child.emit('exit', null, signal)
+          })
+          return true
+        })
+
+        if (autoExit) {
+          queueMicrotask(() => {
+            if (child.exitCode !== null || child.signalCode !== null) return
+            child.exitCode = autoExit.code
+            child.signalCode = autoExit.signal ?? null
+            child.emit('exit', child.exitCode, child.signalCode)
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (args[0]?.includes('next/dist/bin/next')) {
+            return createChild(['node', ...args])
+          }
+          if (args.slice(1).join(' ') === 'queue worker --all') {
+            return createChild(['node', ...args], { code: 0 })
+          }
+          return createChild(['node', ...args])
+        }),
+      }
+    })
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([
+      {
+        id: 'events',
+        workers: [
+          {
+            queue: 'events',
+            concurrency: 1,
+            handler: jest.fn(),
+          },
+        ],
+      } as any,
+    ])
+
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '💥 Failed: [server] Queue worker exited unexpectedly with exit code 0.',
+    )
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

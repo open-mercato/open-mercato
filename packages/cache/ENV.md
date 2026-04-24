@@ -51,13 +51,13 @@ REDIS_URL=redis://localhost:6379
 
 **Type:** String (file path)
 
-**Default:** `.cache.db`
+**Default:** `./.mercato/cache/cache.db`
 
 **Required:** Only for `sqlite` strategy
 
 **Example:**
 ```bash
-CACHE_SQLITE_PATH=./data/.cache.db
+CACHE_SQLITE_PATH=./.mercato/cache/cache.db
 ```
 
 ### `CACHE_JSON_FILE_PATH`
@@ -66,13 +66,13 @@ CACHE_SQLITE_PATH=./data/.cache.db
 
 **Type:** String (file path)
 
-**Default:** `.cache.json`
+**Default:** `./.mercato/cache/cache.json`
 
 **Required:** Only for `jsonfile` strategy
 
 **Example:**
 ```bash
-CACHE_JSON_FILE_PATH=./data/.cache.json
+CACHE_JSON_FILE_PATH=./.mercato/cache/cache.json
 ```
 
 ## Example Configurations
@@ -102,7 +102,7 @@ Persistent, file-based, good for single instance deployments.
 
 ```bash
 CACHE_STRATEGY=sqlite
-CACHE_SQLITE_PATH=./data/.cache.db
+CACHE_SQLITE_PATH=./.mercato/cache/cache.db
 CACHE_TTL=3600000
 ```
 
@@ -112,7 +112,7 @@ Persistent, human-readable, slow, good for debugging.
 
 ```bash
 CACHE_STRATEGY=jsonfile
-CACHE_JSON_FILE_PATH=./data/.cache.json
+CACHE_JSON_FILE_PATH=./.mercato/cache/cache.json
 CACHE_TTL=600000
 ```
 
@@ -170,4 +170,3 @@ yarn add better-sqlite3
 ### Memory and JSON File Strategies
 
 No additional dependencies required.
-

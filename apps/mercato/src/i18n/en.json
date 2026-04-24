@@ -912,7 +912,7 @@
   "upgrades.v042.message": "Version {{version}} has been installed. Enable analytics widgets for admin and employee roles.",
   "upgrades.v042.success": "Analytics widgets enabled for admin and employee roles.",
   "upgrades.versionLabel": "Version {{version}}",
-  "vector.api.errors.autoIndexingDisabled": "Auto-indexing is disabled via DISABLE_VECTOR_SEARCH_AUTOINDEXING.",
+  "vector.api.errors.autoIndexingDisabled": "Auto-indexing is disabled via OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (legacy alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "vector.api.errors.configUnavailable": "Configuration service unavailable",
   "vector.api.errors.indexFetchFailed": "Vector index fetch failed",
   "vector.api.errors.indexUnavailable": "Vector index unavailable",

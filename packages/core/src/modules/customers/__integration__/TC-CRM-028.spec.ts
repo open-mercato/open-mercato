@@ -613,10 +613,10 @@ test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
       const bidirectionalToggleId = await resolveToggleId(request, superadminToken, SYNC_TOGGLE_IDS.bidirectional);
 
       expect(enabledToggleId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
       expect(bidirectionalToggleId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
 
       const listResponse = await apiRequest(

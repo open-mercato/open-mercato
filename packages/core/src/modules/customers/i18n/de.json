@@ -973,6 +973,7 @@
   "customers.linking.preview.loading": "Details werden geladen…",
   "customers.linking.primary.badge": "Primär",
   "customers.linking.primary.current": "Primär",
+  "customers.linking.primary.help": "Wähle aus, welcher verknüpfte Datensatz als primär behandelt werden soll.",
   "customers.linking.primary.set": "Als primär festlegen",
   "customers.linking.primary.setAction": "Als primär festlegen",
   "customers.linking.resultsCount": "{{count}} Ergebnisse",

@@ -18,6 +18,7 @@ import {
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition } from './serialize'
+import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 
 export const metadata = {
   requireAuth: true,
@@ -208,6 +209,11 @@ export async function POST(request: NextRequest) {
     })
 
     await em.persist(definition).flush()
+
+    // Newly-created embedded triggers must be visible to the wildcard event
+    // subscriber immediately; invalidate the in-memory trigger cache so the
+    // next event reload picks up this definition.
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
     return NextResponse.json(
       {

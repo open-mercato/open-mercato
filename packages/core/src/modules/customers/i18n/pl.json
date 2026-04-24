@@ -973,6 +973,7 @@
   "customers.linking.preview.loading": "Wczytywanie szczegółów…",
   "customers.linking.primary.badge": "Główny",
   "customers.linking.primary.current": "Główny",
+  "customers.linking.primary.help": "Wybierz, który powiązany rekord ma być traktowany jako główny.",
   "customers.linking.primary.set": "Ustaw jako główny",
   "customers.linking.primary.setAction": "Ustaw jako główny",
   "customers.linking.resultsCount": "{{count}} wyników",

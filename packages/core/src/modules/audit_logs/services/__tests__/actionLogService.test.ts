@@ -168,6 +168,37 @@ describe('ActionLogService normalizeInput', () => {
     }).actorUserId).toBeNull()
   })
 
+  it('rejects non-UUID actorUserId so system-originated commands (sync workers, scheduler) never blow up the action log driver with `invalid input syntax for type uuid`', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      normalizeInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const systemSub = serviceWithPrivateAccess.normalizeInput({
+      commandId: 'example.todos.create',
+      actorUserId: 'system:example_customers_sync:outbound',
+    })
+    expect(systemSub.actorUserId).toBeNull()
+
+    const realUser = serviceWithPrivateAccess.normalizeInput({
+      commandId: 'customers.people.update',
+      actorUserId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(realUser.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
+
+    const apiKey = serviceWithPrivateAccess.normalizeInput({
+      commandId: 'api.something',
+      actorUserId: 'api_key:22222222-2222-4222-8222-222222222222',
+    })
+    expect(apiKey.actorUserId).toBe('22222222-2222-4222-8222-222222222222')
+
+    const garbage = serviceWithPrivateAccess.normalizeInput({
+      commandId: 'test',
+      actorUserId: 'not-a-uuid',
+    })
+    expect(garbage.actorUserId).toBeNull()
+  })
+
   it('populates projection columns when creating a log entity', () => {
     const service = new ActionLogService(
       {} as unknown as ConstructorParameters<typeof ActionLogService>[0],

@@ -973,6 +973,7 @@
   "customers.linking.preview.loading": "Loading details…",
   "customers.linking.primary.badge": "Primary",
   "customers.linking.primary.current": "Primary",
+  "customers.linking.primary.help": "Choose which linked record should be treated as primary.",
   "customers.linking.primary.set": "Set primary",
   "customers.linking.primary.setAction": "Set primary",
   "customers.linking.resultsCount": "{{count}} results",

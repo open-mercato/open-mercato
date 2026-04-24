@@ -277,6 +277,7 @@ jobs:
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
           JWT_SECRET=ci-standalone-test-jwt-secret
+          OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
           OM_TEST_MODE=1
@@ -328,17 +329,20 @@ jobs:
 
       - name: Start standalone app
         working-directory: /tmp/standalone-app
+        env:
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
         run: |
           PORT=3001 yarn start &
           echo "Waiting for standalone app to be ready..."
-          for i in $(seq 1 90); do
+          for i in $(seq 1 180); do
             if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
               echo "App ready after ${i}s"
               exit 0
             fi
             sleep 1
           done
-          echo "App failed to start within 90s"
+          echo "App failed to start within 180s"
           exit 1
 
       # --- Run integration tests ---
@@ -346,7 +350,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run integration tests
-        run: BASE_URL=http://localhost:3001 yarn test:integration
+        env:
+          BASE_URL: http://localhost:3001
+          OM_TEST_APP_ROOT: /tmp/standalone-app
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: yarn test:integration
 
       - name: Upload test artifacts
         if: always()
