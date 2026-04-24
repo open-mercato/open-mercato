@@ -85,7 +85,6 @@ public/uploads/*
 apps/mercato/storage/*
 apps/mercato/storage/attachments/*
 storage
-apps/mercato/data
 packages/client/src/generated/openapi.types.ts
 package-lock.json
 
