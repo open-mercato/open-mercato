@@ -22,19 +22,28 @@ function Harness({
 }
 
 describe('useAiShortcuts', () => {
-  it('calls onSubmit on Cmd+Enter and prevents default', () => {
+  it('calls onSubmit on plain Enter and prevents default', () => {
     const onSubmit = jest.fn()
     render(<Harness onSubmit={onSubmit} />)
     const textarea = screen.getByLabelText('shortcuts harness')
 
-    const result = fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
-    // keyDown preventDefault returns true when default was not prevented.
+    const result = fireEvent.keyDown(textarea, { key: 'Enter' })
     // `fireEvent.keyDown` returns `false` when the handler called preventDefault.
     expect(result).toBe(false)
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onSubmit on Ctrl+Enter', () => {
+  it('calls onSubmit on Cmd+Enter (still works for power users)', () => {
+    const onSubmit = jest.fn()
+    render(<Harness onSubmit={onSubmit} />)
+    fireEvent.keyDown(screen.getByLabelText('shortcuts harness'), {
+      key: 'Enter',
+      metaKey: true,
+    })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls onSubmit on Ctrl+Enter (still works for power users)', () => {
     const onSubmit = jest.fn()
     render(<Harness onSubmit={onSubmit} />)
     fireEvent.keyDown(screen.getByLabelText('shortcuts harness'), {
@@ -44,10 +53,13 @@ describe('useAiShortcuts', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
-  it('does not fire submit on plain Enter (native newline behavior preserved)', () => {
+  it('does not fire submit on Shift+Enter (native newline behavior preserved)', () => {
     const onSubmit = jest.fn()
     render(<Harness onSubmit={onSubmit} />)
-    fireEvent.keyDown(screen.getByLabelText('shortcuts harness'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByLabelText('shortcuts harness'), {
+      key: 'Enter',
+      shiftKey: true,
+    })
     expect(onSubmit).not.toHaveBeenCalled()
   })
 

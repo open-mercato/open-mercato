@@ -41,16 +41,23 @@ describe('customers.list_deals', () => {
     expect(tool.inputSchema.safeParse({ limit: 100 }).success).toBe(true)
   })
 
-  it('filters cross-tenant rows', async () => {
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'd1', tenantId: 'tenant-1', organizationId: 'org-1', title: 'Deal A', createdAt: new Date('2024-01-01') },
-      { id: 'd2', tenantId: 'tenant-2', organizationId: 'org-1', title: 'Cross tenant', createdAt: new Date('2024-01-02') },
-    ])
+  it('filters cross-tenant rows via queryEngine', async () => {
+    // Post-PR #1593: customers.list_deals delegates to queryEngine.query on
+    // the `customers:customer_deal` index, which enforces tenant scoping.
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(2)
+    ctx.queryEngine.query.mockResolvedValue({
+      items: [
+        { id: 'd1', tenant_id: 'tenant-1', organization_id: 'org-1', title: 'Deal A', created_at: '2024-01-01T00:00:00.000Z' },
+      ],
+      total: 1,
+    })
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((entry) => entry.id)).toEqual(['d1'])
+    const [entityType, queryArg] = ctx.queryEngine.query.mock.calls[0]
+    expect(entityType).toBe('customers:customer_deal')
+    expect(queryArg.tenantId).toBe('tenant-1')
+    expect(queryArg.organizationId).toBe('org-1')
   })
 
   it('returns empty page when personId yields zero matches', async () => {

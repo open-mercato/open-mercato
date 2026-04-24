@@ -1,3 +1,32 @@
+// The real tool-execute path lives in `tool-executor` and expects a bootstrapped
+// DI container. In this unit test we only care that the adapted wrapper
+// invokes the tool's registered `handler` — so stub both
+// `createRequestContainer` and `tool-executor.executeTool` so the handler is
+// called directly with the test's mock context. Must be declared before any
+// import that pulls in `agent-tools.ts`.
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => ({
+    resolve: () => null,
+  })),
+}))
+
+jest.mock('../tool-executor', () => ({
+  executeTool: jest.fn(async (name: string, args: unknown, ctx: any) => {
+    const { toolRegistry: registry } = await import('../tool-registry')
+    const tool = registry.getTool(name)
+    if (!tool) {
+      return { success: false, error: `Tool "${name}" not found` }
+    }
+    try {
+      const result = await tool.handler(args as never, ctx)
+      return { success: true, result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: message }
+    }
+  }),
+}))
+
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import {
@@ -524,8 +553,8 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
       conversationId: 'conv-1',
     })
 
-    expect(Object.keys(resolved.tools)).toContain('catalog.products.update')
-    const adapted = resolved.tools['catalog.products.update'] as unknown as {
+    expect(Object.keys(resolved.tools)).toContain('catalog__products__update')
+    const adapted = resolved.tools['catalog__products__update'] as unknown as {
       execute: (args: unknown) => Promise<unknown>
     }
     const outcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
@@ -570,7 +599,7 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
       },
       container,
     })
-    const adapted = resolved.tools['catalog.products.list'] as unknown as {
+    const adapted = resolved.tools['catalog__products__list'] as unknown as {
       execute: (args: unknown) => Promise<unknown>
     }
     await adapted.execute({})

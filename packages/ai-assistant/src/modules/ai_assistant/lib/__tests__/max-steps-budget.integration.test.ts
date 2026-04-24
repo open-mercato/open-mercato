@@ -138,7 +138,11 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
     expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 3 })
   })
 
-  it('omits stopWhen from the SDK args when maxSteps is undefined (SDK default)', async () => {
+  it('applies default stopWhen: stepCountIs(10) when maxSteps is undefined (tool-call-enabling default)', async () => {
+    // PR #1593 (commit 5873fcee5) added a default of 10 when maxSteps is
+    // undefined — without stopWhen the AI SDK runs a single model call and
+    // never executes tool calls, which makes every tool-using query return
+    // an empty stream. The test pins that behavior.
     seedAgentRegistryForTests([
       makeAgent({
         id: 'customers.account_assistant',
@@ -151,17 +155,16 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
       messages: baseMessages as never,
       authContext: baseAuth,
     })
-    expect(stepCountIsMock).not.toHaveBeenCalled()
-    const callArg = streamTextMock.mock.calls[0][0] as {
-      stopWhen?: unknown
-    }
-    expect('stopWhen' in callArg).toBe(false)
+    expect(stepCountIsMock).toHaveBeenCalledWith(10)
+    const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
+    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 10 })
   })
 
-  it('omits stopWhen when maxSteps is 0 (guard against accidental zero budget)', async () => {
+  it('falls back to default stopWhen: stepCountIs(10) when maxSteps is 0', async () => {
     // Spec §1.4: maxSteps must be a positive integer; 0 is treated the same
-    // as undefined so the SDK's own default controls the run instead of
-    // short-circuiting to zero steps.
+    // as undefined. Post-#1593 that means the default-10 guard kicks in so
+    // tool calls still work, instead of short-circuiting to a single model
+    // call.
     seedAgentRegistryForTests([
       makeAgent({
         id: 'customers.account_assistant',
@@ -174,9 +177,9 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
       messages: baseMessages as never,
       authContext: baseAuth,
     })
-    expect(stepCountIsMock).not.toHaveBeenCalled()
-    const callArg = streamTextMock.mock.calls[0][0] as { stopWhen?: unknown }
-    expect('stopWhen' in callArg).toBe(false)
+    expect(stepCountIsMock).toHaveBeenCalledWith(10)
+    const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
+    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 10 })
   })
 })
 

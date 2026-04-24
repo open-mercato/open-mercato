@@ -49,9 +49,13 @@ function makeCtxWithSearch(overrides: {
     }),
     flush: jest.fn().mockResolvedValue(undefined),
   }
+  const queryEngine = {
+    query: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+  }
   const container = {
     resolve: jest.fn((name: string) => {
       if (name === 'em') return em
+      if (name === 'queryEngine') return queryEngine
       if (name === 'searchService') {
         if (overrides.searchService === null) throw new Error('no searchService')
         return overrides.searchService ?? { search: jest.fn().mockResolvedValue([]) }
@@ -71,6 +75,7 @@ function makeCtxWithSearch(overrides: {
     userFeatures: ['catalog.products.view', 'catalog.categories.view', 'catalog.settings.manage'],
     isSuperAdmin: false,
     em,
+    queryEngine,
   }
 }
 
@@ -103,7 +108,10 @@ describe('catalog.search_products', () => {
       { entityId: 'catalog:catalog_product', recordId: 'p1', score: 1, source: 'fulltext' },
     ])
     const ctx = makeCtxWithSearch({ searchService: { search } })
-    ctx.em.count.mockResolvedValue(1)
+    // Post-PR #1593: the search path still hits the search service to
+    // resolve record ids, then hydrates via queryEngine + findWithDecryption
+    // scoped to the tenant.
+    ctx.queryEngine.query.mockResolvedValue({ items: [{ id: 'p1' }], total: 1 })
     findWithDecryptionMock.mockResolvedValue([
       {
         id: 'p1',
@@ -127,9 +135,12 @@ describe('catalog.search_products', () => {
   })
 
   it('routes to the query engine when q is empty', async () => {
+    // Post-PR #1593: the query-engine path delegates to
+    // queryEngine.query('catalog:catalog_product', ...) then hydrates via
+    // findWithDecryption keyed by the returned id set.
     const search = jest.fn()
     const ctx = makeCtxWithSearch({ searchService: { search } })
-    ctx.em.count.mockResolvedValue(1)
+    ctx.queryEngine.query.mockResolvedValue({ items: [{ id: 'p2' }], total: 1 })
     findWithDecryptionMock.mockResolvedValue([
       {
         id: 'p2',
@@ -143,19 +154,30 @@ describe('catalog.search_products', () => {
     ])
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     expect(search).not.toHaveBeenCalled()
+    expect(ctx.queryEngine.query).toHaveBeenCalled()
+    const [entityType, queryArg] = ctx.queryEngine.query.mock.calls[0]
+    expect(entityType).toBe('catalog:catalog_product')
+    expect(queryArg.tenantId).toBe('tenant-1')
+    expect(queryArg.organizationId).toBe('org-1')
     expect(result.source).toBe('query_engine')
   })
 
-  it('drops cross-tenant rows returned by the query engine path', async () => {
+  it('forwards tenantId to findWithDecryption so hydration is tenant-scoped', async () => {
+    // Post-PR #1593: cross-tenant isolation on the query-engine path is
+    // enforced at two layers (queryEngine.query scope + findWithDecryption
+    // tenantId filter). The tool itself no longer filters in-process —
+    // verify the tenantId is correctly threaded into findWithDecryption.
     const ctx = makeCtxWithSearch({ searchService: { search: jest.fn() } })
-    ctx.em.count.mockResolvedValue(2)
+    ctx.queryEngine.query.mockResolvedValue({ items: [{ id: 'p1' }], total: 1 })
     findWithDecryptionMock.mockResolvedValue([
       { id: 'p1', tenantId: 'tenant-1', organizationId: 'org-1', title: 'Alpha', productType: 'simple', createdAt: new Date(), updatedAt: new Date() },
-      { id: 'p2', tenantId: 'tenant-2', organizationId: 'org-1', title: 'Leak', productType: 'simple', createdAt: new Date(), updatedAt: new Date() },
     ])
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((entry) => entry.id)).toEqual(['p1'])
+    // findWithDecryption receives { tenantId, id: { $in: [...] }, deletedAt: null }
+    const whereArg = findWithDecryptionMock.mock.calls[0][2]
+    expect(whereArg.tenantId).toBe('tenant-1')
   })
 
   it('returns empty short-circuit when the search service yields zero hits', async () => {

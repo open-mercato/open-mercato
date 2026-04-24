@@ -207,8 +207,8 @@ describe('WS-C integration — agent policy gate + tool resolution', () => {
       authContext: makeAuth({ isSuperAdmin: true }),
     })
 
-    expect(Object.keys(resolved.tools).sort()).toEqual(['catalog.list_products'])
-    expect(Object.prototype.hasOwnProperty.call(resolved.tools, 'catalog.delete_product')).toBe(false)
+    expect(Object.keys(resolved.tools).sort()).toEqual(['catalog__list_products'])
+    expect(Object.prototype.hasOwnProperty.call(resolved.tools, 'catalog__delete_product')).toBe(false)
   })
 
   it('tool-level requiredFeatures: tool is skipped with a warn when caller lacks the feature; remaining tools still reach the model', async () => {
@@ -236,7 +236,7 @@ describe('WS-C integration — agent policy gate + tool resolution', () => {
       agentId: 'catalog.assistant',
       authContext: makeAuth({ features: ['catalog.products.view'], isSuperAdmin: false }),
     })
-    expect(Object.keys(resolved.tools)).toEqual(['catalog.list_products'])
+    expect(Object.keys(resolved.tools)).toEqual(['catalog__list_products'])
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('catalog.get_product'),
     )
@@ -317,7 +317,7 @@ describe('WS-C integration — agent policy gate + tool resolution', () => {
     const sdkArg = streamTextMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined
     expect(sdkArg).toBeDefined()
     const toolsArg = (sdkArg?.tools ?? {}) as Record<string, unknown>
-    expect(Object.keys(toolsArg)).toEqual(['catalog.list_products'])
-    expect(Object.prototype.hasOwnProperty.call(toolsArg, 'catalog.update_product')).toBe(false)
+    expect(Object.keys(toolsArg)).toEqual(['catalog__list_products'])
+    expect(Object.prototype.hasOwnProperty.call(toolsArg, 'catalog__update_product')).toBe(false)
   })
 })

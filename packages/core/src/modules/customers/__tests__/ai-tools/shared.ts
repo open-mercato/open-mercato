@@ -15,6 +15,9 @@ export type FakeCtx = {
     persist: jest.Mock
     flush: jest.Mock
   }
+  queryEngine: {
+    query: jest.Mock
+  }
 }
 
 export function makeCtx(overrides: Partial<FakeCtx & { organizationId: string | null }> = {}): FakeCtx {
@@ -25,9 +28,13 @@ export function makeCtx(overrides: Partial<FakeCtx & { organizationId: string | 
     }),
     flush: jest.fn().mockResolvedValue(undefined),
   }
+  const queryEngine = {
+    query: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+  }
   const container = {
     resolve: jest.fn((name: string) => {
       if (name === 'em') return em
+      if (name === 'queryEngine') return queryEngine
       throw new Error(`unexpected resolve: ${name}`)
     }),
   }
@@ -39,6 +46,7 @@ export function makeCtx(overrides: Partial<FakeCtx & { organizationId: string | 
     userFeatures: ['customers.people.view', 'customers.companies.view', 'customers.deals.view'],
     isSuperAdmin: false,
     em,
+    queryEngine,
     ...overrides,
   }
 }

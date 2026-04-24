@@ -277,9 +277,9 @@ describe('WS-C integration — tool-pack coverage', () => {
 
       const toolNames = Object.keys(resolved.tools).sort()
       expect(toolNames).toEqual(
-        ['attachments.list_record_attachments', 'meta.list_agents', 'search.hybrid_search'].sort(),
+        ['attachments__list_record_attachments', 'meta__list_agents', 'search__hybrid_search'].sort(),
       )
-      expect(toolNames).not.toContain('catalog.update_product')
+      expect(toolNames).not.toContain('catalog__update_product')
     })
   })
 })

@@ -41,29 +41,35 @@ describe('customers.list_companies', () => {
     expect(tool.inputSchema.safeParse({ limit: 100 }).success).toBe(true)
   })
 
-  it('filters cross-tenant rows and scopes queries to ctx.tenantId / ctx.organizationId', async () => {
-    findWithDecryptionMock.mockResolvedValue([
-      {
-        id: 'c1',
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
-        displayName: 'Acme',
-        createdAt: new Date('2024-01-01'),
-      },
-      {
-        id: 'c2',
-        tenantId: 'tenant-2',
-        organizationId: 'org-1',
-        displayName: 'Wrong Tenant',
-        createdAt: new Date('2024-01-02'),
-      },
-    ])
+  it('filters cross-tenant rows via queryEngine with kind=company filter', async () => {
+    // Post-PR #1593: customers.list_companies delegates to queryEngine.query
+    // on the `customers:customer_entity` index with `kind=company` filter,
+    // then enriches via findWithDecryption for company profiles.
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(2)
+    ctx.queryEngine.query.mockResolvedValue({
+      items: [
+        {
+          id: 'c1',
+          tenant_id: 'tenant-1',
+          organization_id: 'org-1',
+          display_name: 'Acme',
+          kind: 'company',
+          created_at: '2024-01-01T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+    })
+    // Enrichment calls (profiles, tag assignments) return empty arrays so
+    // the list path doesn't blow up when downstream enrichment runs.
+    findWithDecryptionMock.mockResolvedValue([])
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((entry) => entry.id)).toEqual(['c1'])
-    expect(findWithDecryptionMock.mock.calls[0][2].kind).toBe('company')
+    const [entityType, queryArg] = ctx.queryEngine.query.mock.calls[0]
+    expect(entityType).toBe('customers:customer_entity')
+    expect(queryArg.filters.kind).toBe('company')
+    expect(queryArg.tenantId).toBe('tenant-1')
+    expect(queryArg.organizationId).toBe('org-1')
   })
 
   it('throws when tenant context is missing', async () => {

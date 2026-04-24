@@ -41,21 +41,25 @@ describe('customers.list_people', () => {
     expect(tool.isMutation).toBeFalsy()
   })
 
-  it('filters rows to the caller tenant and drops cross-tenant data', async () => {
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'p1', tenantId: 'tenant-1', organizationId: 'org-1', displayName: 'Alice', createdAt: new Date('2024-01-01') },
-      { id: 'p2', tenantId: 'tenant-2', organizationId: 'org-1', displayName: 'Eve', createdAt: new Date('2024-01-02') },
-    ])
+  it('filters rows to the caller tenant via queryEngine (tenant scope threaded through query args)', async () => {
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(2)
+    // Post-PR #1593: customers.list_people delegates to queryEngine.query,
+    // which handles tenant scoping + search_token filtering internally. The
+    // tool trusts the engine to return only tenant-scoped rows.
+    ctx.queryEngine.query.mockResolvedValue({
+      items: [
+        { id: 'p1', tenant_id: 'tenant-1', organization_id: 'org-1', display_name: 'Alice', created_at: '2024-01-01T00:00:00.000Z' },
+      ],
+      total: 1,
+    })
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((entry) => entry.id)).toEqual(['p1'])
-    expect(findWithDecryptionMock).toHaveBeenCalled()
-    const whereArg = findWithDecryptionMock.mock.calls[0][2]
-    expect(whereArg.tenantId).toBe('tenant-1')
-    expect(whereArg.organizationId).toBe('org-1')
-    expect(whereArg.kind).toBe('person')
+    expect(ctx.queryEngine.query).toHaveBeenCalled()
+    const [entityType, queryArg] = ctx.queryEngine.query.mock.calls[0]
+    expect(entityType).toBe('customers:customer_entity')
+    expect(queryArg.tenantId).toBe('tenant-1')
+    expect(queryArg.organizationId).toBe('org-1')
   })
 
   it('rejects calls without a tenant context', async () => {
@@ -68,16 +72,15 @@ describe('customers.list_people', () => {
     expect(parsed.success).toBe(false)
   })
 
-  it('defaults limit to 50 and passes tenant + org scope to findWithDecryption', async () => {
-    findWithDecryptionMock.mockResolvedValue([])
+  it('defaults limit to 50 and passes pageSize to queryEngine', async () => {
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(0)
+    ctx.queryEngine.query.mockResolvedValue({ items: [], total: 0 })
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     expect(result.limit).toBe(50)
-    const options = findWithDecryptionMock.mock.calls[0][3]
-    expect(options.limit).toBe(50)
-    const scopeArg = findWithDecryptionMock.mock.calls[0][4]
-    expect(scopeArg).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    const [, queryArg] = ctx.queryEngine.query.mock.calls[0]
+    expect(queryArg.page.pageSize).toBe(50)
+    expect(queryArg.tenantId).toBe('tenant-1')
+    expect(queryArg.organizationId).toBe('org-1')
   })
 })
 

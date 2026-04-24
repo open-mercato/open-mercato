@@ -275,7 +275,7 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
       expect(resolveSpy).toHaveBeenCalledTimes(1)
       const resolved = await resolveSpy.mock.results[0].value
       // Mutation tool filtered out; read-only tool survives.
-      expect(Object.keys(resolved.tools)).toEqual(['customers.list_people'])
+      expect(Object.keys(resolved.tools)).toEqual(['customers__list_people'])
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('customers.update_person'),
       )
@@ -287,7 +287,7 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
       if (helper === 'text') {
         const callArg = lastSdkCallArg() as { tools: Record<string, unknown> } | undefined
         expect(callArg).toBeDefined()
-        expect(Object.keys(callArg!.tools)).toEqual(['customers.list_people'])
+        expect(Object.keys(callArg!.tools)).toEqual(['customers__list_people'])
       }
 
       resolveSpy.mockRestore()
@@ -451,14 +451,14 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
       await run({ agentId: 'customers.assistant', authContext: baseAuth })
 
       const resolved = await resolveSpy.mock.results[0].value
-      expect(Object.keys(resolved.tools)).toEqual(['customers.list_people'])
-      expect(Object.keys(resolved.tools)).not.toContain('catalog.list_products')
+      expect(Object.keys(resolved.tools)).toEqual(['customers__list_people'])
+      expect(Object.keys(resolved.tools)).not.toContain('catalog__list_products')
 
       if (helper === 'text') {
         const callArg = lastSdkCallArg() as { tools: Record<string, unknown> } | undefined
         expect(callArg).toBeDefined()
-        expect(Object.keys(callArg!.tools)).toEqual(['customers.list_people'])
-        expect(Object.keys(callArg!.tools)).not.toContain('catalog.list_products')
+        expect(Object.keys(callArg!.tools)).toEqual(['customers__list_people'])
+        expect(Object.keys(callArg!.tools)).not.toContain('catalog__list_products')
       }
 
       resolveSpy.mockRestore()

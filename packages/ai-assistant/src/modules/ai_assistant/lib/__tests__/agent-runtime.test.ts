@@ -122,8 +122,10 @@ describe('runAiAgentText', () => {
       stopWhen?: unknown
     }
     expect(callArg.system).toBe('System prompt base.')
-    expect(Object.keys(callArg.tools)).toEqual(['customers.list_people'])
-    expect(callArg.stopWhen).toBeUndefined()
+    expect(Object.keys(callArg.tools)).toEqual(['customers__list_people'])
+    // PR #1593 applies a default stopWhen of stepCountIs(10) when maxSteps
+    // is undefined so tool-calls actually execute (agent-runtime.ts).
+    expect(callArg.stopWhen).toBeDefined()
     expect(callArg.model.id).toBe('provider-default-model')
     expect(convertToModelMessagesMock).toHaveBeenCalledWith(baseMessages)
   })

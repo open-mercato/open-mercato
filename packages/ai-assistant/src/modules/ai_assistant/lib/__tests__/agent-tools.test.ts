@@ -104,8 +104,8 @@ describe('resolveAiAgentTools', () => {
 
     expect(result.agent.id).toBe('customers.assistant')
     expect(Object.keys(result.tools).sort()).toEqual([
-      'customers.get_person',
-      'customers.list_people',
+      'customers__get_person',
+      'customers__list_people',
     ])
     for (const [, tool] of Object.entries(result.tools)) {
       expect(tool).toBeDefined()
@@ -145,7 +145,7 @@ describe('resolveAiAgentTools', () => {
       },
     })
 
-    expect(Object.keys(result.tools)).toEqual(['customers.list_people'])
+    expect(Object.keys(result.tools)).toEqual(['customers__list_people'])
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('catalog.list_products'),
     )
