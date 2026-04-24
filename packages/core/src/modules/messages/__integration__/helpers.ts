@@ -206,6 +206,12 @@ export async function selectMessageRowsBySubject(page: Page, subjects: string[])
   }
 }
 
+export async function expectFlashMessage(page: Page, message: string): Promise<void> {
+  await expect(
+    page.locator('div.pointer-events-none.fixed').getByText(message, { exact: true }).first(),
+  ).toBeVisible();
+}
+
 export async function selectMessageFolder(page: Page, folderLabel: 'Inbox' | 'Sent' | 'Drafts' | 'Archived' | 'All'): Promise<void> {
   const listResponsePromise = page.waitForResponse(
     (response) =>

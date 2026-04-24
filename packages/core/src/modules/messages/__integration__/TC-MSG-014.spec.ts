@@ -4,6 +4,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth';
 import {
   composeInternalMessage,
   deleteMessageIfExists,
+  expectFlashMessage,
   messageRowBySubject,
   searchMessages,
   selectMessageRowsBySubject,
@@ -94,7 +95,7 @@ test.describe('TC-MSG-014: Inbox Bulk Archive And Delete', () => {
       await selectMessageRowsBySubject(page, [`${archivePrefix} alpha`, `${archivePrefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Archive$/i }).click();
-      await expect(page.getByText('1 of 2 messages processed; 1 failed.')).toBeVisible();
+      await expectFlashMessage(page, '1 of 2 messages processed; 1 failed.');
       await expect(page.getByText('2 selected')).toHaveCount(0);
 
       await expect.poll(async () => {
@@ -141,7 +142,7 @@ test.describe('TC-MSG-014: Inbox Bulk Archive And Delete', () => {
       const deleteDialog = page.getByRole('alertdialog');
       await expect(deleteDialog.getByText('Delete 2 messages?')).toBeVisible();
       await deleteDialog.getByRole('button', { name: /^Delete$/i }).click();
-      await expect(page.getByText('2 messages deleted.')).toBeVisible();
+      await expectFlashMessage(page, '2 messages deleted.');
 
       await expect.poll(async () => {
         const inbox = await readMessageList(

@@ -4,6 +4,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth';
 import {
   composeInternalMessage,
   deleteMessageIfExists,
+  expectFlashMessage,
   messageRowBySubject,
   searchMessages,
   selectMessageRowsBySubject,
@@ -83,7 +84,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark read$/i }).click();
-      await expect(page.getByText('2 messages marked as read.')).toBeVisible();
+      await expectFlashMessage(page, '2 messages marked as read.');
 
       await expect.poll(async () => {
         const body = await readMessageList(
@@ -98,7 +99,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark unread$/i }).click();
-      await expect(page.getByText('2 messages marked as unread.')).toBeVisible();
+      await expectFlashMessage(page, '2 messages marked as unread.');
 
       await expect.poll(async () => {
         const body = await readMessageList(
@@ -122,7 +123,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark read$/i }).click();
-      await expect(page.getByText('Failed to process 2 messages.')).toBeVisible();
+      await expectFlashMessage(page, 'Failed to process 2 messages.');
       await expect(page.getByText('2 selected')).toBeVisible();
 
       await page.unroute(forcedFailurePattern);
