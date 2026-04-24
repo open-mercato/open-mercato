@@ -3,7 +3,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import type { Knex } from 'knex'
+import { type Kysely, sql, type RawBuilder } from 'kysely'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
@@ -58,20 +58,17 @@ function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boo
 }
 
 function resolveDebugVerbosity(): boolean {
-  // Check explicit OM_QUERY_INDEX_DEBUG flag first
   const queryIndexDebug = process.env.OM_QUERY_INDEX_DEBUG
   if (queryIndexDebug !== undefined) {
     return parseBooleanToken(queryIndexDebug) ?? false
   }
-  // Fall back to log level or NODE_ENV
   const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
   if (['debug', 'trace', 'silly'].includes(level)) return true
-  // Default to false (don't spam logs in development)
   return false
 }
 
-type ResultRow = Record<string, unknown>
-type ResultBuilder<TResult = ResultRow[]> = Knex.QueryBuilder<ResultRow, TResult>
+type AnyDb = Kysely<any>
+type AnyBuilder = any
 type NormalizedFilter = { field: string; op: FilterOp; value?: unknown }
 type IndexDocSource = { alias: string; entityId: EntityId; recordIdColumn: string }
 type PreparedCustomFieldSource = {
@@ -143,8 +140,13 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
+  private getDb(): AnyDb {
+    const emAny = this.em as any
+    if (typeof emAny.getKysely === 'function') return emAny.getKysely() as AnyDb
+    throw new Error('HybridQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
+  }
+
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
-    // --- UMES query extension: before-query pipeline ---
     const ext: QueryExtensionsConfig | undefined = opts.extensions
     let hybridExtCtx: QueryExtensionContext | null = null
     const noopDi = { resolve: <R = unknown>(_name: string): R => { throw new Error('No DI context') } }
@@ -167,7 +169,6 @@ export class HybridQueryEngine implements QueryEngine {
       }
       opts = beforeResult.query
     }
-    // Strip extensions so fallback to BasicQueryEngine doesn't double-execute
     const { extensions: _stripExt, ...coreOpts } = opts
     opts = coreOpts
 
@@ -217,8 +218,8 @@ export class HybridQueryEngine implements QueryEngine {
         }
       }
 
-      const knex = this.getKnex()
-      profiler.mark('query:knex_ready')
+      const db = this.getDb()
+      profiler.mark('query:db_ready')
       const baseTable = resolveEntityTableName(this.em, entity)
       profiler.mark('query:base_table_resolved')
       const searchConfig = resolveSearchConfig()
@@ -343,680 +344,583 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       const qualify = (col: string) => `b.${col}`
-    let builder: ResultBuilder = knex({ b: baseTable })
-    const hasCustomFieldFilters = cfFilters.length > 0
-    const canOptimizeCount = !hasCustomFieldFilters
-    let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
+      const columns = await this.getBaseColumnsForEntity(entity)
+      const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
+      const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
+      const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
 
-    const resolvedJoinsConfig = resolveJoins(
-      baseTable,
-      [...(opts.joins ?? []), ...buildFilterableCustomFieldJoins(opts.customFieldSources)],
-      (entityId) => resolveEntityTableName(this.em, entityId as any),
-    )
-    const joinMap = new Map<string, ResolvedJoin>()
-    const aliasTables = new Map<string, string>()
-    aliasTables.set('b', baseTable)
-    aliasTables.set('base', baseTable)
-    aliasTables.set(baseTable, baseTable)
-    for (const join of resolvedJoinsConfig) {
-      joinMap.set(join.alias, join)
-      aliasTables.set(join.alias, join.table)
-    }
-    const { baseFilters, joinFilters } = partitionFilters(baseTable, normalizedFilters, joinMap)
+      if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
-    if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
-
-    const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
-    const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
-    const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
-    const searchRuntimeBase = {
-      enabled: false,
-      config: searchConfig,
-      organizationScope: orgScope,
-      tenantId: opts.tenantId ?? null,
-    }
-
-    if (orgScope && hasOrganizationColumn) {
-      builder = this.applyOrganizationScope(builder, qualify('organization_id'), orgScope)
-      if (optimizedCountBuilder) optimizedCountBuilder = this.applyOrganizationScope(optimizedCountBuilder, qualify('organization_id'), orgScope)
-    }
-    if (hasTenantColumn) {
-      builder = builder.where(qualify('tenant_id'), opts.tenantId)
-      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.where(qualify('tenant_id'), opts.tenantId)
-    }
-    if (!opts.withDeleted && hasDeletedColumn) {
-      builder = builder.whereNull(qualify('deleted_at'))
-      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.whereNull(qualify('deleted_at'))
-    }
-
-    const baseJoinParts: string[] = []
-    baseJoinParts.push(`ei.entity_type = ${knex.raw('?', [entity]).toString()}`)
-    baseJoinParts.push(`ei.entity_id = (${qualify('id')}::text)`)
-    if (hasOrganizationColumn) {
-      baseJoinParts.push(`ei.organization_id = ${qualify('organization_id')}`)
-      baseJoinParts.push('ei.organization_id is not null')
-    }
-    if (hasTenantColumn) {
-      baseJoinParts.push(`ei.tenant_id = ${qualify('tenant_id')}`)
-      baseJoinParts.push('ei.tenant_id is not null')
-    }
-    if (!opts.withDeleted) baseJoinParts.push(`ei.deleted_at is null`)
-    builder = builder.leftJoin({ ei: 'entity_indexes' }, knex.raw(baseJoinParts.join(' AND ')))
-
-    const columns = await this.getBaseColumnsForEntity(entity)
-    const indexSources: IndexDocSource[] = [{ alias: 'ei', entityId: entity, recordIdColumn: 'b.id' }]
-
-    const shouldAttachCustomSources = Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && (wantsCf || searchEnabled)
-    if (shouldAttachCustomSources) {
-      const prepared = this.prepareCustomFieldSources(knex, builder, opts.customFieldSources ?? [], qualify)
-      builder = prepared.builder
-      for (const source of prepared.sources) {
-        const fragments: string[] = []
-        fragments.push(`${source.indexAlias}.entity_type = ${knex.raw('?', [source.entityId]).toString()}`)
-        fragments.push(`${source.indexAlias}.entity_id = (${knex.raw('??::text', [`${source.alias}.${source.recordIdColumn}`]).toString()})`)
-        const orgExpr = source.organizationField
-          ? knex.raw('??', [`${source.alias}.${source.organizationField}`]).toString()
-          : (columns.has('organization_id') ? qualify('organization_id') : null)
-        if (orgExpr) {
-          fragments.push(`${source.indexAlias}.organization_id = ${orgExpr}`)
-          fragments.push(`${source.indexAlias}.organization_id is not null`)
-        }
-        const tenantExpr = source.tenantField
-          ? knex.raw('??', [`${source.alias}.${source.tenantField}`]).toString()
-          : (columns.has('tenant_id') ? qualify('tenant_id') : null)
-        if (tenantExpr) {
-          fragments.push(`${source.indexAlias}.tenant_id = ${tenantExpr}`)
-          fragments.push(`${source.indexAlias}.tenant_id is not null`)
-        }
-        if (!opts.withDeleted) fragments.push(`${source.indexAlias}.deleted_at is null`)
-        builder = builder.leftJoin({ [source.indexAlias]: 'entity_indexes' }, knex.raw(fragments.join(' AND ')))
-        indexSources.push({ alias: source.indexAlias, entityId: source.entityId, recordIdColumn: `${source.alias}.${source.recordIdColumn}` })
-      }
-    }
-
-    if (debugEnabled) {
-      this.debug('query:index-sources', {
-        entity,
-        sources: indexSources.map((src) => ({ alias: src.alias, entity: src.entityId })),
-      })
-    }
-
-    const searchSources: SearchTokenSource[] = indexSources
-      .map((src) => ({
-        entity: String(src.entityId),
-        recordIdColumn: src.recordIdColumn,
-      }))
-      .filter((src) => src.recordIdColumn && src.entity)
-    const hasSearchTokens = searchEnabled && searchSources.length
-      ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
-      : false
-    const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
-    const joinSearchAvailability = new Map<string, boolean>()
-    const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
-    if (searchFilters.length) {
-      this.logSearchDebug('search:init', {
-        entity,
+      const resolvedJoinsConfig = resolveJoins(
         baseTable,
-        tenantId: opts.tenantId ?? null,
+        [...(opts.joins ?? []), ...buildFilterableCustomFieldJoins(opts.customFieldSources)],
+        (entityId) => resolveEntityTableName(this.em, entityId as any),
+      )
+      const joinMap = new Map<string, ResolvedJoin>()
+      const aliasTables = new Map<string, string>()
+      aliasTables.set('b', baseTable)
+      aliasTables.set('base', baseTable)
+      aliasTables.set(baseTable, baseTable)
+      for (const join of resolvedJoinsConfig) {
+        joinMap.set(join.alias, join)
+        aliasTables.set(join.alias, join.table)
+      }
+      const { baseFilters, joinFilters } = partitionFilters(baseTable, normalizedFilters, joinMap)
+
+      const searchRuntimeBase = {
+        enabled: false,
+        config: searchConfig,
         organizationScope: orgScope,
-        fields: searchFilters.map((filter) => String(filter.field)),
-        searchEnabled,
-        hasSearchTokens,
-        searchSources,
-        searchConfig: {
-          enabled: searchConfig.enabled,
-          minTokenLength: searchConfig.minTokenLength,
-          enablePartials: searchConfig.enablePartials,
-          hashAlgorithm: searchConfig.hashAlgorithm,
-          blocklistedFields: searchConfig.blocklistedFields,
-        },
-      })
-      if (!searchEnabled) {
-        this.logSearchDebug('search:disabled', { entity, baseTable })
-      } else if (!hasSearchTokens) {
-        this.logSearchDebug('search:no-search-tokens', {
+        tenantId: opts.tenantId ?? null,
+      }
+
+      // Prepare index sources for JSONB custom-field access.
+      const indexSources: IndexDocSource[] = [{ alias: 'ei', entityId: entity, recordIdColumn: 'b.id' }]
+      let preparedCfSources: PreparedCustomFieldSource[] = []
+      const shouldAttachCustomSources = Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && (wantsCf || searchEnabled)
+      if (shouldAttachCustomSources) {
+        preparedCfSources = this.prepareCustomFieldSources(opts.customFieldSources ?? [])
+        for (const source of preparedCfSources) {
+          indexSources.push({ alias: source.indexAlias, entityId: source.entityId, recordIdColumn: `${source.alias}.${source.recordIdColumn}` })
+        }
+      }
+
+      const searchSources: SearchTokenSource[] = indexSources
+        .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
+        .filter((src) => src.recordIdColumn && src.entity)
+      const hasSearchTokens = searchEnabled && searchSources.length
+        ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
+        : false
+      const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
+      const joinSearchAvailability = new Map<string, boolean>()
+      const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+      if (searchFilters.length) {
+        this.logSearchDebug('search:init', {
           entity,
           baseTable,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: orgScope,
+          fields: searchFilters.map((filter) => String(filter.field)),
+          searchEnabled,
+          hasSearchTokens,
+          searchSources,
+          searchConfig: {
+            enabled: searchConfig.enabled,
+            minTokenLength: searchConfig.minTokenLength,
+            enablePartials: searchConfig.enablePartials,
+            hashAlgorithm: searchConfig.hashAlgorithm,
+            blocklistedFields: searchConfig.blocklistedFields,
+          },
+        })
+        if (!searchEnabled) this.logSearchDebug('search:disabled', { entity, baseTable })
+        else if (!hasSearchTokens) this.logSearchDebug('search:no-search-tokens', {
+          entity, baseTable,
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
           searchSources,
         })
       }
-    }
-    const hasNonBaseSearchSource = searchSources.some(
-      (src) => src.entity !== String(entity) || src.recordIdColumn !== 'b.id'
-    )
-    if (hasNonBaseSearchSource) {
-      optimizedCountBuilder = null
-    }
+      const hasNonBaseSearchSource = searchSources.some(
+        (src) => src.entity !== String(entity) || src.recordIdColumn !== 'b.id'
+      )
 
-    if (!partialIndexWarning && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && this.isForcePartialIndexEnabled()) {
-      const seen = new Set<string>([entity])
-      for (const source of opts.customFieldSources) {
-        const targetEntity = source?.entityId ? String(source.entityId) : null
-        if (!targetEntity || seen.has(targetEntity)) continue
-        seen.add(targetEntity)
-        const sourceHasCustomFields = await this.entityHasActiveCustomFields(targetEntity, opts.tenantId ?? null)
-        if (!sourceHasCustomFields) {
-          if (debugEnabled) this.debug('query:coverage:skip-no-custom-fields', { entity: targetEntity })
-          continue
-        }
-        const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
-        try {
-          const gap = await profiler.measure(
-            'resolve_coverage_gap',
-            () => this.resolveCoverageGap(targetEntity, opts, coverageScope, sourceTable),
-            (value) => (value
-              ? {
-                  entity: targetEntity,
-                  scope: value.scope,
-                  baseCount: value.stats?.baseCount ?? null,
-                  indexedCount: value.stats?.indexedCount ?? null,
-                }
-              : { entity: targetEntity, scope: null })
-          )
-          if (!gap) continue
-          if (!opts.skipAutoReindex) {
-            this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+      // Additional partial-coverage checks for customFieldSources
+      if (!partialIndexWarning && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && this.isForcePartialIndexEnabled()) {
+        const seen = new Set<string>([entity])
+        for (const source of opts.customFieldSources) {
+          const targetEntity = source?.entityId ? String(source.entityId) : null
+          if (!targetEntity || seen.has(targetEntity)) continue
+          seen.add(targetEntity)
+          const sourceHasCustomFields = await this.entityHasActiveCustomFields(targetEntity, opts.tenantId ?? null)
+          if (!sourceHasCustomFields) {
+            if (debugEnabled) this.debug('query:coverage:skip-no-custom-fields', { entity: targetEntity })
+            continue
           }
-          partialIndexWarning = {
-            entity: targetEntity,
-            entityLabel: this.resolveEntityLabel(targetEntity),
-            baseCount: gap.stats?.baseCount ?? null,
-            indexedCount: gap.stats?.indexedCount ?? null,
-            scope: gap.stats ? gap.scope : undefined,
-          }
-          if (debugEnabled) {
-            if (gap.stats) this.debug('query:partial-coverage:forced', { entity: targetEntity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-            else this.debug('query:partial-coverage:forced', { entity: targetEntity })
-          }
-          break
-        } catch (err) {
-          if (debugEnabled) this.debug('query:partial-coverage:check-failed', { entity: targetEntity, error: err instanceof Error ? err.message : err })
-        }
-      }
-    }
-
-    if (
-      !partialIndexWarning &&
-      wantsCf &&
-      entityHasActiveCustomFields &&
-      this.isForcePartialIndexEnabled() &&
-      opts.tenantId
-    ) {
-      try {
-        await this.indexCoverageStats(entity, opts, coverageScope)
-        const globalStats = await this.indexCoverageStats(entity, opts, coverageScope)
-        if (globalStats) {
-          const globalBase = globalStats.baseCount
-          const globalIndexed = globalStats.indexedCount
-          const globalGap = (globalBase > 0 && globalIndexed < globalBase) || globalIndexed > globalBase
-          if (globalGap) {
-            console.warn('[HybridQueryEngine] Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
-            if (debugEnabled) {
-              this.debug('query:partial-coverage:forced', {
-                entity,
-                baseCount: globalBase,
-                indexedCount: globalIndexed,
-                scope: 'global',
-              })
+          const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
+          try {
+            const gap = await profiler.measure(
+              'resolve_coverage_gap',
+              () => this.resolveCoverageGap(targetEntity, opts, coverageScope, sourceTable),
+              (value) => (value
+                ? {
+                    entity: targetEntity, scope: value.scope,
+                    baseCount: value.stats?.baseCount ?? null,
+                    indexedCount: value.stats?.indexedCount ?? null,
+                  }
+                : { entity: targetEntity, scope: null })
+            )
+            if (!gap) continue
+            if (!opts.skipAutoReindex) {
+              this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
             }
             partialIndexWarning = {
-              entity,
-              entityLabel: this.resolveEntityLabel(entity),
-              baseCount: globalBase,
-              indexedCount: globalIndexed,
-              scope: 'global',
+              entity: targetEntity,
+              entityLabel: this.resolveEntityLabel(targetEntity),
+              baseCount: gap.stats?.baseCount ?? null,
+              indexedCount: gap.stats?.indexedCount ?? null,
+              scope: gap.stats ? gap.scope : undefined,
             }
+            if (debugEnabled) {
+              if (gap.stats) this.debug('query:partial-coverage:forced', { entity: targetEntity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              else this.debug('query:partial-coverage:forced', { entity: targetEntity })
+            }
+            break
+          } catch (err) {
+            if (debugEnabled) this.debug('query:partial-coverage:check-failed', { entity: targetEntity, error: err instanceof Error ? err.message : err })
           }
         }
-      } catch (err) {
-        if (debugEnabled) {
-          this.debug('query:partial-coverage:global-check-failed', {
-            entity,
-            error: err instanceof Error ? err.message : err,
-          })
+      }
+
+      if (
+        !partialIndexWarning &&
+        wantsCf &&
+        entityHasActiveCustomFields &&
+        this.isForcePartialIndexEnabled() &&
+        opts.tenantId
+      ) {
+        try {
+          await this.indexCoverageStats(entity, opts, coverageScope)
+          const globalStats = await this.indexCoverageStats(entity, opts, coverageScope)
+          if (globalStats) {
+            const globalBase = globalStats.baseCount
+            const globalIndexed = globalStats.indexedCount
+            const globalGap = (globalBase > 0 && globalIndexed < globalBase) || globalIndexed > globalBase
+            if (globalGap) {
+              console.warn('[HybridQueryEngine] Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
+              if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
+              partialIndexWarning = {
+                entity, entityLabel: this.resolveEntityLabel(entity),
+                baseCount: globalBase, indexedCount: globalIndexed, scope: 'global',
+              }
+            }
+          }
+        } catch (err) {
+          if (debugEnabled) this.debug('query:partial-coverage:global-check-failed', { entity, error: err instanceof Error ? err.message : err })
         }
       }
-    }
 
-    const resolveBaseColumn = (field: string): string | null => {
-      if (columns.has(field)) return field
-      if (field === 'organization_id' && columns.has('id')) return 'id'
-      return null
-    }
+      const resolveBaseColumn = (field: string): string | null => {
+        if (columns.has(field)) return field
+        if (field === 'organization_id' && columns.has('id')) return 'id'
+        return null
+      }
 
-    for (const filter of cfFilters) {
-      builder = this.applyCfFilterAcrossSources(
-        knex,
-        builder,
-        filter.field,
-        filter.op,
-        filter.value,
-        indexSources,
-        searchRuntime
-      )
-    }
+      // ────────────────────────────────────────────────────────────────
+      // Build a reusable "applyQueryShape" function that applies every
+      // WHERE/JOIN/scope to a fresh SelectQueryBuilder. We use this in
+      // place of knex's `.clone()` for producing count + data queries.
+      // ────────────────────────────────────────────────────────────────
 
-    const regularBaseFilters = baseFilters.filter((filter) => !filter.orGroup)
-    const orGroupFilters = baseFilters.filter((filter) => filter.orGroup)
+      const applyBaseScope = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        if (orgScope && hasOrganizationColumn) {
+          next = this.applyOrganizationScope(next, qualify('organization_id'), orgScope)
+        }
+        if (hasTenantColumn) {
+          next = next.where(qualify('tenant_id'), '=', opts.tenantId)
+        }
+        if (!opts.withDeleted && hasDeletedColumn) {
+          next = next.where(qualify('deleted_at'), 'is', null)
+        }
+        return next
+      }
 
-    for (const filter of regularBaseFilters) {
-      const fieldName = String(filter.field)
-      const baseField = resolveBaseColumn(fieldName)
-      if (!baseField) {
-        builder = this.applyIndexDocFilterFromAlias(
-          knex,
-          builder,
-          'ei',
-          entity,
-          fieldName,
-          filter.op,
-          filter.value,
-          'b.id',
-          searchRuntime,
-        )
-        if (optimizedCountBuilder) {
-          optimizedCountBuilder = this.applyIndexDocFilterFromAlias(
-            knex,
-            optimizedCountBuilder,
-            'ei',
-            entity,
-            fieldName,
-            filter.op,
-            filter.value,
-            'b.id',
-            searchRuntime,
+      const applyEntityIndexesJoin = (q: AnyBuilder): AnyBuilder => {
+        return q.leftJoin('entity_indexes as ei', (jb: any) => {
+          let jc = jb
+            .on('ei.entity_type', '=', String(entity))
+            .onRef('ei.entity_id', '=', sql<string>`(${sql.ref(qualify('id'))}::text)`)
+          if (hasOrganizationColumn) {
+            jc = jc
+              .onRef('ei.organization_id', '=', qualify('organization_id'))
+              .on('ei.organization_id', 'is not', null)
+          }
+          if (hasTenantColumn) {
+            jc = jc
+              .onRef('ei.tenant_id', '=', qualify('tenant_id'))
+              .on('ei.tenant_id', 'is not', null)
+          }
+          if (!opts.withDeleted) {
+            jc = jc.on('ei.deleted_at', 'is', null)
+          }
+          return jc
+        })
+      }
+
+      const applyCustomFieldSourceJoins = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        for (const source of preparedCfSources) {
+          const join = (opts.customFieldSources ?? []).find((s) => s && (s.alias ?? undefined) === source.alias)?.join
+          if (!join) continue
+          const joinType = (join.type ?? 'left') === 'inner' ? 'innerJoin' : 'leftJoin'
+          next = (next as any)[joinType](`${source.table} as ${source.alias}`, (jb: any) =>
+            jb.onRef(`${source.alias}.${join.toField}`, '=', qualify(join.fromField)))
+          // Index join for source
+          next = next.leftJoin(`entity_indexes as ${source.indexAlias}`, (jb: any) => {
+            let jc = jb
+              .on(`${source.indexAlias}.entity_type`, '=', String(source.entityId))
+              .onRef(`${source.indexAlias}.entity_id`, '=', sql<string>`(${sql.ref(`${source.alias}.${source.recordIdColumn}`)}::text)`)
+            const orgRef = source.organizationField
+              ? `${source.alias}.${source.organizationField}`
+              : (columns.has('organization_id') ? qualify('organization_id') : null)
+            if (orgRef) {
+              jc = jc
+                .onRef(`${source.indexAlias}.organization_id`, '=', orgRef)
+                .on(`${source.indexAlias}.organization_id`, 'is not', null)
+            }
+            const tenantRef = source.tenantField
+              ? `${source.alias}.${source.tenantField}`
+              : (columns.has('tenant_id') ? qualify('tenant_id') : null)
+            if (tenantRef) {
+              jc = jc
+                .onRef(`${source.indexAlias}.tenant_id`, '=', tenantRef)
+                .on(`${source.indexAlias}.tenant_id`, 'is not', null)
+            }
+            if (!opts.withDeleted) jc = jc.on(`${source.indexAlias}.deleted_at`, 'is', null)
+            return jc
+          })
+        }
+        return next
+      }
+
+      const applyCfFilters = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        for (const filter of cfFilters) {
+          next = this.applyCfFilterAcrossSources(
+            next, filter.field, filter.op, filter.value, indexSources, searchRuntime,
           )
         }
-        continue
+        return next
       }
-      const column = qualify(baseField)
-      builder = this.applyColumnFilter(builder, column, filter, {
-        ...searchRuntime,
-        knex,
-        entity,
-        field: fieldName,
-        recordIdColumn: 'b.id',
-      })
-      if (optimizedCountBuilder) {
-        optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter, {
-          ...searchRuntime,
-          knex,
-          entity,
-          field: fieldName,
-          recordIdColumn: 'b.id',
-        })
-      }
-    }
 
-    const applyOrGroupedBaseFilters = (target: ResultBuilder | null): ResultBuilder | null => {
-      if (!target || orGroupFilters.length === 0) return target
-      const groups = new Map<string, BaseFilter[]>()
-      for (const filter of orGroupFilters) {
-        if (!filter.orGroup) continue
-        const existing = groups.get(filter.orGroup) ?? []
-        existing.push(filter)
-        groups.set(filter.orGroup, existing)
-      }
-      let next = target
-      for (const [, groupFilters] of groups) {
-        if (!groupFilters.length) continue
-        next = next.where((groupBuilder) => {
-          groupFilters.forEach((filter, index) => {
-            const fieldName = String(filter.field)
-            const baseField = resolveBaseColumn(fieldName)
-            const applyCondition = (conditionBuilder: ResultBuilder) => {
-              if (!baseField) {
-                this.applyIndexDocFilterFromAlias(
-                  knex,
-                  conditionBuilder,
-                  'ei',
-                  entity,
-                  fieldName,
-                  filter.op,
-                  filter.value,
-                  'b.id',
-                  searchRuntime,
-                )
-                return
-              }
-              this.applyColumnFilter(conditionBuilder, qualify(baseField), filter, {
-                ...searchRuntime,
-                knex,
-                entity,
-                field: fieldName,
-                recordIdColumn: 'b.id',
-              })
-            }
-            if (index === 0) {
-              applyCondition(groupBuilder as ResultBuilder)
-              return
-            }
-            groupBuilder.orWhere((conditionBuilder) => {
-              applyCondition(conditionBuilder as ResultBuilder)
-            })
+      const regularBaseFilters = baseFilters.filter((filter) => !filter.orGroup)
+      const orGroupFilters = baseFilters.filter((filter) => filter.orGroup)
+
+      const applyRegularBaseFilters = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        for (const filter of regularBaseFilters) {
+          const fieldName = String(filter.field)
+          const baseField = resolveBaseColumn(fieldName)
+          if (!baseField) {
+            next = this.applyIndexDocFilterFromAlias(
+              next, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime,
+            )
+            continue
+          }
+          const column = qualify(baseField)
+          next = this.applyColumnFilter(next, column, filter, {
+            ...searchRuntime,
+            entity, field: fieldName, recordIdColumn: 'b.id',
           })
+        }
+        return next
+      }
+
+      const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
+        if (orGroupFilters.length === 0) return q
+        const groups = new Map<string, BaseFilter[]>()
+        for (const filter of orGroupFilters) {
+          if (!filter.orGroup) continue
+          const existing = groups.get(filter.orGroup) ?? []
+          existing.push(filter)
+          groups.set(filter.orGroup, existing)
+        }
+        let next = q
+        for (const [, groupFilters] of groups) {
+          if (!groupFilters.length) continue
+          next = next.where((eb: any) => eb.or(
+            groupFilters.map((filter) => this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime))
+          ))
+        }
+        return next
+      }
+
+      const applyAliasScopes = async (target: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
+        let next = target
+        const tableName = aliasTables.get(aliasName)
+        if (!tableName) return next
+        if (orgScope && await this.columnExists(tableName, 'organization_id')) {
+          next = this.applyOrganizationScope(next, `${aliasName}.organization_id`, orgScope)
+        }
+        if (opts.tenantId && await this.columnExists(tableName, 'tenant_id')) {
+          next = next.where(`${aliasName}.tenant_id`, '=', opts.tenantId)
+        }
+        if (!opts.withDeleted && await this.columnExists(tableName, 'deleted_at')) {
+          next = next.where(`${aliasName}.deleted_at`, 'is', null)
+        }
+        return next
+      }
+
+      const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder => {
+        switch (op) {
+          case 'eq': return target.where(column, '=', value as any)
+          case 'ne': return target.where(column, '!=', value as any)
+          case 'gt': return target.where(column, '>', value as any)
+          case 'gte': return target.where(column, '>=', value as any)
+          case 'lt': return target.where(column, '<', value as any)
+          case 'lte': return target.where(column, '<=', value as any)
+          case 'in': return target.where(column, 'in', this.toArray(value))
+          case 'nin': return target.where(column, 'not in', this.toArray(value))
+          case 'like': return target.where(column, 'like', value as any)
+          case 'ilike': return target.where(column, 'ilike', value as any)
+          case 'exists': return value ? target.where(column, 'is not', null) : target.where(column, 'is', null)
+          default: return target
+        }
+      }
+
+      const applyJoinSearchFilterOp = async (
+        target: AnyBuilder,
+        filter: { column: string; op: FilterOp; value?: unknown },
+        _qualified: string,
+        join: ResolvedJoin,
+      ): Promise<boolean> => {
+        if (!searchEnabled || !join.entityId) return false
+        if (!['like', 'ilike'].includes(filter.op)) return false
+        if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
+
+        let searchAvailable = joinSearchAvailability.get(join.entityId)
+        if (searchAvailable === undefined) {
+          searchAvailable = await this.hasSearchTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
+          joinSearchAvailability.set(join.entityId, searchAvailable)
+        }
+        if (!searchAvailable) return false
+
+        const tokens = tokenizeText(String(filter.value), searchConfig)
+        if (!tokens.hashes.length) return false
+
+        return this.applySearchTokens(target, {
+          entity: String(join.entityId),
+          field: filter.column,
+          hashes: tokens.hashes,
+          recordIdColumn: `${join.alias}.id`,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: orgScope,
         })
       }
-      return next
-    }
 
-    builder = applyOrGroupedBaseFilters(builder) ?? builder
-    optimizedCountBuilder = applyOrGroupedBaseFilters(optimizedCountBuilder)
+      const applyQueryShape = async (q: AnyBuilder): Promise<AnyBuilder> => {
+        let next = applyBaseScope(q)
+        next = applyEntityIndexesJoin(next)
+        next = applyCustomFieldSourceJoins(next)
+        next = applyCfFilters(next)
+        next = applyRegularBaseFilters(next)
+        next = applyOrGroupedBaseFilters(next)
+        // applyJoinFilters is the shared helper that handles `joinFilters` (ALIAS:col -> value).
+        next = await applyJoinFilters({
+          db,
+          baseTable,
+          builder: next,
+          joinMap,
+          joinFilters,
+          aliasTables,
+          qualifyBase: (column) => qualify(column),
+          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
+          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
+          applyJoinFilterOp: async (target, filter, qualified, join) => {
+            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
+            return { applied, builder: target }
+          },
+          columnExists: (tbl, column) => this.columnExists(tbl, column),
+        })
+        return next
+      }
 
-    const applyAliasScopes = async (target: ResultBuilder, aliasName: string) => {
-      const tableName = aliasTables.get(aliasName)
-      if (!tableName) return
-      if (orgScope && await this.columnExists(tableName, 'organization_id')) {
-        this.applyOrganizationScope(target, `${aliasName}.organization_id`, orgScope)
-      }
-      if (opts.tenantId && await this.columnExists(tableName, 'tenant_id')) {
-        target.where(`${aliasName}.tenant_id`, opts.tenantId)
-      }
-      if (!opts.withDeleted && await this.columnExists(tableName, 'deleted_at')) {
-        target.whereNull(`${aliasName}.deleted_at`)
-      }
-    }
+      const hasCustomFieldFilters = cfFilters.length > 0
+      const canOptimizeCount = !hasCustomFieldFilters && !hasNonBaseSearchSource
 
-    const applyJoinFilterOp = (target: ResultBuilder, column: string, op: FilterOp, value?: unknown) => {
-      switch (op) {
-        case 'eq':
-          target.where(column, value as Knex.Value)
-          break
-        case 'ne':
-          target.whereNot(column, value as Knex.Value)
-          break
-        case 'gt':
-        case 'gte':
-        case 'lt':
-        case 'lte': {
-          const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
-          target.where(column, operator, value as Knex.Value)
-          break
+      // Selection (for data query)
+      const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
+      if (opts.includeCustomFields === true) {
+        const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
+        try {
+          const resolvedKeys = await this.resolveAvailableCustomFieldKeys(entityIds, opts.tenantId ?? null)
+          resolvedKeys.forEach((key) => selectFieldSet.add(`cf:${key}`))
+          if (this.isDebugVerbosity()) this.debug('query:cf:resolved-keys', { entity, keys: resolvedKeys })
+        } catch (err) {
+          console.warn('[HybridQueryEngine] Failed to resolve custom field keys for', entity, err)
         }
-        case 'in':
-          target.whereIn(column, this.toArray(value) as readonly Knex.Value[])
-          break
-        case 'nin':
-          target.whereNotIn(column, this.toArray(value) as readonly Knex.Value[])
-          break
-        case 'like':
-          target.where(column, 'like', value as Knex.Value)
-          break
-        case 'ilike':
-          target.where(column, 'ilike', value as Knex.Value)
-          break
-        case 'exists':
-          value ? target.whereNotNull(column) : target.whereNull(column)
-          break
+      } else if (Array.isArray(opts.includeCustomFields)) {
+        opts.includeCustomFields.map((key) => String(key)).forEach((key) => selectFieldSet.add(`cf:${key}`))
       }
-    }
+      const selectFields = Array.from(selectFieldSet)
 
-    const applyJoinSearchFilterOp = async (
-      target: ResultBuilder,
-      filter: { column: string; op: FilterOp; value?: unknown },
-      _qualified: string,
-      join: ResolvedJoin,
-    ): Promise<boolean> => {
-      if (!searchEnabled || !join.entityId) return false
-      if (!['like', 'ilike'].includes(filter.op)) return false
-      if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
-
-      let searchAvailable = joinSearchAvailability.get(join.entityId)
-      if (searchAvailable === undefined) {
-        searchAvailable = await this.hasSearchTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
-        joinSearchAvailability.set(join.entityId, searchAvailable)
-      }
-      if (!searchAvailable) return false
-
-      const tokens = tokenizeText(String(filter.value), searchConfig)
-      if (!tokens.hashes.length) return false
-
-      return this.applySearchTokens(target, {
-        knex,
-        entity: String(join.entityId),
-        field: filter.column,
-        hashes: tokens.hashes,
-        recordIdColumn: `${join.alias}.id`,
-        tenantId: opts.tenantId ?? null,
-        organizationScope: orgScope,
-      })
-    }
-
-    await applyJoinFilters({
-      knex,
-      baseTable,
-      builder,
-      joinMap,
-      joinFilters,
-      aliasTables,
-      qualifyBase: (column) => qualify(column),
-      applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
-      applyFilterOp: (target, column, op, value) => applyJoinFilterOp(target as ResultBuilder, column, op, value),
-      applyJoinFilterOp: (target, filter, qualified, join) =>
-        applyJoinSearchFilterOp(target as ResultBuilder, filter, qualified, join),
-      columnExists: (tbl, column) => this.columnExists(tbl, column),
-    }) as ResultBuilder
-
-    if (optimizedCountBuilder) {
-      await applyJoinFilters({
-        knex,
-        baseTable,
-        builder: optimizedCountBuilder,
-        joinMap,
-        joinFilters,
-        aliasTables,
-        qualifyBase: (column) => qualify(column),
-        applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
-        applyFilterOp: (target, column, op, value) => applyJoinFilterOp(target as ResultBuilder, column, op, value),
-        applyJoinFilterOp: (target, filter, qualified, join) =>
-          applyJoinSearchFilterOp(target as ResultBuilder, filter, qualified, join),
-        columnExists: (tbl, column) => this.columnExists(tbl, column),
-      })
-    }
-
-    // When no fields specified, select all base table columns (like BasicQueryEngine does)
-    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
-    if (opts.includeCustomFields === true) {
-      const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
-      try {
-        const resolvedKeys = await this.resolveAvailableCustomFieldKeys(entityIds, opts.tenantId ?? null)
-        resolvedKeys.forEach((key) => selectFieldSet.add(`cf:${key}`))
-        if (this.isDebugVerbosity()) {
-          this.debug('query:cf:resolved-keys', { entity, keys: resolvedKeys })
+      const applySelection = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        for (const field of selectFields) {
+          const fieldName = String(field)
+          if (fieldName.startsWith('cf:')) {
+            const alias = this.sanitize(fieldName)
+            const jsonExpr = this.buildCfJsonExprSql(fieldName, indexSources)
+            const exprRaw = jsonExpr ?? sql`NULL::jsonb`
+            next = next.select(exprRaw.as(alias))
+          } else if (columns.has(fieldName)) {
+            next = next.select(`${qualify(fieldName)} as ${fieldName}`)
+          }
         }
-      } catch (err) {
-        console.warn('[HybridQueryEngine] Failed to resolve custom field keys for', entity, err)
+        return next
       }
-    } else if (Array.isArray(opts.includeCustomFields)) {
-      opts.includeCustomFields
-        .map((key) => String(key))
-        .forEach((key) => selectFieldSet.add(`cf:${key}`))
-    }
-    const selectFields = Array.from(selectFieldSet)
-    for (const field of selectFields) {
-      const fieldName = String(field)
-      if (fieldName.startsWith('cf:')) {
-        const alias = this.sanitize(fieldName)
-        const { jsonSql } = this.buildCfExpressions(knex, fieldName, indexSources)
-        const exprSql = jsonSql === 'NULL' ? 'NULL::jsonb' : jsonSql
-        builder = builder.select(knex.raw(`${exprSql} as ??`, [alias]))
-      } else if (columns.has(fieldName)) {
-        builder = builder.select(knex.raw('?? as ??', [qualify(fieldName), fieldName]))
-      }
-    }
 
-    for (const sort of opts.sort || []) {
-      const fieldName = String(sort.field)
-      if (fieldName.startsWith('cf:')) {
-        const { textSql } = this.buildCfExpressions(knex, fieldName, indexSources)
-        if (textSql !== 'NULL') {
-          const direction = sort.dir ?? SortDir.Asc
-          builder = builder.orderByRaw(`${textSql} ${direction}`)
+      const applySort = (q: AnyBuilder): AnyBuilder => {
+        let next = q
+        for (const s of opts.sort || []) {
+          const fieldName = String(s.field)
+          if (fieldName.startsWith('cf:')) {
+            const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
+            if (textExpr) {
+              const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+              next = next.orderBy(sql`${textExpr} ${direction}`)
+            }
+          } else {
+            const baseField = resolveBaseColumn(fieldName)
+            if (!baseField) continue
+            next = next.orderBy(qualify(baseField), s.dir ?? SortDir.Asc)
+          }
         }
+        return next
+      }
+
+      const page = opts.page?.page ?? 1
+      const pageSize = opts.page?.pageSize ?? 20
+      const sqlDebugEnabled = this.isSqlDebugEnabled()
+
+      let total: number
+
+      if (canOptimizeCount) {
+        // Optimized count: apply only base-scope + regular filters + or-group filters (no index joins).
+        const optimizedRoot = db.selectFrom(`${baseTable} as b` as any)
+        let countCore = applyBaseScope(optimizedRoot)
+        countCore = applyRegularBaseFilters(countCore)
+        countCore = applyOrGroupedBaseFilters(countCore)
+        // joinFilters still need to be re-applied in the optimized path
+        countCore = await applyJoinFilters({
+          db,
+          baseTable,
+          builder: countCore,
+          joinMap,
+          joinFilters,
+          aliasTables,
+          qualifyBase: (column) => qualify(column),
+          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
+          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
+          applyJoinFilterOp: async (target, filter, qualified, join) => {
+            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
+            return { applied, builder: target }
+          },
+          columnExists: (tbl, column) => this.columnExists(tbl, column),
+        })
+        const sub = countCore.select(sql.ref(qualify('id')).as('id')).groupBy(qualify('id')).as('sq')
+        const countQuery = db.selectFrom(sub as any).select(sql<string>`count(*)`.as('count'))
+        if (debugEnabled && sqlDebugEnabled) {
+          const compiled = countQuery.compile()
+          this.debug('query:sql:count', { entity, sql: compiled.sql, bindings: compiled.parameters })
+        }
+        const countRow = await this.captureSqlTiming(
+          'query:sql:count', entity,
+          () => countQuery.executeTakeFirst(),
+          { optimized: true }, profiler,
+        )
+        total = this.parseCount(countRow)
       } else {
-        const baseField = resolveBaseColumn(fieldName)
-        if (!baseField) continue
-        builder = builder.orderBy(qualify(baseField), sort.dir ?? SortDir.Asc)
+        const countRoot = db.selectFrom(`${baseTable} as b` as any)
+        const countBuilder = (await applyQueryShape(countRoot))
+          .select(sql<string>`count(distinct ${sql.ref(qualify('id'))})`.as('count'))
+        if (debugEnabled && sqlDebugEnabled) {
+          const compiled = countBuilder.compile()
+          this.debug('query:sql:count', { entity, sql: compiled.sql, bindings: compiled.parameters })
+        }
+        const countRow = await this.captureSqlTiming(
+          'query:sql:count', entity,
+          () => countBuilder.executeTakeFirst(),
+          { optimized: false }, profiler,
+        )
+        total = this.parseCount(countRow)
       }
-    }
 
-    const page = opts.page?.page ?? 1
-    const pageSize = opts.page?.pageSize ?? 20
+      const dataRoot = db.selectFrom(`${baseTable} as b` as any)
+      let dataBuilder = await applyQueryShape(dataRoot)
+      dataBuilder = applySelection(dataBuilder)
+      dataBuilder = applySort(dataBuilder)
+      dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
 
-    const sqlDebugEnabled = this.isSqlDebugEnabled()
-    let total: number
-
-    if (optimizedCountBuilder) {
-      const countSource = optimizedCountBuilder.clone().clearSelect().clearOrder().select(knex.raw(`${qualify('id')} as id`)).groupBy(qualify('id'))
-      const countQuery = knex.from(countSource.as('sq')).count({ count: knex.raw('*') })
       if (debugEnabled && sqlDebugEnabled) {
-        const { sql, bindings } = countQuery.clone().toSQL()
-        this.debug('query:sql:count', { entity, sql, bindings })
+        const compiled = dataBuilder.compile()
+        this.debug('query:sql:data', { entity, sql: compiled.sql, bindings: compiled.parameters, page, pageSize })
       }
-      const countRow = await this.captureSqlTiming(
-        'query:sql:count',
-        entity,
-        () => countQuery.first(),
-        { optimized: true },
-        profiler
+      const itemsRaw = await this.captureSqlTiming(
+        'query:sql:data', entity,
+        () => dataBuilder.execute(),
+        { page, pageSize }, profiler,
       )
-      total = this.parseCount(countRow)
-    } else {
-      const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
-      if (debugEnabled && sqlDebugEnabled) {
-        const { sql, bindings } = countBuilder.clone().toSQL()
-        this.debug('query:sql:count', { entity, sql, bindings })
+      if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
+
+      let items = itemsRaw as any[]
+      const encSvc = this.getEncryptionService()
+      const dekKeyCache = new Map<string | null, string | null>()
+      if (encSvc?.decryptEntityPayload) {
+        const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
+          entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
+        ) => Promise<Record<string, unknown>>
+        items = await Promise.all(
+          items.map(async (item) => {
+            try {
+              const decrypted = await decrypt(
+                entity, item,
+                item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+                item?.organization_id ?? item?.organizationId ?? null,
+              )
+              return { ...item, ...decrypted }
+            } catch (err) {
+              console.error('Error decrypting entity payload', err)
+              return item
+            }
+          })
+        )
       }
-      const countRow = await this.captureSqlTiming(
-        'query:sql:count',
-        entity,
-        () => countBuilder.first(),
-        { optimized: false },
-        profiler
-      )
-      total = this.parseCount(countRow)
+      if (encSvc) {
+        items = await Promise.all(
+          items.map(async (item) => {
+            try {
+              return await decryptIndexDocCustomFields(
+                item,
+                {
+                  tenantId: item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+                  organizationId: item?.organization_id ?? item?.organizationId ?? null,
+                },
+                encSvc as any, dekKeyCache,
+              )
+            } catch { return item }
+          }),
+        )
+      }
+
+      const typedItems = items as unknown as T[]
+      let result: QueryResult<T> = { items: typedItems, page, pageSize, total }
+      if (partialIndexWarning) result.meta = { partialIndexWarning }
+
+      result = await applyAfterExtensions(result)
+      finishProfile({
+        result: 'ok', total, page, pageSize,
+        itemCount: Array.isArray(items) ? items.length : undefined,
+        partialIndexWarning: partialIndexWarning ? true : false,
+      })
+      return result
+    } catch (err) {
+      finishProfile({ result: 'error', error: err instanceof Error ? err.message : String(err) })
+      throw err
     }
-
-    const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
-
-    if (debugEnabled && sqlDebugEnabled) {
-      const { sql, bindings } = dataBuilder.clone().toSQL()
-      this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
-    }
-    const itemsRaw = await this.captureSqlTiming(
-      'query:sql:data',
-      entity,
-      () => dataBuilder,
-      { page, pageSize },
-      profiler
-    )
-    if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
-
-    let items = itemsRaw as any[]
-    const encSvc = this.getEncryptionService()
-    const dekKeyCache = new Map<string | null, string | null>()
-    if (encSvc?.decryptEntityPayload) {
-      const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
-        entityId: EntityId,
-        payload: Record<string, unknown>,
-        tenantId: string | null,
-        organizationId: string | null,
-      ) => Promise<Record<string, unknown>>
-      items = await Promise.all(
-        items.map(async (item) => {
-          try {
-            const decrypted = await decrypt(
-              entity,
-              item,
-              item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-              item?.organization_id ?? item?.organizationId ?? null,
-            )
-            return { ...item, ...decrypted }
-          } catch (err) {
-            console.error('Error decrypting entity payload', err);
-            return item
-          }
-        })
-      )
-    }
-    if (encSvc) {
-      items = await Promise.all(
-        items.map(async (item) => {
-          try {
-            return await decryptIndexDocCustomFields(
-              item,
-              {
-                tenantId: item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-                organizationId: item?.organization_id ?? item?.organizationId ?? null,
-              },
-              encSvc as any,
-              dekKeyCache,
-            )
-          } catch {
-            return item
-          }
-        }),
-      )
-    }
-
-    const typedItems = items as unknown as T[]
-    let result: QueryResult<T> = { items: typedItems, page, pageSize, total }
-    if (partialIndexWarning) {
-      result.meta = { partialIndexWarning }
-    }
-
-    // --- UMES query extension: after-query pipeline ---
-    result = await applyAfterExtensions(result)
-
-    finishProfile({
-      result: 'ok',
-      total,
-      page,
-      pageSize,
-      itemCount: Array.isArray(items) ? items.length : undefined,
-      partialIndexWarning: partialIndexWarning ? true : false,
-    })
-    return result
-  } catch (err) {
-    finishProfile({ result: 'error', error: err instanceof Error ? err.message : String(err) })
-    throw err
-  }
-  }
-
-  private getKnex(): Knex {
-    const connection = this.em.getConnection()
-    const withKnex = connection as { getKnex?: () => Knex }
-    if (typeof withKnex.getKnex === 'function') {
-      return withKnex.getKnex()
-    }
-    throw new Error('HybridQueryEngine requires a SQL connection that exposes getKnex()')
   }
 
   private prepareCustomFieldSources(
-    knex: Knex,
-    builder: ResultBuilder,
     sources: QueryCustomFieldSource[],
-    qualify: (column: string) => string
-  ): { builder: ResultBuilder; sources: PreparedCustomFieldSource[] } {
-    let current = builder
+  ): PreparedCustomFieldSource[] {
     const prepared: PreparedCustomFieldSource[] = []
     sources.forEach((source, index) => {
       if (!source) return
       const joinTable = source.table ?? resolveEntityTableName(this.em, source.entityId)
       const alias = source.alias ?? `cfs_${index}`
-      const join = source.join
-      if (!join) {
+      if (!source.join) {
         throw new Error(`QueryEngine: customFieldSources entry for ${String(source.entityId)} requires a join configuration`)
       }
-      const joinArgs = { [alias]: joinTable }
-      const joinCallback = function (this: Knex.JoinClause) {
-        this.on(`${alias}.${join.toField}`, '=', qualify(join.fromField))
-      }
-      current = (join.type ?? 'left') === 'inner'
-        ? current.join(joinArgs, joinCallback)
-        : current.leftJoin(joinArgs, joinCallback)
       prepared.push({
         alias,
         indexAlias: `ei_${alias}`,
@@ -1027,23 +931,36 @@ export class HybridQueryEngine implements QueryEngine {
         table: joinTable,
       })
     })
-    return { builder: current, sources: prepared }
+    return prepared
   }
 
   private async isCustomEntity(entity: string): Promise<boolean> {
     try {
-      const knex = this.getKnex()
-      const row = await knex('custom_entities').where({ entity_id: entity, is_active: true }).first()
+      const db = this.getDb() as any
+      const row = await db
+        .selectFrom('custom_entities')
+        .select('id')
+        .where('entity_id', '=', entity)
+        .where('is_active', '=', true)
+        .executeTakeFirst()
       return !!row
     } catch {
       return false
     }
   }
 
-  private applySearchTokens<TRecord extends ResultRow, TResult>(
-    q: Knex.QueryBuilder<TRecord, TResult>,
+  /**
+   * Adds a WHERE EXISTS / OR WHERE EXISTS subquery that matches
+   * `search_tokens` for the supplied (entity, field) against the
+   * provided record id column.
+   *
+   * Returns true when the sub-query was applied (i.e. tokens were
+   * non-empty). Caller is responsible for the calling context
+   * (direct where vs. inside `eb.or([...])`).
+   */
+  private applySearchTokens(
+    q: AnyBuilder,
     opts: {
-      knex: Knex
       entity: string
       field: string
       hashes: string[]
@@ -1055,244 +972,288 @@ export class HybridQueryEngine implements QueryEngine {
   ): boolean {
     if (!opts.hashes.length) {
       this.logSearchDebug('search:skip-no-hashes', {
-        entity: opts.entity,
-        field: opts.field,
-        tenantId: opts.tenantId ?? null,
-        organizationScope: opts.organizationScope,
+        entity: opts.entity, field: opts.field,
+        tenantId: opts.tenantId ?? null, organizationScope: opts.organizationScope,
       })
       return false
     }
     const alias = `st_${this.searchAliasSeq++}`
-    const combineWith = opts.combineWith === 'or' ? 'orWhereExists' : 'whereExists'
-    const engine = this
     this.logSearchDebug('search:apply-search-tokens', {
-      entity: opts.entity,
-      field: opts.field,
-      alias,
+      entity: opts.entity, field: opts.field, alias,
       tokenCount: opts.hashes.length,
       tenantId: opts.tenantId ?? null,
       organizationScope: opts.organizationScope,
       combineWith: opts.combineWith ?? 'and',
     })
-    ;(q as any)[combineWith](function (this: Knex.QueryBuilder) {
-      this.select(1)
-        .from({ [alias]: 'search_tokens' })
-        .where(`${alias}.entity_type`, opts.entity)
-        .andWhere(`${alias}.field`, opts.field)
-        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
-        .whereIn(`${alias}.token_hash`, opts.hashes)
-        .groupBy(`${alias}.entity_id`, `${alias}.field`)
-        .havingRaw(`count(distinct ${alias}.token_hash) >= ?`, [opts.hashes.length])
+
+    const engine = this
+    const buildSub = (eb: any) => {
+      let sub = eb
+        .selectFrom(`search_tokens as ${alias}`)
+        .select(sql<number>`1`.as('one'))
+        .where(`${alias}.entity_type`, '=', opts.entity)
+        .where(`${alias}.field`, '=', opts.field)
+        .where(sql<boolean>`${sql.ref(`${alias}.entity_id`)} = ${sql.ref(opts.recordIdColumn)}::text`)
+        .where(`${alias}.token_hash`, 'in', opts.hashes)
+        .groupBy([`${alias}.entity_id`, `${alias}.field`])
+        .having(sql<boolean>`count(distinct ${sql.ref(`${alias}.token_hash`)}) >= ${opts.hashes.length}`)
       if (opts.tenantId !== undefined) {
-        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+        sub = sub.where(sql<boolean>`${sql.ref(`${alias}.tenant_id`)} is not distinct from ${opts.tenantId ?? null}`)
       }
       if (opts.organizationScope) {
-        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+        sub = engine.applyOrganizationScope(sub, `${alias}.organization_id`, opts.organizationScope)
       }
-    })
+      return sub
+    }
+
+    if (opts.combineWith === 'or') {
+      // When called inside an .or([...]) array the caller supplied `eb`.
+      // `q` is the ExpressionBuilder callable (eb) itself in that case.
+      // We return the expression node rather than mutating q.
+      ;(q as any).__pendingOrExists = buildSub(q)
+      return true
+    }
+
+    // Default: append WHERE EXISTS (...) to the outer builder.
+    ;(q as any).__applied = true
+    const built = buildSub(q)
+    // If q is a Kysely builder (has .where), use eb => eb.exists(sub)
+    if (typeof q.where === 'function') {
+      ;(q as any) = q.where((eb: any) => eb.exists(built))
+    }
     return true
   }
 
-  private jsonbRawAlias(knex: Knex, alias: string, key: string): Knex.Raw {
-    // Prefer cf:<key> but fall back to bare <key> for legacy docs
+  /** SQL fragment for `cf:<key>` (or legacy bare key) as JSON across a single alias. */
+  private jsonbSqlAlias(alias: string, key: string): RawBuilder<unknown> {
     if (key.startsWith('cf:')) {
       const bare = key.slice(3)
-      return knex.raw(`coalesce(${alias}.doc -> ?, ${alias}.doc -> ?)`, [key, bare])
+      return sql`coalesce(${sql.ref(alias + '.doc')} -> ${key}, ${sql.ref(alias + '.doc')} -> ${bare})`
     }
-    return knex.raw(`${alias}.doc -> ?`, [key])
+    return sql`${sql.ref(alias + '.doc')} -> ${key}`
   }
-  private cfTextExprAlias(knex: Knex, alias: string, key: string): Knex.Raw {
+
+  /** SQL fragment for `cf:<key>` (or legacy bare key) as text across a single alias. */
+  private cfTextExprAlias(alias: string, key: string): RawBuilder<string | null> {
     if (key.startsWith('cf:')) {
       const bare = key.slice(3)
-      return knex.raw(`coalesce((${alias}.doc ->> ?), (${alias}.doc ->> ?))`, [key, bare])
+      return sql<string | null>`coalesce((${sql.ref(alias + '.doc')} ->> ${key}), (${sql.ref(alias + '.doc')} ->> ${bare}))`
     }
-    return knex.raw(`(${alias}.doc ->> ?)`, [key])
+    return sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
   }
-  private buildCfExpressions(knex: Knex, key: string, sources: IndexDocSource[]): { jsonSql: string; textSql: string } {
-    if (!sources.length) return { jsonSql: 'NULL', textSql: 'NULL' }
-    const jsonFragments = sources.map((source) => this.jsonbRawAlias(knex, source.alias, key).toString())
-    const textFragments = sources.map((source) => this.cfTextExprAlias(knex, source.alias, key).toString())
-    const jsonSql = jsonFragments.length === 1 ? jsonFragments[0] : `coalesce(${jsonFragments.join(', ')})`
-    const textSql = textFragments.length === 1 ? textFragments[0] : `coalesce(${textFragments.join(', ')})`
-    return { jsonSql, textSql }
+
+  /** Build JSON/text SQL expressions across multiple index alias sources (coalesce over them). */
+  private buildCfJsonExprSql(key: string, sources: IndexDocSource[]): RawBuilder<unknown> | null {
+    if (!sources.length) return null
+    const parts = sources.map((src) => this.jsonbSqlAlias(src.alias, key))
+    if (parts.length === 1) return parts[0]
+    return sql`coalesce(${sql.join(parts, sql`, `)})`
+  }
+
+  private buildCfTextExprSql(key: string, sources: IndexDocSource[]): RawBuilder<string | null> | null {
+    if (!sources.length) return null
+    const parts = sources.map((src) => this.cfTextExprAlias(src.alias, key))
+    if (parts.length === 1) return parts[0]
+    return sql<string | null>`coalesce(${sql.join(parts, sql`, `)})`
   }
 
   private applyCfFilterAcrossSources(
-    knex: Knex,
-    builder: ResultBuilder,
+    builder: AnyBuilder,
     key: string,
     op: FilterOp,
     value: unknown,
     sources: IndexDocSource[],
     search?: SearchRuntime
-  ): ResultBuilder {
+  ): AnyBuilder {
     if (!sources.length) return builder
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
       const tokens = tokenizeText(String(value), search.config)
       const hashes = tokens.hashes
       if (hashes.length) {
-        let applied = false
-        if (sources.length) {
-          builder = builder.where((qb) => {
-            sources.forEach((source, idx) => {
-              const ok = this.applySearchTokens(qb as any, {
-                knex,
-                entity: source.entityId,
-                field: key,
-                hashes,
-                recordIdColumn: `${source.alias}.entity_id`,
-                tenantId: search.tenantId ?? null,
-                organizationScope: search.organizationScope ?? null,
-                combineWith: idx === 0 ? 'and' : 'or',
-              })
-              if (ok) applied = true
-            })
-          })
-        }
+        const applied = this.applyMultiSourceSearchExists(builder, sources, key, hashes, search)
         this.logSearchDebug('search:cf-filter-across', {
           entity: sources.map((src) => src.entityId),
-          field: key,
-          tokens: tokens.tokens,
-          hashes,
-          applied,
-          tenantId: search.tenantId ?? null,
-          organizationScope: search.organizationScope,
+          field: key, tokens: tokens.tokens, hashes, applied,
+          tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
         })
-        if (applied) return builder
+        if (applied.builder !== builder) return applied.builder
       } else {
         this.logSearchDebug('search:cf-skip-empty-hashes', {
-          entity: sources.map((src) => src.entityId),
-          field: key,
-          value,
+          entity: sources.map((src) => src.entityId), field: key, value,
         })
       }
       return builder
     }
-    const { jsonSql, textSql } = this.buildCfExpressions(knex, key, sources)
-    if (jsonSql === 'NULL' || textSql === 'NULL') return builder
-    const textExpr = knex.raw(textSql)
-    const arrContains = (val: unknown) => knex.raw(`${jsonSql} @> ?::jsonb`, [JSON.stringify([val])])
+
+    const textExpr = this.buildCfTextExprSql(key, sources)
+    const jsonExpr = this.buildCfJsonExprSql(key, sources)
+    if (!textExpr || !jsonExpr) return builder
+
+    const arrContains = (val: unknown) => sql<boolean>`${jsonExpr} @> ${JSON.stringify([val])}::jsonb`
+
     switch (op) {
       case 'eq':
-        return builder.where((qb) => {
-          qb.orWhere(textExpr, '=', value as Knex.Value)
-          qb.orWhere(arrContains(value))
-        })
+        return builder.where((eb: any) => eb.or([
+          sql<boolean>`${textExpr} = ${value}`,
+          arrContains(value),
+        ]))
       case 'ne':
-        return builder.whereNot(textExpr, '=', value as Knex.Value)
+        return builder.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const values = this.toArray(value)
-        return builder.where((qb) => {
-          values.forEach((val) => {
-            qb.orWhere(textExpr, '=', val as Knex.Value)
-            qb.orWhere(arrContains(val))
-          })
-        })
+        return builder.where((eb: any) => eb.or(
+          values.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        ))
       }
       case 'nin': {
-        const values = this.toArray(value) as readonly Knex.Value[]
-        return builder.whereNotIn(textExpr as any, values as any)
+        const values = this.toArray(value)
+        return builder.where(sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'like':
-        return builder.where(textExpr, 'like', value as Knex.Value)
+        return builder.where(sql<boolean>`${textExpr} like ${value}`)
       case 'ilike':
-        return builder.where(textExpr, 'ilike', value as Knex.Value)
+        return builder.where(sql<boolean>`${textExpr} ilike ${value}`)
       case 'exists':
         return value
-          ? builder.whereRaw(`${textExpr.toString()} is not null`)
-          : builder.whereRaw(`${textExpr.toString()} is null`)
+          ? builder.where(sql<boolean>`${textExpr} is not null`)
+          : builder.where(sql<boolean>`${textExpr} is null`)
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
-        const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
-        return builder.where(textExpr, operator, value as Knex.Value)
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        return builder.where(sql<boolean>`${textExpr} ${operator} ${value}`)
       }
       default:
         return builder
     }
   }
 
+  /** Apply a search-token EXISTS subquery across multiple sources (OR-joined). */
+  private applyMultiSourceSearchExists(
+    builder: AnyBuilder,
+    sources: IndexDocSource[],
+    key: string,
+    hashes: string[],
+    search: SearchRuntime,
+  ): { builder: AnyBuilder; applied: boolean } {
+    if (!sources.length || !hashes.length) return { builder, applied: false }
+    const next = builder.where((eb: any) => eb.or(
+      sources.map((source) =>
+        eb.exists(this.buildSearchTokensSub(eb, {
+          entity: String(source.entityId),
+          field: key, hashes,
+          recordIdColumn: `${source.alias}.entity_id`,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope ?? null,
+        }))
+      )
+    ))
+    return { builder: next, applied: true }
+  }
+
+  /** Construct a search-token EXISTS subquery using the given ExpressionBuilder. */
+  private buildSearchTokensSub(
+    eb: any,
+    opts: {
+      entity: string
+      field: string
+      hashes: string[]
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+    }
+  ): any {
+    const alias = `st_${this.searchAliasSeq++}`
+    let sub = eb
+      .selectFrom(`search_tokens as ${alias}`)
+      .select(sql<number>`1`.as('one'))
+      .where(`${alias}.entity_type`, '=', opts.entity)
+      .where(`${alias}.field`, '=', opts.field)
+      .where(sql<boolean>`${sql.ref(`${alias}.entity_id`)} = ${sql.ref(opts.recordIdColumn)}::text`)
+      .where(`${alias}.token_hash`, 'in', opts.hashes)
+      .groupBy([`${alias}.entity_id`, `${alias}.field`])
+      .having(sql<boolean>`count(distinct ${sql.ref(`${alias}.token_hash`)}) >= ${opts.hashes.length}`)
+    if (opts.tenantId !== undefined) {
+      sub = sub.where(sql<boolean>`${sql.ref(`${alias}.tenant_id`)} is not distinct from ${opts.tenantId ?? null}`)
+    }
+    if (opts.organizationScope) {
+      sub = this.applyOrganizationScope(sub, `${alias}.organization_id`, opts.organizationScope)
+    }
+    return sub
+  }
+
   private applyCfFilterFromAlias(
-    knex: Knex,
-    q: ResultBuilder,
+    q: AnyBuilder,
     alias: string,
     entityType: string,
     key: string,
     op: FilterOp,
     value: unknown,
     search?: SearchRuntime
-  ): ResultBuilder {
-    const text = this.cfTextExprAlias(knex, alias, key)
-    const arrExpr = knex.raw(`(${alias}.doc -> ?)`, [key])
-    const arrContains = (val: unknown) => knex.raw(`${arrExpr.toString()} @> ?::jsonb`, [JSON.stringify([val])])
+  ): AnyBuilder {
+    const textExpr = this.cfTextExprAlias(alias, key)
+    const arrExpr = sql<unknown>`(${sql.ref(alias + '.doc')} -> ${key})`
+    const arrContains = (val: unknown) => sql<boolean>`${arrExpr} @> ${JSON.stringify([val])}::jsonb`
+
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
       const tokens = tokenizeText(String(value), search.config)
       const hashes = tokens.hashes
       if (hashes.length) {
-        const applied = this.applySearchTokens(q, {
-          knex,
-          entity: entityType,
-          field: key,
-          hashes,
+        const applied = q.where((eb: any) => eb.exists(this.buildSearchTokensSub(eb, {
+          entity: entityType, field: key, hashes,
           recordIdColumn: `${alias}.entity_id`,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
-        })
+        })))
         this.logSearchDebug('search:cf-filter', {
-          entity: entityType,
-          field: key,
-          tokens: tokens.tokens,
-          hashes,
-          applied,
-          tenantId: search.tenantId ?? null,
-          organizationScope: search.organizationScope,
+          entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
+          tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
         })
-        if (applied) return q
+        return applied
       } else {
-        this.logSearchDebug('search:cf-skip-empty-hashes', {
-          entity: entityType,
-          field: key,
-          value,
-        })
+        this.logSearchDebug('search:cf-skip-empty-hashes', { entity: entityType, field: key, value })
       }
       return q
     }
     switch (op) {
       case 'eq':
-        return q.where((builder) => {
-          builder.orWhere(text, '=', value as Knex.Value)
-          builder.orWhere(arrContains(value))
-        })
+        return q.where((eb: any) => eb.or([
+          sql<boolean>`${textExpr} = ${value}`,
+          arrContains(value),
+        ]))
       case 'ne':
-        return q.whereNot(text, '=', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
-        return q.where((builder) => {
-          vals.forEach((val) => {
-            builder.orWhere(text, '=', val as Knex.Value)
-            builder.orWhere(arrContains(val))
-          })
-        })
+        return q.where((eb: any) => eb.or(
+          vals.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        ))
       }
       case 'nin': {
-        const vals = this.toArray(value) as readonly Knex.Value[]
-        return q.whereNotIn(text as any, vals as any)
+        const vals = this.toArray(value)
+        return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'like':
-        return q.where(text, 'like', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} like ${value}`)
       case 'ilike':
-        return q.where(text, 'ilike', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} ilike ${value}`)
       case 'exists':
         return value
-          ? q.whereRaw(`${text.toString()} is not null`)
-          : q.whereRaw(`${text.toString()} is null`)
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} is null`)
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
-        const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
-        return q.where(text, operator, value as Knex.Value)
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        return q.where(sql<boolean>`${textExpr} ${operator} ${value}`)
       }
       default:
         return q
@@ -1300,8 +1261,7 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private applyIndexDocFilterFromAlias(
-    knex: Knex,
-    q: ResultBuilder,
+    q: AnyBuilder,
     alias: string,
     entityType: string,
     key: string,
@@ -1309,83 +1269,148 @@ export class HybridQueryEngine implements QueryEngine {
     value: unknown,
     recordIdColumn: string,
     search?: SearchRuntime,
-  ): ResultBuilder {
-    const text = knex.raw(`(${alias}.doc ->> ?)`, [key])
+  ): AnyBuilder {
+    const textExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
       const tokens = tokenizeText(String(value), search.config)
       const hashes = tokens.hashes
       if (hashes.length) {
-        const applied = this.applySearchTokens(q, {
-          knex,
-          entity: entityType,
-          field: key,
-          hashes,
-          recordIdColumn,
+        const applied = q.where((eb: any) => eb.exists(this.buildSearchTokensSub(eb, {
+          entity: entityType, field: key, hashes, recordIdColumn,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
-        })
+        })))
         this.logSearchDebug('search:index-doc-filter', {
-          entity: entityType,
-          field: key,
-          tokens: tokens.tokens,
-          hashes,
-          applied,
-          tenantId: search.tenantId ?? null,
-          organizationScope: search.organizationScope,
+          entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
+          tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
         })
-        if (applied) return q
+        return applied
       } else {
-        this.logSearchDebug('search:index-doc-skip-empty-hashes', {
-          entity: entityType,
-          field: key,
-          value,
-        })
+        this.logSearchDebug('search:index-doc-skip-empty-hashes', { entity: entityType, field: key, value })
       }
       return q
     }
     switch (op) {
       case 'eq':
-        return q.where(text, '=', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} = ${value}`)
       case 'ne':
-        return q.where(text, '!=', value as Knex.Value)
-      case 'in':
-        return q.whereIn(text as any, this.toArray(value) as readonly Knex.Value[])
-      case 'nin':
-        return q.whereNotIn(text as any, this.toArray(value) as readonly Knex.Value[])
+        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+      case 'in': {
+        const vals = this.toArray(value)
+        return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
+      }
+      case 'nin': {
+        const vals = this.toArray(value)
+        return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
+      }
       case 'like':
-        return q.where(text, 'like', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} like ${value}`)
       case 'ilike':
-        return q.where(text, 'ilike', value as Knex.Value)
+        return q.where(sql<boolean>`${textExpr} ilike ${value}`)
       case 'exists':
         return value
-          ? q.whereRaw(`${text.toString()} is not null`)
-          : q.whereRaw(`${text.toString()} is null`)
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} is null`)
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
-        const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
-        return q.where(text, operator, value as Knex.Value)
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        return q.where(sql<boolean>`${textExpr} ${operator} ${value}`)
       }
       default:
         return q
     }
   }
 
+  /**
+   * Build a single OR-group base filter expression as a Kysely predicate
+   * (no side effects on the outer builder).
+   */
+  private buildBaseFilterExpression(
+    eb: any,
+    filter: BaseFilter,
+    resolveBaseColumn: (field: string) => string | null,
+    qualify: (col: string) => string,
+    entity: EntityId,
+    searchRuntime: SearchRuntime,
+  ): any {
+    const fieldName = String(filter.field)
+    const baseField = resolveBaseColumn(fieldName)
+    if (!baseField) {
+      // Doc-based filter via `ei` alias — returned as EXISTS where possible
+      return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
+    }
+    return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
+  }
+
+  private buildColumnFilterExpression(
+    eb: any,
+    column: string,
+    op: FilterOp,
+    value: unknown,
+  ): any {
+    switch (op) {
+      case 'eq': return eb(column, '=', value)
+      case 'ne': return eb(column, '!=', value)
+      case 'gt': return eb(column, '>', value)
+      case 'gte': return eb(column, '>=', value)
+      case 'lt': return eb(column, '<', value)
+      case 'lte': return eb(column, '<=', value)
+      case 'in': return eb(column, 'in', this.toArray(value))
+      case 'nin': return eb(column, 'not in', this.toArray(value))
+      case 'like': return eb(column, 'like', value)
+      case 'ilike': return eb(column, 'ilike', value)
+      case 'exists': return eb(column, value ? 'is not' : 'is', null)
+      default: return sql<boolean>`true`
+    }
+  }
+
+  private buildIndexDocFilterExpression(
+    eb: any,
+    alias: string,
+    _entity: EntityId,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+    _recordIdColumn: string,
+    _search?: SearchRuntime,
+  ): any {
+    const textExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
+    switch (op) {
+      case 'eq': return sql<boolean>`${textExpr} = ${value}`
+      case 'ne': return sql<boolean>`${textExpr} <> ${value}`
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        return sql<boolean>`${textExpr} ${operator} ${value}`
+      }
+      case 'like': return sql<boolean>`${textExpr} like ${value}`
+      case 'ilike': return sql<boolean>`${textExpr} ilike ${value}`
+      case 'in': {
+        const vals = this.toArray(value)
+        return sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
+      }
+      case 'nin': {
+        const vals = this.toArray(value)
+        return sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
+      }
+      case 'exists':
+        return value ? sql<boolean>`${textExpr} is not null` : sql<boolean>`${textExpr} is null`
+      default:
+        return sql<boolean>`true`
+    }
+  }
+
   private async queryCustomEntity<T = unknown>(entity: string, opts: QueryOptions = {}): Promise<QueryResult<T>> {
-    const knex = this.getKnex()
+    const db = this.getDb() as any
     const alias = 'ce'
-    let q = knex({ [alias]: 'custom_entities_storage' }).where(`${alias}.entity_type`, entity)
 
     const orgScope = this.resolveOrganizationScope(opts)
-
-    // Require tenant scope; custom entities are tenant-scoped only
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
-    q = q.andWhere(`${alias}.tenant_id`, opts.tenantId)
-    if (orgScope) {
-      q = this.applyOrganizationScope(q, `${alias}.organization_id`, orgScope)
-    }
-    if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
+
     const searchConfig = resolveSearchConfig()
     const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
     const hasSearchTokens = searchEnabled
@@ -1400,31 +1425,33 @@ export class HybridQueryEngine implements QueryEngine {
 
     const normalizedFilters = normalizeFilters(opts.filters)
 
-    // Apply filters: cf:* via JSONB; other keys: special-case id/created_at/updated_at/deleted_at, otherwise from doc
-    for (const filter of normalizedFilters) {
-      if (filter.field.startsWith('cf:')) {
-        q = this.applyCfFilterFromAlias(knex, q, alias, entity, filter.field, filter.op, filter.value, searchRuntime)
-        continue
+    const applyScope = (q: AnyBuilder): AnyBuilder => {
+      let next = q
+        .where(`${alias}.entity_type`, '=', entity)
+        .where(`${alias}.tenant_id`, '=', opts.tenantId)
+      if (orgScope) {
+        next = this.applyOrganizationScope(next, `${alias}.organization_id`, orgScope)
       }
-      const column = this.resolveCustomEntityColumn(alias, String(filter.field))
-      if (column) {
-        q = this.applyColumnFilter(q, column, filter, {
-          ...searchRuntime,
-          knex,
-          entity,
-          field: String(filter.field),
-          recordIdColumn: `${alias}.entity_id`,
+      if (!opts.withDeleted) next = next.where(`${alias}.deleted_at`, 'is', null)
+      for (const filter of normalizedFilters) {
+        if (filter.field.startsWith('cf:')) {
+          next = this.applyCfFilterFromAlias(next, alias, entity, filter.field, filter.op, filter.value, searchRuntime)
+          continue
+        }
+        const column = this.resolveCustomEntityColumn(alias, String(filter.field))
+        if (column) {
+          next = this.applyColumnFilter(next, column, filter, {
+            ...searchRuntime, entity, field: String(filter.field), recordIdColumn: `${alias}.entity_id`,
+          })
+          continue
+        }
+        // Unknown field → filter on doc JSON text
+        const docExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${String(filter.field)})`
+        next = this.applyColumnFilter(next, docExpr, filter, {
+          ...searchRuntime, entity, field: String(filter.field), recordIdColumn: `${alias}.entity_id`,
         })
-        continue
       }
-      const docExpr = knex.raw(`(${alias}.doc ->> ?)`, [String(filter.field)])
-      q = this.applyColumnFilter(q, docExpr, filter, {
-        ...searchRuntime,
-        knex,
-        entity,
-        field: String(filter.field),
-        recordIdColumn: `${alias}.entity_id`,
-      })
+      return next
     }
 
     // Determine CFs and l10n keys to include
@@ -1439,93 +1466,92 @@ export class HybridQueryEngine implements QueryEngine {
     }
     if (opts.includeCustomFields === true) {
       try {
-        const rows = await knex('custom_field_defs')
+        const rows = await db
+          .selectFrom('custom_field_defs')
           .select('key')
-          .where({ entity_id: entity, is_active: true })
-          .modify((qb) => {
-            qb.andWhere({ tenant_id: opts.tenantId })
-            // NOTE: organization-level scoping intentionally disabled for custom fields
-            // if (opts.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: opts.organizationId }).orWhereNull('organization_id'))
-            // else qb.whereNull('organization_id')
-          })
+          .where('entity_id', '=', entity)
+          .where('is_active', '=', true)
+          .where('tenant_id', '=', opts.tenantId)
+          .execute() as Array<{ key: unknown }>
         for (const row of rows) {
-          const key = (row as Record<string, unknown>).key
-          if (typeof key === 'string') {
-            cfKeys.add(key)
-          } else if (key != null) {
-            cfKeys.add(String(key))
-          }
+          const key = row.key
+          if (typeof key === 'string') cfKeys.add(key)
+          else if (key != null) cfKeys.add(String(key))
         }
       } catch {
-        // ignore and fall back to whatever keys we already have
+        // ignore
       }
     } else if (Array.isArray(opts.includeCustomFields)) {
       for (const k of opts.includeCustomFields) cfKeys.add(k)
     }
 
-    // Selection
-    const requested = (opts.fields && opts.fields.length) ? opts.fields : ['id']
-    for (const field of requested) {
-      const f = String(field)
-      if (f.startsWith('cf:')) {
-        const aliasName = this.sanitize(f)
-        const expr = this.jsonbRawAlias(knex, alias, f)
-        q = q.select({ [aliasName]: expr })
-      } else if (f === 'id') {
-        q = q.select(knex.raw(`${alias}.entity_id as ??`, ['id']))
-      } else if (f === 'created_at' || f === 'updated_at' || f === 'deleted_at') {
-        q = q.select(knex.raw(`${alias}.?? as ??`, [f, f]))
-      } else {
-        // Non-cf from doc
-        const expr = knex.raw(`(${alias}.doc ->> ?)`, [f])
-        q = q.select({ [f]: expr })
-      }
-    }
-    // Ensure CFs necessary for sort are selected
-    const cfSelectedAliases: string[] = []
-    for (const key of cfKeys) {
-      const aliasName = this.sanitize(`cf:${key}`)
-      const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
-      q = q.select({ [aliasName]: expr })
-      cfSelectedAliases.push(aliasName)
-    }
-
-    // Sorting
-    for (const s of opts.sort || []) {
-      if (s.field.startsWith('cf:')) {
-        const key = s.field.slice(3)
-        const aliasName = this.sanitize(`cf:${key}`)
-        if (!cfSelectedAliases.includes(aliasName)) {
-          const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
-          q = q.select({ [aliasName]: expr })
-          cfSelectedAliases.push(aliasName)
+    const applySelection = (q: AnyBuilder): AnyBuilder => {
+      let next = q
+      const requested = (opts.fields && opts.fields.length) ? opts.fields : ['id']
+      for (const field of requested) {
+        const f = String(field)
+        if (f.startsWith('cf:')) {
+          const aliasName = this.sanitize(f)
+          next = next.select(this.jsonbSqlAlias(alias, f).as(aliasName))
+        } else if (f === 'id') {
+          next = next.select(`${alias}.entity_id as id`)
+        } else if (f === 'created_at' || f === 'updated_at' || f === 'deleted_at') {
+          next = next.select(`${alias}.${f} as ${f}`)
+        } else {
+          const expr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${f})`
+          next = next.select(expr.as(f))
         }
-        q = q.orderBy(aliasName, s.dir ?? SortDir.Asc)
-      } else if (s.field === 'id') {
-        q = q.orderBy(`${alias}.entity_id`, s.dir ?? SortDir.Asc)
-      } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
-        q = q.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
-      } else {
-        const direction = s.dir ?? SortDir.Asc
-        q = q.orderByRaw(`(${alias}.doc ->> ?) ${direction}`, [s.field])
       }
+      // Ensure CF fields for sort / includeCustomFields are selected
+      for (const key of cfKeys) {
+        const aliasName = this.sanitize(`cf:${key}`)
+        next = next.select(this.jsonbSqlAlias(alias, `cf:${key}`).as(aliasName))
+      }
+      return next
     }
 
-    // Pagination + totals
+    const applySort = (q: AnyBuilder): AnyBuilder => {
+      let next = q
+      for (const s of opts.sort || []) {
+        if (s.field.startsWith('cf:')) {
+          const key = s.field.slice(3)
+          const aliasName = this.sanitize(`cf:${key}`)
+          next = next.orderBy(aliasName, s.dir ?? SortDir.Asc)
+        } else if (s.field === 'id') {
+          next = next.orderBy(`${alias}.entity_id`, s.dir ?? SortDir.Asc)
+        } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
+          next = next.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
+        } else {
+          const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+          next = next.orderBy(sql`(${sql.ref(alias + '.doc')} ->> ${s.field}) ${direction}`)
+        }
+      }
+      return next
+    }
+
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
-    const countClone = q.clone()
-    if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
-    if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
-    const countRow = await countClone.countDistinct(`${alias}.entity_id as count`).first()
+
+    const root = db.selectFrom(`custom_entities_storage as ${alias}`)
+    const countQuery = applyScope(root).select(sql<string>`count(distinct ${sql.ref(`${alias}.entity_id`)})`.as('count'))
+    const countRow = await countQuery.executeTakeFirst()
     const total = this.parseCount(countRow)
-    const items = await q.limit(pageSize).offset((page - 1) * pageSize)
+
+    let dataQuery = applyScope(db.selectFrom(`custom_entities_storage as ${alias}`))
+    dataQuery = applySelection(dataQuery)
+    dataQuery = applySort(dataQuery)
+    dataQuery = dataQuery.limit(pageSize).offset((page - 1) * pageSize)
+    const items = await dataQuery.execute()
     return { items, page, pageSize, total }
   }
 
   private async tableExists(table: string): Promise<boolean> {
-    const knex = this.getKnex()
-    const exists = await knex('information_schema.tables').where({ table_name: table }).first()
+    const db = this.getDb() as any
+    const exists = await db
+      .selectFrom('information_schema.tables')
+      .select(sql<number>`1`.as('one'))
+      .where('table_name', '=', table)
+      .executeTakeFirst()
     return !!exists
   }
 
@@ -1535,21 +1561,22 @@ export class HybridQueryEngine implements QueryEngine {
     orgScope?: { ids: string[]; includeNull: boolean } | null
   ): Promise<boolean> {
     try {
-      const knex = this.getKnex()
-      const query = knex('search_tokens').select(1).where('entity_type', entity).limit(1)
+      const db = this.getDb() as any
+      let query = db
+        .selectFrom('search_tokens')
+        .select(sql<number>`1`.as('one'))
+        .where('entity_type', '=', entity)
       if (tenantId !== undefined) {
-        query.andWhereRaw('tenant_id is not distinct from ?', [tenantId])
+        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
       }
       if (orgScope) {
-        this.applyOrganizationScope(query as any, 'search_tokens.organization_id', orgScope)
+        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
       }
-      const row = await query.first()
+      const row = await query.limit(1).executeTakeFirst()
       return !!row
     } catch (err) {
       this.logSearchDebug('search:has-tokens-error', {
-        entity,
-        tenantId,
-        organizationScope: orgScope,
+        entity, tenantId, organizationScope: orgScope,
         error: err instanceof Error ? err.message : String(err),
       })
       return false
@@ -1564,11 +1591,8 @@ export class HybridQueryEngine implements QueryEngine {
     for (const source of sources) {
       const ok = await this.hasSearchTokens(source.entity, tenantId, orgScope)
       this.logSearchDebug('search:source-has-tokens', {
-        entity: source.entity,
-        recordIdColumn: source.recordIdColumn,
-        tenantId,
-        organizationScope: orgScope,
-        hasTokens: ok,
+        entity: source.entity, recordIdColumn: source.recordIdColumn,
+        tenantId, organizationScope: orgScope, hasTokens: ok,
       })
       if (ok) return true
     }
@@ -1580,23 +1604,22 @@ export class HybridQueryEngine implements QueryEngine {
     const cacheKey = this.customFieldKeysCacheKey(entityIds, tenantId)
     const now = Date.now()
     const cached = this.customFieldKeysCache.get(cacheKey)
-    if (cached && cached.expiresAt > now) {
-      return cached.value.slice()
-    }
+    if (cached && cached.expiresAt > now) return cached.value.slice()
 
-    const knex = this.getKnex()
-    const rows = await knex('custom_field_defs')
+    const db = this.getDb() as any
+    const rows = await db
+      .selectFrom('custom_field_defs')
       .select('key')
-      .whereIn('entity_id', entityIds)
-      .andWhere('is_active', true)
-      .modify((qb: any) => {
-        qb.andWhere((inner: any) => {
-          inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
-        })
-      })
+      .where('entity_id', 'in', entityIds)
+      .where('is_active', '=', true)
+      .where((eb: any) => eb.or([
+        eb('tenant_id', '=', tenantId),
+        eb('tenant_id', 'is', null),
+      ]))
+      .execute() as Array<{ key: unknown }>
     const keys = new Set<string>()
-    for (const row of rows || []) {
-      const key = (row as Record<string, unknown>).key
+    for (const row of rows) {
+      const key = row.key
       if (typeof key === 'string' && key.trim().length) keys.add(key.trim())
       else if (key != null) keys.add(String(key))
     }
@@ -1614,8 +1637,7 @@ export class HybridQueryEngine implements QueryEngine {
     } catch (err) {
       if (this.isDebugVerbosity()) {
         this.debug('query:cf:check-error', {
-          entity: entityId,
-          tenantId: tenantId ?? null,
+          entity: entityId, tenantId: tenantId ?? null,
           error: err instanceof Error ? err.message : err,
         })
       }
@@ -1642,17 +1664,22 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async indexAnyRows(entity: string): Promise<boolean> {
-    const knex = this.getKnex()
-    // Prefer coverage snapshots – cheap and already scoped by maintenance jobs.
-    const coverage = await knex('entity_index_coverage')
-      .select(1)
-      .where('entity_type', entity)
+    const db = this.getDb() as any
+    const coverage = await db
+      .selectFrom('entity_index_coverage')
+      .select(sql<number>`1`.as('one'))
+      .where('entity_type', '=', entity)
       .where('indexed_count', '>', 0)
-      .first()
+      .executeTakeFirst()
     if (coverage) return true
-    const exists = await knex('entity_indexes').select('entity_id').where({ entity_type: entity }).first()
+    const exists = await db
+      .selectFrom('entity_indexes')
+      .select('entity_id')
+      .where('entity_type', '=', entity)
+      .executeTakeFirst()
     return !!exists
   }
+
   private async getStoredCoverageSnapshot(
     entity: string,
     tenantId: string | null,
@@ -1661,32 +1688,20 @@ export class HybridQueryEngine implements QueryEngine {
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
       if (!this.isCoverageOptimizationEnabled()) {
-        await refreshCoverageSnapshot(
-          this.em,
-          {
-            entityType: entity,
-            tenantId,
-            organizationId,
-            withDeleted,
-          },
-        )
+        await refreshCoverageSnapshot(this.em, {
+          entityType: entity, tenantId, organizationId, withDeleted,
+        })
       }
-      const knex = this.getKnex()
-      const row = await readCoverageSnapshot(knex, {
-        entityType: entity,
-        tenantId,
-        organizationId,
-        withDeleted,
+      const db = this.getDb()
+      const row = await readCoverageSnapshot(db as any, {
+        entityType: entity, tenantId, organizationId, withDeleted,
       })
       if (!row) return null
       return { baseCount: row.baseCount, indexedCount: row.indexedCount }
     } catch (err) {
       if (this.isDebugVerbosity()) {
         this.debug('coverage:snapshot:read-error', {
-          entity,
-          tenantId,
-          organizationId,
-          withDeleted,
+          entity, tenantId, organizationId, withDeleted,
           error: err instanceof Error ? err.message : err,
         })
       }
@@ -1701,7 +1716,6 @@ export class HybridQueryEngine implements QueryEngine {
     organizationIdOverride?: string | null
   ) {
     if (!this.isAutoReindexEnabled()) return
-
     const bus = this.resolveEventBus()
     if (!bus) return
     const payload = {
@@ -1711,27 +1725,19 @@ export class HybridQueryEngine implements QueryEngine {
       force: false,
     }
     const context = stats
-      ? {
-          entity,
-          tenantId: payload.tenantId,
-          organizationId: payload.organizationId,
-          baseCount: stats.baseCount,
-          indexedCount: stats.indexedCount,
-        }
+      ? { entity, tenantId: payload.tenantId, organizationId: payload.organizationId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
       : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
 
-    void Promise.resolve()
-      .then(async () => {
-        try {
-          await bus.emitEvent('query_index.reindex', payload, { persistent: true })
-          if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
-        } catch (err) {
-          console.warn('[HybridQueryEngine] Failed to schedule auto reindex:', {
-            ...context,
-            error: err instanceof Error ? err.message : err,
-          })
-        }
-      })
+    void Promise.resolve().then(async () => {
+      try {
+        await bus.emitEvent('query_index.reindex', payload, { persistent: true })
+        if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
+      } catch (err) {
+        console.warn('[HybridQueryEngine] Failed to schedule auto reindex:', {
+          ...context, error: err instanceof Error ? err.message : err,
+        })
+      }
+    })
   }
 
   private scheduleCoverageRefresh(
@@ -1742,12 +1748,7 @@ export class HybridQueryEngine implements QueryEngine {
   ): void {
     const bus = this.resolveEventBus()
     if (!bus) return
-    const key = [
-      entity,
-      tenantId ?? '__tenant__',
-      organizationId ?? '__org__',
-      withDeleted ? '1' : '0',
-    ].join('|')
+    const key = [entity, tenantId ?? '__tenant__', organizationId ?? '__org__', withDeleted ? '1' : '0'].join('|')
     if (this.pendingCoverageRefreshKeys.has(key)) return
     this.pendingCoverageRefreshKeys.add(key)
     void Promise.resolve()
@@ -1755,34 +1756,24 @@ export class HybridQueryEngine implements QueryEngine {
         try {
           await bus.emitEvent('query_index.coverage.refresh', {
             entityType: entity,
-            tenantId: tenantId ?? null,
-            organizationId: organizationId ?? null,
-            withDeleted,
-            delayMs: 0,
+            tenantId: tenantId ?? null, organizationId: organizationId ?? null,
+            withDeleted, delayMs: 0,
           })
           if (this.isDebugVerbosity()) {
             this.debug('coverage:refresh:scheduled', {
-              entity,
-              tenantId: tenantId ?? null,
-              organizationId: organizationId ?? null,
-              withDeleted,
+              entity, tenantId: tenantId ?? null, organizationId: organizationId ?? null, withDeleted,
             })
           }
         } catch (err) {
           if (this.isDebugVerbosity()) {
             this.debug('coverage:refresh:failed', {
-              entity,
-              tenantId: tenantId ?? null,
-              organizationId: organizationId ?? null,
-              withDeleted,
+              entity, tenantId: tenantId ?? null, organizationId: organizationId ?? null, withDeleted,
               error: err instanceof Error ? err.message : err,
             })
           }
         }
       })
-      .finally(() => {
-        this.pendingCoverageRefreshKeys.delete(key)
-      })
+      .finally(() => { this.pendingCoverageRefreshKeys.delete(key) })
   }
 
   private resolveEventBus(): Pick<EventBus, 'emitEvent'> | null {
@@ -1797,17 +1788,8 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isAutoReindexEnabled(): boolean {
     if (this.autoReindexEnabled != null) return this.autoReindexEnabled
-    const raw = (
-      process.env.SCHEDULE_AUTO_REINDEX ??
-      process.env.QUERY_INDEX_AUTO_REINDEX ??
-      ''
-    )
-      .trim()
-      .toLowerCase()
-    if (!raw) {
-      this.autoReindexEnabled = true
-      return true
-    }
+    const raw = (process.env.SCHEDULE_AUTO_REINDEX ?? process.env.QUERY_INDEX_AUTO_REINDEX ?? '').trim().toLowerCase()
+    if (!raw) { this.autoReindexEnabled = true; return true }
     const parsed = parseBooleanToken(raw)
     this.autoReindexEnabled = parsed === null ? true : parsed
     return this.autoReindexEnabled
@@ -1816,10 +1798,7 @@ export class HybridQueryEngine implements QueryEngine {
   private isCoverageOptimizationEnabled(): boolean {
     if (this.coverageOptimizationEnabled != null) return this.coverageOptimizationEnabled
     const raw = (process.env.OPTIMIZE_INDEX_COVERAGE_STATS ?? '').trim().toLowerCase()
-    if (!raw) {
-      this.coverageOptimizationEnabled = false
-      return false
-    }
+    if (!raw) { this.coverageOptimizationEnabled = false; return false }
     this.coverageOptimizationEnabled = parseBooleanToken(raw) === true
     return this.coverageOptimizationEnabled
   }
@@ -1831,10 +1810,13 @@ export class HybridQueryEngine implements QueryEngine {
       if (cached === true) return true
       this.columnCache.delete(key)
     }
-    const knex = this.getKnex()
-    const exists = await knex('information_schema.columns')
-      .where({ table_name: table, column_name: column })
-      .first()
+    const db = this.getDb() as any
+    const exists = await db
+      .selectFrom('information_schema.columns')
+      .select(sql<number>`1`.as('one'))
+      .where('table_name', '=', table)
+      .where('column_name', '=', column)
+      .executeTakeFirst()
     const present = !!exists
     if (present) this.columnCache.set(key, true)
     else this.columnCache.delete(key)
@@ -1842,11 +1824,13 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async getBaseColumnsForEntity(entity: string): Promise<Map<string, string>> {
-    const knex = this.getKnex()
+    const db = this.getDb() as any
     const table = resolveEntityTableName(this.em, entity)
-    const rows = await knex('information_schema.columns')
-      .select('column_name', 'data_type')
-      .where({ table_name: table })
+    const rows = await db
+      .selectFrom('information_schema.columns')
+      .select(['column_name', 'data_type'])
+      .where('table_name', '=', table)
+      .execute() as Array<{ column_name: string; data_type: string }>
     const map = new Map<string, string>()
     for (const r of rows) map.set(r.column_name, r.data_type)
     return map
@@ -1881,26 +1865,20 @@ export class HybridQueryEngine implements QueryEngine {
     return null
   }
 
-  private applyOrganizationScope<TRecord extends ResultRow, TResult>(
-    q: Knex.QueryBuilder<TRecord, TResult>,
+  private applyOrganizationScope(
+    q: AnyBuilder,
     column: string,
     scope: { ids: string[]; includeNull: boolean }
-  ): Knex.QueryBuilder<TRecord, TResult> {
+  ): AnyBuilder {
     if (scope.ids.length === 0 && !scope.includeNull) {
-      return q.whereRaw('1 = 0')
+      return q.where(sql<boolean>`1 = 0`)
     }
-    return q.where((builder) => {
-      let applied = false
-      if (scope.ids.length > 0) {
-        builder.whereIn(column, scope.ids as readonly string[])
-        applied = true
-      }
-      if (scope.includeNull) {
-        if (applied) builder.orWhereNull(column)
-        else builder.whereNull(column)
-      } else if (!applied) {
-        builder.whereRaw('1 = 0')
-      }
+    return q.where((eb: any) => {
+      const parts: any[] = []
+      if (scope.ids.length > 0) parts.push(eb(column, 'in', scope.ids))
+      if (scope.includeNull) parts.push(eb(column, 'is', null))
+      if (parts.length === 1) return parts[0]
+      return eb.or(parts)
     })
   }
 
@@ -1910,8 +1888,7 @@ export class HybridQueryEngine implements QueryEngine {
     if (Array.isArray(filters)) {
       return (filters as Filter[]).map((filter) => ({
         field: normalizeField(String(filter.field)),
-        op: filter.op,
-        value: filter.value,
+        op: filter.op, value: filter.value,
       }))
     }
     const out: NormalizedFilter[] = []
@@ -1947,12 +1924,8 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private toArray(value: unknown): readonly unknown[] {
-    if (Array.isArray(value)) {
-      return value
-    }
-    if (value === undefined) {
-      return []
-    }
+    if (Array.isArray(value)) return value
+    if (value === undefined) return []
     return [value]
   }
 
@@ -1964,6 +1937,7 @@ export class HybridQueryEngine implements QueryEngine {
         const parsed = Number(value)
         return Number.isNaN(parsed) ? 0 : parsed
       }
+      if (typeof value === 'bigint') return Number(value)
     }
     return 0
   }
@@ -1977,12 +1951,12 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
-  private applyColumnFilter<TRecord extends ResultRow, TResult>(
-    q: Knex.QueryBuilder<TRecord, TResult>,
-    column: string | Knex.Raw,
+  private applyColumnFilter(
+    q: AnyBuilder,
+    column: string | RawBuilder<unknown>,
     filter: NormalizedFilter,
-    search?: SearchRuntime & { knex: Knex; entity: string; field: string; recordIdColumn?: string }
-  ): Knex.QueryBuilder<TRecord, TResult> {
+    search?: SearchRuntime & { entity: string; field: string; recordIdColumn?: string },
+  ): AnyBuilder {
     if (
       (filter.op === 'like' || filter.op === 'ilike') &&
       search?.enabled &&
@@ -1995,71 +1969,53 @@ export class HybridQueryEngine implements QueryEngine {
           ? search.searchSources
           : [{ entity: search.entity, recordIdColumn: search.recordIdColumn ?? '' }]
         ).filter((src) => src.recordIdColumn && src.entity)
-        let applied = false
         if (sources.length) {
-          q = q.where((qb) => {
-            sources.forEach((src, idx) => {
-              const ok = this.applySearchTokens(qb as any, {
-                knex: search.knex,
-                entity: src.entity,
-                field: search.field,
-                hashes,
+          const engine = this
+          q = q.where((eb: any) => eb.or(
+            sources.map((src) =>
+              eb.exists(engine.buildSearchTokensSub(eb, {
+                entity: src.entity, field: search.field, hashes,
                 recordIdColumn: src.recordIdColumn,
                 tenantId: search.tenantId ?? null,
                 organizationScope: search.organizationScope ?? null,
-                combineWith: idx === 0 ? 'and' : 'or',
-              })
-              if (ok) applied = true
-            })
+              })))
+          ))
+          this.logSearchDebug('search:filter', {
+            entity: search.entity, field: search.field, tokens: tokens.tokens, hashes,
+            applied: true, tenantId: search.tenantId ?? null,
+            organizationScope: search.organizationScope,
+            sources: sources.map((src) => ({ entity: src.entity, recordIdColumn: src.recordIdColumn })),
           })
+          return q
         }
-        this.logSearchDebug('search:filter', {
-          entity: search.entity,
-          field: search.field,
-          tokens: tokens.tokens,
-          hashes,
-          applied,
-          tenantId: search.tenantId ?? null,
-          organizationScope: search.organizationScope,
-          sources: sources.map((src) => ({ entity: src.entity, recordIdColumn: src.recordIdColumn })),
-        })
-        if (applied) return q
       } else {
         this.logSearchDebug('search:skip-empty-hashes', {
-          entity: search.entity,
-          field: search.field,
-          value: filter.value,
+          entity: search.entity, field: search.field, value: filter.value,
         })
       }
       return q
     }
-    const col = column as any
+    const col: any = column
     switch (filter.op) {
-      case 'eq':
-        return q.where(col, filter.value as Knex.Value)
-      case 'ne':
-        return q.whereNot(col, filter.value as Knex.Value)
+      case 'eq': return q.where(col, '=', filter.value as any)
+      case 'ne': return q.where(col, '!=', filter.value as any)
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
         const operator = filter.op === 'gt' ? '>' : filter.op === 'gte' ? '>=' : filter.op === 'lt' ? '<' : '<='
-        return q.where(col, operator, filter.value as Knex.Value)
+        return q.where(col, operator, filter.value as any)
       }
-      case 'in': {
-        const values = this.toArray(filter.value) as readonly Knex.Value[]
-        return q.whereIn(col, values)
-      }
-      case 'nin': {
-        const values = this.toArray(filter.value) as readonly Knex.Value[]
-        return q.whereNotIn(col, values)
-      }
+      case 'in':
+        return q.where(col, 'in', this.toArray(filter.value))
+      case 'nin':
+        return q.where(col, 'not in', this.toArray(filter.value))
       case 'like':
-        return q.where(col, 'like', filter.value as Knex.Value)
+        return q.where(col, 'like', filter.value as any)
       case 'ilike':
-        return q.where(col, 'ilike', filter.value as Knex.Value)
+        return q.where(col, 'ilike', filter.value as any)
       case 'exists':
-        return filter.value ? q.whereNotNull(col) : q.whereNull(col)
+        return filter.value ? q.where(col, 'is not', null) : q.where(col, 'is', null)
       default:
         return q
     }
@@ -2112,10 +2068,7 @@ export class HybridQueryEngine implements QueryEngine {
     const baseCount = snapshot.baseCount
     const indexCount = snapshot.indexedCount
     const hasGap = baseCount > 0 && indexCount < baseCount
-    if (hasGap || indexCount > baseCount) {
-      return { stats: snapshot, scope: 'scoped' }
-    }
-
+    if (hasGap || indexCount > baseCount) return { stats: snapshot, scope: 'scoped' }
     return null
   }
 
@@ -2138,18 +2091,13 @@ export class HybridQueryEngine implements QueryEngine {
   ): Promise<TResult> {
     const shouldDebug = this.isSqlDebugEnabled() && this.isDebugVerbosity()
     const shouldProfile = profiler?.enabled === true
-    if (!shouldDebug && !shouldProfile) {
-      return Promise.resolve(execute())
-    }
+    if (!shouldDebug && !shouldProfile) return Promise.resolve(execute())
     const startedAt = process.hrtime.bigint()
     try {
       return await Promise.resolve(execute())
     } finally {
       const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000
-      const context: Record<string, unknown> = {
-        entity,
-        durationMs: Math.round(elapsedMs * 1000) / 1000,
-      }
+      const context: Record<string, unknown> = { entity, durationMs: Math.round(elapsedMs * 1000) / 1000 }
       if (extra) Object.assign(context, extra)
       if (shouldProfile) profiler!.record(label, context.durationMs as number, extra)
       if (shouldDebug) this.debug(`${label}:timing`, context)

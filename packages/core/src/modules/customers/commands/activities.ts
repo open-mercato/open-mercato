@@ -55,6 +55,8 @@ function mapActivityCreateInput(
   custom: Record<string, unknown>,
 ): InteractionCreateInput & { customValues?: Record<string, unknown> } {
   return {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     entityId: input.entityId,
     interactionType: input.activityType,
     title: input.subject ?? null,
@@ -125,6 +127,9 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     if (!canonicalCreate.captureAfter) return null
     return canonicalCreate.captureAfter(
       {
+        tenantId: ctx.auth?.tenantId ?? '00000000-0000-0000-0000-000000000000',
+        organizationId:
+          ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? '00000000-0000-0000-0000-000000000000',
         entityId: '00000000-0000-0000-0000-000000000000',
         interactionType: 'compatibility',
         status: 'planned',
@@ -161,6 +166,14 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     if (!canonicalCreate.undo) return
     await canonicalCreate.undo({
       input: {
+        tenantId:
+          payload?.after?.interaction.tenantId ??
+          (typeof logEntry.tenantId === 'string' ? logEntry.tenantId : '00000000-0000-0000-0000-000000000000'),
+        organizationId:
+          payload?.after?.interaction.organizationId ??
+          (typeof logEntry.organizationId === 'string'
+            ? logEntry.organizationId
+            : '00000000-0000-0000-0000-000000000000'),
         entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
         interactionType: payload?.after?.interaction.interactionType ?? 'compatibility',
         status: 'planned',

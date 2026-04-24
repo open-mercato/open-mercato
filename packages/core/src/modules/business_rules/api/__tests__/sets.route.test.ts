@@ -160,7 +160,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       }
 
       mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174002', ...newSet })
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/sets', {
         method: 'POST',
@@ -172,7 +172,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       const body = await response.json()
       expect(body.id).toBe('223e4567-e89b-12d3-a456-426614174002')
       expect(mockEm.create).toHaveBeenCalled()
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should inject tenantId and organizationId from auth', async () => {
@@ -182,7 +182,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       }
 
       mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174002', ...newSet })
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/sets', {
         method: 'POST',
@@ -245,7 +245,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
 
       mockEm.findOne.mockResolvedValue(existingSet)
       mockEm.assign.mockImplementation((target: any, data: any) => Object.assign(target, data))
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/sets', {
         method: 'PUT',
@@ -261,7 +261,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       expect(body.ok).toBe(true)
       expect(mockEm.findOne).toHaveBeenCalled()
       expect(mockEm.assign).toHaveBeenCalled()
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should return 404 if set not found', async () => {
@@ -320,7 +320,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       }
 
       mockEm.findOne.mockResolvedValue(existingSet)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/sets?id=123e4567-e89b-12d3-a456-426614174001', {
         method: 'DELETE',
@@ -331,7 +331,7 @@ describe('Business Rules API - /api/business_rules/sets', () => {
       const body = await response.json()
       expect(body.ok).toBe(true)
       expect(existingSet.deletedAt).toBeInstanceOf(Date)
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should return 404 if set not found', async () => {

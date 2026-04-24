@@ -1,5 +1,5 @@
 {
-  "search.api.errors.autoIndexingDisabled": "Auto-indexing is disabled.",
+  "search.api.errors.autoIndexingDisabled": "Auto-indexing is disabled via OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (legacy alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "search.api.errors.configUnavailable": "Configuration service unavailable.",
   "search.api.errors.confirmAllRequired": "Confirmation is required for all items.",
   "search.api.errors.indexFetchFailed": "Failed to fetch index data.",

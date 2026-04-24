@@ -51,7 +51,7 @@ export class InventoryService {
       quantity: input.quantity,
       location: input.location ?? null,
     });
-    await this.em.persistAndFlush(item);
+    await this.em.persist(item).flush();
     return item;
   }
 

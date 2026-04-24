@@ -4,6 +4,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+    emInstance.find(entity, filters, opts),
+  findOneWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+    emInstance.findOne(entity, filters, opts),
+}))
+
 import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -35,26 +42,26 @@ const TEST_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 const TEST_ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
 const TEST_ENTITY_ID = '123e4567-e89b-41d3-a456-426614174001'
 
-function createKnexStub() {
-  const createChain = () => {
-    const chain = {
-      select: jest.fn(() => chain),
-      where: jest.fn(() => chain),
-      andWhere: jest.fn(() => chain),
-      whereNotNull: jest.fn(() => chain),
-      whereNull: jest.fn(() => chain),
-      orderBy: jest.fn(() => chain),
-      first: jest.fn(async () => null),
-      update: jest.fn(async () => 1),
-    }
-    return chain
+function createKyselyStub() {
+  const chain: any = {}
+  chain.select = jest.fn(() => chain)
+  chain.selectAll = jest.fn(() => chain)
+  chain.where = jest.fn(() => chain)
+  chain.orderBy = jest.fn(() => chain)
+  chain.limit = jest.fn(() => chain)
+  chain.offset = jest.fn(() => chain)
+  chain.values = jest.fn(() => chain)
+  chain.set = jest.fn(() => chain)
+  chain.onConflict = jest.fn(() => chain)
+  chain.returning = jest.fn(() => chain)
+  chain.executeTakeFirst = jest.fn(async () => undefined)
+  chain.execute = jest.fn(async () => [])
+  return {
+    selectFrom: jest.fn(() => chain),
+    insertInto: jest.fn(() => chain),
+    updateTable: jest.fn(() => chain),
+    deleteFrom: jest.fn(() => chain),
   }
-  const knex = Object.assign(jest.fn((_table: string) => createChain()), {
-    fn: {
-      now: jest.fn(() => new Date()),
-    },
-  })
-  return knex
 }
 
 function createMockContext(deps: {
@@ -63,10 +70,10 @@ function createMockContext(deps: {
   tenantId?: string
   organizationId?: string
 }): CommandRuntimeContext {
-  const em = deps.em as Record<string, unknown> & { getKnex?: () => unknown }
-  if (typeof em.getKnex !== 'function') {
-    const knex = createKnexStub()
-    em.getKnex = () => knex
+  const em = deps.em as Record<string, unknown> & { getKysely?: () => unknown }
+  if (typeof em.getKysely !== 'function') {
+    const db = createKyselyStub()
+    em.getKysely = () => db
   }
   if (typeof em.find !== 'function') {
     em.find = jest.fn(async () => [])
@@ -189,6 +196,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       getReference: jest.fn((_ctor, id) => ({ id })),
       remove: jest.fn(() => {}),
     }
@@ -358,6 +369,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       getReference: jest.fn((_ctor, id) => ({ id })),
     }
 
@@ -538,6 +553,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const setCustomFields = jest.fn(async () => {})
@@ -706,6 +725,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       remove: jest.fn(() => {}),
     }
 
@@ -828,6 +851,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
@@ -908,6 +935,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       nativeUpdate,
     }
 
@@ -1013,6 +1044,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
@@ -1094,6 +1129,10 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       nativeDelete: jest.fn(async () => {}),
     }
 
@@ -1177,6 +1216,10 @@ describe('customers commands undo custom fields', () => {
       }),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       remove: jest.fn((record) => {
         if (record === createdInteraction) {
           createdInteraction = null
@@ -1268,6 +1311,10 @@ describe('customers commands undo custom fields', () => {
       find: jest.fn(async () => []),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {
@@ -1354,6 +1401,10 @@ describe('customers commands undo custom fields', () => {
       }),
       find: jest.fn(async () => []),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {
@@ -1414,6 +1465,10 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {
@@ -1488,6 +1543,10 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {
@@ -1618,6 +1677,10 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {
@@ -1728,6 +1791,10 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
     }
 
     const dataEngine = {

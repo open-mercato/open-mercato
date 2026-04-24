@@ -24,7 +24,7 @@ const eventsResponseSchema = z.object({
 
 export async function GET(): Promise<Response> {
   const events = getDeclaredEvents()
-    .filter((event) => !event.id.startsWith('webhooks.'))
+    .filter((event) => !event.id.startsWith('webhooks.') && !event.excludeFromTriggers)
     .sort((left, right) => left.id.localeCompare(right.id))
 
   return json({

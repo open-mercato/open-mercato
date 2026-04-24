@@ -4,7 +4,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 
 type Descriptor = {
@@ -63,16 +63,20 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   const fields = descriptor?.sessionConfig?.fields ?? []
   if (!providerKey) {
     return (
-      <Notice compact>
-        {t('checkout.gatewaySettings.notices.chooseProvider')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.gatewaySettings.notices.chooseProvider')}
+        </AlertDescription>
+      </Alert>
     )
   }
   if (!fields.length) {
     return (
-      <Notice compact>
-        {t('checkout.gatewaySettings.notices.noSettings')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.gatewaySettings.notices.noSettings')}
+        </AlertDescription>
+      </Alert>
     )
   }
 

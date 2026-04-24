@@ -8,8 +8,8 @@ const mockCreateUser = jest.fn()
 const mockCreateEmailVerification = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockFindOneRole = jest.fn()
+const mockFlush = jest.fn()
 const mockPersist = jest.fn()
-const mockPersistAndFlush = jest.fn()
 const mockCreate = jest.fn()
 const mockExecute = jest.fn()
 
@@ -27,7 +27,6 @@ const mockEm = {
   findOne: mockFindOneRole,
   create: mockCreate,
   persist: mockPersist,
-  persistAndFlush: mockPersistAndFlush,
 }
 
 const mockContainer = {
@@ -102,8 +101,8 @@ describe('POST /api/customer_accounts/signup', () => {
     mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
     mockFindOneRole.mockResolvedValue(null)
     mockCreate.mockReturnValue({ id: 'user-role-link' })
-    mockPersist.mockReturnValue(undefined)
-    mockPersistAndFlush.mockResolvedValue(undefined)
+    mockFlush.mockResolvedValue(undefined)
+    mockPersist.mockImplementation(() => ({ flush: mockFlush }))
     mockExecute.mockResolvedValue([{ slug: 'acme' }])
     mockCreateUser.mockResolvedValue({
       id: newUserId,

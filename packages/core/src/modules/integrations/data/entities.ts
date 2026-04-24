@@ -1,4 +1,5 @@
-import { Entity, PrimaryKey, Property, Index, OptionalProps } from '@mikro-orm/core'
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'sync_external_id_mappings' })
 @Index({ properties: ['internalEntityType', 'internalEntityId', 'organizationId'] })

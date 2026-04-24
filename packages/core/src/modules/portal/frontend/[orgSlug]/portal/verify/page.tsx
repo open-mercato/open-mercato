@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 type Props = { params: { orgSlug: string } }
@@ -81,7 +81,9 @@ export default function PortalVerifyPage({ params }: Props) {
 
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-4 py-12">
-      <Notice variant="error">{error || t('portal.verify.error.generic', 'Email verification failed. Please try again.')}</Notice>
+      <Alert variant="destructive">
+        <AlertDescription>{error || t('portal.verify.error.generic', 'Email verification failed. Please try again.')}</AlertDescription>
+      </Alert>
       <Button asChild variant="outline" className="rounded-lg">
         <Link href={`/${params.orgSlug}/portal/login`}>{t('portal.verify.error.backToLogin', 'Back to sign in')}</Link>
       </Button>

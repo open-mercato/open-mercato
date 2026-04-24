@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../../lib/imageUrls'
 import { readAttachmentMetadata } from '../../lib/metadata'
@@ -105,7 +106,7 @@ export async function GET(req: Request) {
     {},
     { orderBy: { title: 'asc' }, fields: ['code', 'title', 'description'] as any },
   )
-  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.count('a.id', true), partitionsPromise])
+  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.getCount('a.id', true), partitionsPromise])
   const partitionTitleByCode = partitions.reduce<Record<string, string>>((acc, entry) => {
     if (entry.code) acc[entry.code] = entry.title ?? entry.code
     return acc
@@ -150,19 +151,16 @@ export async function GET(req: Request) {
       }))
     : items
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const knex = (em as any).getConnection().getKnex()
-  const tagQuery = knex
-    .select(
-      knex.raw(`distinct jsonb_array_elements_text(coalesce(storage_metadata->'tags', '[]'::jsonb)) as tag`),
-    )
-    .from('attachments')
-    .where('tenant_id', auth.tenantId)
+  const totalPages = Math.max(1, Math.ceil(Number(total) / pageSize))
+  const db = em.getKysely<any>() as any
+  let tagQuery = db
+    .selectFrom('attachments')
+    .select(sql<string>`distinct jsonb_array_elements_text(coalesce(storage_metadata->'tags', '[]'::jsonb))`.as('tag'))
+    .where('tenant_id', '=', auth.tenantId)
   if (auth.orgId) {
-    tagQuery.andWhere('organization_id', auth.orgId)
+    tagQuery = tagQuery.where('organization_id', '=', auth.orgId)
   }
-  tagQuery.orderBy('tag', 'asc')
-  const tagRows: Array<{ tag?: string | null }> = await tagQuery
+  const tagRows = await tagQuery.orderBy('tag', 'asc').execute() as Array<{ tag?: string | null }>
   const availableTags = tagRows
     .map((row) => (typeof row.tag === 'string' ? row.tag.trim() : ''))
     .filter((tag) => tag.length > 0)

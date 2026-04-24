@@ -46,8 +46,17 @@ export type DealFormProps = {
   cancelLabel?: string
   isSubmitting?: boolean
   embedded?: boolean
+  trackDirtyWhenEmbedded?: boolean
   title?: string
   backHref?: string
+  hideFooterActions?: boolean
+  onDirtyChange?: (dirty: boolean) => void
+  collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right' }
+  sortableGroups?: boolean | { pageType: string }
+  singleColumnGroups?: boolean
+  showAssociationsGroup?: boolean
+  showVersionHistory?: boolean
+  showCancelAction?: boolean
 }
 
 type EntityOption = {
@@ -56,9 +65,12 @@ type EntityOption = {
   subtitle?: string | null
 }
 
+export type DealLookupOption = EntityOption
+
 type EntityMultiSelectProps = {
   value: string[]
   onChange: (next: string[]) => void
+  initialOptions?: EntityOption[]
   placeholder: string
   emptyLabel: string
   loadingLabel: string
@@ -226,6 +238,7 @@ function extractCompanyOption(record: Record<string, unknown>): EntityOption | n
 function EntityMultiSelect({
   value,
   onChange,
+  initialOptions = [],
   placeholder,
   emptyLabel,
   loadingLabel,
@@ -244,6 +257,17 @@ function EntityMultiSelect({
   const [error, setError] = React.useState<string | null>(null)
 
   const normalizedValue = React.useMemo(() => sanitizeIdList(value), [value])
+
+  React.useEffect(() => {
+    if (!initialOptions.length) return
+    setCache((prev) => {
+      const next = new Map(prev)
+      initialOptions.forEach((option) => {
+        if (option?.id) next.set(option.id, option)
+      })
+      return next
+    })
+  }, [initialOptions])
 
   React.useEffect(() => {
     if (!normalizedValue.length) return
@@ -393,7 +417,7 @@ function EntityMultiSelect({
               <span className="flex flex-col items-start">
                 <span>{option.label}</span>
                 {option.subtitle ? (
-                  <span className="text-[10px] text-muted-foreground">{option.subtitle}</span>
+                  <span className="text-xs text-muted-foreground">{option.subtitle}</span>
                 ) : null}
               </span>
             </Button>
@@ -411,6 +435,188 @@ function EntityMultiSelect({
   )
 }
 
+export function useDealAssociationLookups(options?: { excludeLinkedDealId?: string | null }) {
+  const searchPeoplePage = React.useCallback(async (query: string, page = 1): Promise<{ items: EntityOption[]; totalPages: number }> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: '20',
+      sortField: 'name',
+      sortDir: 'asc',
+    })
+    if (query.trim().length) params.set('search', query.trim())
+    if (options?.excludeLinkedDealId) params.set('excludeLinkedDealId', options.excludeLinkedDealId)
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search people')
+    }
+    const payload = call.result ?? {}
+    const items = Array.isArray(payload.items) ? payload.items : []
+    return {
+      items: items
+      .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null),
+      totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+    }
+  }, [options?.excludeLinkedDealId])
+
+  const searchPeople = React.useCallback(async (query: string): Promise<EntityOption[]> => {
+    const result = await searchPeoplePage(query, 1)
+    return result.items
+  }, [searchPeoplePage])
+
+  const fetchPeopleByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
+    const unique = sanitizeIdList(ids)
+    if (!unique.length) return []
+    try {
+      const params = new URLSearchParams({
+        ids: unique.join(','),
+        pageSize: String(Math.max(unique.length, 1)),
+      })
+      const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
+      if (!call.ok) throw new Error()
+      const payload = call.result ?? {}
+      const items = Array.isArray(payload.items) ? payload.items : []
+      const optionMap = new Map<string, EntityOption>()
+      items.forEach((item: unknown) => {
+        if (!item || typeof item !== 'object') return
+        const option = extractPersonOption(item as Record<string, unknown>)
+        if (option?.id) optionMap.set(option.id, option)
+      })
+      return unique.map((id) => optionMap.get(id) ?? { id, label: id })
+    } catch {
+      return unique.map((id) => ({ id, label: id }))
+    }
+  }, [])
+
+  const searchCompaniesPage = React.useCallback(async (query: string, page = 1): Promise<{ items: EntityOption[]; totalPages: number }> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: '20',
+      sortField: 'name',
+      sortDir: 'asc',
+    })
+    if (query.trim().length) params.set('search', query.trim())
+    if (options?.excludeLinkedDealId) params.set('excludeLinkedDealId', options.excludeLinkedDealId)
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search companies')
+    }
+    const payload = call.result ?? {}
+    const items = Array.isArray(payload.items) ? payload.items : []
+    return {
+      items: items
+      .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null),
+      totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+    }
+  }, [options?.excludeLinkedDealId])
+
+  const searchCompanies = React.useCallback(async (query: string): Promise<EntityOption[]> => {
+    const result = await searchCompaniesPage(query, 1)
+    return result.items
+  }, [searchCompaniesPage])
+
+  const fetchCompaniesByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
+    const unique = sanitizeIdList(ids)
+    if (!unique.length) return []
+    try {
+      const params = new URLSearchParams({
+        ids: unique.join(','),
+        pageSize: String(Math.max(unique.length, 1)),
+      })
+      const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
+      if (!call.ok) throw new Error()
+      const payload = call.result ?? {}
+      const items = Array.isArray(payload.items) ? payload.items : []
+      const optionMap = new Map<string, EntityOption>()
+      items.forEach((item: unknown) => {
+        if (!item || typeof item !== 'object') return
+        const option = extractCompanyOption(item as Record<string, unknown>)
+        if (option?.id) optionMap.set(option.id, option)
+      })
+      return unique.map((id) => optionMap.get(id) ?? { id, label: id })
+    } catch {
+      return unique.map((id) => ({ id, label: id }))
+    }
+  }, [])
+
+  return {
+    searchPeople,
+    searchPeoplePage,
+    fetchPeopleByIds,
+    searchCompanies,
+    searchCompaniesPage,
+    fetchCompaniesByIds,
+  }
+}
+
+export function DealPeopleSelector({
+  value,
+  onChange,
+  options = [],
+  disabled = false,
+  autoFocus = false,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  options?: EntityOption[]
+  disabled?: boolean
+  autoFocus?: boolean
+}) {
+  const t = useT()
+  const { searchPeople, fetchPeopleByIds } = useDealAssociationLookups()
+
+  return (
+    <EntityMultiSelect
+      value={value}
+      onChange={onChange}
+      initialOptions={options}
+      placeholder={t('customers.deals.form.people.searchPlaceholder', 'Search people…')}
+      emptyLabel={t('customers.deals.form.people.empty', 'No people linked yet.')}
+      loadingLabel={t('customers.deals.form.people.loading', 'Searching people…')}
+      noResultsLabel={t('customers.deals.form.people.noResults', 'No people match your search.')}
+      removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+      errorLabel={t('customers.deals.form.people.error', 'Failed to load people.')}
+      search={searchPeople}
+      fetchByIds={fetchPeopleByIds}
+      disabled={disabled}
+      autoFocus={autoFocus}
+    />
+  )
+}
+
+export function DealCompaniesSelector({
+  value,
+  onChange,
+  options = [],
+  disabled = false,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  options?: EntityOption[]
+  disabled?: boolean
+}) {
+  const t = useT()
+  const { searchCompanies, fetchCompaniesByIds } = useDealAssociationLookups()
+
+  return (
+    <EntityMultiSelect
+      value={value}
+      onChange={onChange}
+      initialOptions={options}
+      placeholder={t('customers.deals.form.companies.searchPlaceholder', 'Search companies…')}
+      emptyLabel={t('customers.deals.form.companies.empty', 'No companies linked yet.')}
+      loadingLabel={t('customers.deals.form.companies.loading', 'Searching companies…')}
+      noResultsLabel={t('customers.deals.form.companies.noResults', 'No companies match your search.')}
+      removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+      errorLabel={t('customers.deals.form.companies.error', 'Failed to load companies.')}
+      search={searchCompanies}
+      fetchByIds={fetchCompaniesByIds}
+      disabled={disabled}
+    />
+  )
+}
+
 export function DealForm({
   mode,
   initialValues,
@@ -421,8 +627,17 @@ export function DealForm({
   cancelLabel,
   isSubmitting = false,
   embedded = true,
+  trackDirtyWhenEmbedded = false,
   title,
   backHref,
+  hideFooterActions = false,
+  onDirtyChange,
+  collapsibleGroups,
+  sortableGroups,
+  singleColumnGroups = false,
+  showAssociationsGroup = true,
+  showVersionHistory = true,
+  showCancelAction = true,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -504,81 +719,7 @@ export function DealForm({
     manageTitle: t('customers.deals.form.currency.manage', 'Manage currency dictionary'),
   }), [t])
 
-  const searchPeople = React.useCallback(async (query: string): Promise<EntityOption[]> => {
-    const params = new URLSearchParams({
-      pageSize: '20',
-      sortField: 'name',
-      sortDir: 'asc',
-    })
-    if (query.trim().length) params.set('search', query.trim())
-    const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
-    if (!call.ok) {
-      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search people')
-    }
-    const payload = call.result ?? {}
-    const items = Array.isArray(payload.items) ? payload.items : []
-    return items
-      .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
-      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null)
-  }, [])
-
-  const fetchPeopleByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
-    const unique = sanitizeIdList(ids)
-    if (!unique.length) return []
-    const results = await Promise.all(unique.map(async (id) => {
-      try {
-        const call = await apiCall<Record<string, unknown>>(`/api/customers/people?id=${encodeURIComponent(id)}&pageSize=1`)
-        if (!call.ok) throw new Error()
-        const payload = call.result ?? {}
-        const items = Array.isArray(payload.items) ? payload.items : []
-        const option = items
-          .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
-          .find((candidate: EntityOption | null): candidate is EntityOption => candidate !== null)
-        return option ?? { id, label: id }
-      } catch {
-        return { id, label: id }
-      }
-    }))
-    return results
-  }, [])
-
-  const searchCompanies = React.useCallback(async (query: string): Promise<EntityOption[]> => {
-    const params = new URLSearchParams({
-      pageSize: '20',
-      sortField: 'name',
-      sortDir: 'asc',
-    })
-    if (query.trim().length) params.set('search', query.trim())
-    const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
-    if (!call.ok) {
-      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search companies')
-    }
-    const payload = call.result ?? {}
-    const items = Array.isArray(payload.items) ? payload.items : []
-    return items
-      .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
-      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null)
-  }, [])
-
-  const fetchCompaniesByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
-    const unique = sanitizeIdList(ids)
-    if (!unique.length) return []
-    const results = await Promise.all(unique.map(async (id) => {
-      try {
-        const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?id=${encodeURIComponent(id)}&pageSize=1`)
-        if (!call.ok) throw new Error()
-        const payload = call.result ?? {}
-        const items = Array.isArray(payload.items) ? payload.items : []
-      const option = items
-        .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
-        .find((candidate: EntityOption | null): candidate is EntityOption => candidate !== null)
-        return option ?? { id, label: id }
-      } catch {
-        return { id, label: id }
-      }
-    }))
-    return results
-  }, [])
+  const { searchPeople, fetchPeopleByIds, searchCompanies, fetchCompaniesByIds } = useDealAssociationLookups()
 
   const disabled = pending || isSubmitting
   const canDelete = mode === 'edit' && typeof onDelete === 'function'
@@ -782,26 +923,31 @@ export function DealForm({
     } as CrudField,
   ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => [
-    {
-      id: 'details',
-      title: t('customers.people.detail.deals.form.details', 'Deal details'),
-      column: 1,
-      fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
-    },
-    {
-      id: 'associations',
-      title: t('customers.people.detail.deals.form.associations', 'Associations'),
-      column: 1,
-      fields: ['personIds', 'companyIds'],
-    },
-    {
-      id: 'custom',
-      title: t('customers.people.detail.deals.form.customFields', 'Custom fields'),
-      column: 2,
-      kind: 'customFields',
-    },
-  ], [t])
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const nextGroups: CrudFormGroup[] = [
+      {
+        id: 'details',
+        title: t('customers.people.detail.deals.form.details', 'Deal details'),
+        column: 1,
+        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
+      },
+      ...(showAssociationsGroup
+        ? [{
+            id: 'associations',
+            title: t('customers.people.detail.deals.form.associations', 'Associations'),
+            column: 1,
+            fields: ['personIds', 'companyIds'],
+          } satisfies CrudFormGroup]
+        : []),
+      {
+        id: 'custom',
+        title: t('customers.people.detail.deals.form.customFields', 'Custom fields'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+    return nextGroups.map((group) => (singleColumnGroups ? { ...group, column: 1 } : group))
+  }, [showAssociationsGroup, singleColumnGroups, t])
 
   const embeddedInitialValues = React.useMemo(() => {
     const normalizeNumber = (value: unknown): number | null => {
@@ -818,8 +964,9 @@ export function DealForm({
         return sanitizeIdList(
           source.map((entry) => {
             if (typeof entry === 'string') return entry
-            if (entry && typeof entry === 'object' && 'id' in entry && typeof (entry as any).id === 'string') {
-              return (entry as any).id
+            if (entry && typeof entry === 'object' && 'id' in entry) {
+              const candidate = (entry as { id?: unknown }).id
+              if (typeof candidate === 'string') return candidate
             }
             return null
           }),
@@ -897,9 +1044,14 @@ export function DealForm({
   return (
     <CrudForm<Record<string, unknown>>
       embedded={embedded}
+      trackDirtyWhenEmbedded={trackDirtyWhenEmbedded}
       title={title}
       backHref={backHref}
-      versionHistory={mode === 'edit' && initialValues?.id
+      hideFooterActions={hideFooterActions}
+      onDirtyChange={onDirtyChange}
+      collapsibleGroups={collapsibleGroups}
+      sortableGroups={sortableGroups}
+      versionHistory={showVersionHistory && mode === 'edit' && initialValues?.id
         ? { resourceKind: 'customers.deal', resourceId: String(initialValues.id) }
         : undefined}
       schema={schema}
@@ -916,7 +1068,7 @@ export function DealForm({
           ? t('customers.people.detail.deals.update', 'Update deal (⌘/Ctrl + Enter)')
           : t('customers.people.detail.deals.save', 'Save deal (⌘/Ctrl + Enter)'))
       }
-      extraActions={(
+      extraActions={showCancelAction ? (
         <Button
           type="button"
           variant="outline"
@@ -925,7 +1077,7 @@ export function DealForm({
         >
           {cancelLabel ?? t('customers.people.detail.deals.cancel', 'Cancel')}
         </Button>
-      )}
+      ) : undefined}
     />
   )
 }

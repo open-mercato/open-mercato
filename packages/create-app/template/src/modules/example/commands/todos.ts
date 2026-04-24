@@ -27,13 +27,13 @@ import {
 
 export const todoCreateSchema = z.object({
   id: z.string().uuid().optional(),
-  title: z.string().min(1),
+  title: z.string().min(1).max(200),
   is_done: z.boolean().optional(),
 })
 
 export const todoUpdateSchema = z.object({
   id: z.string().uuid(),
-  title: z.string().min(1).optional(),
+  title: z.string().min(1).max(200).optional(),
   is_done: z.boolean().optional(),
 })
 
@@ -407,7 +407,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       restored.isDone = before.is_done
       restored.tenantId = before.tenantId ?? scope.tenantId
       restored.organizationId = before.organizationId ?? scope.organizationId
-      await em.persistAndFlush(restored)
+      await em.persist(restored).flush()
     } else {
       restored = await de.createOrmEntity({
         entity: Todo,

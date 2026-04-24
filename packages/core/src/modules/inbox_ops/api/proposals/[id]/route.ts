@@ -49,7 +49,10 @@ export async function GET(req: Request) {
     ])
 
     return NextResponse.json({
-      proposal,
+      proposal: {
+        ...proposal,
+        actions,
+      },
       actions,
       discrepancies,
       email,

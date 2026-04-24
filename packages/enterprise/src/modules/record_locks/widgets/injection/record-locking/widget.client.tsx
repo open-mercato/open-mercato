@@ -6,7 +6,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
@@ -1254,21 +1254,25 @@ export default function RecordLockingWidget({
           ) : null}
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (
             !isRecordDeleted ? (
-            <Notice compact variant="info">
-              {t(
-                'record_locks.conflict.no_field_details',
-                'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
-              )}
-            </Notice>
+            <Alert variant="info">
+              <AlertDescription>
+                {t(
+                  'record_locks.conflict.no_field_details',
+                  'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
+                )}
+              </AlertDescription>
+            </Alert>
             ) : null
           ) : null}
           {showOverrideBlockedNotice ? (
-            <Notice compact variant="warning">
-              {t(
-                'record_locks.conflict.override_blocked_notice',
-                'You cannot keep your version because you do not have permission to override incoming changes.',
-              )}
-            </Notice>
+            <Alert variant="warning">
+              <AlertDescription>
+                {t(
+                  'record_locks.conflict.override_blocked_notice',
+                  'You cannot keep your version because you do not have permission to override incoming changes.',
+                )}
+              </AlertDescription>
+            </Alert>
           ) : null}
           <div className="-mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <div className="flex flex-wrap justify-end gap-2">

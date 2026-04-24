@@ -150,7 +150,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     if (cache.shouldWriteLastUsed(record.id)) {
       try {
         record.lastUsedAt = new Date()
-        await em.persistAndFlush(record)
+        await em.persist(record).flush()
       } catch {
         // best-effort update; ignore write failures
       }

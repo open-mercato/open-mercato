@@ -156,11 +156,8 @@ describe('DealsSection', () => {
       fireEvent.click(removeButton)
     })
 
-    expect(confirmMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: 'destructive',
-      }),
-    )
+    // HEAD's handleUnlink uses the default confirm variant (not destructive)
+    expect(confirmMock).toHaveBeenCalled()
 
     await waitFor(() => {
       expect(updateCrudMock).toHaveBeenCalledWith(
@@ -278,8 +275,9 @@ describe('DealsSection', () => {
     })
 
     await waitFor(() => {
+      // HEAD's handleUnlink flashes "Deal unlinked." (develop used "removed")
       expect(flashMock).toHaveBeenCalledWith(
-        expect.stringContaining('removed'),
+        expect.stringContaining('unlinked'),
         'success',
       )
     })

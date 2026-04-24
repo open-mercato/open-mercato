@@ -41,7 +41,9 @@ describe('Workflow Engine Integration Tests', () => {
       findOne: jest.fn(),
       find: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       count: jest.fn(),
     } as any

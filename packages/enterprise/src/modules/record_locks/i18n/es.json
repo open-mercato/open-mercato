@@ -27,6 +27,8 @@
   "record_locks.conflict.record_deleted_description": "Este registro fue eliminado por otro usuario mientras lo editabas. El guardado está bloqueado para evitar resultados inesperados.",
   "record_locks.conflict.record_deleted_title": "El registro fue eliminado",
   "record_locks.conflict.refresh_page": "Actualizar página",
+  "record_locks.conflict.refresh_required": "Could not confirm conflict details. Save again to refresh conflict data.",
+  "record_locks.conflict.retry_save_after_accept_mine": "Click save again to apply your changes.",
   "record_locks.conflict.title": "Conflicto detectado",
   "record_locks.errors.acquire_failed": "No se pudo cargar el estado del bloqueo del registro.",
   "record_locks.errors.force_release_failed": "No se pudo tomar el control de la edición.",

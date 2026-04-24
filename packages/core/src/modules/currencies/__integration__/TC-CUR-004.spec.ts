@@ -16,18 +16,21 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-CUR-004: Set Base Currency from UI', () => {
   test('should set a non-base currency as base from the currencies list view', async ({ page, request }) => {
+    test.setTimeout(30_000);
+
     let token: string | null = null;
     let currencyId: string | null = null;
     let originalBaseId: string | null = null;
 
     try {
-      token = await getAuthToken(request, 'admin');
-      const { organizationId, tenantId } = getTokenContext(token);
+      const authToken = await getAuthToken(request, 'admin');
+      token = authToken;
+      const { organizationId, tenantId } = getTokenContext(authToken);
 
       // Create a fixture currency
       const randLetter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
       const code = `B${randLetter()}${randLetter()}`;
-      currencyId = await createCurrencyFixture(request, token, {
+      currencyId = await createCurrencyFixture(request, authToken, {
         code,
         name: 'QA TC-CUR-004 Target Currency',
       });
@@ -37,7 +40,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
         request,
         'GET',
         '/api/currencies/currencies?isBase=true&pageSize=1',
-        { token },
+        { token: authToken },
       );
       const listBody = (await listResponse.json()) as { items?: Array<{ id: string }> };
       originalBaseId = listBody.items?.[0]?.id ?? null;
@@ -59,10 +62,25 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
       await setBaseItem.click();
 
-      // Verify the row now shows the base badge after reload
-      await expect(
-        row.getByText(/^base$/i),
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('Base currency updated successfully').first()).toBeVisible({
+        timeout: 10_000,
+      });
+
+      await expect
+        .poll(
+          async () => {
+            const response = await apiRequest(
+              request,
+              'GET',
+              `/api/currencies/currencies?isBase=true&code=${encodeURIComponent(code)}&pageSize=10`,
+              { token: authToken },
+            );
+            const body = (await response.json()) as { items?: Array<{ id: string }> };
+            return body.items?.some((item) => item.id === currencyId) ?? false;
+          },
+          { timeout: 10_000 }
+        )
+        .toBe(true);
     } finally {
       // Restore original base currency if we changed it
       if (token && originalBaseId) {

@@ -60,15 +60,17 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
 
   const buildService = (existingIds: string[]) => {
     const findMock = jest.fn(async () => existingIds.map((id) => ({ id })))
-    const persistAndFlushMock = jest.fn(async () => {})
+    const flushMock = jest.fn(async () => {})
+    const persistMock = jest.fn().mockReturnValue({ flush: flushMock })
     const createMock = jest.fn((_entity: any, data: any) => ({ id: 'new-session', ...data }))
     const localEm = {
       find: findMock,
       nativeUpdate: nativeUpdateMock,
-      persistAndFlush: persistAndFlushMock,
+      persist: persistMock,
+      flush: flushMock,
       create: createMock,
     } as any
-    return { localEm, findMock, persistAndFlushMock, createMock }
+    return { localEm, findMock, persistMock, flushMock, createMock }
   }
 
   const originalCap = process.env.MAX_CUSTOMER_SESSIONS_PER_USER
@@ -86,7 +88,7 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
   it('does not revoke when the user has fewer than the default cap of 5', async () => {
     const { CustomerSessionService } = await import('../services/customerSessionService')
     const { CustomerUserSession } = await import('../data/entities')
-    const { localEm, findMock, persistAndFlushMock } = buildService(['s1', 's2', 's3', 's4'])
+    const { localEm, findMock, persistMock, flushMock } = buildService(['s1', 's2', 's3', 's4'])
 
     const service = new CustomerSessionService(localEm)
     await service.createSession(user, ['portal.view'])
@@ -96,13 +98,14 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     expect(findEntity).toBe(CustomerUserSession)
     expect(findFilter).toMatchObject({ user: userId, deletedAt: null })
     expect(nativeUpdateMock).not.toHaveBeenCalled()
-    expect(persistAndFlushMock).toHaveBeenCalledTimes(1)
+    expect(persistMock).toHaveBeenCalledTimes(1)
+    expect(flushMock).toHaveBeenCalledTimes(1)
   })
 
   it('revokes the oldest session when issuing the 6th concurrent session under the default cap', async () => {
     const { CustomerSessionService } = await import('../services/customerSessionService')
     const { CustomerUserSession } = await import('../data/entities')
-    const { localEm, persistAndFlushMock } = buildService(['s1', 's2', 's3', 's4', 's5'])
+    const { localEm, persistMock, flushMock } = buildService(['s1', 's2', 's3', 's4', 's5'])
 
     const service = new CustomerSessionService(localEm)
     await service.createSession(user, ['portal.view'])
@@ -112,7 +115,8 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     expect(entity).toBe(CustomerUserSession)
     expect(filter).toEqual({ id: { $in: ['s1'] } })
     expect(update.deletedAt).toBeInstanceOf(Date)
-    expect(persistAndFlushMock).toHaveBeenCalledTimes(1)
+    expect(persistMock).toHaveBeenCalledTimes(1)
+    expect(flushMock).toHaveBeenCalledTimes(1)
   })
 
   it('revokes all overflow sessions so at most cap sessions remain after create', async () => {

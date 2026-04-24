@@ -5,9 +5,11 @@ const mockMapRepo = {
   findOne: jest.fn(),
   create: jest.fn((data) => data),
 }
+const persistFlush = jest.fn(async () => {})
 const mockEm = {
   getRepository: () => mockMapRepo,
-  persistAndFlush: jest.fn(),
+  persist: jest.fn(() => ({ flush: persistFlush })),
+  flush: persistFlush,
 }
 
 const mockEncSvc = {
@@ -51,7 +53,8 @@ describe('entities/encryption API', () => {
     }))
     expect(res.status).toBe(200)
     expect(mockMapRepo.create).toHaveBeenCalled()
-    expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    expect(mockEm.persist).toHaveBeenCalled()
+    expect(persistFlush).toHaveBeenCalled()
     expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('auth:user', 't-1', 'o-1')
   })
 })

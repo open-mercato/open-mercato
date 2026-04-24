@@ -3,7 +3,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitTranslationsEvent } from '../events'
 
@@ -36,23 +36,26 @@ type DeleteInput = {
   tenantId: string
 }
 
-function resolveKnex(ctx: CommandRuntimeContext): Knex {
+function resolveDb(ctx: CommandRuntimeContext): Kysely<any> {
   const em = ctx.container.resolve('em') as EntityManager
-  return (em as unknown as { getConnection(): { getKnex(): Knex } }).getConnection().getKnex()
+  return em.getKysely<any>()
 }
 
 async function loadTranslationSnapshot(
-  knex: Knex,
+  db: Kysely<any>,
   entityType: string,
   entityId: string,
   tenantId: string,
   organizationId: string | null,
 ): Promise<TranslationSnapshot | null> {
-  const row = await knex('entity_translations')
-    .where({ entity_type: entityType, entity_id: entityId })
-    .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
-    .andWhereRaw('organization_id is not distinct from ?', [organizationId])
-    .first()
+  const row = await (db as any)
+    .selectFrom('entity_translations')
+    .selectAll()
+    .where('entity_type', '=', entityType)
+    .where('entity_id', '=', entityId)
+    .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+    .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+    .executeTakeFirst() as Record<string, any> | undefined
 
   if (!row) return null
   return {
@@ -70,35 +73,44 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
 
   async prepare(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
-    const knex = resolveKnex(ctx)
-    const snapshot = await loadTranslationSnapshot(knex, input.entityType, input.entityId, input.tenantId, input.organizationId)
+    const db = resolveDb(ctx)
+    const snapshot = await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
     return { before: snapshot }
   },
 
   async execute(input, ctx) {
-    const knex = resolveKnex(ctx)
-    const existing = await knex('entity_translations')
-      .where({ entity_type: input.entityType, entity_id: input.entityId })
-      .andWhereRaw('tenant_id is not distinct from ?', [input.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [input.organizationId])
-      .first()
-
-    const now = knex.fn.now()
+    const db = resolveDb(ctx) as any
+    const existing = await db
+      .selectFrom('entity_translations')
+      .select(['id'])
+      .where('entity_type', '=', input.entityType)
+      .where('entity_id', '=', input.entityId)
+      .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
+      .executeTakeFirst() as { id: string } | undefined
 
     if (existing) {
-      await knex('entity_translations')
-        .where({ id: existing.id })
-        .update({ translations: input.translations, updated_at: now })
+      await db
+        .updateTable('entity_translations')
+        .set({
+          translations: sql`${JSON.stringify(input.translations)}::jsonb`,
+          updated_at: sql`now()`,
+        } as any)
+        .where('id', '=', existing.id)
+        .execute()
     } else {
-      await knex('entity_translations').insert({
-        entity_type: input.entityType,
-        entity_id: input.entityId,
-        organization_id: input.organizationId,
-        tenant_id: input.tenantId,
-        translations: input.translations,
-        created_at: now,
-        updated_at: now,
-      })
+      await db
+        .insertInto('entity_translations')
+        .values({
+          entity_type: input.entityType,
+          entity_id: input.entityId,
+          organization_id: input.organizationId,
+          tenant_id: input.tenantId,
+          translations: sql`${JSON.stringify(input.translations)}::jsonb`,
+          created_at: sql`now()`,
+          updated_at: sql`now()`,
+        } as any)
+        .execute()
     }
 
     await emitTranslationsEvent('translations.translation.updated', {
@@ -108,18 +120,21 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
 
-    const saved = await knex('entity_translations')
-      .where({ entity_type: input.entityType, entity_id: input.entityId })
-      .andWhereRaw('tenant_id is not distinct from ?', [input.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [input.organizationId])
-      .first()
+    const saved = await db
+      .selectFrom('entity_translations')
+      .select(['id'])
+      .where('entity_type', '=', input.entityType)
+      .where('entity_id', '=', input.entityId)
+      .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
+      .executeTakeFirst() as { id: string } | undefined
 
-    return { rowId: saved.id }
+    return { rowId: saved?.id ?? '' }
   },
 
   async captureAfter(input, _result, ctx) {
-    const knex = resolveKnex(ctx)
-    return await loadTranslationSnapshot(knex, input.entityType, input.entityId, input.tenantId, input.organizationId)
+    const db = resolveDb(ctx)
+    return await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
   },
 
   async buildLog({ snapshots, result }) {
@@ -143,36 +158,47 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
   async undo({ logEntry, ctx }) {
     const payload = extractUndoPayload<TranslationUndoPayload>(logEntry)
     const before = payload?.before ?? null
-    const knex = resolveKnex(ctx)
+    const db = resolveDb(ctx) as any
 
     if (!before || !before.translations) {
       // Was a create — delete the record
       const resourceId = logEntry?.resourceId
       if (resourceId) {
-        await knex('entity_translations').where({ id: resourceId }).del()
+        await db.deleteFrom('entity_translations').where('id', '=', resourceId).execute()
       }
     } else {
       // Was an update — restore previous translations
-      const existing = await knex('entity_translations')
-        .where({ entity_type: before.entityType, entity_id: before.entityId })
-        .andWhereRaw('tenant_id is not distinct from ?', [before.tenantId])
-        .andWhereRaw('organization_id is not distinct from ?', [before.organizationId])
-        .first()
+      const existing = await db
+        .selectFrom('entity_translations')
+        .select(['id'])
+        .where('entity_type', '=', before.entityType)
+        .where('entity_id', '=', before.entityId)
+        .where(sql<boolean>`tenant_id is not distinct from ${before.tenantId}`)
+        .where(sql<boolean>`organization_id is not distinct from ${before.organizationId}`)
+        .executeTakeFirst() as { id: string } | undefined
 
       if (existing) {
-        await knex('entity_translations')
-          .where({ id: existing.id })
-          .update({ translations: before.translations, updated_at: knex.fn.now() })
+        await db
+          .updateTable('entity_translations')
+          .set({
+            translations: sql`${JSON.stringify(before.translations)}::jsonb`,
+            updated_at: sql`now()`,
+          } as any)
+          .where('id', '=', existing.id)
+          .execute()
       } else {
-        await knex('entity_translations').insert({
-          entity_type: before.entityType,
-          entity_id: before.entityId,
-          organization_id: before.organizationId,
-          tenant_id: before.tenantId,
-          translations: before.translations,
-          created_at: knex.fn.now(),
-          updated_at: knex.fn.now(),
-        })
+        await db
+          .insertInto('entity_translations')
+          .values({
+            entity_type: before.entityType,
+            entity_id: before.entityId,
+            organization_id: before.organizationId,
+            tenant_id: before.tenantId,
+            translations: sql`${JSON.stringify(before.translations)}::jsonb`,
+            created_at: sql`now()`,
+            updated_at: sql`now()`,
+          } as any)
+          .execute()
       }
     }
   },
@@ -183,18 +209,21 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
 
   async prepare(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
-    const knex = resolveKnex(ctx)
-    const snapshot = await loadTranslationSnapshot(knex, input.entityType, input.entityId, input.tenantId, input.organizationId)
+    const db = resolveDb(ctx)
+    const snapshot = await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
     return { before: snapshot }
   },
 
   async execute(input, ctx) {
-    const knex = resolveKnex(ctx)
-    const count = await knex('entity_translations')
-      .where({ entity_type: input.entityType, entity_id: input.entityId })
-      .andWhereRaw('tenant_id is not distinct from ?', [input.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [input.organizationId])
-      .del()
+    const db = resolveDb(ctx) as any
+    const result = await db
+      .deleteFrom('entity_translations')
+      .where('entity_type', '=', input.entityType)
+      .where('entity_id', '=', input.entityId)
+      .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
+      .executeTakeFirst() as { numDeletedRows?: bigint | number } | undefined
+    const count = Number(result?.numDeletedRows ?? 0)
 
     await emitTranslationsEvent('translations.translation.deleted', {
       entityType: input.entityType,
@@ -227,24 +256,30 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
     const payload = extractUndoPayload<TranslationUndoPayload>(logEntry)
     const before = payload?.before
     if (!before || !before.translations) return
-    const knex = resolveKnex(ctx)
+    const db = resolveDb(ctx) as any
 
-    const existing = await knex('entity_translations')
-      .where({ entity_type: before.entityType, entity_id: before.entityId })
-      .andWhereRaw('tenant_id is not distinct from ?', [before.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [before.organizationId])
-      .first()
+    const existing = await db
+      .selectFrom('entity_translations')
+      .select(['id'])
+      .where('entity_type', '=', before.entityType)
+      .where('entity_id', '=', before.entityId)
+      .where(sql<boolean>`tenant_id is not distinct from ${before.tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${before.organizationId}`)
+      .executeTakeFirst() as { id: string } | undefined
 
     if (!existing) {
-      await knex('entity_translations').insert({
-        entity_type: before.entityType,
-        entity_id: before.entityId,
-        organization_id: before.organizationId,
-        tenant_id: before.tenantId,
-        translations: before.translations,
-        created_at: knex.fn.now(),
-        updated_at: knex.fn.now(),
-      })
+      await db
+        .insertInto('entity_translations')
+        .values({
+          entity_type: before.entityType,
+          entity_id: before.entityId,
+          organization_id: before.organizationId,
+          tenant_id: before.tenantId,
+          translations: sql`${JSON.stringify(before.translations)}::jsonb`,
+          created_at: sql`now()`,
+          updated_at: sql`now()`,
+        } as any)
+        .execute()
     }
   },
 }

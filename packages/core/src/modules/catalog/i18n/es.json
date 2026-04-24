@@ -408,6 +408,7 @@
   "catalog.products.edit.weight.unit": "Unidad de peso",
   "catalog.products.edit.weight.value": "Peso",
   "catalog.products.errors.handleExists": "El identificador ya está en uso.",
+  "catalog.products.errors.notFound": "Catalog product not found.",
   "catalog.products.errors.skuExists": "El SKU ya está en uso.",
   "catalog.products.errors.taxClassNotFound": "Clase de impuesto no encontrada.",
   "catalog.products.filters.active": "Activo",

@@ -1,37 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { Clock } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import {
-  ActivitiesSection as SharedActivitiesSection,
-  type ActivitySummary,
-  type ActivitiesDataAdapter,
-  type SectionAction,
-  type TabEmptyStateConfig,
-} from '@open-mercato/ui/backend/detail'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { createDictionarySelectLabels } from './utils'
-import { ensureCustomerDictionary, invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
-import { CustomFieldValuesList } from './CustomFieldValuesList'
-import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
-import { E } from '#generated/entities.ids.generated'
-import {
-  CUSTOMER_INTERACTION_ENTITY_ID,
-  mapInteractionRecordToActivitySummary,
-} from '../../lib/interactionCompatibility'
-import type { InteractionSummary } from './types'
-
-type DictionaryOption = {
-  value: string
-  label: string
-  color: string | null
-  icon: string | null
-}
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { ActivityTimelineFilters } from './ActivityTimelineFilters'
+import { ActivityTimeline } from './ActivityTimeline'
+import type { ActivitySummary, InteractionSummary } from './types'
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -40,6 +18,7 @@ type GuardedMutationRunner = <T>(
 
 export type ActivitiesSectionProps = {
   entityId: string | null
+  entityName?: string | null
   dealId?: string | null
   useCanonicalInteractions?: boolean
   addActionLabel: string
@@ -51,372 +30,299 @@ export type ActivitiesSectionProps = {
   entityOptions?: Array<{ id: string; label: string }>
   defaultEntityId?: string | null
   runGuardedMutation?: GuardedMutationRunner
+  refreshKey?: number
+  onEditActivity?: (activity: InteractionSummary) => void
+}
+
+function toDateOnly(value: string | null | undefined): string {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+}
+
+function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {
+  return {
+    id: activity.id,
+    interactionType: activity.activityType,
+    title: activity.subject ?? null,
+    body: activity.body ?? null,
+    status: 'done',
+    scheduledAt: null,
+    occurredAt: activity.occurredAt ?? null,
+    priority: null,
+    authorUserId: activity.authorUserId ?? null,
+    ownerUserId: null,
+    appearanceIcon: activity.appearanceIcon ?? null,
+    appearanceColor: activity.appearanceColor ?? null,
+    source: 'legacy-activity',
+    entityId: activity.entityId ?? null,
+    dealId: activity.dealId ?? null,
+    organizationId: null,
+    tenantId: null,
+    authorName: activity.authorName ?? null,
+    authorEmail: activity.authorEmail ?? null,
+    dealTitle: activity.dealTitle ?? null,
+    customValues: activity.customValues ?? null,
+    createdAt: activity.createdAt,
+    updatedAt: activity.createdAt,
+  }
+}
+
+function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary[] {
+  const now = Date.now()
+  return [...items].sort((left, right) => {
+    const leftScheduled = left.scheduledAt ? new Date(left.scheduledAt).getTime() : Number.NaN
+    const rightScheduled = right.scheduledAt ? new Date(right.scheduledAt).getTime() : Number.NaN
+    const leftIsPlanned = left.status === 'planned' && Number.isFinite(leftScheduled)
+    const rightIsPlanned = right.status === 'planned' && Number.isFinite(rightScheduled)
+    const leftIsUpcoming = leftIsPlanned && leftScheduled >= now
+    const rightIsUpcoming = rightIsPlanned && rightScheduled >= now
+
+    if (leftIsUpcoming !== rightIsUpcoming) {
+      return leftIsUpcoming ? -1 : 1
+    }
+
+    if (leftIsUpcoming && rightIsUpcoming) {
+      if (leftScheduled === rightScheduled) return left.id.localeCompare(right.id)
+      return leftScheduled - rightScheduled
+    }
+
+    const leftTime = left.occurredAt ?? left.createdAt
+    const rightTime = right.occurredAt ?? right.createdAt
+    const compare = rightTime.localeCompare(leftTime)
+    if (compare !== 0) return compare
+    return right.id.localeCompare(left.id)
+  })
 }
 
 export function ActivitiesSection({
   entityId,
+  entityName,
   dealId,
   useCanonicalInteractions = false,
-  addActionLabel,
-  emptyState,
   onActionChange,
   onLoadingChange,
-  onDataRefresh,
-  dealOptions,
-  entityOptions,
-  defaultEntityId,
-  runGuardedMutation,
+  refreshKey = 0,
+  onEditActivity,
 }: ActivitiesSectionProps) {
   const t = useT()
-  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const queryClient = useQueryClient()
-  const scopeVersion = useOrganizationScopeVersion()
-  const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
-  const dictionaryMap = dictionaryQuery.data?.map ?? {}
-  const customFieldResources = useCustomFieldDisplay(
-    useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : E.customers.customer_activity,
-  )
-  const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not provided')
+  const [filterTypes, setFilterTypes] = React.useState<string[]>([])
+  const [filterDateFrom, setFilterDateFrom] = React.useState('')
+  const [filterDateTo, setFilterDateTo] = React.useState('')
+  const [activities, setActivities] = React.useState<InteractionSummary[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [hasMore, setHasMore] = React.useState(false)
+  const [loadedPages, setLoadedPages] = React.useState(1)
 
-  const translate = React.useCallback(
-    (key: string, fallback: string) => {
-      const result = t(key)
-      return result === key ? fallback : result
-    },
-    [t],
-  )
-  const runWriteMutation = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
-      if (!runGuardedMutation) {
-        return operation()
-      }
-      return runGuardedMutation(operation, mutationPayload)
-    },
-    [runGuardedMutation],
-  )
+  React.useEffect(() => {
+    onActionChange?.(null)
+    return () => onActionChange?.(null)
+  }, [onActionChange])
 
-  const activityTypeLabels = React.useMemo(
-    () => createDictionarySelectLabels('activity-types', translate),
-    [translate],
-  )
+  React.useEffect(() => {
+    onLoadingChange?.(loading)
+  }, [loading, onLoadingChange])
 
-  const loadActivityOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
-    const data = await ensureCustomerDictionary(queryClient, 'activity-types', scopeVersion)
-    return data.entries
-      .filter((entry) => entry.value !== 'task')
-      .map((entry) => ({
-        value: entry.value,
-        label: entry.label,
-        color: entry.color ?? null,
-        icon: entry.icon ?? null,
-      }))
-  }, [queryClient, scopeVersion])
+  const loadActivities = React.useCallback(async () => {
+    if (!entityId) {
+      setActivities([])
+      return
+    }
 
-  const createActivityOption = React.useCallback(
-    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const requestPayload = {
-        value: input.value,
-        label: input.label ?? undefined,
-        color: input.color ?? undefined,
-        icon: input.icon ?? undefined,
-      }
-      const response = await runWriteMutation(
-        () => apiCallOrThrow<Record<string, unknown>>(
-          '/api/customers/dictionaries/activity-types',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(requestPayload),
-          },
-          { errorMessage: translate('customers.people.form.dictionary.error', 'Failed to save option') },
-        ),
-        requestPayload,
-      )
-      const resultPayload = response.result ?? {}
-      const valueCreated =
-        typeof resultPayload.value === 'string' && resultPayload.value.trim().length
-          ? resultPayload.value.trim()
-          : input.value
-      const label =
-        typeof resultPayload.label === 'string' && resultPayload.label.trim().length
-          ? resultPayload.label.trim()
-          : valueCreated
-      const color =
-        typeof resultPayload.color === 'string' && resultPayload.color.trim().startsWith('#')
-          ? resultPayload.color.trim()
-          : input.color ?? null
-      const icon =
-        typeof resultPayload.icon === 'string' && resultPayload.icon.trim().length
-          ? resultPayload.icon.trim()
-          : input.icon ?? null
-      await invalidateCustomerDictionary(queryClient, 'activity-types')
-      return { value: valueCreated, label, color, icon }
-    },
-    [queryClient, runWriteMutation, translate],
-  )
-
-  const activitiesAdapter = React.useMemo<ActivitiesDataAdapter>(() => ({
-    list: async ({ entityId: listEntityId, dealId: listDealId }) => {
-      if (useCanonicalInteractions) {
-        const params = new URLSearchParams({
-          limit: '50',
-          sortField: 'occurredAt',
-          sortDir: 'desc',
-          excludeInteractionType: 'task',
-        })
-        if (listEntityId) params.set('entityId', listEntityId)
-        if (listDealId) params.set('dealId', listDealId)
-        const payload = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
-          `/api/customers/interactions?${params.toString()}`,
-          undefined,
-          { errorMessage: translate('customers.people.detail.activities.loadError', 'Failed to load activities.') },
-        )
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        return items.map((interaction) => mapInteractionRecordToActivitySummary(interaction))
-      }
-
-      const params = new URLSearchParams({
-        pageSize: '50',
+    setLoading(true)
+    try {
+      // Always fetch canonical interactions (new activities are always created here)
+      const canonicalParams = new URLSearchParams({
+        entityId,
+        limit: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
+        excludeInteractionType: 'task',
       })
-      if (listEntityId) params.set('entityId', listEntityId)
-      if (listDealId) params.set('dealId', listDealId)
-      const payload = await readApiResultOrThrow<Record<string, unknown>>(
-        `/api/customers/activities?${params.toString()}`,
-        undefined,
-        { errorMessage: translate('customers.people.detail.activities.loadError', 'Failed to load activities.') },
-      )
-      return Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
-    },
-    create: async ({ entityId: payloadEntityId, dealId: payloadDealId, ...payload }) => {
+      if (dealId) canonicalParams.set('dealId', dealId)
+      if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
+      if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
+      if (filterDateTo) canonicalParams.set('to', filterDateTo)
+
+      const canonicalItems: InteractionSummary[] = []
+      let canonicalCursor: string | undefined
+      let canonicalHasMore = false
+      let pageIndex = 0
+      do {
+        const params = new URLSearchParams(canonicalParams)
+        if (canonicalCursor) params.set('cursor', canonicalCursor)
+        const canonicalPayload = await readApiResultOrThrow<{ items?: InteractionSummary[]; nextCursor?: string }>(
+          `/api/customers/interactions?${params.toString()}`,
+        ).catch(() => ({ items: [] as InteractionSummary[], nextCursor: undefined }))
+        canonicalItems.push(...(Array.isArray(canonicalPayload?.items) ? canonicalPayload.items : []))
+        canonicalCursor = typeof canonicalPayload?.nextCursor === 'string' ? canonicalPayload.nextCursor : undefined
+        canonicalHasMore = Boolean(canonicalCursor)
+        pageIndex += 1
+      } while (canonicalCursor && pageIndex < loadedPages)
+
       if (useCanonicalInteractions) {
-        const interactionPayload = {
-          entityId: payloadEntityId,
-          interactionType: payload.activityType,
-          title: payload.subject ?? undefined,
-          body: payload.body ?? undefined,
-          occurredAt: payload.occurredAt ?? undefined,
-          status: payload.occurredAt ? 'done' : 'planned',
-          dealId: payloadDealId ?? undefined,
-          ...(payload.customFields ? { customFields: payload.customFields } : {}),
+        setActivities(sortTimelineActivities(canonicalItems))
+        setHasMore(canonicalHasMore)
+        return
+      }
+
+      // In legacy mode, also fetch legacy activities and merge with canonical
+      const legacyItems: InteractionSummary[] = []
+      let legacyTotalPages = 1
+      for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
+        const legacyParams = new URLSearchParams({
+          entityId,
+          page: String(legacyPage),
+          pageSize: '50',
+          sortField: 'occurredAt',
+          sortDir: 'desc',
+        })
+        if (dealId) legacyParams.set('dealId', dealId)
+        const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+          `/api/customers/activities?${legacyParams.toString()}`,
+        ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+        legacyItems.push(...(Array.isArray(legacyPayload?.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
+        legacyTotalPages = typeof legacyPayload?.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
+      }
+      const legacyFiltered = legacyItems.filter((entry) => {
+        if (filterTypes.length > 0 && !filterTypes.includes(entry.interactionType)) return false
+        const dateOnly = toDateOnly(entry.occurredAt ?? entry.createdAt)
+        if (filterDateFrom && dateOnly < filterDateFrom) return false
+        if (filterDateTo && dateOnly > filterDateTo) return false
+        return true
+      })
+
+      // Merge and deduplicate by id, sort newest first
+      const seen = new Set<string>()
+      const merged: InteractionSummary[] = []
+      for (const item of [...canonicalItems, ...legacyFiltered]) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id)
+          merged.push(item)
         }
-        await runWriteMutation(
-          () => createCrud(
-            'customers/interactions',
-            interactionPayload,
-            {
-              errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-            },
-          ),
-          interactionPayload,
-        )
-        onDataRefresh?.()
-        return
       }
-
-      const activityPayload = {
-        entityId: payloadEntityId,
-        activityType: payload.activityType,
-        subject: payload.subject ?? undefined,
-        body: payload.body ?? undefined,
-        occurredAt: payload.occurredAt ?? undefined,
-        dealId: payloadDealId ?? undefined,
-        ...(payload.customFields ? { customFields: payload.customFields } : {}),
-      }
-      await runWriteMutation(
-        () => createCrud(
-          'customers/activities',
-          activityPayload,
-          {
-            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-          },
-        ),
-        activityPayload,
-      )
-      onDataRefresh?.()
-    },
-    update: async ({ id, patch }) => {
-      if (useCanonicalInteractions) {
-        const interactionPatch = {
-          id,
-          interactionType: patch.activityType,
-          title: patch.subject ?? undefined,
-          body: patch.body ?? undefined,
-          occurredAt: patch.occurredAt ?? undefined,
-          status: patch.occurredAt ? 'done' : undefined,
-          dealId: patch.dealId ?? undefined,
-          ...(patch.customFields ? { customFields: patch.customFields } : {}),
-        }
-        await runWriteMutation(
-          () => updateCrud(
-            'customers/interactions',
-            interactionPatch,
-            {
-              errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-            },
-          ),
-          interactionPatch,
-        )
-        onDataRefresh?.()
-        return
-      }
-
-      const activityPatch = {
-        id,
-        entityId: patch.entityId,
-        activityType: patch.activityType,
-        subject: patch.subject ?? undefined,
-        body: patch.body ?? undefined,
-        occurredAt: patch.occurredAt ?? undefined,
-        dealId: patch.dealId ?? undefined,
-        ...(patch.customFields ? { customFields: patch.customFields } : {}),
-      }
-      await runWriteMutation(
-        () => updateCrud(
-          'customers/activities',
-          activityPatch,
-          {
-            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-          },
-        ),
-        activityPatch,
-      )
-      onDataRefresh?.()
-    },
-    delete: async ({ id }) => {
-      if (useCanonicalInteractions) {
-        const deletePayload = { id }
-        await runWriteMutation(
-          () => deleteCrud('customers/interactions', {
-            id,
-            errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
-          }),
-          deletePayload,
-        )
-        onDataRefresh?.()
-        return
-      }
-
-      const deletePayload = { id }
-      await runWriteMutation(
-        () => deleteCrud('customers/activities', {
-          id,
-          errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
-        }),
-        deletePayload,
-      )
-      onDataRefresh?.()
-    },
-  }), [onDataRefresh, runWriteMutation, translate, useCanonicalInteractions])
-
-  const resolveActivityPresentation = React.useCallback((activity: ActivitySummary) => {
-    const entry = dictionaryMap[activity.activityType]
-    return {
-      label: entry?.label ?? activity.activityType,
-      icon: entry?.icon ?? activity.appearanceIcon ?? null,
-      color: entry?.color ?? activity.appearanceColor ?? null,
+      setActivities(sortTimelineActivities(merged))
+      setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
+    } catch (error) {
+      console.error('customers.activities.history failed', error)
+      flash(t('customers.activities.loadFailed', 'Failed to load activities.'), 'error')
+      setActivities([])
+      setHasMore(false)
+    } finally {
+      setLoading(false)
     }
-  }, [dictionaryMap])
+  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
 
-  const renderCustomFields = React.useCallback((activity: ActivitySummary) => {
-    const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
-    return (
-      <CustomFieldValuesList
-        entries={customEntries.map((entry) => ({
-          key: entry.key,
-          value: entry.value,
-          label: entry.label,
-        }))}
-        values={activity.customValues ?? undefined}
-        resources={customFieldResources}
-        emptyLabel={customFieldEmptyLabel}
-        itemKeyPrefix={`activity-${activity.id}-field`}
-      />
+  React.useEffect(() => {
+    setLoadedPages(1)
+  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
+
+  const resolvedUserIdsRef = React.useRef(new Set<string>())
+
+  // Resolve missing author names from user IDs
+  React.useEffect(() => {
+    loadActivities()
+      .then(() => { resolvedUserIdsRef.current = new Set() })
+      .catch((err) => console.warn('[ActivitiesSection] loadActivities failed', err))
+  }, [loadActivities])
+
+  React.useEffect(() => {
+    const unresolvedIds = new Set<string>()
+    for (const a of activities) {
+      if (a.authorUserId && !a.authorName && !resolvedUserIdsRef.current.has(a.authorUserId)) {
+        unresolvedIds.add(a.authorUserId)
+      }
+    }
+    if (unresolvedIds.size === 0) return
+
+    for (const uid of unresolvedIds) resolvedUserIdsRef.current.add(uid)
+
+    const controller = new AbortController()
+    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+      `/api/auth/users?ids=${[...unresolvedIds].join(',')}`,
+      { signal: controller.signal },
     )
-  }, [customFieldEmptyLabel, customFieldResources])
-
-  const appearanceLabels = React.useMemo(() => ({
-    colorLabel: t('customers.config.dictionaries.dialog.colorLabel', 'Color'),
-    colorHelp: t('customers.config.dictionaries.dialog.colorHelp', 'Pick a highlight color for this entry.'),
-    colorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
-    iconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon or emoji'),
-    iconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
-    iconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
-    iconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis...'),
-    iconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
-    iconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
-    iconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
-    previewEmptyLabel: t('customers.config.dictionaries.dialog.previewEmpty', 'No appearance selected'),
-  }), [t])
-
-  const sortActivitiesSoonestFirst = React.useCallback((items: ActivitySummary[]): ActivitySummary[] => {
-    const toTimestamp = (value: string | null | undefined): number | null => {
-      if (!value) return null
-      const timestamp = Date.parse(value)
-      return Number.isNaN(timestamp) ? null : timestamp
-    }
-
-    const referenceTime = Date.now()
-
-    const getSortKey = (activity: ActivitySummary): { bucket: number; time: number; createdAt: number } => {
-      const primaryTimestamp = toTimestamp(activity.occurredAt ?? activity.createdAt)
-      const createdAtTimestamp = toTimestamp(activity.createdAt) ?? Number.POSITIVE_INFINITY
-
-      if (primaryTimestamp === null) {
-        return { bucket: 2, time: Number.POSITIVE_INFINITY, createdAt: createdAtTimestamp }
-      }
-
-      if (primaryTimestamp >= referenceTime) {
-        return { bucket: 0, time: primaryTimestamp, createdAt: createdAtTimestamp }
-      }
-
-      return { bucket: 1, time: -primaryTimestamp, createdAt: createdAtTimestamp }
-    }
-
-    return [...items].sort((left, right) => {
-      const leftKey = getSortKey(left)
-      const rightKey = getSortKey(right)
-      if (leftKey.bucket !== rightKey.bucket) return leftKey.bucket - rightKey.bucket
-      if (leftKey.time !== rightKey.time) return leftKey.time - rightKey.time
-      if (leftKey.createdAt !== rightKey.createdAt) return leftKey.createdAt - rightKey.createdAt
-      return left.id.localeCompare(right.id)
-    })
-  }, [])
-
-  const sortedActivitiesAdapter = React.useMemo<ActivitiesDataAdapter>(() => ({
-    ...activitiesAdapter,
-    list: async (params) => sortActivitiesSoonestFirst(await activitiesAdapter.list(params)),
-  }), [activitiesAdapter, sortActivitiesSoonestFirst])
-
-  const customFieldEntityIds = React.useMemo(
-    () => [useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : 'customers:customer_activity'],
-    [useCanonicalInteractions],
-  )
+      .then((data) => {
+        const users = Array.isArray(data?.items) ? data.items : []
+        const nameMap = new Map<string, string>()
+        for (const user of users) {
+          const userId = typeof user.id === 'string' ? user.id : null
+          const name = typeof user.display_name === 'string' && user.display_name.trim()
+            ? user.display_name.trim()
+            : typeof user.email === 'string'
+              ? user.email
+              : null
+          if (userId && name) nameMap.set(userId, name)
+        }
+        if (nameMap.size > 0) {
+          setActivities((prev) =>
+            prev.map((a) => {
+              if (a.authorUserId && !a.authorName && nameMap.has(a.authorUserId)) {
+                return { ...a, authorName: nameMap.get(a.authorUserId) ?? null }
+              }
+              return a
+            }),
+          )
+        }
+      })
+      .catch((err) => console.warn('[ActivitiesSection] resolve author names failed', err))
+    return () => controller.abort()
+  }, [activities])
 
   return (
-    <SharedActivitiesSection
-      entityId={entityId}
-      dealId={dealId}
-      dealOptions={dealOptions}
-      entityOptions={entityOptions}
-      defaultEntityId={defaultEntityId ?? undefined}
-      addActionLabel={addActionLabel}
-      emptyState={emptyState}
-      onActionChange={onActionChange}
-      onLoadingChange={onLoadingChange}
-      dataAdapter={sortedActivitiesAdapter}
-      activityTypeLabels={activityTypeLabels}
-      loadActivityOptions={loadActivityOptions}
-      createActivityOption={createActivityOption}
-      resolveActivityPresentation={resolveActivityPresentation}
-      renderCustomFields={renderCustomFields}
-      renderIcon={renderDictionaryIcon}
-      renderColor={renderDictionaryColor}
-      manageHref="/backend/config/customers"
-      appearanceLabels={appearanceLabels}
-      customFieldEntityIds={customFieldEntityIds}
-    />
+    <div className="rounded-2xl border border-border/70 bg-card p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Clock className="size-4 text-muted-foreground" />
+          <h3 className="text-base font-semibold text-foreground">
+            {entityName
+              ? t('customers.timeline.history.title', 'Interaction history with {{name}}', { name: entityName })
+              : t('customers.timeline.history.titleGeneric', 'Interaction history')}
+          </h3>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <ActivityTimelineFilters
+          entityId={entityId}
+          activeTypes={filterTypes}
+          dateFrom={filterDateFrom}
+          dateTo={filterDateTo}
+          onTypesChange={setFilterTypes}
+          onDateFromChange={setFilterDateFrom}
+          onDateToChange={setFilterDateTo}
+          onReset={() => {
+            setFilterTypes([])
+            setFilterDateFrom('')
+            setFilterDateTo('')
+          }}
+        />
+      </div>
+
+      {loading && activities.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border/70 px-4 py-8 text-sm text-muted-foreground">
+          {t('customers.people.detail.activities.loading', 'Loading activities…')}
+        </div>
+      ) : (
+        <>
+          <ActivityTimeline activities={activities} onEdit={onEditActivity} />
+          {activities.length > 0 ? (
+            <div className="border-t px-5 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {t('customers.activities.seeAll', 'See all {count} activities', { count: activities.length })}
+                </span>
+                {hasMore ? (
+                  <Button type="button" variant="link" size="sm" onClick={() => setLoadedPages((value) => value + 1)}>
+                    {t('customers.activities.loadMore', 'Load more')}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
   )
 }
 

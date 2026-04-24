@@ -6,26 +6,29 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator', () 
 }))
 
 describe('CustomerTokenService – atomic token consumption', () => {
-  function createKnexChain(updateResult: number) {
-    const chain = {
+  function createKyselyChain(updateResult: number) {
+    const builder = {
+      set: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
-      whereNull: jest.fn().mockReturnThis(),
-      update: jest.fn().mockResolvedValue(updateResult),
+      executeTakeFirst: jest
+        .fn()
+        .mockResolvedValue({ numUpdatedRows: BigInt(updateResult) }),
     }
-    return { chain, knexFn: jest.fn().mockReturnValue(chain) }
+    const db = { updateTable: jest.fn().mockReturnValue(builder) }
+    return { builder, db }
   }
 
   function createEm(overrides: {
     findOneResult?: unknown
     knexUpdateResult: number
   }) {
-    const { chain, knexFn } = createKnexChain(overrides.knexUpdateResult)
+    const { builder, db } = createKyselyChain(overrides.knexUpdateResult)
     const em = {
       findOne: jest.fn().mockResolvedValue(overrides.findOneResult ?? null),
-      getKnex: jest.fn().mockReturnValue(knexFn),
+      getKysely: jest.fn().mockReturnValue(db),
       flush: jest.fn(),
     } as any
-    return { em, knexFn, chain }
+    return { em, db, builder }
   }
 
   describe('verifyEmailToken', () => {
@@ -39,16 +42,16 @@ describe('CustomerTokenService – atomic token consumption', () => {
     }
 
     it('performs atomic UPDATE SET used_at WHERE used_at IS NULL', async () => {
-      const { em, knexFn, chain } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+      const { em, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
 
       const result = await service.verifyEmailToken('abc', 'email_verification')
 
-      expect(knexFn).toHaveBeenCalledWith('customer_user_email_verifications')
-      expect(chain.where).toHaveBeenCalledWith('id', 'ver-1')
-      expect(chain.whereNull).toHaveBeenCalledWith('used_at')
-      expect(chain.where).toHaveBeenCalledWith('expires_at', '>', expect.any(Date))
-      expect(chain.update).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+      expect(db.updateTable).toHaveBeenCalledWith('customer_user_email_verifications')
+      expect(builder.set).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+      expect(builder.where).toHaveBeenCalledWith('id', '=', 'ver-1')
+      expect(builder.where).toHaveBeenCalledWith('used_at', 'is', null)
+      expect(builder.where).toHaveBeenCalledWith('expires_at', '>', expect.any(Date))
       expect(result).toEqual({ userId: 'user-1', tenantId: 'tenant-1' })
     })
 
@@ -110,15 +113,15 @@ describe('CustomerTokenService – atomic token consumption', () => {
     }
 
     it('performs atomic UPDATE SET used_at WHERE used_at IS NULL', async () => {
-      const { em, knexFn, chain } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+      const { em, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
 
       const result = await service.verifyPasswordResetToken('xyz')
 
-      expect(knexFn).toHaveBeenCalledWith('customer_user_password_resets')
-      expect(chain.where).toHaveBeenCalledWith('id', 'rst-1')
-      expect(chain.whereNull).toHaveBeenCalledWith('used_at')
-      expect(chain.update).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+      expect(db.updateTable).toHaveBeenCalledWith('customer_user_password_resets')
+      expect(builder.set).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+      expect(builder.where).toHaveBeenCalledWith('id', '=', 'rst-1')
+      expect(builder.where).toHaveBeenCalledWith('used_at', 'is', null)
       expect(result).toEqual({ userId: 'user-2', tenantId: 'tenant-2' })
     })
 

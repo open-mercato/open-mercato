@@ -69,7 +69,7 @@ const seedGuardRules: ModuleCli = {
           organizationId,
         })
 
-        await em.persistAndFlush(rule)
+        await em.persist(rule).flush()
         console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }

@@ -235,7 +235,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         organizationId: input.organizationId,
       })
 
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       if (!threadId && !input.isDraft && !message.threadId) {
         message.threadId = message.id
         await trx.flush()
@@ -567,7 +567,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       for (const recipientUserId of recipientIds) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: message.id,
@@ -709,7 +709,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(newMessage)
+      await trx.persist(newMessage).flush()
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: newMessage.id,
