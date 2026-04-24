@@ -62,7 +62,7 @@ async function ensureKindPermission(
     order: 'sales.order.manage',
     quote: 'sales.quote.manage',
     invoice: 'sales.invoice.manage',
-    credit_memo: 'sales.credit-memo.manage',
+    credit_memo: 'sales.credit_memo.manage',
   }
   const requiredFeatures = [
     kindFeatureMap[kind] ?? 'sales.order.manage',

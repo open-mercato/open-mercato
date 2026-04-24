@@ -29,10 +29,10 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.credit-memo.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.credit_memo.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.credit_memo.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.credit_memo.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memo.manage'] },
 }
 
 const crud = makeCrudRoute({

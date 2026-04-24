@@ -43,7 +43,7 @@ The pipeline works for any `SalesDocumentKind` (`quote`, `order`, `invoice`, `cr
 
 ## Access Control & Custom Fields
 
-- `acl.ts` advertises feature switches (`sales.orders.manage`, `sales.payments.manage`, etc.) to gate UI/API endpoints.
+- `acl.ts` advertises feature switches (`sales.order.manage`, `sales.payment.manage`, etc.) to gate UI/API endpoints.
 - `ce.ts` registers custom-field containers for every major document/line, enabling the global custom field module to extend data without new columns.
 
 ## Status & Dictionary Integrations

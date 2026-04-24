@@ -650,7 +650,7 @@ The following existing components can be reused:
 | `pos.discount.apply` | ✓ | | Apply discounts above threshold |
 | `pos.cash.manage` | ✓ | | Cash in/out operations |
 
-> **Naming Convention:** POS uses singular entity names in ACL/command/event IDs (e.g., `pos.cart.manage`) per @pkarw's direction. This is a deliberate convention for the POS module — the Sales module uses plural names (e.g., `sales.orders.manage`).
+> **Naming Convention:** ACL/command/event IDs use singular entity names (e.g., `pos.cart.manage`, `sales.order.manage`). This is the platform-wide convention as of the 523-commands-naming standardisation.
 
 ### 9.2 Employee Switching (Quick Auth)
 

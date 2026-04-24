@@ -12,7 +12,7 @@ export const features = [
   { id: 'sales.return.view', title: 'View order returns', module: 'sales' },
   { id: 'sales.return.create', title: 'Create order returns', module: 'sales' },
   { id: 'sales.invoice.manage', title: 'Manage sales invoices', module: 'sales' },
-  { id: 'sales.credit-memo.manage', title: 'Manage credit memos', module: 'sales' },
+  { id: 'sales.credit_memo.manage', title: 'Manage credit memos', module: 'sales' },
   { id: 'sales.channel.manage', title: 'Manage sales channels', module: 'sales' },
   { id: 'sales.settings.manage', title: 'Manage sales configuration', module: 'sales' },
 ]

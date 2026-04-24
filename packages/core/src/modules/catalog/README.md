@@ -26,7 +26,7 @@ Types exported from the validators are intended for command handlers, CRUD facto
 
 ## Access Control
 
-`acl.ts` surfaces feature toggles for catalog operations (`catalog.products.view`, etc.). Downstream APIs and pages can declare `requireFeatures` metadata against these identifiers.
+`acl.ts` surfaces feature toggles for catalog operations (`catalog.product.view`, `catalog.product.manage`, `catalog.category.view`, etc.). Downstream APIs and pages can declare `requireFeatures` metadata against these identifiers.
 
 ## Internationalisation
 
