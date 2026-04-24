@@ -36,9 +36,9 @@ import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import './llm-bootstrap'
 
 export interface AgentRequestPageContext {
-  pageId?: string
-  entityType?: string
-  recordId?: string
+  pageId?: string | null
+  entityType?: string | null
+  recordId?: string | null
   [key: string]: unknown
 }
 
