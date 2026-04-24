@@ -49,6 +49,7 @@ Enable bulk selection on the Messages list when the active folder is `inbox`, wi
 | Selection scope | `folder === 'inbox'` only | The requested actions are recipient-scoped and map cleanly to inbox rows. This avoids ambiguous behavior in `sent`, `drafts`, `archived`, and `all`. |
 | Action transport | Client-side fan-out over existing single-message APIs | Smallest change surface; no new route, schema, command, or migration needed for v1. |
 | Toolbar pattern | Reuse shared `DataTable` bulk-action toolbar | Matches existing admin list behavior and avoids a Messages-only UI fork. |
+| Perspectives | Do not pass `perspective={{ tableId: 'messages.inbox' }}` on `/backend/messages` | The inbox list currently exposes a single primary column, so perspective management adds little value and unnecessary UI chrome in v1. |
 | Delete semantics | Keep existing actor-scoped delete behavior | `DELETE /api/messages/:id` already deletes from the current actor's view; bulk delete must preserve that contract. |
 | Failure model | Allow partial success with explicit summary feedback | Bulk execution is per message and already command-backed; forcing all-or-nothing would require a new server-side compound command and route. |
 
@@ -73,7 +74,7 @@ Enable bulk selection on the Messages list when the active folder is `inbox`, wi
 
 | Area | File | Change |
 |------|------|--------|
-| Messages list page | `packages/core/src/modules/messages/components/MessagesInboxPageClient.tsx` | Add inbox-only `bulkActions`, action handlers, confirmation flow, flash messaging, and selection reset wiring |
+| Messages list page | `packages/core/src/modules/messages/components/MessagesInboxPageClient.tsx` | Add inbox-only `bulkActions`, action handlers, confirmation flow, flash messaging, and selection reset wiring; intentionally omit `perspective={{ tableId: 'messages.inbox' }}` because the inbox currently renders a single primary column |
 | Shared table | `packages/ui/src/backend/DataTable.tsx` | Add an optional additive prop to clear row selection when host list scope changes |
 | Shared table tests | `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` | Cover selection reset behavior |
 
@@ -212,6 +213,7 @@ The selected-count label continues to use the shared `ui.dataTable.bulkAction.se
 - Bulk checkboxes are visible only in the `Inbox` folder on `/backend/messages`.
 - The header checkbox selects all rows on the current page.
 - The selected-count label and bulk action buttons appear in the existing `DataTable` toolbar area when at least one row is selected.
+- The inbox page intentionally does not expose the `messages.inbox` perspective picker in v1 because the table currently has a single primary column.
 - Delete requires the shared `ConfirmDialog`; mark read, mark unread, and archive do not require confirmation.
 - Buttons remain enabled for mixed read/unread selections because the underlying endpoints are idempotent.
 
@@ -234,12 +236,15 @@ The selected-count label continues to use the shared `ui.dataTable.bulkAction.se
 - No new ACL feature IDs
 - No route removal or rename
 - No response schema narrowing
+- `/backend/messages` intentionally stops exposing the page-level `messages.inbox` perspective UI because the inbox currently renders a single primary column; existing perspective records are preserved in storage but are no longer reachable from this page
 - One additive-only shared UI prop: `selectionScopeKey` on `DataTable`
 
 This spec preserves the stability rules in `BACKWARD_COMPATIBILITY.md`:
 - API routes remain stable
 - existing `DataTable` props remain unchanged
-- the new prop is optional and additive only
+- the new shared `DataTable` prop is optional and additive only
+
+This is a user-visible UX reduction on an existing page, but it does not remove a frozen contract surface from `BACKWARD_COMPATIBILITY.md`: no route, schema, event ID, import path, or shared component API is removed. The page-level perspective omission is intentional and documented here so the tradeoff is explicit.
 
 ## Implementation Plan
 
@@ -344,6 +349,13 @@ No migration or deployment choreography is required beyond normal frontend rollo
 - **Mitigation**: Make the prop optional, default to current behavior when omitted, and add a focused shared-table regression test
 - **Residual risk**: Low; the change is additive and localized
 
+#### Messages Inbox Perspectives Become Unavailable
+- **Scenario**: Users who previously relied on saved `messages.inbox` perspectives no longer see that UI on `/backend/messages`
+- **Severity**: Low
+- **Affected area**: inbox list personalization
+- **Mitigation**: Document the intentional removal in the spec; retain stored perspective records so the UI can be re-enabled later without data recovery work
+- **Residual risk**: Existing saved perspectives remain unreachable from this page in v1
+
 ### Operational Risks
 
 #### Stale Selection After Query-Scope Changes
@@ -375,7 +387,7 @@ No migration or deployment choreography is required beyond normal frontend rollo
 | `packages/ui/AGENTS.md` | Use shared `ConfirmDialog` instead of `window.confirm` | Compliant | Delete confirmation is explicitly routed through `useConfirmDialog` |
 | `packages/ui/AGENTS.md` | Keep `pageSize` at or below 100 | Compliant | No page-size expansion is introduced |
 | `BACKWARD_COMPATIBILITY.md` | API route URLs are stable; additive changes only | Compliant | No route rename/removal; no response narrowing |
-| `BACKWARD_COMPATIBILITY.md` | `DataTable` component props are stable; required props cannot be removed | Compliant | Only an optional additive prop is proposed |
+| `BACKWARD_COMPATIBILITY.md` | `DataTable` component props are stable; required props cannot be removed | Compliant | The shared component API remains additive via optional `selectionScopeKey`; the Messages inbox intentionally stops passing its page-level `perspective` config because the table currently exposes a single primary column |
 
 ### Internal Consistency Check
 
@@ -400,6 +412,9 @@ None.
 ### 2026-04-23
 - Initial specification for Messages inbox bulk actions
 
+### 2026-04-24
+- Documented the intentional removal of the `messages.inbox` perspective UI from `/backend/messages`; the inbox page now relies on bulk actions without the perspective picker because it currently renders a single primary column
+
 ### Review — 2026-04-23
 - **Reviewer**: Agent
 - **Security**: Passed
@@ -414,7 +429,7 @@ None.
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Shared Selection Reset Hook | Done | 2026-04-23 | Added additive `selectionScopeKey` support to `DataTable` with regression coverage |
-| Phase 2 — Messages Inbox Bulk Actions | Done | 2026-04-23 | Added inbox-only bulk read/unread/archive/delete actions with guarded mutations, partial-failure summaries, and delete confirmation |
+| Phase 2 — Messages Inbox Bulk Actions | Done | 2026-04-23 | Added inbox-only bulk read/unread/archive/delete actions with guarded mutations, partial-failure summaries, delete confirmation, and no inbox perspective picker because the page currently renders a single primary column |
 | Phase 3 — Verification | Done | 2026-04-23 | Added focused `DataTable` tests and new Playwright coverage for bulk read/unread and archive/delete flows |
 
 ### Phase 1 — Detailed Progress
@@ -428,6 +443,7 @@ None.
 - [x] Step 3: Implement page-local bulk execution with concurrency cap, exact success/failure summaries, and query invalidation after success
 - [x] Step 4: Pass `selectionScopeKey` derived from folder, page, search, and filter state
 - [x] Step 5: Add new i18n keys in all four locales
+- [x] Step 6: Keep the inbox page free of `messages.inbox` perspectives because the list currently exposes a single primary column
 
 ### Phase 3 — Detailed Progress
 - [x] Step 1: Add UI integration coverage for bulk mark read/unread
