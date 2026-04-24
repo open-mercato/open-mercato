@@ -41,13 +41,13 @@
 
 ### Phase 1: API contract alignment
 
-- [ ] 1.1 Extract or reuse the shared response normalization path for people and company detail custom fields
-- [ ] 1.2 Add focused coverage that locks the `customFields` response shape to bare keys for customer detail endpoints
+- [x] 1.1 Extract or reuse the shared response normalization path for people and company detail custom fields — 6805aa444
+- [x] 1.2 Add focused coverage that locks the `customFields` response shape to bare keys for customer detail endpoints — 6805aa444
 
 ### Phase 2: Guidance and cleanup
 
-- [ ] 2.1 Restore alphabetical dependency ordering in `packages/shared/package.json`
-- [ ] 2.2 Update monorepo and standalone AGENTS guidance to require bare-key `customFields` detail responses via the shared helper
+- [x] 2.1 Restore alphabetical dependency ordering in `packages/shared/package.json` — 6805aa444
+- [x] 2.2 Update monorepo and standalone AGENTS guidance to require bare-key `customFields` detail responses via the shared helper — 6805aa444
 
 ### Phase 3: Validation and delivery
 
