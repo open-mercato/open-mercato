@@ -314,39 +314,16 @@ jobs:
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
-      - name: Generate standalone app modules
-        working-directory: /tmp/standalone-app
-        run: yarn generate
-
-      - name: Initialize standalone app database
-        working-directory: /tmp/standalone-app
-        run: yarn initialize
-
-      - name: Build standalone app
-        working-directory: /tmp/standalone-app
-        run: yarn build
-
-      - name: Start standalone app
-        working-directory: /tmp/standalone-app
-        run: |
-          PORT=3001 yarn start &
-          echo "Waiting for standalone app to be ready..."
-          for i in $(seq 1 90); do
-            if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
-              echo "App ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "App failed to start within 90s"
-          exit 1
-
       # --- Run integration tests ---
       - name: Install Playwright
+        working-directory: /tmp/standalone-app
         run: npx playwright install --with-deps chromium
 
-      - name: Run integration tests
-        run: BASE_URL=http://localhost:3001 OM_TEST_APP_ROOT=/tmp/standalone-app yarn test:integration
+      - name: Run standalone integration tests
+        working-directory: /tmp/standalone-app
+        env:
+          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
+        run: yarn test:integration:ephemeral --no-reuse-env
 
       - name: Upload test artifacts
         if: always()
@@ -354,7 +331,7 @@ jobs:
         with:
           name: standalone-integration-results
           path: |
-            .ai/qa/test-results/html/
-            .ai/qa/test-results/artifacts/
-            .ai/qa/test-results/results.json
+            /tmp/standalone-app/.ai/qa/test-results/html/
+            /tmp/standalone-app/.ai/qa/test-results/artifacts/
+            /tmp/standalone-app/.ai/qa/test-results/results.json
           if-no-files-found: ignore
