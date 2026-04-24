@@ -274,9 +274,10 @@ jobs:
           cp .env.example .env
           cat >> .env << 'EOF'
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
-          APP_URL=http://localhost:3000
-          NEXT_PUBLIC_APP_URL=http://localhost:3000
+          APP_URL=http://localhost:3001
+          NEXT_PUBLIC_APP_URL=http://localhost:3001
           JWT_SECRET=ci-standalone-test-jwt-secret
+          OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
           OM_TEST_MODE=1
@@ -285,6 +286,7 @@ jobs:
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
+          MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
@@ -313,35 +315,47 @@ jobs:
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
-      # --- Run integration tests ---
-      - name: Install Playwright
+      - name: Generate standalone app modules
         working-directory: /tmp/standalone-app
-        run: npx playwright install --with-deps chromium
+        run: yarn generate
 
-      - name: Run standalone integration tests
+      - name: Initialize standalone app database
+        working-directory: /tmp/standalone-app
+        run: yarn initialize
+
+      - name: Build standalone app
+        working-directory: /tmp/standalone-app
+        run: yarn build
+
+      - name: Start standalone app
         working-directory: /tmp/standalone-app
         env:
-          APP_URL: http://localhost:3000
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
-          JWT_SECRET: ci-standalone-test-jwt-secret
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
-          TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
-          OM_TEST_MODE: '1'
-          OM_TEST_AUTH_RATE_LIMIT_MODE: opt-in
-          OM_DISABLE_EMAIL_DELIVERY: '1'
-          OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
-          ENABLE_CRUD_API_CACHE: 'true'
-          MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
-          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true'
-          OM_ENABLE_ENTERPRISE_MODULES: 'true'
-          OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
-          OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
-          AUTO_SPAWN_WORKERS: 'false'
-          AUTO_SPAWN_SCHEDULER: 'false'
-          CACHE_STRATEGY: memory
-          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
-          NODE_ENV: test
-        run: yarn test:integration:ephemeral --no-reuse-env
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: |
+          PORT=3001 yarn start &
+          echo "Waiting for standalone app to be ready..."
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
+              echo "App ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App failed to start within 180s"
+          exit 1
+
+      # --- Run integration tests ---
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run integration tests
+        env:
+          BASE_URL: http://localhost:3001
+          OM_TEST_APP_ROOT: /tmp/standalone-app
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: yarn test:integration
 
       - name: Upload test artifacts
         if: always()
@@ -349,7 +363,7 @@ jobs:
         with:
           name: standalone-integration-results
           path: |
-            /tmp/standalone-app/.ai/qa/test-results/html/
-            /tmp/standalone-app/.ai/qa/test-results/artifacts/
-            /tmp/standalone-app/.ai/qa/test-results/results.json
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
           if-no-files-found: ignore
