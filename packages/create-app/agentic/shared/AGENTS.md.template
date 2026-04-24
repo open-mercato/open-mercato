@@ -165,6 +165,7 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 - Custom modules use `from: '@app'` in `src/modules.ts`
 - Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
 - `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
+- Detail/read-model APIs that expose `customFields` MUST return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 - Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
 - `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping
 - Settings pages MUST use `pageContext: 'settings' as const` with `navHidden: true`

@@ -568,8 +568,8 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const companyId = company.id
 
   const annualRevenueCurrency =
-    typeof data.customFields?.cf_annual_revenue_currency === 'string'
-      ? (data.customFields.cf_annual_revenue_currency as string)
+    typeof data.customFields?.annual_revenue_currency === 'string'
+      ? (data.customFields.annual_revenue_currency as string)
       : null
 
   const detailFields: DetailFieldConfig[] = [
