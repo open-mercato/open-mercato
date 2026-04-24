@@ -121,6 +121,90 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md))
 - For form/detail page headers and footers, use `FormHeader` and `FormFooter` from `@open-mercato/ui/backend/forms`. `FormHeader` supports two modes: `edit` (compact, used automatically by CrudForm) and `detail` (large title with entity type label, status badge, Actions dropdown). Delete/Cancel/Save are always standalone buttons; additional context actions (Convert, Send, etc.) go into the `menuActions` array rendered as an "Actions" dropdown. See [SPEC-016](.ai/specs/implemented/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
 
+## Avatar
+
+`Avatar` displays a user or entity with a photo or auto-generated initials. `AvatarStack` overlaps multiple avatars with an overflow indicator.
+
+### Import
+
+```typescript
+import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
+```
+
+### Sizes
+
+| Size | px | Use case |
+|---|---|---|
+| `sm` | 24px | Table rows, AvatarStack, inline lists |
+| `default` | 32px | Default — sidebar, comments, activity feed |
+| `md` | 40px | Section headers, assignee cards |
+| `lg` | 80px | Profile / detail page header |
+
+### Usage
+
+```tsx
+// Photo
+<Avatar src="/avatars/jan.jpg" name="Jan Kowalski" size="md" />
+
+// Initials (auto-generated from name)
+<Avatar name="Jan Kowalski" />        // → "JK"
+<Avatar name="Copperleaf Design" />   // → "CD"
+
+// Stack with overflow
+<AvatarStack max={3}>
+  <Avatar name="Jan Kowalski" size="sm" />
+  <Avatar name="Oliwia Z." size="sm" />
+  <Avatar name="Anna Nowak" size="sm" />
+  <Avatar name="Sarah Mitchell" size="sm" />
+</AvatarStack>
+// renders: JK · OZ · AN · +1
+```
+
+### MUST rules
+
+- NEVER render `<div className="rounded-full bg-muted ...">` for avatars — use `Avatar`
+- `size="sm"` uses `text-[9px]` — DS exception for tiny initials (same as notification badge count)
+- `ring-2 ring-background` is built-in — provides the border needed for `AvatarStack` overlap
+- For unknown users or empty states: render `<Avatar />` (shows blank muted circle)
+
+---
+
+## Kbd
+
+`Kbd` renders a keyboard key. `KbdShortcut` renders a full shortcut sequence (`⌘ + Enter`).
+
+Use in dialog footers, tooltips, and empty states to communicate keyboard affordances required by our UX rules (every dialog MUST support `Cmd/Ctrl+Enter` submit and `Escape` cancel).
+
+### Import
+
+```typescript
+import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+```
+
+### Usage
+
+```tsx
+// Single key
+<Kbd>Esc</Kbd>
+<Kbd>⌘</Kbd>
+
+// Shortcut sequence
+<KbdShortcut keys={['⌘', 'Enter']} />   // renders: ⌘ + Enter
+<KbdShortcut keys={['Ctrl', 'S']} />
+
+// In a dialog footer hint
+<span className="text-xs text-muted-foreground">
+  Press <KbdShortcut keys={['⌘', 'Enter']} /> to save or <Kbd>Esc</Kbd> to cancel
+</span>
+```
+
+### MUST rules
+
+- NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`
+- Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text when cross-platform
+
+---
+
 ## Tag
 
 `Tag` is a static pill element representing a user-applied label on an entity (e.g. "Customer", "Hot", "Renewal"). Use it for entity tags — NOT for system status display (use `StatusBadge` for that).
