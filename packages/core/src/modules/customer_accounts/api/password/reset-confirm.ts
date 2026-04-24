@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
   const user = await customerUserService.findById(result.userId, result.tenantId)
   if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
   const em = container.resolve('em') as EntityManager

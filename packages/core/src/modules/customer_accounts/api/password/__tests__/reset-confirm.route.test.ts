@@ -124,14 +124,16 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
-  it('does NOT emit the audit event when the user cannot be found after token verification', async () => {
+  it('does NOT emit the audit event when the user cannot be found after token verification (returns the same 400 as an invalid token to avoid surface drift)', async () => {
     mockFindById.mockResolvedValue(null)
 
     const res = await POST(
       makeRequest({ token: 'a'.repeat(40), password: 'new-strong-Passw0rd!' }),
     )
+    const body = await res.json()
 
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ ok: false, error: 'Invalid or expired token' })
     expect(mockTransactional).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })

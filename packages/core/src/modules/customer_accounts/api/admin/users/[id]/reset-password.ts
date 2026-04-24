@@ -60,8 +60,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,
-    tenantId: auth.tenantId ?? user.tenantId,
-    organizationId: auth.orgId ?? user.organizationId ?? null,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
     changedBy: 'admin',
     changedById: auth.sub,
     at: new Date().toISOString(),
