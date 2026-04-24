@@ -121,6 +121,69 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/implemented/SPEC-001-2026-01-21-ui-reusable-components.md))
 - For form/detail page headers and footers, use `FormHeader` and `FormFooter` from `@open-mercato/ui/backend/forms`. `FormHeader` supports two modes: `edit` (compact, used automatically by CrudForm) and `detail` (large title with entity type label, status badge, Actions dropdown). Delete/Cancel/Save are always standalone buttons; additional context actions (Convert, Send, etc.) go into the `menuActions` array rendered as an "Actions" dropdown. See [SPEC-016](.ai/specs/implemented/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
 
+## Tag
+
+`Tag` is a static pill element representing a user-applied label on an entity (e.g. "Customer", "Hot", "Renewal"). Use it for entity tags — NOT for system status display (use `StatusBadge` for that).
+
+### Tag vs StatusBadge
+
+| | `Tag` | `StatusBadge` |
+|---|---|---|
+| Purpose | User-applied label / category | System status (active, pending, failed…) |
+| Shape | `rounded-full` pill | `rounded-full` pill |
+| Dot | optional (`dot` prop) | optional (`dot` prop) |
+| `brand` variant | ✅ (violet — for custom views/renewal tags) | ❌ |
+
+### Import
+
+```typescript
+import { Tag } from '@open-mercato/ui/primitives/tag'
+import type { TagMap } from '@open-mercato/ui/primitives/tag'
+```
+
+### Variants
+
+| Variant | Token | Example use |
+|---|---|---|
+| `default` | `border-border bg-background text-muted-foreground` | Generic / inactive tag |
+| `success` | `status-success-*` | Customer, Shipped, Active |
+| `warning` | `status-warning-*` | Renewal, At risk |
+| `error` | `status-error-*` | Hot, Overdue, Blocked |
+| `info` | `status-info-*` | Pending, In review |
+| `neutral` | `status-neutral-*` | Archived, Draft |
+| `brand` | `brand-violet/10` bg, `brand-violet/30` border, `text-brand-violet` | Custom views, Perspectives |
+
+### Usage
+
+```tsx
+<Tag variant="success" dot>Customer</Tag>
+<Tag variant="error" dot>Hot</Tag>
+<Tag variant="brand" dot>Renewal Q1 2026</Tag>
+<Tag variant="neutral">Inactive</Tag>
+```
+
+### TagMap helper
+
+```typescript
+import type { TagMap } from '@open-mercato/ui/primitives/tag'
+
+const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
+  customer: 'success',
+  hot: 'error',
+  inactive: 'neutral',
+  renewal: 'brand',
+}
+
+<Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
+```
+
+### MUST rules
+
+- NEVER hardcode colors on `Tag` — use variants only
+- Use `dot` for tags that represent a status-like category (Customer, Hot); omit for purely descriptive labels
+- For "Manage tags" / add-tag affordances: use a `Button variant="ghost"` or dashed outline — NOT `Tag`
+- `brand` variant is for user-saved views and renewal/custom category tags only (see brand color rules in root AGENTS.md)
+
 ## DataTable Guidelines
 
 - Use `DataTable` as the default list view.
