@@ -51,4 +51,4 @@
 
 ### Phase 3: Validation and delivery
 
-- [ ] 3.1 Run targeted validation, review the diff for BC/scope, and open the PR with the required summary
+- [x] 3.1 Run targeted validation, review the diff for BC/scope, and open the PR with the required summary — PR #1693
