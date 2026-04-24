@@ -53,6 +53,7 @@ export interface MerchandisingPageContextFilter {
 
 export interface MerchandisingPageContext {
   view: 'catalog.products.list'
+  entityType?: 'catalog.products.list'
   recordType: null
   recordId: string
   extra: {
