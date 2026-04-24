@@ -85,6 +85,8 @@
   "catalog.errors.id_required": "Wymagany jest identyfikator rekordu.",
   "catalog.errors.organization_required": "Wymagany jest kontekst organizacji.",
   "catalog.errors.tenant_required": "Wymagany jest kontekst dzierżawy.",
+  "catalog.merchandising_assistant.context.filteredByCategory": "Filtered by category",
+  "catalog.merchandising_assistant.context.tags": "{count} tags",
   "catalog.merchandising_assistant.sheet.composerPlaceholder": "Poproś o opisy, atrybuty, tytuły lub propozycje cen…",
   "catalog.merchandising_assistant.sheet.description": "Demo tylko do odczytu. Proponuje opisy, atrybuty, tytuły i korekty cen dla bieżącego wyboru. Na tym etapie żadne zmiany nie są zapisywane.",
   "catalog.merchandising_assistant.sheet.selectionPill": "Działa na {count} produktach",
