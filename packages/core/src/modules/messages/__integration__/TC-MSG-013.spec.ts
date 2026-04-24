@@ -1,7 +1,13 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { login } from '@open-mercato/core/helpers/integration/auth';
-import { composeInternalMessage, deleteMessageIfExists, messageRowBySubject, searchMessages } from './helpers';
+import {
+  composeInternalMessage,
+  deleteMessageIfExists,
+  messageRowBySubject,
+  searchMessages,
+  selectMessageRowsBySubject,
+} from './helpers';
 
 type MessageListResponse = {
   items?: Array<{ id?: unknown; status?: unknown; subject?: unknown }>;
@@ -30,10 +36,6 @@ async function readMessageList(
   const response = await apiRequest(request, 'GET', path, { token });
   expect(response.status()).toBe(200);
   return (await response.json()) as MessageListResponse;
-}
-
-async function selectAllCurrentPage(page: Page): Promise<void> {
-  await page.getByRole('checkbox', { name: /Select all rows/i }).click();
 }
 
 async function cleanupMessageCopies(
@@ -78,7 +80,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       await expect(messageRowBySubject(page, `${prefix} alpha`)).toBeVisible();
       await expect(messageRowBySubject(page, `${prefix} beta`)).toBeVisible();
 
-      await selectAllCurrentPage(page);
+      await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark read$/i }).click();
       await expect(page.getByText('2 messages marked as read.')).toBeVisible();
@@ -93,7 +95,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       }).toBe(2);
 
       await searchMessages(page, prefix);
-      await selectAllCurrentPage(page);
+      await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark unread$/i }).click();
       await expect(page.getByText('2 messages marked as unread.')).toBeVisible();
@@ -117,7 +119,7 @@ test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
       });
 
       await searchMessages(page, prefix);
-      await selectAllCurrentPage(page);
+      await selectMessageRowsBySubject(page, [`${prefix} alpha`, `${prefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
       await page.getByRole('button', { name: /^Mark read$/i }).click();
       await expect(page.getByText('Failed to process 2 messages.')).toBeVisible();

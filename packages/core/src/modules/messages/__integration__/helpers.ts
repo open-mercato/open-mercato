@@ -198,6 +198,14 @@ export function messageRowBySubject(page: Page, subject: string): Locator {
   return page.getByRole('row', { name: new RegExp(escapeRegex(subject), 'i') }).first();
 }
 
+export async function selectMessageRowsBySubject(page: Page, subjects: string[]): Promise<void> {
+  for (const subject of subjects) {
+    const row = messageRowBySubject(page, subject);
+    await expect(row).toBeVisible();
+    await row.getByRole('checkbox', { name: /Select row/i }).click();
+  }
+}
+
 export async function selectMessageFolder(page: Page, folderLabel: 'Inbox' | 'Sent' | 'Drafts' | 'Archived' | 'All'): Promise<void> {
   const listResponsePromise = page.waitForResponse(
     (response) =>
