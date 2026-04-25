@@ -642,7 +642,6 @@ const setPassword: ModuleCli = {
   },
 }
 
-// Export the full CLI list
 const syncRoleAcls: ModuleCli = {
   command: 'sync-role-acls',
   async run(rest) {
@@ -705,4 +704,5 @@ const syncRoleAcls: ModuleCli = {
   },
 }
 
+// Export the full CLI list
 export default [addUser, seedRoles, syncRoleAcls, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
