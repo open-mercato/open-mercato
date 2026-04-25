@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
@@ -150,13 +151,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
               )}
-              <input
+              <Input
                 type="email"
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
-                className={inputClasses}
               />
             </div>
           )
@@ -212,13 +212,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -234,14 +233,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="number"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
-              className={inputClasses}
             />
           </div>
         )
@@ -278,13 +276,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )

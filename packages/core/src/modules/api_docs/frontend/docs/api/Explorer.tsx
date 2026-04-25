@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { Input } from '@open-mercato/ui/primitives/input'
 
 const METHOD_STYLES: Record<string, string> = {
   GET: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
@@ -503,12 +504,12 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               </div>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-1 items-center gap-3">
-                  <input
+                  <Input
                     type="search"
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     placeholder="Search endpoints by path or summary"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                    className="flex-1"
                   />
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -1333,12 +1334,11 @@ function TesterPanel(props: TesterPanelProps) {
 
       <label className="space-y-2 text-sm">
         <span className="font-medium text-foreground">API key</span>
-        <input
+        <Input
           type="text"
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           placeholder="Paste your API key secret (omk_…)"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         />
       </label>
 
@@ -1352,7 +1352,7 @@ function TesterPanel(props: TesterPanelProps) {
                   <span>{parameter.name}</span>
                   {parameter.required ? <span className="text-amber-600">required</span> : null}
                 </div>
-                <input
+                <Input
                   type="text"
                   value={pathValues[parameter.name] ?? ''}
                   onChange={(event) =>
@@ -1362,7 +1362,6 @@ function TesterPanel(props: TesterPanelProps) {
                     }))
                   }
                   placeholder={parameter.description ?? ''}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 />
               </label>
             ))}
@@ -1380,7 +1379,7 @@ function TesterPanel(props: TesterPanelProps) {
                   <span>{parameter.name}</span>
                   {parameter.required ? <span className="text-amber-600">required</span> : null}
                 </div>
-                <input
+                <Input
                   type="text"
                   value={queryValues[parameter.name] ?? ''}
                   onChange={(event) =>
@@ -1390,7 +1389,6 @@ function TesterPanel(props: TesterPanelProps) {
                     }))
                   }
                   placeholder={parameter.description ?? ''}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 />
               </label>
             ))}

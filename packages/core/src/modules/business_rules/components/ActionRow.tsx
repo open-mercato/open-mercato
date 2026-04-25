@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
+import { Input } from '@open-mercato/ui/primitives/input'
 import type { Action } from './utils/actionValidation'
 import { getActionTypeOptions, getRequiredConfigFields, getOptionalConfigFields } from './utils/actionValidation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -62,12 +63,12 @@ export function ActionRow({
           <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.config.recipients')} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
           </label>
-          <input
+          <Input
             type="text"
             value={value}
             onChange={(e) => handleConfigChange(field, e.target.value.split(',').map((s) => s.trim()))}
             placeholder={t('business_rules.components.actionRow.config.recipients.placeholder')}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="col-span-3"
           />
           <div className="col-span-4 col-start-2">
             <p className="text-xs text-muted-foreground">{t('business_rules.components.actionRow.config.recipients.help')}</p>
@@ -139,12 +140,12 @@ export function ActionRow({
         <label className="text-xs font-medium text-foreground col-span-1">
           {field} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
         </label>
-        <input
+        <Input
           type="text"
           value={value}
           onChange={(e) => handleConfigChange(field, e.target.value)}
           placeholder={t('business_rules.components.actionRow.config.field.placeholder', { field })}
-          className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="col-span-3"
         />
       </div>
     )

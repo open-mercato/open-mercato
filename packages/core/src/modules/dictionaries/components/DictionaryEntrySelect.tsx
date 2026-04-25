@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Settings, Save } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -275,9 +276,8 @@ export function DictionaryEntrySelect({
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">{labels.valueLabel}</label>
-                    <input
+                    <Input
                       type="text"
-                      className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={newValue}
                       onChange={(event) => {
                         setNewValue(event.target.value)
@@ -291,9 +291,8 @@ export function DictionaryEntrySelect({
                   {showLabelInput ? (
                     <div className="space-y-2">
                       <label className="text-sm font-medium">{labels.labelLabel}</label>
-                      <input
+                      <Input
                         type="text"
-                        className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         value={newLabel}
                         onChange={(event) => setNewLabel(event.target.value)}
                         placeholder={labels.labelPlaceholder}

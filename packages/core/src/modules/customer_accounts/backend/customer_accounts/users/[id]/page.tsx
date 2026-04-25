@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -110,14 +111,13 @@ function ResetPasswordDialog({
             <label className="text-sm font-medium" htmlFor="reset-password">
               {t('customer_accounts.admin.detail.resetPassword.fields.newPassword', 'New Password')}
             </label>
-            <input
+            <Input
               id="reset-password"
               type="password"
               required
               minLength={8}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               placeholder={t('customer_accounts.admin.detail.resetPassword.fields.placeholder', 'Min. 8 characters')}
             />
           </div>
@@ -571,12 +571,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 ) : (
                   <div className="space-y-1">
                     <div className="relative">
-                      <input
+                      <Input
                         type="text"
                         value={personSearchQuery}
                         onChange={(event) => { void handleSearchPeople(event.target.value) }}
                         placeholder={t('customer_accounts.admin.detail.fields.searchPerson', 'Search people by name...')}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       />
                       {personResults.length > 0 && (
                         <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
@@ -615,12 +614,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 ) : (
                   <div className="space-y-1">
                     <div className="relative">
-                      <input
+                      <Input
                         type="text"
                         value={companySearchQuery}
                         onChange={(event) => { void handleSearchCompanies(event.target.value) }}
                         placeholder={t('customer_accounts.admin.detail.fields.searchCompany', 'Search companies by name...')}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       />
                       {companyResults.length > 0 && (
                         <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
@@ -660,12 +658,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <label className="text-sm font-medium" htmlFor="user-display-name">
                   {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
                 </label>
-                <input
+                <Input
                   id="user-display-name"
                   type="text"
                   value={editDisplayName}
                   onChange={(event) => setEditDisplayName(event.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </div>
 

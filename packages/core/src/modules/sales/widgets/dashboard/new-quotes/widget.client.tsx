@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
@@ -132,12 +133,12 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
           <label htmlFor="sales-new-quotes-page-size" className="text-xs font-semibold uppercase text-muted-foreground">
             {translate('sales.widgets.newQuotes.settings.pageSize', 'Number of Quotes')}
           </label>
-          <input
+          <Input
             id="sales-new-quotes-page-size"
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="w-24"
             value={hydrated.pageSize}
             onChange={(event) => {
               const next = Number(event.target.value)

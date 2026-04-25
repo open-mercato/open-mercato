@@ -483,11 +483,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
-                            <input
+                            <Input
                               type="text"
+                              size="sm"
                               value={condition.ruleId}
                               onChange={(e) => updatePreCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                             />
                           </div>
 
@@ -635,11 +635,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
-                            <input
+                            <Input
                               type="text"
+                              size="sm"
                               value={condition.ruleId}
                               onChange={(e) => updatePostCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                             />
                           </div>
 
@@ -772,11 +772,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Activity ID */}
                           <div className="pt-3">
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityId')} *</label>
-                            <input
+                            <Input
                               type="text"
+                              size="sm"
                               value={activity.activityId}
                               onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.activityIdPlaceholder')}
                             />
                           </div>
@@ -784,11 +784,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Activity Name */}
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityName')} *</label>
-                            <input
+                            <Input
                               type="text"
+                              size="sm"
                               value={activity.activityName || ''}
                               onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.activityNamePlaceholder')}
                             />
                           </div>
@@ -814,11 +814,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Timeout */}
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.timeout')}</label>
-                            <input
+                            <Input
                               type="text"
+                              size="sm"
                               value={activity.timeout || ''}
                               onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                               placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
                             />
                             <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
@@ -830,11 +830,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
-                                <input
+                                <Input
                                   type="number"
+                                  size="sm"
                                   value={activity.retryPolicy?.maxAttempts || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxAttempts', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="3"
                                   min="1"
                                   max="10"
@@ -842,23 +842,23 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.initialInterval')}</label>
-                                <input
+                                <Input
                                   type="number"
+                                  size="sm"
                                   value={activity.retryPolicy?.initialIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="1000"
                                   min="0"
                                 />
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.backoffCoefficient')}</label>
-                                <input
+                                <Input
                                   type="number"
+                                  size="sm"
                                   step="0.1"
                                   value={activity.retryPolicy?.backoffCoefficient || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value) || 1)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="2"
                                   min="1"
                                   max="10"
@@ -866,11 +866,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxInterval')}</label>
-                                <input
+                                <Input
                                   type="number"
+                                  size="sm"
                                   value={activity.retryPolicy?.maxIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
                                   placeholder="10000"
                                   min="0"
                                 />

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Input } from '../primitives/input'
 import { Plus, Trash2, ChevronRight, ChevronDown, Code, LayoutList } from 'lucide-react'
 
 function cn(...classes: (string | undefined | null | false)[]) {
@@ -254,17 +255,19 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     )}
 
                     {type === 'string' && (
-                        <input
-                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus-visible:outline-none focus-visible:border-ring"
+                        <Input
+                            size="sm"
+                            className="flex-1 min-w-0 sm:min-w-[120px]"
                             value={data}
                             onChange={e => onChange(e.target.value)}
                             disabled={readOnly}
                         />
                     )}
                     {type === 'number' && (
-                        <input
+                        <Input
                             type="number"
-                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus-visible:outline-none focus-visible:border-ring"
+                            size="sm"
+                            className="flex-1 w-full sm:w-[100px]"
                             value={data}
                             onChange={e => onChange(parseFloat(e.target.value) || 0)}
                             disabled={readOnly}

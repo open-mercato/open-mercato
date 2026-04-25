@@ -7,6 +7,7 @@ import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -254,9 +255,8 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <input
+        <Input
           type="email"
-          className="w-full h-9 rounded border px-2 text-sm"
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -594,8 +594,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{labels.inputLabel}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                <Input
                   placeholder={labels.inputPlaceholder}
                   value={newCompany}
                   onChange={(event) => {
@@ -757,8 +756,7 @@ export const createDisplayNameSection = (t: Translator) =>
             </div>
             {editing ? (
               <div className="mt-2 space-y-2">
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                <Input
                   value={currentValue}
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}

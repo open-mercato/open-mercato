@@ -1,6 +1,7 @@
 "use client"
 import { CrudFormGroup, CrudCustomFieldRenderProps, CrudField } from "@open-mercato/ui/backend/CrudForm";
 import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
+import { Input } from "@open-mercato/ui/primitives/input";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) {
@@ -37,12 +38,11 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.string.label', 'Override Value (String)')}</label>
-                    <input
+                    <Input
                         type="text"
                         value={props.value as string || ''}
                         onChange={(e) => props.setValue(e.target.value)}
                         placeholder={t('feature_toggles.override.fields.value.string.placeholder', 'Enter override string value')}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />
@@ -53,11 +53,10 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.number.label', 'Override Value (Number)')}</label>
-                    <input
+                    <Input
                         type="number"
                         value={props.value as number || 0}
                         onChange={(e) => props.setValue(Number(e.target.value) || 0)}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />

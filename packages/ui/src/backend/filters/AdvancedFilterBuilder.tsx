@@ -3,6 +3,7 @@ import * as React from 'react'
 import { ChevronDown, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
+import { Input } from '../../primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   AdvancedFilterState,
@@ -208,9 +209,10 @@ function ValueInput({
 
   if (fieldType === 'number') {
     return (
-      <input
+      <Input
         type="number"
-        className="rounded border bg-background px-2 py-1.5 text-sm w-[120px]"
+        size="sm"
+        className="w-[120px]"
         value={typeof value === 'number' ? value : typeof value === 'string' ? value : ''}
         onChange={(e) => onUpdate(condition.id, { value: e.target.value })}
         placeholder={t('ui.advancedFilter.numberPlaceholder', 'Value')}
@@ -220,9 +222,10 @@ function ValueInput({
   }
 
   return (
-    <input
+    <Input
       type="text"
-      className="rounded border bg-background px-2 py-1.5 text-sm min-w-[140px]"
+      size="sm"
+      className="min-w-[140px]"
       value={typeof value === 'string' ? value : ''}
       onChange={(e) => onUpdate(condition.id, { value: e.target.value })}
       placeholder={t('ui.advancedFilter.textPlaceholder', 'Value...')}

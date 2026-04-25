@@ -1208,17 +1208,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               />
             </div>
             <div className="space-y-2">
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="email"
-                  className="w-full rounded border pl-8 pr-2 py-2 text-sm"
-                  value={emailValue}
-                  onChange={(event) => setValue('customerEmail', event.target.value)}
-                  placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
-                  spellCheck={false}
-                />
-              </div>
+              <Input
+                type="email"
+                leftIcon={<Mail />}
+                value={emailValue}
+                onChange={(event) => setValue('customerEmail', event.target.value)}
+                placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
+                spellCheck={false}
+              />
               {duplicate ? (
                 <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
                   <span>

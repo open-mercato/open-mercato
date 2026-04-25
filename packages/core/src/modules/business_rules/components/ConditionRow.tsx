@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { X } from 'lucide-react'
 import type { SimpleCondition } from './utils/conditionValidation'
 import { getComparisonOperators, isValidFieldPath } from './utils/conditionValidation'
@@ -72,14 +73,12 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.field')}
           </label>
-          <input
+          <Input
             type="text"
             value={condition.field || ''}
             onChange={handleFieldChange}
             placeholder={t('business_rules.components.conditionRow.field.placeholder')}
-            className={`w-full px-2 py-1.5 text-sm border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              fieldError ? 'border-red-500' : 'border-border'
-            }`}
+            aria-invalid={fieldError ? true : undefined}
           />
           {fieldError && (
             <p className="text-xs text-red-600 mt-0.5">
@@ -128,7 +127,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 }
               </button>
             </div>
-            <input
+            <Input
               type="text"
               value={
                 useFieldComparison
@@ -144,7 +143,6 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 ? t('business_rules.components.conditionRow.field.comparisonPlaceholder')
                 : t('business_rules.components.conditionRow.value.placeholder')
               }
-              className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground mt-0.5">
               {useFieldComparison

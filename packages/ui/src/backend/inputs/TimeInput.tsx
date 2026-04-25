@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Input } from '../../primitives/input'
 
 export type TimeInputProps = {
   value?: string | null
@@ -107,16 +108,12 @@ export function TimeInput({
     [disabled, emitChange, hour, minuteStep]
   )
 
-  const inputClass = cn(
-    'w-14 h-9 rounded border text-center text-sm tabular-nums',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-    disabled && 'bg-muted text-muted-foreground cursor-not-allowed',
-    'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed'
-  )
+  const wrapperClass = 'w-14'
+  const innerInputClass = 'text-center tabular-nums'
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
-      <input
+      <Input
         type="number"
         min={0}
         max={23}
@@ -126,10 +123,11 @@ export function TimeInput({
         disabled={disabled}
         aria-label={hourLabel}
         data-crud-focus-target=""
-        className={inputClass}
+        className={wrapperClass}
+        inputClassName={innerInputClass}
       />
       <span className="text-sm font-medium select-none">:</span>
-      <input
+      <Input
         type="number"
         min={0}
         max={59}
@@ -139,7 +137,8 @@ export function TimeInput({
         onKeyDown={handleMinuteKeyDown}
         disabled={disabled}
         aria-label={minuteLabel}
-        className={inputClass}
+        className={wrapperClass}
+        inputClassName={innerInputClass}
       />
     </div>
   )

@@ -4,6 +4,7 @@ import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Upload } from 'lucide-react'
 
@@ -186,8 +187,7 @@ function AttachmentDefEditor({ def, onChange }: { def: AttachmentFieldDef; onCha
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <div className="space-y-2">
         <label className="text-xs font-medium">Max file size (MB)</label>
-        <input
-          className="w-full rounded border px-2 py-1 text-sm"
+        <Input
           type="number"
           min={0}
           placeholder="e.g., 10"
@@ -198,8 +198,7 @@ function AttachmentDefEditor({ def, onChange }: { def: AttachmentFieldDef; onCha
       </div>
       <div className="space-y-2">
         <label className="text-xs font-medium">Accepted extensions</label>
-        <input
-          className="w-full rounded border px-2 py-1 text-sm"
+        <Input
           placeholder="e.g., pdf, jpg, png"
           value={exts}
           onChange={(e) => setExts(e.target.value)}
@@ -209,8 +208,7 @@ function AttachmentDefEditor({ def, onChange }: { def: AttachmentFieldDef; onCha
       </div>
       <div className="space-y-2">
         <label className="text-xs font-medium">Partition code</label>
-        <input
-          className="w-full rounded border px-2 py-1 text-sm"
+        <Input
           placeholder="e.g., productsMedia"
           value={partition}
           onChange={(e) => setPartition(e.target.value)}

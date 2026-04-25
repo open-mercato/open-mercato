@@ -10,6 +10,7 @@ import { createCrudFormError, type CrudServerFieldErrors } from '@open-mercato/u
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
@@ -1027,19 +1028,16 @@ function ProductSelectInput({
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <input
-          className="w-full rounded border pl-8 pr-2 py-2 text-sm"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setHasTyped(true)
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={t('sales.channels.offers.form.productSearchPlaceholder', 'Search by title, SKU, or ID…')}
-        />
-      </div>
+      <Input
+        leftIcon={<Search />}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setHasTyped(true)
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder={t('sales.channels.offers.form.productSearchPlaceholder', 'Search by title, SKU, or ID…')}
+      />
       {selectedHint ? (
         <div className="rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
           {selectedHint}
@@ -1849,11 +1847,8 @@ function PriceOverridesEditor({
                     {row.currencyCode ?? basePrice?.currencyCode}
                   </span>
                 ) : null}
-                <input
-                  className={cn(
-                    'w-full rounded border py-2 text-sm',
-                    row.currencyCode || basePrice?.currencyCode ? 'pl-16 pr-2' : 'px-2',
-                  )}
+                <Input
+                  inputClassName={cn(row.currencyCode || basePrice?.currencyCode ? 'pl-13' : '')}
                   type="number"
                   placeholder={t('sales.channels.offers.pricing.amount', 'Amount')}
                   value={row.amount ?? ''}

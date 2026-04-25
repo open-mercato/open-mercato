@@ -8,6 +8,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
+import { Input } from '../primitives/input'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import { FormHeader } from './forms/FormHeader'
@@ -3165,9 +3166,8 @@ function RelationSelect({
 
   return (
     <div className="space-y-1">
-      <input
+      <Input
         ref={inputRef}
-        className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -3265,9 +3265,8 @@ function TextInput({
 
   return (
     <>
-      <input
+      <Input
         type={inputType}
-        className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -3346,9 +3345,8 @@ function NumberInput({
   }, [commitIfChanged])
   
   return (
-    <input
+    <Input
       type="number"
-      className="w-full h-9 rounded border px-2 text-sm"
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -3706,8 +3704,9 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   )
   return (
     <div className="w-full">
-      <input
-        className="mb-2 w-full h-8 rounded border px-2 text-sm"
+      <Input
+        className="mb-2"
+        size="sm"
         placeholder={searchPlaceholder}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -3829,9 +3828,8 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <input
+        <Input
           type="date"
-          className="w-full h-9 rounded border px-2 text-sm"
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => setValue(field.id, e.target.value || undefined)}
           autoFocus={autoFocusField}
@@ -3840,9 +3838,8 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'datetime-local' && (
-        <input
+        <Input
           type="datetime-local"
-          className="w-full h-9 rounded border px-2 text-sm"
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => setValue(field.id, e.target.value || undefined)}
           autoFocus={autoFocusField}

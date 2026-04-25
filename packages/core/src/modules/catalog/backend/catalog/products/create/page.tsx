@@ -1733,9 +1733,8 @@ function ProductBuilder({
                             <span className="text-xs text-muted-foreground">
                               {kind.currencyCode ?? "—"}
                             </span>
-                            <input
+                            <Input
                               type="number"
-                              className="w-full rounded-md border px-2 py-1"
                               value={variant.prices?.[kind.id]?.amount ?? ""}
                               onChange={(event) =>
                                 setVariantPrice(

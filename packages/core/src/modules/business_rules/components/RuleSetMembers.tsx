@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Plus, ChevronUp, ChevronDown, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -186,12 +187,11 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
               <label className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.sequence')}
               </label>
-              <input
+              <Input
                 type="number"
                 value={sequence}
                 onChange={(e) => setSequence(parseInt(e.target.value) || 0)}
                 min={0}
-                className="w-full px-3 py-2 border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
