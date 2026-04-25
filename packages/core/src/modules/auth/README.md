@@ -9,6 +9,7 @@ Features:
   - `mercato auth seed-roles`
   - `mercato auth add-org --name <org>`
   - `mercato auth setup --orgName <org> --email <e> --password <p> [--roles superadmin,admin] [--skip-password-policy]`
+  - `mercato auth sync-role-acls [--tenant <tenantId>] [--no-superadmin]` — re-applies each enabled module's `defaultRoleFeatures` to existing tenants. Idempotent and additive (existing custom features are preserved). Run after deploying new module features to ensure existing tenants pick them up; without `--tenant` it iterates every tenant.
 
 DB entities used (defined in root schema):
 - `users` with: `email`, `password_hash`, `is_confirmed`, `last_login_at`, `organization_id`, timestamps.
