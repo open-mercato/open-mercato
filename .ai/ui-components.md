@@ -12,6 +12,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Checkbox / CheckboxField](#checkbox--checkboxfield)
 - [Input](#input)
 - [Select](#select)
+- [Switch / SwitchField](#switch--switchfield)
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
@@ -483,6 +484,95 @@ Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
 | Compact for input prefix (e.g. country code in phone) | `CompactSelectForInput` | TODO — Figma node `307:16883` |
 | Multi-select with search / combobox | `ComboboxInput` | Already in `backend/inputs/ComboboxInput` |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
+
+---
+
+## Switch / SwitchField
+
+```typescript
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+```
+
+Binary on/off toggle aligned with Figma DS Switch. `Switch` is the primitive (track + thumb). `SwitchField` is the preference-row composite (label/description/sublabel/badge/link, switch on the right by default).
+
+### Sizes
+
+Single size — Figma spec is fixed at 28×16 (track), thumb 12px. Matches the row height of `text-sm` body text.
+
+### States (token-driven)
+
+| State | Track | Thumb | Visual |
+|---|---|---|---|
+| Off Default | `bg-input` (`#ebebeb` light / dark equivalent) | white | flat track |
+| Off Hover | `bg-input/70` | white | track darkens |
+| On Default | `bg-accent-indigo` (`#6366f1`) | white | thumb at right |
+| On Hover | `bg-accent-indigo/85` | white | track darkens |
+| Focus | (any state) | — | `shadow-focus` (Figma 2-ring halo) |
+| Disabled | (state-specific) | white | `opacity-60`, no hover change |
+
+### Color contract
+
+The "on" state uses `--accent-indigo` (matches `Checkbox` checked state) — NOT `--primary`. This keeps selection controls visually consistent and distinct from primary action surfaces (Buttons).
+
+### Switch usage
+
+```tsx
+<Switch checked={enabled} onCheckedChange={setEnabled} />
+
+// Uncontrolled
+<Switch defaultChecked />
+
+// Disabled
+<Switch checked={enabled} onCheckedChange={setEnabled} disabled />
+```
+
+### SwitchField usage
+
+```tsx
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+
+// Default — label LEFT, switch RIGHT (preference style)
+<SwitchField
+  label="Email notifications"
+  description="Get emails for new comments and mentions."
+  checked={emailNotifs}
+  onCheckedChange={setEmailNotifs}
+/>
+
+// With badge + link
+<SwitchField
+  label="Beta features"
+  sublabel="(Experimental)"
+  badge={<Tag variant="info">NEW</Tag>}
+  description="Try features before public release. May be unstable."
+  link={<LinkButton size="sm" variant="primary">Learn more</LinkButton>}
+  checked={beta}
+  onCheckedChange={setBeta}
+/>
+
+// Flipped — switch LEFT, label RIGHT (rare; use when row reads left-to-right as "[toggle] enable X")
+<SwitchField flip label="Public profile" checked={isPublic} onCheckedChange={setIsPublic} />
+```
+
+### SwitchField props
+
+| Prop | Default | Notes |
+|---|---|---|
+| `label` (required) | — | Primary label, clickable, bound via `htmlFor` |
+| `sublabel` | — | Inline text after label (smaller, muted) |
+| `description` | — | Helper text on its own line under the label |
+| `badge` | — | Inline badge node (e.g. NEW pill) |
+| `link` | — | Link/link-button rendered below description |
+| `flip` | `false` | If true, switch is on LEFT instead of right |
+| All `Switch` props | — | `checked`, `defaultChecked`, `onCheckedChange`, `disabled` |
+
+### MUST rules
+
+- **NEVER build a custom toggle button** for on/off prefs — always use `Switch` / `SwitchField`. Native `<input type="checkbox">` styled as toggle is a DS regression.
+- For preference rows with label, use `SwitchField` — handles `htmlFor` / accessible naming and the standard "label LEFT, switch RIGHT" layout.
+- Switch vs Checkbox decision: **Switch** = immediate effect on a single setting (toggling instantly applies). **Checkbox** = part of a form, needs explicit Save/Apply.
+- Color: never override the `on` state to a non-indigo color (breaks visual contract with Checkbox + DS).
 
 ---
 

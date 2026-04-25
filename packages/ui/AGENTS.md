@@ -25,6 +25,8 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Checkbox with label + description | `CheckboxField` | `@open-mercato/ui/primitives/checkbox-field` |
 | Text input (text/email/password/number/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
 | Dropdown / select | `Select` (with `SelectTrigger` / `SelectContent` / `SelectItem`) | `@open-mercato/ui/primitives/select` |
+| Toggle switch (binary on/off preference) | `Switch` | `@open-mercato/ui/primitives/switch` |
+| Switch with label + description (preference row) | `SwitchField` | `@open-mercato/ui/primitives/switch-field` |
 | User / entity avatar | `Avatar`, `AvatarStack` | `@open-mercato/ui/primitives/avatar` |
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
