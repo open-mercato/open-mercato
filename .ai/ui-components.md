@@ -10,6 +10,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [SocialButton](#socialbutton)
 - [FancyButton](#fancybutton)
 - [Checkbox / CheckboxField](#checkbox--checkboxfield)
+- [Input](#input)
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
@@ -240,6 +241,102 @@ Set `checked="indeterminate"` to render a horizontal dash. Useful for "select al
 ### Color contract
 
 Checkbox checked state uses `--accent-indigo` (#6366f1 light / #818cf8 dark), NOT `--primary`. This matches Figma DS and visually distinguishes selection from primary action surfaces.
+
+---
+
+## Input
+
+```typescript
+import { Input } from '@open-mercato/ui/primitives/input'
+```
+
+Text input primitive aligned with Figma DS Text Input. Renders a wrapper div with `[border + bg + focus halo + disabled tokens]` around the inner `<input>`. Supports left/right icon slots and standard HTML input types (`text`, `email`, `password`, `number`, `tel`, `url`, `search`, `date`).
+
+> Specialized inputs (Tag Input, Counter Input, Digit/OTP, Inline edit, Date Picker) are SEPARATE primitives — defer to their own sections when they land.
+
+### Sizes
+
+| Size | Height | Padding | Text |
+|---|---|---|---|
+| `sm` | 32px | `px-2.5` | `text-xs` |
+| `default` | 36px | `px-3` | `text-sm` |
+| `lg` | 40px | `px-3` | `text-sm` |
+
+Match the size of paired buttons in toolbars / form footers (same-size rule).
+
+### States (token-driven, automatic)
+
+| State | Trigger | Visual |
+|---|---|---|
+| Default | — | `border-input` + `bg-background` + `shadow-xs` |
+| Hover | mouse over wrapper | `bg-muted/40` |
+| Focus | input focus-visible | `border-foreground` + `shadow-focus` (Figma 2-ring) |
+| Disabled | `disabled` prop on input | `bg-bg-disabled` + `text-text-disabled` + `border-border-disabled` (NOT opacity) |
+| Error | `aria-invalid={true}` on input | `border-destructive` (also on focus) |
+
+> Error state uses standard ARIA — wire `aria-invalid={!!error}` from form state. `FormField` wrapper does this automatically.
+
+### Icon slots
+
+```tsx
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Search, User, AtSign, Lock } from 'lucide-react'
+
+<Input leftIcon={<Search />} placeholder="Search…" />
+<Input leftIcon={<AtSign />} type="email" placeholder="you@example.com" />
+<Input leftIcon={<Lock />} type="password" />
+<Input rightIcon={<User />} placeholder="Username" />
+```
+
+Icons render at `size-4` (16px) — matches `text-sm` baseline. Override via wrapping the icon yourself if needed.
+
+### Composition with FormField
+
+```tsx
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Input } from '@open-mercato/ui/primitives/input'
+
+<FormField label="Email" required error={errors.email}>
+  <Input
+    type="email"
+    leftIcon={<AtSign />}
+    placeholder="you@example.com"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+    aria-invalid={!!errors.email}
+  />
+</FormField>
+```
+
+### Props
+
+| Prop | Default | Notes |
+|---|---|---|
+| `size` | `default` | `sm` / `default` / `lg` |
+| `type` | `text` | Standard HTML — `email`, `password`, `number`, `tel`, `url`, `search`, `date` |
+| `leftIcon` / `rightIcon` | — | Lucide icon node |
+| `className` | — | Applied to OUTER wrapper (border, radius, padding) — what users typically customize |
+| `inputClassName` | — | Applied to INNER `<input>` — for font/color overrides |
+| All standard HTML input props | — | `placeholder`, `value`, `onChange`, `disabled`, `required`, `autoComplete`, `aria-invalid`, etc. |
+
+### MUST rules
+
+- **NEVER use raw `<input type="text|email|password|number|tel|url|search">`** anywhere — always use `Input` primitive. Native styles break visual consistency.
+- Wire `aria-invalid={!!error}` from form state — the wrapper picks it up via `has-[input[aria-invalid=true]]:border-destructive` selector. No extra className needed.
+- For form fields with label/error, wrap with `FormField` — handles label binding (`htmlFor`/`id`), error display, required marker.
+- `className` goes to wrapper (where border/radius/padding live). For inner `<input>` overrides use `inputClassName`.
+- Same-row sizing rule applies — Input next to Button MUST share `size`.
+
+### Specialized variants (NOT this primitive)
+
+| Variant | Component | Status |
+|---|---|---|
+| Tag input (multi-tag pill) | `TagInput` | TODO — Figma node `428:4860` |
+| Counter (number with +/- buttons) | `CounterInput` | TODO — Figma node `428:5656` |
+| Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
+| Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
+| Date picker | (existing date input components) | Already in `inputs/` folder |
+| Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
 
 ---
 
