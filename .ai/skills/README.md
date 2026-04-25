@@ -61,6 +61,16 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │   └── SKILL.md
 ├── sync-merged-pr-issues/
 │   └── SKILL.md
+├── wic-evaluator/
+│   ├── SKILL.md
+│   ├── references/
+│   │   └── wic-assessment-guide.md
+│   └── scripts/
+│       ├── compare_reports.mjs
+│       ├── freeze_fixture.sh
+│       ├── wic_data_fetcher.mjs
+│       └── test/
+│           └── compare_reports.smoke.mjs
 └── skill-creator/
     ├── SKILL.md
     ├── references/
@@ -202,6 +212,7 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `auto-update-changelog` | Drafting a new CHANGELOG.md release entry in the house emoji-driven format (✨ Features / 🔒 Security / 🐛 Fixes / 🛠️ Improvements / 🧪 Testing / 📝 Specs & Documentation / 🚀 CI/CD) for every PR merged since the last release and delegating the edit to `auto-create-pr` so it lands as a docs PR against `develop`; honors the Supersede Credit Rule so when `auto-review-pr` has carried a fork PR forward, the changelog credits the original contributor instead of the reviewer |
 | `sync-merged-pr-issues` | Post-merge housekeeping: walking recently merged and recently closed-unmerged PRs, auto-closing the open issues they authoritatively fix (via `fixes`/`closes`/`resolves` close-keywords or GitHub's own `closingIssuesReferences`), and leaving informational comments on issues whose PRs were closed without merging (with supersede detection); uses the same claim/release protocol as `auto-fix-github` |
 | `skill-creator` | Creating a new skill or updating an existing skill |
+| `wic-evaluator` | Testing-phase skill for calculating or replay-testing Open Mercato WIC scores from GitHub evidence using the official WIC Assessment Guide and the local fetcher / freeze / compare scripts |
 
 ---
 
