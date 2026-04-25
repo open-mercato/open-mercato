@@ -24,9 +24,13 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Checkbox primitive (with indeterminate) | `Checkbox` | `@open-mercato/ui/primitives/checkbox` |
 | Checkbox with label + description | `CheckboxField` | `@open-mercato/ui/primitives/checkbox-field` |
 | Text input (text/email/password/number/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Multi-line text input (with optional char counter) | `Textarea` | `@open-mercato/ui/primitives/textarea` |
 | Dropdown / select | `Select` (with `SelectTrigger` / `SelectContent` / `SelectItem`) | `@open-mercato/ui/primitives/select` |
+| Tooltip on hover (with arrow, dark/light) | `SimpleTooltip` (or `Tooltip`+`TooltipTrigger`+`TooltipContent`) | `@open-mercato/ui/primitives/tooltip` |
 | Toggle switch (binary on/off preference) | `Switch` | `@open-mercato/ui/primitives/switch` |
 | Switch with label + description (preference row) | `SwitchField` | `@open-mercato/ui/primitives/switch-field` |
+| Radio button (single primitive) | `Radio` (inside `RadioGroup`) | `@open-mercato/ui/primitives/radio` |
+| Radio with label + description (form row) | `RadioField` | `@open-mercato/ui/primitives/radio-field` |
 | User / entity avatar | `Avatar`, `AvatarStack` | `@open-mercato/ui/primitives/avatar` |
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |

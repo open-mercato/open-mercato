@@ -281,9 +281,11 @@ export function FilterOverlay({
                             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
                           </SelectTrigger>
                           <SelectContent>
-                            {(f.options || dynamicOptions[f.id] || []).map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                            ))}
+                            {(f.options || dynamicOptions[f.id] || [])
+                              .filter((opt) => opt.value !== '')
+                              .map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       )}

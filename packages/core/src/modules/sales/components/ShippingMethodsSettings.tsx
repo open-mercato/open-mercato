@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -250,16 +250,13 @@ function FlatRateSettingsEditor(props: {
           ))
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <Switch
-          id="apply-base-rate"
-          checked={applyBaseRate}
-          onCheckedChange={(checked) => onChange({ ...value, applyBaseRate: checked })}
-        />
-        <Label htmlFor="apply-base-rate" className="text-sm">
-          {translations.applyBaseRate}
-        </Label>
-      </div>
+      <SwitchField
+        id="apply-base-rate"
+        label={translations.applyBaseRate}
+        flip
+        checked={applyBaseRate}
+        onCheckedChange={(checked) => onChange({ ...value, applyBaseRate: checked })}
+      />
     </div>
   )
 }

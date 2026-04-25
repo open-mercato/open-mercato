@@ -9,6 +9,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
+import { Textarea } from '../primitives/textarea'
 import {
   Select,
   SelectContent,
@@ -175,6 +176,12 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for text/textarea fields; HTML maxLength + (textarea only) char counter when showCount=true
+  maxLength?: number
+  // for textarea fields; show character counter (requires maxLength)
+  showCount?: boolean
+  // for textarea fields; min height in rows
+  rows?: number
   // for datetime/time fields
   minuteStep?: number
   minDate?: Date
@@ -3375,11 +3382,19 @@ function TextAreaInput({
   onChange,
   placeholder,
   autoFocus,
+  maxLength,
+  showCount,
+  rows,
+  disabled,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   autoFocus?: boolean
+  maxLength?: number
+  showCount?: boolean
+  rows?: number
+  disabled?: boolean
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -3405,14 +3420,17 @@ function TextAreaInput({
   }, [commitIfChanged])
 
   return (
-    <textarea
-      className="w-full rounded border px-2 py-2 min-h-[80px] sm:min-h-[120px] text-sm"
+    <Textarea
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      maxLength={maxLength}
+      showCount={showCount}
+      rows={rows}
+      disabled={disabled}
       data-crud-focus-target=""
     />
   )
@@ -3901,6 +3919,10 @@ const FieldControl = React.memo(function FieldControlImpl({
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
           autoFocus={autoFocusField}
+          maxLength={builtin?.maxLength}
+          showCount={builtin?.showCount}
+          rows={builtin?.rows}
+          disabled={disabled}
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (

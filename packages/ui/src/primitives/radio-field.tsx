@@ -2,30 +2,30 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { Switch } from './switch'
+import { Radio } from './radio'
 
-export type SwitchFieldProps = Omit<React.ComponentProps<typeof Switch>, 'id'> & {
+export type RadioFieldProps = Omit<React.ComponentProps<typeof Radio>, 'id'> & {
   id?: string
   label: React.ReactNode
   sublabel?: React.ReactNode
   description?: React.ReactNode
   badge?: React.ReactNode
   link?: React.ReactNode
-  /** When true, renders the switch on the left of the label content. */
+  /** When true, renders the radio on the right of the label content. */
   flip?: boolean
   containerClassName?: string
   contentClassName?: string
 }
 
 let autoIdCounter = 0
-function useAutoId(prefix = 'switch-field') {
+function useAutoId(prefix = 'radio-field') {
   const [id] = React.useState(() => `${prefix}-${++autoIdCounter}`)
   return id
 }
 
-export const SwitchField = React.forwardRef<
-  React.ElementRef<typeof Switch>,
-  SwitchFieldProps
+export const RadioField = React.forwardRef<
+  React.ElementRef<typeof Radio>,
+  RadioFieldProps
 >(({
   id: idProp,
   label,
@@ -38,19 +38,19 @@ export const SwitchField = React.forwardRef<
   contentClassName,
   className,
   disabled,
-  ...switchProps
+  ...radioProps
 }, ref) => {
   const fallbackId = useAutoId()
   const id = idProp ?? fallbackId
 
   const hasMultiLine = Boolean(description || sublabel || link)
-  const switchEl = (
-    <Switch
+  const radio = (
+    <Radio
       ref={ref}
       id={id}
       disabled={disabled}
       className={cn(hasMultiLine && 'mt-0.5', className)}
-      {...switchProps}
+      {...radioProps}
     />
   )
 
@@ -83,23 +83,15 @@ export const SwitchField = React.forwardRef<
   return (
     <div
       className={cn(
-        'flex gap-3',
+        'flex gap-2',
         hasMultiLine ? 'items-start' : 'items-center',
+        flip && 'flex-row-reverse',
         containerClassName
       )}
     >
-      {flip ? (
-        <>
-          {switchEl}
-          {content}
-        </>
-      ) : (
-        <>
-          {content}
-          {switchEl}
-        </>
-      )}
+      {flip ? content : radio}
+      {flip ? radio : content}
     </div>
   )
 })
-SwitchField.displayName = 'SwitchField'
+RadioField.displayName = 'RadioField'

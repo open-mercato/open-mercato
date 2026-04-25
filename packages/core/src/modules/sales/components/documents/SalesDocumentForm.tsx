@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import {
   Dialog,
   DialogContent,
@@ -892,13 +892,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     : t('sales.documents.form.shipping.hint', 'Select an address or define a new one.')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={useCustom}
-                  onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
-                />
-                <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.shipping.custom', 'Define new address')}
+                flip
+                checked={useCustom}
+                onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
+              />
             </div>
             {!useCustom ? (
               <Select
@@ -934,13 +933,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
                 />
-                <label className="col-span-2 flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={formValues.saveShippingAddress === true}
-                    onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
-                  />
-                  {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-                </label>
+                <SwitchField
+                  containerClassName="col-span-2"
+                  label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                  flip
+                  checked={formValues.saveShippingAddress === true}
+                  onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
+                />
               </div>
             ) : null}
             {addressesError && customerId ? (
@@ -1016,20 +1015,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     : t('sales.documents.form.billing.hint', 'Select an address or define a new one.')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={sameAsShipping}
-                  onCheckedChange={(checked) => {
-                    updateValue('sameAsShipping', checked)
-                    if (checked) {
-                      updateValue('useCustomBilling', useCustomShipping)
-                      updateValue('billingAddressId', shippingId)
-                      updateValue('billingAddressDraft', shippingDraft)
-                    }
-                  }}
-                />
-                <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}</span>
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}
+                flip
+                checked={sameAsShipping}
+                onCheckedChange={(checked) => {
+                  updateValue('sameAsShipping', checked)
+                  if (checked) {
+                    updateValue('useCustomBilling', useCustomShipping)
+                    updateValue('billingAddressId', shippingId)
+                    updateValue('billingAddressDraft', shippingDraft)
+                  }
+                }}
+              />
             </div>
 
             {!sameAsShipping ? (
@@ -1060,14 +1058,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   </Select>
                 ) : null}
 
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={useCustom}
-                    onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
-                    disabled={false}
-                  />
-                  <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-                </label>
+                <SwitchField
+                  label={t('sales.documents.form.shipping.custom', 'Define new address')}
+                  flip
+                  checked={useCustom}
+                  onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
+                  disabled={false}
+                />
 
                 {useCustom ? (
                   <div className="space-y-3">
@@ -1078,13 +1075,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                       onChange={(next) => updateValue('billingAddressDraft', next)}
                       hidePrimaryToggle
                     />
-                    <label className="col-span-2 flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={formValues.saveBillingAddress === true}
-                        onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
-                      />
-                      {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-                    </label>
+                    <SwitchField
+                      containerClassName="col-span-2"
+                      label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                      flip
+                      checked={formValues.saveBillingAddress === true}
+                      onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
+                    />
                   </div>
                 ) : null}
               </>

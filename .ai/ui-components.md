@@ -11,8 +11,11 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [FancyButton](#fancybutton)
 - [Checkbox / CheckboxField](#checkbox--checkboxfield)
 - [Input](#input)
+- [Textarea](#textarea)
 - [Select](#select)
 - [Switch / SwitchField](#switch--switchfield)
+- [Radio / RadioGroup / RadioField](#radio--radiogroup--radiofield)
+- [Tooltip / SimpleTooltip](#tooltip--simpletooltip)
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
@@ -342,6 +345,78 @@ import { Input } from '@open-mercato/ui/primitives/input'
 
 ---
 
+## Textarea
+
+```typescript
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+```
+
+Multi-line text input aligned with Figma DS Text Area. Same wrapper styling as `Input` (border-input, shadow-xs, focus shadow halo, token-driven disabled). Supports vertical resize handle and optional character counter.
+
+### States (token-driven)
+
+| State | Visual |
+|---|---|
+| Default | `border-input` + `bg-background` + `shadow-xs` |
+| Hover | `bg-muted/40` |
+| Focus | `border-foreground` + `shadow-focus` (Figma 2-ring) |
+| Disabled | `bg-bg-disabled` + `border-border-disabled` (NOT opacity) |
+| Error | `border-destructive` (auto via `aria-invalid={true}`) |
+
+Default `min-h-[80px]` and `resize-y` (user can drag the bottom-right grabber to grow vertically).
+
+### Character counter
+
+Set `showCount` + `maxLength` to render a `current/max` indicator below the textarea (positioned bottom-right, uppercase, `text-overline`, color shifts to `text-destructive` if overflowing).
+
+```tsx
+<Textarea
+  value={description}
+  onChange={(e) => setDescription(e.target.value)}
+  maxLength={200}
+  showCount
+  placeholder="Describe the issue…"
+/>
+```
+
+`aria-live="polite"` on the counter so screen readers announce the changing count.
+
+### Composition with FormField
+
+```tsx
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+
+<FormField label="Description" required error={errors.description}>
+  <Textarea
+    value={description}
+    onChange={(e) => setDescription(e.target.value)}
+    maxLength={500}
+    showCount
+    aria-invalid={!!errors.description}
+  />
+</FormField>
+```
+
+### Props
+
+| Prop | Default | Notes |
+|---|---|---|
+| `showCount` | `false` | Render `length/maxLength` counter below |
+| `wrapperClassName` | — | Applied to outer wrapper when counter visible |
+| `className` | — | Applied to the `<textarea>` element |
+| All native textarea props | — | `value`, `onChange`, `placeholder`, `disabled`, `required`, `maxLength`, `rows`, etc. |
+
+### MUST rules
+
+- **NEVER use raw `<textarea>`** — always use `Textarea` primitive.
+- For form fields with label + error, wrap with `FormField`.
+- Keep `min-h-[80px]` default (matches Figma) — only override when a specific design demands it.
+- For `showCount`, ALWAYS set `maxLength` — without it, the counter shows just `length` which is less actionable.
+- `resize-y` is allowed (user grows vertically); avoid `resize-none` unless layout breaks.
+
+---
+
 ## Select
 
 ```typescript
@@ -573,6 +648,165 @@ import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 - For preference rows with label, use `SwitchField` — handles `htmlFor` / accessible naming and the standard "label LEFT, switch RIGHT" layout.
 - Switch vs Checkbox decision: **Switch** = immediate effect on a single setting (toggling instantly applies). **Checkbox** = part of a form, needs explicit Save/Apply.
 - Color: never override the `on` state to a non-indigo color (breaks visual contract with Checkbox + DS).
+
+---
+
+## Radio / RadioGroup / RadioField
+
+```typescript
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
+```
+
+Single-select radio control built on `@radix-ui/react-radio-group` and aligned with Figma DS Radio. Indigo accent matches `Checkbox`/`Switch`. `RadioGroup` is the container (wires keyboard nav across items), `Radio` is the bare primitive, `RadioField` is the composite for form rows with label/description.
+
+### Sizes
+
+Single size — Figma spec is fixed at 20×20 (matches `Checkbox size="md"` and `Switch` row height).
+
+### States (token-driven)
+
+| State | Outer ring | Inner dot |
+|---|---|---|
+| Off Default | `border-input` (#ebebeb) + `bg-background` | — |
+| Off Hover | `border-muted-foreground/40` | — |
+| On Default | `border-accent-indigo` + `bg-accent-indigo` | white 8px dot |
+| Focus | (any state) | `shadow-focus` (Figma 2-ring halo) |
+| Disabled | (state-specific) `opacity-60` | (preserved if checked) |
+
+### Color contract
+
+The "on" state uses `--accent-indigo` (#6366f1) — same as `Checkbox` checked and `Switch` on. Selection controls share one accent across the DS.
+
+### Basic usage (RadioGroup with bare items + custom labels)
+
+```tsx
+<RadioGroup value={value} onValueChange={setValue}>
+  <label className="flex items-center gap-2">
+    <Radio value="a" id="opt-a" />
+    <span>Option A</span>
+  </label>
+  <label className="flex items-center gap-2">
+    <Radio value="b" id="opt-b" />
+    <span>Option B</span>
+  </label>
+</RadioGroup>
+```
+
+### Composite usage (RadioField — preferred for form rows)
+
+```tsx
+<RadioGroup value={mode} onValueChange={setMode}>
+  <RadioField value="customer" label="Customer" description="Buyer with active orders." />
+  <RadioField value="prospect" label="Prospect" description="Potential customer in evaluation." />
+  <RadioField value="archived" label="Archived" disabled description="No longer active." />
+</RadioGroup>
+```
+
+### RadioField props
+
+| Prop | Default | Notes |
+|---|---|---|
+| `value` (required) | — | Value emitted to `RadioGroup.onValueChange` |
+| `label` (required) | — | Primary label, clickable, bound via `htmlFor` |
+| `sublabel` | — | Inline text after label (smaller, muted) |
+| `description` | — | Helper text on its own line under the label |
+| `badge` | — | Inline badge node (e.g. NEW pill) |
+| `link` | — | Link/link-button rendered below description |
+| `flip` | `false` | If true, radio is on the RIGHT instead of left |
+| All `Radio` props | — | `value`, `disabled`, `id`, `aria-*` |
+
+### MUST rules
+
+- **NEVER use raw `<input type="radio">`** — always use `Radio` (with `RadioGroup`) or `RadioField`.
+- **MUST wrap radios in `RadioGroup`** — Radix needs the group context for keyboard nav (Arrow keys move focus AND selection between radios).
+- For form rows with label + description, use `RadioField` — handles `htmlFor` binding and consistent layout.
+- Color: never override the `on` state to a non-indigo color (breaks visual contract with Checkbox + Switch).
+- Radio vs Checkbox vs Switch: **Radio** = mutually exclusive choice (one of N). **Checkbox** = independent selection (multiple OK). **Switch** = immediate-effect single setting.
+
+---
+
+## Tooltip / SimpleTooltip
+
+```typescript
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+  SimpleTooltip,
+} from '@open-mercato/ui/primitives/tooltip'
+```
+
+Hover/focus tooltip built on `@radix-ui/react-tooltip`. `SimpleTooltip` is the convenience wrapper for the 95% case. Drop-in primitives `Tooltip` / `TooltipTrigger` / `TooltipContent` for advanced control.
+
+> Mount `<TooltipProvider>` once near the app root (already done in backend shells) so tooltips share `delayDuration` / animation context.
+
+### Variants
+
+| Variant | Visual | Use case |
+|---|---|---|
+| `dark` (default) | `bg-foreground` + light text | **Default** — high contrast, works on light surfaces. `arrow` enabled by default |
+| `light` | `bg-popover` + dark text + 1px border | Use over dark surfaces or when you want the tooltip to blend with the page (set `arrow` explicitly if needed) |
+
+### Sizes
+
+| Size | Padding / text | Use case |
+|---|---|---|
+| `sm` | `px-1.5 py-0.5` / 12/16 | Compact triggers (icon buttons, table cells) |
+| `default` | `px-2 py-1` / 12/16 | Most cases |
+| `lg` | `px-3 py-2` / 14/20 | Multi-line / rich content |
+
+### Arrow
+
+Set `arrow` prop to render a small triangle pointing at the trigger (Radix renders + auto-rotates per side).
+
+### Basic usage (SimpleTooltip)
+
+```tsx
+<SimpleTooltip content="Full text shown on hover">
+  <span className="truncate">{shortText}</span>
+</SimpleTooltip>
+
+// Light variant + arrow
+<SimpleTooltip content="Helps explain this control" variant="light" arrow>
+  <IconButton variant="ghost" size="sm" type="button" aria-label="Help">
+    <HelpCircle className="size-4" />
+  </IconButton>
+</SimpleTooltip>
+
+// Multi-line / rich content
+<SimpleTooltip
+  content={<><strong>Pro tip:</strong> hold Shift to multi-select</>}
+  size="lg"
+  side="bottom"
+  align="start"
+>
+  <InfoIcon className="size-4" />
+</SimpleTooltip>
+```
+
+### Advanced (composed)
+
+```tsx
+<Tooltip delayDuration={500}>
+  <TooltipTrigger asChild>
+    <Button>Hover me</Button>
+  </TooltipTrigger>
+  <TooltipContent variant="light" arrow side="right">
+    Cross-platform shortcut: <KbdShortcut keys={['⌘', 'K']} />
+  </TooltipContent>
+</Tooltip>
+```
+
+### MUST rules
+
+- **Wrap the trigger with `asChild`** when the trigger is your own component (Button, IconButton) — Radix needs to forward refs/event handlers onto the actual DOM node.
+- **NEVER use raw `title` attribute** for non-trivial hints — `title` has no styling, no positioning, no a11y for keyboard. Use `Tooltip`.
+- For TRUNCATED text indicators, use `SimpleTooltip` to surface the full text on hover (already pattern in DataTable cells via `TruncatedCell`).
+- For HELP icons next to form labels, prefer `variant="light"` + `arrow` — better contrast on dialogs / cards.
+- Default `delayDuration={300}` — keep this unless you need slower (e.g. for accidental hovers in dense lists, set `500`).
+- For mobile / touch — Radix opens tooltips on long-press; do NOT rely on tooltip for critical info, repeat the same in label / placeholder when possible.
 
 ---
 

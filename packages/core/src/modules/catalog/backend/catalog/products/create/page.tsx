@@ -17,6 +17,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
+import { RadioGroup, Radio } from "@open-mercato/ui/primitives/radio";
 import {
   Select,
   SelectContent,
@@ -1558,6 +1559,12 @@ function ProductBuilder({
           ) : null}
 
           <div className="rounded-lg border">
+            <RadioGroup
+              className="contents"
+              name="defaultVariant"
+              value={(Array.isArray(values.variants) ? values.variants : []).find((v) => v.isDefault)?.id ?? ''}
+              onValueChange={(next) => markDefaultVariant(next)}
+            >
             <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
                 <thead className="bg-muted/50">
@@ -1649,12 +1656,7 @@ function ProductBuilder({
                     <tr key={variant.id} className="border-t">
                       <td className="px-3 py-2">
                         <label className="inline-flex items-center gap-1 text-xs">
-                          <input
-                            type="radio"
-                            name="defaultVariant"
-                            checked={variant.isDefault}
-                            onChange={() => markDefaultVariant(variant.id)}
-                          />
+                          <Radio value={variant.id} />
                           {variant.isDefault
                             ? t(
                                 "catalog.products.create.variantsBuilder.defaultLabel",
@@ -1810,6 +1812,7 @@ function ProductBuilder({
                 </tbody>
               </table>
             </div>
+            </RadioGroup>
             {!priceKinds.length ? (
               <div className="flex items-center gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
                 <AlertCircle className="h-4 w-4" />

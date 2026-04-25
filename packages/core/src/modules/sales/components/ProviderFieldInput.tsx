@@ -1,5 +1,4 @@
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Select,
   SelectContent,
@@ -7,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import type { ProviderSettingField } from '../lib/providers'
@@ -41,13 +40,14 @@ export function renderProviderFieldInput(opts: {
       )
     case 'boolean':
       return (
-        <div className="flex items-center gap-2 py-1">
-          <Switch
+        <div className="py-1">
+          <SwitchField
             id={field.key}
+            label={field.placeholder ?? ''}
+            flip
             checked={Boolean(value)}
             onCheckedChange={(checked) => onChange(checked)}
           />
-          <Label htmlFor={field.key}>{field.placeholder ?? ''}</Label>
         </div>
       )
     case 'select':

@@ -8,7 +8,7 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -667,16 +667,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 />
               </div>
 
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium" htmlFor="user-active-toggle">
-                  {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
-                </label>
-                <Switch
-                  id="user-active-toggle"
-                  checked={editActive ?? data.isActive}
-                  onCheckedChange={(next) => setEditActive(next)}
-                />
-              </div>
+              <SwitchField
+                id="user-active-toggle"
+                label={t('customer_accounts.admin.detail.fields.isActive', 'Active')}
+                checked={editActive ?? data.isActive}
+                onCheckedChange={(next) => setEditActive(next)}
+              />
             </div>
 
             <div className="space-y-2">
