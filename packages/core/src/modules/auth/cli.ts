@@ -679,6 +679,11 @@ const syncRoleAcls: ModuleCli = {
         console.error(`❌ Invalid --tenant value: ${tenantArg}`)
         return
       }
+      const tenant = await em.findOne(Tenant, { id: normalized })
+      if (!tenant) {
+        console.error(`❌ Tenant not found: ${normalized}`)
+        return
+      }
       targetTenantIds.push(normalized)
     } else {
       const tenants = await em.find(Tenant, {})

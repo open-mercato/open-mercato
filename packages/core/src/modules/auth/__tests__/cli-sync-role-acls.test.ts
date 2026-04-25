@@ -29,6 +29,11 @@ const findOne = jest.fn(async (Entity: any, where: any) => {
   if (Entity?.name === 'RoleAcl') {
     return existingAcls.find((a) => a.role?.id === where?.role?.id && a.tenantId === where?.tenantId) ?? null
   }
+  if (Entity?.name === 'Tenant') {
+    const id = where?.id
+    if (!id) return null
+    return tenantsList.find((t) => t.id === id) ?? null
+  }
   return null
 })
 const find = jest.fn(async (Entity: any) => {
@@ -71,6 +76,7 @@ function seedRoles(tenantId: string) {
     { id: `r-employee-${tenantId}`, name: 'employee', tenantId },
     { id: `r-reports-${tenantId}`, name: 'reports_viewer', tenantId },
   ]
+  if (!tenantsList.some((t) => t.id === tenantId)) tenantsList.push({ id: tenantId })
 }
 
 describe('auth CLI sync-role-acls', () => {
@@ -155,5 +161,17 @@ describe('auth CLI sync-role-acls', () => {
     expect(persistedAcls).toEqual([])
     expect(logSpy).toHaveBeenCalledWith('No tenants found; nothing to sync.')
     logSpy.mockRestore()
+  })
+
+  it('errors and writes nothing when --tenant points at a non-existent tenant', async () => {
+    const cmd = cli.find((c: any) => c.command === 'sync-role-acls')!
+    seedRoles('t-1')
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    await cmd.run(['--tenant', 't-missing'])
+
+    expect(persistedAcls).toEqual([])
+    expect(errorSpy).toHaveBeenCalledWith('❌ Tenant not found: t-missing')
+    errorSpy.mockRestore()
   })
 })
