@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
@@ -7,7 +8,28 @@ import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__i
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..')
+
+function findRepoRoot(startDir: string): string {
+  let current = startDir
+  while (true) {
+    const candidate = path.join(current, 'package.json')
+    if (fs.existsSync(candidate)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(candidate, 'utf8'))
+        if (pkg && (pkg.workspaces || pkg.name === 'open-mercato')) return current
+      } catch {
+        // ignore JSON parse failures and keep walking
+      }
+    }
+    const parent = path.dirname(current)
+    if (parent === current) {
+      throw new Error(`Could not locate Open Mercato repo root above ${startDir}`)
+    }
+    current = parent
+  }
+}
+
+const repoRoot = findRepoRoot(__dirname)
 
 function runMercato(args: string[]): string {
   return execFileSync('yarn', ['mercato', ...args], {
