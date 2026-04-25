@@ -232,10 +232,10 @@ Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) 
    }
    ```
 
-2. **Reconcile existing tenants** by running the ACL apply command so existing installs pick up the new feature without a reinstall:
+2. **Reconcile existing tenants** by running the ACL sync command so existing installs pick up the new feature without a reinstall:
 
    ```bash
-   yarn mercato auth apply-acl --all-tenants
+   yarn mercato auth sync-role-acls --all-tenants
    ```
 
 Do this automatically unless the user has explicitly said otherwise. If the current user is an admin or superadmin, they should see the feature you just built — not stare at a blank admin because their role is missing the grant.

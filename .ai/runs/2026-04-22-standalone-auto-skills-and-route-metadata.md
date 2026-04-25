@@ -193,8 +193,8 @@ Post a comment per label per PR workflow. Then run the `auto-review-pr` skill ag
 
 - [x] 9.1 Standalone AGENTS.md rule: new features auto-granted to admin/superadmin — 1740997e4
 - [x] 9.2 Agentic shared AGENTS.md.template mirror — 1740997e4
-- [x] 9.3 Implement `yarn mercato auth apply-acl --all-tenants` CLI — b31edd562 (command landed under the auth module namespace since the CLI dispatcher is module-scoped; docs updated to match)
-- [x] 9.4 Ensure defaultRoleFeatures is seeded on tenant creation (verify existing behavior) — verified: `setupInitialTenant()` already calls `ensureDefaultRoleAcls` at line 336 of `packages/core/src/modules/auth/lib/setup-app.ts`, so new tenants receive defaults on creation. The new `apply-acl` CLI reconciles existing tenants.
+- [x] 9.3 Implement `yarn mercato auth sync-role-acls --all-tenants` CLI — superseded by develop's `sync-role-acls` command (commits a97a011f6, 7431d4a4f). Docs and AGENTS.md updated to point at the canonical command instead of the originally-planned `apply-acl`.
+- [x] 9.4 Ensure defaultRoleFeatures is seeded on tenant creation (verify existing behavior) — verified: `setupInitialTenant()` already calls `ensureDefaultRoleAcls` at line 336 of `packages/core/src/modules/auth/lib/setup-app.ts`, so new tenants receive defaults on creation. The `sync-role-acls` CLI reconciles existing tenants.
 
 ### Phase 10: Strict Design System enforcement in AGENTS.md (NEW scope)
 
