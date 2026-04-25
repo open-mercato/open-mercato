@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +43,22 @@ function runMercato(args: string[]): string {
   })
 }
 
+function runMercatoCapture(args: string[]): { status: number | null; output: string } {
+  const result = spawnSync('yarn', ['mercato', ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      FORCE_COLOR: '0',
+      NODE_NO_WARNINGS: '1',
+    },
+  })
+  return {
+    status: result.status,
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+  }
+}
+
 test.describe('TC-AUTH-033: auth sync-role-acls CLI', () => {
   test.slow()
 
@@ -82,13 +98,7 @@ test.describe('TC-AUTH-033: auth sync-role-acls CLI', () => {
   })
 
   test('fails cleanly with an invalid --tenant value', async () => {
-    let errorOutput = ''
-    try {
-      runMercato(['auth', 'sync-role-acls', '--tenant', '   '])
-    } catch (err) {
-      errorOutput = String((err as NodeJS.ErrnoException & { stdout?: string; stderr?: string }).stdout ?? '')
-        + String((err as NodeJS.ErrnoException & { stdout?: string; stderr?: string }).stderr ?? '')
-    }
-    expect(errorOutput).toContain('Invalid --tenant value')
+    const { output } = runMercatoCapture(['auth', 'sync-role-acls', '--tenant', '   '])
+    expect(output).toContain('Invalid --tenant value')
   })
 })
