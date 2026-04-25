@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
@@ -1009,11 +1010,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           >
             <span className="text-xs font-medium text-muted-foreground">{placeholder}</span>
             <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-foreground"
+              <Checkbox
                 checked={!hidden}
-                onChange={(event) => setItemHidden(itemKey, !event.target.checked)}
+                onCheckedChange={(next) => setItemHidden(itemKey, next !== true)}
                 disabled={savingPreferences}
                 aria-label={t('appShell.sidebarCustomizationShowItem')}
                 title={t('appShell.sidebarCustomizationShowItem')}
@@ -1081,12 +1080,10 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                     const checked = selectedRoleIds.includes(role.id)
                     const willClear = role.hasPreference && !checked
                     return (
-                      <label key={role.id} className="flex items-center gap-2 rounded border bg-background px-2 py-1 text-sm shadow-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-foreground"
+                      <label key={role.id} className="flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm shadow-sm cursor-pointer">
+                        <Checkbox
                           checked={checked}
-                          onChange={() => toggleRoleSelection(role.id)}
+                          onCheckedChange={() => toggleRoleSelection(role.id)}
                           disabled={savingPreferences}
                         />
                         <span className="flex-1 truncate">{role.name}</span>

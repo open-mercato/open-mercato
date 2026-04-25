@@ -73,12 +73,12 @@ export function FilterBar({
 
   const containerClass = `flex flex-col ${layout === 'inline' ? 'gap-1 sm:gap-2' : 'gap-2'} w-full`
   const searchInput = onSearchChange ? (
-    <div className={`relative w-full sm:w-auto sm:min-w-[180px] sm:max-w-[240px] ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
+    <div className={`relative w-full sm:w-72 lg:w-80 ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
       <input
         value={searchDraft}
         onChange={(e) => setSearchDraft(e.target.value)}
         placeholder={resolvedSearchPlaceholder}
-        className="h-9 w-full rounded border pl-8 pr-2 text-sm"
+        className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
         suppressHydrationWarning
       />
       <Search aria-hidden="true" className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -87,7 +87,7 @@ export function FilterBar({
   const controls = (
     <div className={`flex flex-wrap items-center gap-2 ${searchAlign === 'left' && searchInput ? 'sm:ml-auto' : ''}`}>
       {filters.length > 0 && (
-        <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
+        <Button variant="outline" onClick={() => setOpen(true)}>
           <ListFilter aria-hidden="true" className="size-4 opacity-80" />
           {activeCount
             ? t('ui.filterBar.filtersWithCount', 'Filters {count}', { count: activeCount })

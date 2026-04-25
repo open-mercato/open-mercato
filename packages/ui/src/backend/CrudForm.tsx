@@ -7,6 +7,7 @@ import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, us
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
+import { Checkbox } from '../primitives/checkbox'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import { FormHeader } from './forms/FormHeader'
@@ -3725,7 +3726,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <input type="checkbox" className="size-4" readOnly checked={isSel} />
+                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
                 <span>{opt.label}</span>
               </span>
             </Button>
@@ -3945,12 +3946,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            className="size-4"
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <Checkbox
             checked={value === true}
-            onChange={(e) => setValue(field.id, e.target.checked)}
+            onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
             disabled={disabled}
           />
@@ -3996,14 +3995,12 @@ const FieldControl = React.memo(function FieldControlImpl({
               : []
             const checked = arr.includes(opt.value)
             return (
-              <label key={opt.value} className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="size-4"
+              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={checked}
-                  onChange={(e) => {
+                  onCheckedChange={(state) => {
                     const next = new Set(arr)
-                    if (e.target.checked) {
+                    if (state === true) {
                       next.add(opt.value)
                     } else {
                       next.delete(opt.value)

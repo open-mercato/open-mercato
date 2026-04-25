@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Button } from '../primitives/button'
+import { Checkbox } from '../primitives/checkbox'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -249,15 +250,14 @@ export function FilterOverlay({
                             const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                             const checked = arr.includes(opt.value)
                             return (
-                              <label key={opt.value} className="inline-flex items-center gap-2">
-                                <input
-                                  type="checkbox"
+                              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                                <Checkbox
                                   checked={checked}
-                                  onChange={(e) => {
-                                    const next = new Set(arr)
-                                    if (e.target.checked) next.add(opt.value)
-                                    else next.delete(opt.value)
-                                    setValue(f.id, Array.from(next))
+                                  onCheckedChange={(next) => {
+                                    const set = new Set(arr)
+                                    if (next === true) set.add(opt.value)
+                                    else set.delete(opt.value)
+                                    setValue(f.id, Array.from(set))
                                   }}
                                 />
                                 <span className="text-sm">{opt.label}</span>
