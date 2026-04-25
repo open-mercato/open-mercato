@@ -1,5 +1,12 @@
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { isRecord } from '@open-mercato/shared/lib/utils'
@@ -45,19 +52,21 @@ export function renderProviderFieldInput(opts: {
       )
     case 'select':
       return (
-        <select
-          {...common}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(evt) => onChange(evt.target.value)}
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => onChange(next ?? '')}
         >
-          <option value="">—</option>
-          {(field.options ?? []).map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger {...common}>
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options ?? []).map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )
     case 'secret':
       return (

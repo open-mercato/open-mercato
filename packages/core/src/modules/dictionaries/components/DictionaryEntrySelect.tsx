@@ -15,6 +15,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
@@ -234,25 +241,25 @@ export function DictionaryEntrySelect({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <select
-          className={[
-            'h-9 w-full rounded border pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-            selectClassName,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(next || undefined)}
           disabled={disabled}
-          title={activeOption?.label ?? undefined}
         >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value} title={option.label}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            className={selectClassName}
+            title={activeOption?.label ?? undefined}
+          >
+            <SelectValue placeholder={labels.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1">
           {allowInlineCreate && createOption ? (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

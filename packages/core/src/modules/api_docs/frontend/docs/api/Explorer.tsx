@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 
 const METHOD_STYLES: Record<string, string> = {
   GET: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
@@ -1311,17 +1318,18 @@ function TesterPanel(props: TesterPanelProps) {
 
       <label className="space-y-2 text-sm">
         <span className="font-medium text-foreground">Base URL</span>
-        <select
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-        >
-          {mergedBaseUrls.map((server) => (
-            <option key={server.url} value={server.url}>
-              {server.url} {server.description ? `— ${server.description}` : ''}
-            </option>
-          ))}
-        </select>
+        <Select value={baseUrl} onValueChange={(value) => setBaseUrl(value)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {mergedBaseUrls.map((server) => (
+              <SelectItem key={server.url} value={server.url}>
+                {server.url} {server.description ? `— ${server.description}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {!baseUrl.trim() && requestPreview?.usesPlaceholderBase ? (
           <p className="text-xs text-muted-foreground">
             Examples default to {PLACEHOLDER_BASE_URL}. Update the base URL to match your environment.

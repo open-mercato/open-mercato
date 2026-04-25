@@ -9,6 +9,13 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -560,19 +567,22 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <select
-          className="w-full h-9 rounded border px-2 text-sm"
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(next || undefined)}
           disabled={loading}
         >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder={labels.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button

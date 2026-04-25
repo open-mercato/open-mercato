@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { X } from 'lucide-react'
 import type { SimpleCondition } from './utils/conditionValidation'
 import { getComparisonOperators, isValidFieldPath } from './utils/conditionValidation'
@@ -92,17 +99,21 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.operator')}
           </label>
-          <select
+          <Select
             value={condition.operator || '='}
-            onChange={handleOperatorChange}
-            className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onValueChange={(value) => handleOperatorChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
           >
-            {operators.map((op) => (
-              <option key={op.value} value={op.value}>
-                {op.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {operators.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Value Input */}

@@ -4,6 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -61,8 +68,7 @@ export default function InboxSettingsPage() {
     }
   }, [settings])
 
-  const handleLanguageChange = React.useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const workingLanguage = event.target.value
+  const handleLanguageChange = React.useCallback(async (workingLanguage: string) => {
     setIsSavingLanguage(true)
     const result = await runMutation({
       operation: () => apiCall<{ ok: boolean; settings: { workingLanguage: string } }>('/api/inbox_ops/settings', {
@@ -133,17 +139,20 @@ export default function InboxSettingsPage() {
                 <p className="text-xs text-muted-foreground mt-1">
                   {t('inbox_ops.settings.working_language_hint', 'AI summaries and action descriptions will be generated in this language')}
                 </p>
-                <select
-                  id="working-language"
-                  className="mt-2 block w-full sm:w-[200px] h-11 md:h-9 rounded-md border border-input bg-background px-3 text-sm"
+                <Select
                   value={settings.workingLanguage || 'en'}
-                  onChange={handleLanguageChange}
+                  onValueChange={(value) => handleLanguageChange(value)}
                   disabled={isSavingLanguage}
                 >
-                  {languageOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  <SelectTrigger id="working-language" className="mt-2 sm:w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {languageOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           ) : (

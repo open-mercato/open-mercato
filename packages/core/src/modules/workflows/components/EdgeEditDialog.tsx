@@ -13,6 +13,13 @@ import {
 import {Button} from '@open-mercato/ui/primitives/button'
 import {Input} from '@open-mercato/ui/primitives/input'
 import {Label} from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import {Badge} from '@open-mercato/ui/primitives/badge'
 import {Separator} from '@open-mercato/ui/primitives/separator'
 import {Plus, Trash2} from 'lucide-react'
@@ -355,17 +362,17 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             {/* Trigger Type */}
             <div className="space-y-2">
               <Label htmlFor="trigger">{t('workflows.edgeEditor.triggerType')}</Label>
-              <select
-                id="trigger"
-                value={trigger}
-                onChange={(e) => setTrigger(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="auto">{t('workflows.transitions.triggers.auto')}</option>
-                <option value="manual">{t('workflows.transitions.triggers.manual')}</option>
-                <option value="signal">{t('workflows.transitions.triggers.signal')}</option>
-                <option value="timer">{t('workflows.transitions.triggers.timer')}</option>
-              </select>
+              <Select value={trigger} onValueChange={(value) => setTrigger(value)}>
+                <SelectTrigger id="trigger">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{t('workflows.transitions.triggers.auto')}</SelectItem>
+                  <SelectItem value="manual">{t('workflows.transitions.triggers.manual')}</SelectItem>
+                  <SelectItem value="signal">{t('workflows.transitions.triggers.signal')}</SelectItem>
+                  <SelectItem value="timer">{t('workflows.transitions.triggers.timer')}</SelectItem>
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
                 {t(`workflows.edgeEditor.triggerDescriptions.${trigger}`)}
               </p>
@@ -796,19 +803,23 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Activity Type */}
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityType')} *</label>
-                            <select
+                            <Select
                               value={activity.activityType}
-                              onChange={(e) => updateActivity(index, 'activityType', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
+                              onValueChange={(value) => updateActivity(index, 'activityType', value)}
                             >
-                              <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
-                              <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
-                              <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
-                              <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
-                              <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
-                              <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
-                              <option value="WAIT">{t('workflows.activities.types.WAIT')}</option>
-                            </select>
+                              <SelectTrigger size="sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
+                                <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
+                                <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
+                                <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
+                                <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
+                                <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
+                                <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
 
                           {/* Timeout */}

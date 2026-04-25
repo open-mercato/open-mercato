@@ -11,6 +11,13 @@ import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
@@ -934,18 +941,18 @@ function ChannelSelectInput({
     )
   }
   return (
-    <select
-      className="w-full rounded border px-2 py-2 text-sm"
-      value={value ?? ''}
-      onChange={(event) => onChange(event.target.value || null)}
-    >
-      <option value="">{t('sales.channels.offers.form.channelPlaceholder', 'Select channel')}</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.code ? `${opt.name} (${opt.code})` : opt.name}
-        </option>
-      ))}
-    </select>
+    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)}>
+      <SelectTrigger>
+        <SelectValue placeholder={t('sales.channels.offers.form.channelPlaceholder', 'Select channel')} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt) => (
+          <SelectItem key={opt.id} value={opt.id}>
+            {opt.code ? `${opt.name} (${opt.code})` : opt.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -1817,11 +1824,10 @@ function PriceOverridesEditor({
         <div className="space-y-2">
           {values.map((row) => (
             <div key={row.tempId} className="grid gap-2 rounded border p-3 md:grid-cols-3">
-              <select
-                className="rounded border px-2 py-2 text-sm"
-                value={row.priceKindId ?? ''}
-                onChange={(event) => {
-                  const next = priceKinds.find((kind) => kind.id === event.target.value)
+              <Select
+                value={row.priceKindId || undefined}
+                onValueChange={(value) => {
+                  const next = priceKinds.find((kind) => kind.id === value)
                   updateRow(row.tempId, {
                     priceKindId: next?.id ?? null,
                     priceKindCode: next?.code ?? next?.title ?? null,
@@ -1830,17 +1836,21 @@ function PriceOverridesEditor({
                   })
                 }}
               >
-                <option value="">{t('sales.channels.offers.pricing.selectKind', 'Select price kind')}</option>
-                {priceKinds.map((kind) => (
-                  <option
-                    key={kind.id}
-                    value={kind.id}
-                    disabled={usedKindIdSet.has(kind.id) && row.priceKindId !== kind.id}
-                  >
-                  {kind.title ?? kind.code ?? kind.id}
-                </option>
-              ))}
-            </select>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('sales.channels.offers.pricing.selectKind', 'Select price kind')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {priceKinds.map((kind) => (
+                    <SelectItem
+                      key={kind.id}
+                      value={kind.id}
+                      disabled={usedKindIdSet.has(kind.id) && row.priceKindId !== kind.id}
+                    >
+                      {kind.title ?? kind.code ?? kind.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="relative">
                 {(row.currencyCode ?? basePrice?.currencyCode) ? (
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">

@@ -13,6 +13,13 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -171,17 +178,21 @@ function FlatRateSettingsEditor(props: {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.metric}</Label>
-                  <select
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  <Select
                     value={rate.metric ?? 'item_count'}
-                    onChange={(evt) => updateRate(index, 'metric', evt.target.value)}
+                    onValueChange={(value) => updateRate(index, 'metric', value)}
                   >
-                    {metrics.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {metrics.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.min}</Label>

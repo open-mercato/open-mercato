@@ -5,6 +5,13 @@ import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFor
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import {
   Dialog,
@@ -894,24 +901,29 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               </label>
             </div>
             {!useCustom ? (
-              <select
-                className="w-full rounded border px-2 py-2 text-sm"
-                value={selectedId}
-                onChange={(evt) => updateValue('shippingAddressId', evt.target.value || null)}
+              <Select
+                value={selectedId || undefined}
+                onValueChange={(value) => updateValue('shippingAddressId', value || null)}
                 disabled={addressesLoading || customerRequired}
               >
-                <option value="">
-                  {addressesLoading
-                    ? t('sales.documents.form.address.loading', 'Loading addresses…')
-                    : t('sales.documents.form.address.placeholder', 'Select address')}
-                </option>
-                {addressOptions.map((addr) => {
-                  const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-                  return (
-                    <option key={addr.id} value={addr.id}>{optionLabel}</option>
-                  )
-                })}
-              </select>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      addressesLoading
+                        ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                        : t('sales.documents.form.address.placeholder', 'Select address')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {addressOptions.map((addr) => {
+                    const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                    return (
+                      <SelectItem key={addr.id} value={addr.id}>{optionLabel}</SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
             ) : null}
             {useCustom ? (
               <div className="space-y-3">
@@ -1023,24 +1035,29 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
             {!sameAsShipping ? (
               <>
                 {!useCustom ? (
-                  <select
-                    className="w-full rounded border px-2 py-2 text-sm"
-                    value={selectedId}
-                    onChange={(evt) => updateValue('billingAddressId', evt.target.value || null)}
+                  <Select
+                    value={selectedId || undefined}
+                    onValueChange={(value) => updateValue('billingAddressId', value || null)}
                     disabled={addressesLoading || customerRequired}
                   >
-                    <option value="">
-                      {addressesLoading
-                        ? t('sales.documents.form.address.loading', 'Loading addresses…')
-                        : t('sales.documents.form.address.placeholder', 'Select address')}
-                    </option>
-                    {addressOptions.map((addr) => {
-                      const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-                      return (
-                        <option key={addr.id} value={addr.id}>{optionLabel}</option>
-                      )
-                    })}
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          addressesLoading
+                            ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                            : t('sales.documents.form.address.placeholder', 'Select address')
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addressOptions.map((addr) => {
+                        const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                        return (
+                          <SelectItem key={addr.id} value={addr.id}>{optionLabel}</SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
                 ) : null}
 
                 <label className="flex items-center gap-2 text-sm">

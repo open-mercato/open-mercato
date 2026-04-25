@@ -9,6 +9,13 @@ import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import { FormHeader } from './forms/FormHeader'
@@ -2597,22 +2604,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <label className="text-xs uppercase tracking-wide text-muted-foreground">
                 {fieldsetSelectorLabel}
               </label>
-              <select
-                className="h-9 rounded border pl-3 pr-8 text-sm"
-                value={entityLayout.activeFieldset ?? ''}
-                onChange={(event) =>
+              <Select
+                value={entityLayout.activeFieldset || undefined}
+                onValueChange={(value) =>
                   handleFieldsetSelectionChange(
                     entityLayout.entityId,
-                    event.target.value || null,
+                    value || null,
                   )}
               >
-                <option value="">{defaultFieldsetLabel}</option>
-                {entityLayout.availableFieldsets.map((fs) => (
-                  <option key={fs.code} value={fs.code}>
-                    {fs.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-auto min-w-[10rem]">
+                  <SelectValue placeholder={defaultFieldsetLabel} />
+                </SelectTrigger>
+                <SelectContent>
+                  {entityLayout.availableFieldsets.map((fs) => (
+                    <SelectItem key={fs.code} value={fs.code}>
+                      {fs.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <IconButton
                 variant="outline"
                 className="text-muted-foreground hover:text-foreground"
@@ -3954,26 +3964,28 @@ const FieldControl = React.memo(function FieldControlImpl({
         </label>
       )}
       {field.type === 'select' && !builtin?.multiple && (
-        <select
-          className="w-full h-9 rounded border pl-3 pr-8 text-sm"
+        <Select
           value={
             Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
+              ? (String(value[0] ?? '') || undefined)
+              : value == null || value === ''
+                ? undefined
                 : String(value)
           }
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          data-crud-focus-target=""
+          onValueChange={(next) => setValue(field.id, next || undefined)}
           disabled={disabled}
         >
-          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger data-crud-focus-target="">
+            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
         <ListboxMultiSelect

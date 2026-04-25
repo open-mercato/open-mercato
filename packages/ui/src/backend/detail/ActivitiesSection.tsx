@@ -4,6 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowUpRightSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
@@ -322,17 +329,21 @@ function ActivityForm({
           const currentValue =
             typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
           return (
-            <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={currentValue}
-              onChange={(event) => setValue(event.target.value)}
+            <Select
+              value={currentValue || undefined}
+              onValueChange={(next) => setValue(next ?? '')}
             >
-              {normalizedEntityOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {normalizedEntityOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )
         },
       } as CrudField)
@@ -347,20 +358,21 @@ function ActivityForm({
         component: ({ value, setValue }) => {
           const currentValue = typeof value === 'string' ? value : ''
           return (
-            <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={currentValue}
-              onChange={(event) => setValue(event.target.value)}
+            <Select
+              value={currentValue || undefined}
+              onValueChange={(next) => setValue(next ?? '')}
             >
-              <option value="">
-                {translate('fields.dealPlaceholder', 'No linked deal')}
-              </option>
-              {normalizedDealOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder={translate('fields.dealPlaceholder', 'No linked deal')} />
+              </SelectTrigger>
+              <SelectContent>
+                {normalizedDealOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )
         },
       } as CrudField)

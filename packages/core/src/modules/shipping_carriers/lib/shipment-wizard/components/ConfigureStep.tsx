@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -199,17 +206,20 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
             <label className="text-xs font-medium text-muted-foreground">
               {t('shipping_carriers.create.field.c2cSendingMethod', 'Sending method (applies to courier_c2c service only)')}
             </label>
-            <select
-              className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-              value={c2cSendingMethod}
-              onChange={(e) => onC2cSendingMethodChange(e.target.value)}
+            <Select
+              value={c2cSendingMethod || undefined}
+              onValueChange={(value) => onC2cSendingMethodChange(value ?? '')}
               disabled={isFetchingRates}
             >
-              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')}</option>
-              <option value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
-              <option value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
-              <option value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</option>
-            </select>
+              <SelectTrigger size="sm">
+                <SelectValue placeholder={t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</SelectItem>
+                <SelectItem value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</SelectItem>
+                <SelectItem value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

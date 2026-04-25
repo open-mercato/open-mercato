@@ -7,6 +7,13 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -120,20 +127,21 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           {fieldDescription && (
             <p className="text-xs text-muted-foreground">{fieldDescription}</p>
           )}
-          <select
-            id={fieldName}
-            value={fieldValue(fieldName)}
-            onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-            required={required}
-            className={inputClasses}
+          <Select
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
+            onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
-            <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
-            {enumValues.map((value: any) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id={fieldName} className={inputClasses} aria-required={required}>
+              <SelectValue placeholder={t('workflows.tasks.detail.form.selectOption')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: any) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     }

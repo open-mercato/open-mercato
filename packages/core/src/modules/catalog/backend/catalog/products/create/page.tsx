@@ -17,6 +17,13 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { cn } from "@open-mercato/shared/lib/utils";
 import {
   Plus,
@@ -1697,35 +1704,36 @@ function ProductBuilder({
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                          value={variant.taxRateId ?? ""}
-                          onChange={(event) =>
-                            setVariantField(
-                              variant.id,
-                              "taxRateId",
-                              event.target.value || null,
-                            )
+                        <Select
+                          value={variant.taxRateId || undefined}
+                          onValueChange={(value) =>
+                            setVariantField(variant.id, "taxRateId", value || null)
                           }
                           disabled={!taxRates.length}
                         >
-                          <option value="">
-                            {defaultTaxRateLabel
-                              ? t(
-                                  "catalog.products.create.variantsBuilder.vatOptionDefault",
-                                  "Use product tax class ({{label}})",
-                                ).replace("{{label}}", defaultTaxRateLabel)
-                              : t(
-                                  "catalog.products.create.variantsBuilder.vatOptionNone",
-                                  "No tax class",
-                                )}
-                          </option>
-                          {taxRates.map((rate) => (
-                            <option key={rate.id} value={rate.id}>
-                              {formatTaxRateLabel(rate)}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                defaultTaxRateLabel
+                                  ? t(
+                                      "catalog.products.create.variantsBuilder.vatOptionDefault",
+                                      "Use product tax class ({{label}})",
+                                    ).replace("{{label}}", defaultTaxRateLabel)
+                                  : t(
+                                      "catalog.products.create.variantsBuilder.vatOptionNone",
+                                      "No tax class",
+                                    )
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {taxRates.map((rate) => (
+                              <SelectItem key={rate.id} value={rate.id}>
+                                {formatTaxRateLabel(rate)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                       {priceKinds.map((kind) => (
                         <td key={kind.id} className="px-3 py-2">
@@ -1963,44 +1971,34 @@ function ProductMetaSection({
         <Label>
           {t("catalog.products.form.productType", "Product type")}
         </Label>
-        <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <Select
           value={values.productType || "simple"}
-          onChange={(event) => {
-            const nextType = event.target.value;
+          onValueChange={(value) => {
+            const nextType = value;
             setValue("productType", nextType);
-            const nextIsConfigurable =
-              isConfigurableProductType(nextType);
+            const nextIsConfigurable = isConfigurableProductType(nextType);
             if (nextIsConfigurable && !values.hasVariants) {
               setValue("hasVariants", true);
-            } else if (
-              !nextIsConfigurable &&
-              values.hasVariants
-            ) {
+            } else if (!nextIsConfigurable && values.hasVariants) {
               setValue("hasVariants", false);
             }
           }}
         >
-          {CATALOG_PRODUCT_TYPES.map((type) => {
-            const isDisabled =
-              type === "bundle" || type === "grouped";
-            return (
-              <option
-                key={type}
-                value={type}
-                disabled={isDisabled}
-              >
-                {t(
-                  `catalog.products.types.${type}`,
-                  type,
-                )}
-                {isDisabled
-                  ? ` (${t("common.comingSoon", "Coming soon")})`
-                  : ""}
-              </option>
-            );
-          })}
-        </select>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CATALOG_PRODUCT_TYPES.map((type) => {
+              const isDisabled = type === "bundle" || type === "grouped";
+              return (
+                <SelectItem key={type} value={type} disabled={isDisabled}>
+                  {t(`catalog.products.types.${type}`, type)}
+                  {isDisabled ? ` (${t("common.comingSoon", "Coming soon")})` : ""}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
         {errors.productType ? (
           <p className="text-xs text-red-600">
             {errors.productType}
@@ -2041,31 +2039,28 @@ function ProductMetaSection({
             </span>
           </Button>
         </div>
-        <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          value={values.taxRateId ?? ""}
-          onChange={(event) =>
-            setValue("taxRateId", event.target.value || null)
-          }
+        <Select
+          value={values.taxRateId || undefined}
+          onValueChange={(value) => setValue("taxRateId", value || null)}
           disabled={!taxRates.length}
         >
-          <option value="">
-            {taxRates.length
-              ? t(
-                  "catalog.products.create.taxRates.noneSelected",
-                  "No tax class selected",
-                )
-              : t(
-                  "catalog.products.create.taxRates.emptyOption",
-                  "No tax classes available",
-                )}
-          </option>
-          {taxRates.map((rate) => (
-            <option key={rate.id} value={rate.id}>
-              {formatTaxRateLabel(rate)}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue
+              placeholder={
+                taxRates.length
+                  ? t("catalog.products.create.taxRates.noneSelected", "No tax class selected")
+                  : t("catalog.products.create.taxRates.emptyOption", "No tax classes available")
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {taxRates.map((rate) => (
+              <SelectItem key={rate.id} value={rate.id}>
+                {formatTaxRateLabel(rate)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-xs text-muted-foreground">
           {taxRates.length
             ? t(

@@ -6,6 +6,13 @@ import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle} from '@o
 import {Button} from '@open-mercato/ui/primitives/button'
 import {Input} from '@open-mercato/ui/primitives/input'
 import {Badge} from '@open-mercato/ui/primitives/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
 import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
 import {sanitizeId} from '../lib/graph-utils'
@@ -708,24 +715,28 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 {/* Field Type */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.fieldType')} *</label>
-                                  <select
+                                  <Select
                                     value={field.type}
-                                    onChange={(e) => updateFormField(index, 'type', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-ring"
+                                    onValueChange={(value) => updateFormField(index, 'type', value)}
                                   >
-                                    <option value="text">{t('workflows.form.fieldTypes.text')}</option>
-                                    <option value="number">{t('workflows.form.fieldTypes.number')}</option>
-                                    <option value="email">{t('workflows.form.fieldTypes.email')}</option>
-                                    <option value="tel">{t('workflows.form.fieldTypes.tel')}</option>
-                                    <option value="url">{t('workflows.form.fieldTypes.url')}</option>
-                                    <option value="textarea">{t('workflows.form.fieldTypes.textarea')}</option>
-                                    <option value="select">{t('workflows.form.fieldTypes.select')}</option>
-                                    <option value="radio">{t('workflows.form.fieldTypes.radio')}</option>
-                                    <option value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</option>
-                                    <option value="date">{t('workflows.form.fieldTypes.date')}</option>
-                                    <option value="time">{t('workflows.form.fieldTypes.time')}</option>
-                                    <option value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</option>
-                                  </select>
+                                    <SelectTrigger size="sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="text">{t('workflows.form.fieldTypes.text')}</SelectItem>
+                                      <SelectItem value="number">{t('workflows.form.fieldTypes.number')}</SelectItem>
+                                      <SelectItem value="email">{t('workflows.form.fieldTypes.email')}</SelectItem>
+                                      <SelectItem value="tel">{t('workflows.form.fieldTypes.tel')}</SelectItem>
+                                      <SelectItem value="url">{t('workflows.form.fieldTypes.url')}</SelectItem>
+                                      <SelectItem value="textarea">{t('workflows.form.fieldTypes.textarea')}</SelectItem>
+                                      <SelectItem value="select">{t('workflows.form.fieldTypes.select')}</SelectItem>
+                                      <SelectItem value="radio">{t('workflows.form.fieldTypes.radio')}</SelectItem>
+                                      <SelectItem value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</SelectItem>
+                                      <SelectItem value="date">{t('workflows.form.fieldTypes.date')}</SelectItem>
+                                      <SelectItem value="time">{t('workflows.form.fieldTypes.time')}</SelectItem>
+                                      <SelectItem value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
                                 </div>
 
                                 {/* Placeholder */}
@@ -928,22 +939,26 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
                                     {t('workflows.form.activityType')} *
                                   </label>
-                                  <select
+                                  <Select
                                     value={activity.activityType}
-                                    onChange={(e) => {
+                                    onValueChange={(value) => {
                                       const updated = [...stepActivities]
-                                      updated[index].activityType = e.target.value
+                                      updated[index].activityType = value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus-visible:ring-1 focus-visible:ring-ring"
                                   >
-                                    <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
-                                    <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
-                                    <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
-                                    <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
-                                    <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
-                                    <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
-                                  </select>
+                                    <SelectTrigger size="sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
+                                      <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
+                                      <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
+                                      <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
+                                      <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
+                                      <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
                                 </div>
 
                                 {/* Timeout */}

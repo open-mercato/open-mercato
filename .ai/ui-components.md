@@ -11,6 +11,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [FancyButton](#fancybutton)
 - [Checkbox / CheckboxField](#checkbox--checkboxfield)
 - [Input](#input)
+- [Select](#select)
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
@@ -337,6 +338,151 @@ import { Input } from '@open-mercato/ui/primitives/input'
 | Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
 | Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
+
+---
+
+## Select
+
+```typescript
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectGroup,
+  SelectLabel,
+  SelectItem,
+  SelectSeparator,
+} from '@open-mercato/ui/primitives/select'
+```
+
+Dropdown / select primitive built on `@radix-ui/react-select` and aligned with Figma DS Select. Same wrapper styling as `Input` (sizes/states/disabled/focus tokens, error via `aria-invalid`). Use this — never raw `<select>`.
+
+> Specialized variants (Compact icon-only, Inline borderless, Combobox-style with search) are SEPARATE primitives — defer (see "Specialized variants" below).
+
+### Sizes (trigger)
+
+| Size | Height | Padding | Text |
+|---|---|---|---|
+| `sm` | 32px | `px-2.5` | `text-xs` |
+| `default` | 36px | `px-3` | `text-sm` |
+| `lg` | 40px | `px-3` | `text-sm` |
+
+Match the size of paired buttons / inputs in the same row.
+
+### States (token-driven)
+
+| State | Trigger | Visual |
+|---|---|---|
+| Default | — | `border-input` + `bg-background` + `shadow-xs` |
+| Hover | mouse over trigger | `bg-muted/40` |
+| Focus | keyboard focus | `border-foreground` + `shadow-focus` (Figma 2-ring) |
+| Open | menu expanded | (Radix manages — same as Focus visually) |
+| Disabled | `disabled` prop on `SelectTrigger` | `bg-bg-disabled` + `text-text-disabled` + `border-border-disabled` |
+| Error | `aria-invalid={true}` on trigger | `border-destructive` |
+
+### Basic usage
+
+```tsx
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@open-mercato/ui/primitives/select'
+
+<Select value={value} onValueChange={setValue}>
+  <SelectTrigger>
+    <SelectValue placeholder="Choose option" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="a">Option A</SelectItem>
+    <SelectItem value="b">Option B</SelectItem>
+    <SelectItem value="c">Option C</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### Composition with FormField
+
+```tsx
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@open-mercato/ui/primitives/select'
+
+<FormField label="Country" required error={errors.country}>
+  <Select value={country} onValueChange={setCountry}>
+    <SelectTrigger>
+      <SelectValue placeholder="Select a country" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="pl">Poland</SelectItem>
+      <SelectItem value="us">United States</SelectItem>
+    </SelectContent>
+  </Select>
+</FormField>
+```
+
+`FormField` injects `id` / `aria-describedby` / `aria-invalid` / `aria-required` / `disabled` automatically (works with Radix Select trigger).
+
+### Groups, separators, labels
+
+```tsx
+<SelectContent>
+  <SelectGroup>
+    <SelectLabel>Europe</SelectLabel>
+    <SelectItem value="pl">Poland</SelectItem>
+    <SelectItem value="de">Germany</SelectItem>
+  </SelectGroup>
+  <SelectSeparator />
+  <SelectGroup>
+    <SelectLabel>North America</SelectLabel>
+    <SelectItem value="us">United States</SelectItem>
+    <SelectItem value="ca">Canada</SelectItem>
+  </SelectGroup>
+</SelectContent>
+```
+
+### Icons inside items
+
+```tsx
+<SelectItem value="pl">
+  <Globe /> Poland
+</SelectItem>
+```
+
+Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
+
+### Props
+
+| Prop | On | Notes |
+|---|---|---|
+| `value` / `onValueChange` | `Select` | Controlled value (string) |
+| `defaultValue` | `Select` | Uncontrolled initial value |
+| `disabled` | `Select` or `SelectTrigger` | Whole-select or per-trigger disable |
+| `name` | `Select` | Hidden form input name (Radix renders for native form submit) |
+| `required` | `Select` | Adds aria-required + form validation |
+| `size` | `SelectTrigger` | `sm` / `default` / `lg` |
+| `className` | `SelectTrigger` / `SelectContent` / `SelectItem` | Standard Tailwind override |
+| `position` | `SelectContent` | `popper` (default — anchored) or `item-aligned` |
+
+### MUST rules
+
+- **NEVER use raw `<select>`** anywhere — always use `Select` primitive. Native dropdowns render with the OS-default styling (no Figma alignment).
+- For form fields with label / error, wrap with `FormField` — handles label binding, error display, ARIA wiring.
+- Same-row sizing rule applies — Select next to Input/Button MUST share `size`.
+- Icons inside `SelectItem`: place before text, let primitive handle spacing.
+- For LARGE option lists with search, do NOT cram into `Select` — use `ComboboxInput` from `@open-mercato/ui/backend/inputs/ComboboxInput` instead.
+
+### Specialized variants (NOT this primitive)
+
+| Variant | Component | Status |
+|---|---|---|
+| Icon-only / compact trigger | `CompactSelect` | TODO — Figma node `377:5083` |
+| Inline borderless trigger | `InlineSelect` | TODO — Figma node `332:4537` |
+| Compact for input prefix (e.g. country code in phone) | `CompactSelectForInput` | TODO — Figma node `307:16883` |
+| Multi-select with search / combobox | `ComboboxInput` | Already in `backend/inputs/ComboboxInput` |
+| Date picker | (existing date input components) | Already in `inputs/` folder |
 
 ---
 

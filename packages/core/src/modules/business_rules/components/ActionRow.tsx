@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import type { Action } from './utils/actionValidation'
 import { getActionTypeOptions, getRequiredConfigFields, getOptionalConfigFields } from './utils/actionValidation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -81,16 +88,20 @@ export function ActionRow({
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-center">
           <label className="text-xs font-medium text-foreground col-span-1">{t('business_rules.components.actionRow.config.level')}</label>
-          <select
+          <Select
             value={value || 'info'}
-            onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onValueChange={(next) => handleConfigChange(field, next)}
           >
-            <option value="info">{t('business_rules.components.actionRow.config.level.info')}</option>
-            <option value="warn">{t('business_rules.components.actionRow.config.level.warn')}</option>
-            <option value="error">{t('business_rules.components.actionRow.config.level.error')}</option>
-            <option value="debug">{t('business_rules.components.actionRow.config.level.debug')}</option>
-          </select>
+            <SelectTrigger size="sm" className="col-span-3">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="info">{t('business_rules.components.actionRow.config.level.info')}</SelectItem>
+              <SelectItem value="warn">{t('business_rules.components.actionRow.config.level.warn')}</SelectItem>
+              <SelectItem value="error">{t('business_rules.components.actionRow.config.level.error')}</SelectItem>
+              <SelectItem value="debug">{t('business_rules.components.actionRow.config.level.debug')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )
     }
@@ -99,17 +110,21 @@ export function ActionRow({
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-center">
           <label className="text-xs font-medium text-foreground col-span-1">{t('business_rules.components.actionRow.config.method')}</label>
-          <select
+          <Select
             value={value || 'POST'}
-            onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onValueChange={(next) => handleConfigChange(field, next)}
           >
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="PATCH">PATCH</option>
-            <option value="DELETE">DELETE</option>
-          </select>
+            <SelectTrigger size="sm" className="col-span-3">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="GET">GET</SelectItem>
+              <SelectItem value="POST">POST</SelectItem>
+              <SelectItem value="PUT">PUT</SelectItem>
+              <SelectItem value="PATCH">PATCH</SelectItem>
+              <SelectItem value="DELETE">DELETE</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )
     }
@@ -159,18 +174,21 @@ export function ActionRow({
           <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.actionType')} <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>
           </label>
-          <select
-            value={action.type || ''}
-            onChange={handleTypeChange}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring font-medium"
+          <Select
+            value={action.type || undefined}
+            onValueChange={(value) => handleTypeChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
           >
-            <option value="">{t('business_rules.components.actionRow.actionType.placeholder')}</option>
-            {actionTypes.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm" className="col-span-3 font-medium">
+              <SelectValue placeholder={t('business_rules.components.actionRow.actionType.placeholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {actionTypes.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Config Fields */}

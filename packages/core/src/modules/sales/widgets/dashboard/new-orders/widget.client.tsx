@@ -5,6 +5,13 @@ import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
@@ -147,19 +154,22 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
           <label htmlFor="sales-new-orders-date-period" className="text-xs font-semibold uppercase text-muted-foreground">
             {translate('sales.widgets.newOrders.settings.datePeriod', 'Date Period')}
           </label>
-          <select
-            id="sales-new-orders-date-period"
+          <Select
             value={hydrated.datePeriod}
-            onChange={(event) => {
-              onSettingsChange?.({ ...hydrated, datePeriod: event.target.value as DatePeriodOption })
+            onValueChange={(value) => {
+              onSettingsChange?.({ ...hydrated, datePeriod: value as DatePeriodOption })
             }}
-            className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <option value="last24h">{translate('sales.widgets.newOrders.settings.last24h', 'Last 24 hours')}</option>
-            <option value="last7d">{translate('sales.widgets.newOrders.settings.last7d', 'Last 7 days')}</option>
-            <option value="last30d">{translate('sales.widgets.newOrders.settings.last30d', 'Last 30 days')}</option>
-            <option value="custom">{translate('sales.widgets.newOrders.settings.custom', 'Custom range')}</option>
-          </select>
+            <SelectTrigger id="sales-new-orders-date-period" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="last24h">{translate('sales.widgets.newOrders.settings.last24h', 'Last 24 hours')}</SelectItem>
+              <SelectItem value="last7d">{translate('sales.widgets.newOrders.settings.last7d', 'Last 7 days')}</SelectItem>
+              <SelectItem value="last30d">{translate('sales.widgets.newOrders.settings.last30d', 'Last 30 days')}</SelectItem>
+              <SelectItem value="custom">{translate('sales.widgets.newOrders.settings.custom', 'Custom range')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {hydrated.datePeriod === 'custom' ? (
