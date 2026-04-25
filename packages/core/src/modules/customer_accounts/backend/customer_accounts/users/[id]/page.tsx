@@ -8,6 +8,7 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -670,20 +671,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <label className="text-sm font-medium" htmlFor="user-active-toggle">
                   {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
                 </label>
-                <button
+                <Switch
                   id="user-active-toggle"
-                  type="button"
-                  role="switch"
-                  aria-checked={editActive ?? data.isActive}
-                  onClick={() => setEditActive((prev) => !(prev ?? data.isActive))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    (editActive ?? data.isActive) ? 'bg-primary' : 'bg-muted'
-                  }`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    (editActive ?? data.isActive) ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
-                </button>
+                  checked={editActive ?? data.isActive}
+                  onCheckedChange={(next) => setEditActive(next)}
+                />
               </div>
             </div>
 
