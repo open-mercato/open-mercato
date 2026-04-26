@@ -121,6 +121,10 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       await expect(inlineReplyInput).toBeVisible();
       await expect(inlineReplyInput).toBeEnabled();
       await inlineReplyInput.fill(inlineReplyBody);
+      // Assert value flushed before submit — DS v2 Input/Textarea wrapper
+      // changed focus/blur sequencing and Playwright .fill() can race the
+      // React state commit if we click submit immediately afterwards.
+      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
 
       const inlineReplyResponsePromise = page.waitForResponse((response) => {
         if (response.request().method() !== 'POST') return false;
