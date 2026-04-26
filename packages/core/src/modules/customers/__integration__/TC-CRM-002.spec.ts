@@ -22,24 +22,19 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await page.getByRole('button', { name: 'Create Company' }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/companies\/create$/i);
 
-      await page.locator('form').getByRole('textbox').first().fill(companyName);
-      await page.getByPlaceholder('name@example.com').fill('invalid-email');
-      await page.getByPlaceholder('https://example.com').fill('notaurl');
-      // Tab away from the URL field so React commits the controlled value before
-      // submit — otherwise the click may race the onChange and submit '' for URL.
-      await page.getByPlaceholder('https://example.com').press('Tab');
+      // Target by field id rather than placeholder — placeholder lookup
+      // was racing onto the wrong input under DS v2 (notaurl ended up in
+      // the email field instead of website on CI screenshots).
+      await page.locator('[data-crud-field-id="displayName"] input').fill(companyName);
+      await page.locator('[data-crud-field-id="primaryEmail"] input').fill('invalid-email');
+      await page.locator('[data-crud-field-id="websiteUrl"] input').fill('notaurl');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
-      // Both validation errors render under their respective fields after submit.
-      // Wait for both in parallel with extended timeouts — CI can be slow to flush
-      // the form's setErrors state for the second field.
-      await Promise.all([
-        expect(page.getByText('Invalid email address')).toBeVisible({ timeout: 10_000 }),
-        expect(page.getByText('Invalid URL')).toBeVisible({ timeout: 10_000 }),
-      ]);
+      await expect(page.getByText('Invalid email address')).toBeVisible();
+      await expect(page.getByText('Invalid URL')).toBeVisible();
 
-      await page.getByPlaceholder('name@example.com').fill('qa+crm002@example.com');
-      await page.getByPlaceholder('https://example.com').fill('https://example.com');
+      await page.locator('[data-crud-field-id="primaryEmail"] input').fill('qa+crm002@example.com');
+      await page.locator('[data-crud-field-id="websiteUrl"] input').fill('https://example.com');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i);

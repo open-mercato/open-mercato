@@ -4001,11 +4001,13 @@ const FieldControl = React.memo(function FieldControlImpl({
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
           </SelectTrigger>
           <SelectContent>
-            {options.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
+            {options
+              .filter((opt) => opt.value !== '')
+              .map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       )}

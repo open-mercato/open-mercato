@@ -40,9 +40,6 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     // Navigate to Create form
     await page.getByRole('link', { name: 'Create' }).click();
     await expect(page).toHaveURL(/\/backend\/entities\/user\/create$/);
-    // Wait for the form's first input to render — strongest signal that CrudForm
-    // mounted. Asserting the heading text first races the page render on slow CI.
-    await expect(page.getByPlaceholder('module_name:entity_id')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('main').getByText('Create Entity', { exact: true })).toBeVisible();
 
     // Verify form fields
