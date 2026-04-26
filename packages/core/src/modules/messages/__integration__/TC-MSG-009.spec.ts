@@ -134,7 +134,12 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
         const requestBody = response.request().postData() ?? '';
         return requestBody.includes(inlineReplyBody);
       });
-      await inlineReplyInput.press('Control+Enter');
+      // Click the composer submit button instead of pressing Ctrl+Enter — the
+      // SwitchableMarkdownInput textarea (text mode) has no keyboard submit
+      // handler, so Ctrl+Enter just inserts a newline. The composer header
+      // renders a "Reply" submit button via FormHeader; .last() picks it
+      // (the dropdown menu item is gone after openReplyFromHeader).
+      await page.getByRole('button', { name: /^Reply$/i }).last().click();
       const inlineReplyResponse = await inlineReplyResponsePromise;
 
       expect(inlineReplyResponse.ok()).toBeTruthy();
