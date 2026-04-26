@@ -30,11 +30,9 @@ test.describe('TC-CRM-004: Create Contact/Person', () => {
       await page.getByPlaceholder('name@example.com').fill(`qa.crm004.${Date.now()}@example.com`);
       await page.getByPlaceholder('+00 000 000 000').fill('+1 555 010 0042');
 
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: companyName }) })
-        .first()
-        .selectOption({ label: companyName });
+      // Radix Select: click trigger then click option from portal
+      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      await page.getByRole('option', { name: companyName, exact: true }).click();
 
       await page.getByRole('button', { name: 'Create Person' }).first().click();
 

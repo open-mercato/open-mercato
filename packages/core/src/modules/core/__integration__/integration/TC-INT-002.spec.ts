@@ -43,22 +43,27 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await page.locator('form').getByRole('textbox').nth(1).fill(personLast);
       await page.getByPlaceholder('name@example.com').fill(`qa-int-002-${stamp}@example.com`);
       await page.getByPlaceholder('+00 000 000 000').fill('+1 555 010 0020');
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: companyName }) })
-        .first()
-        .selectOption({ label: companyName });
+      // Radix Select migrations: click trigger then click option from portal
+      const selectByOption = async (label: string | RegExp, exact = true) => {
+        const trigger = page.locator('[role="combobox"][aria-expanded="false"]').first()
+        await trigger.click()
+        const opt = typeof label === 'string'
+          ? page.getByRole('option', { name: label, exact })
+          : page.getByRole('option', { name: label })
+        await opt.first().click()
+      }
+      await selectByOption(companyName)
       await page.getByRole('button', { name: 'Create Person' }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/people-v2\/[0-9a-f-]{36}$/i);
       personId = page.url().match(/\/backend\/customers\/people-v2\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
       await page.goto('/backend/customers/deals/create');
       await page.locator('form').getByRole('textbox').first().fill(dealTitle);
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'Open' }) }).first().selectOption({ label: 'Open' });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: pipelineName }) }).first().selectOption({ label: pipelineName });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'Opportunity' }) }).first().selectOption({ label: 'Opportunity' });
+      await selectByOption('Open')
+      await selectByOption(pipelineName)
+      await selectByOption('Opportunity')
       await page.getByRole('spinbutton').first().fill('10000');
-      await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
+      await selectByOption(/USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('50');
       await page.locator('input[type="date"]').fill('2026-12-31');
       await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);

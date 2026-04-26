@@ -31,11 +31,9 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await page.goto(`/backend/customers/people/${personId}`);
 
       await page.getByRole('button', { name: /^Edit$/i }).first().click();
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: companyName }) })
-        .first()
-        .selectOption({ label: companyName });
+      // Radix Select: click trigger then click option from portal
+      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      await page.getByRole('option', { name: companyName, exact: true }).click();
       await page.getByRole('button', { name: /^Save$/ }).click();
       await expect(page.getByText(companyName, { exact: true })).toBeVisible();
 

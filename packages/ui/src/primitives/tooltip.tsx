@@ -109,18 +109,20 @@ export function SimpleTooltip({
   }
 
   return (
-    <Tooltip
-      open={open}
-      onOpenChange={onOpenChange}
-      delayDuration={delayDuration}
-    >
-      <TooltipTrigger asChild>
-        {children}
-      </TooltipTrigger>
-      <TooltipContent side={side} align={align} variant={variant} size={size} arrow={arrow}>
-        {content}
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={delayDuration}>
+      <Tooltip
+        open={open}
+        onOpenChange={onOpenChange}
+        delayDuration={delayDuration}
+      >
+        <TooltipTrigger asChild>
+          {children}
+        </TooltipTrigger>
+        <TooltipContent side={side} align={align} variant={variant} size={size} arrow={arrow}>
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 

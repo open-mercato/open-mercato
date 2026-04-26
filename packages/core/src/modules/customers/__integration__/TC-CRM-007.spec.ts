@@ -30,11 +30,20 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.goto('/backend/customers/deals/create');
 
       await page.locator('form').getByRole('textbox').first().fill(dealTitle);
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'Open' }) }).first().selectOption({ label: 'Open' });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: pipelineName }) }).first().selectOption({ label: pipelineName });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: stageName }) }).first().selectOption({ label: stageName });
+      // Radix Select migrations: click trigger then click option from portal
+      const selectByOption = async (label: string | RegExp, exact = true) => {
+        const trigger = page.locator('[role="combobox"][aria-expanded="false"]').first()
+        await trigger.click()
+        const opt = typeof label === 'string'
+          ? page.getByRole('option', { name: label, exact })
+          : page.getByRole('option', { name: label })
+        await opt.first().click()
+      }
+      await selectByOption('Open')
+      await selectByOption(pipelineName)
+      await selectByOption(stageName)
       await page.getByRole('spinbutton').first().fill('25000');
-      await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
+      await selectByOption(/USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 
