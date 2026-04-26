@@ -66,7 +66,7 @@ yarn generate
 yarn mercato configs cache structural --all-tenants
 
 # Database operations
-yarn db:generate    # Generate/probe migrations; review output before committing
+yarn db:generate    # Generate/probe migrations; keep or write only scoped SQL and update the touched snapshot
 yarn db:migrate     # Run migrations
 yarn db:greenfield  # Reset and recreate database
 
@@ -148,6 +148,12 @@ Custom modules go in `src/modules/`. Each module can define:
 Add new modules to `src/modules.ts` with `from: '@app'`.
 Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
 
+### Data Entities
+
+- Define module entities in `src/modules/<module>/data/entities.ts`.
+- Import entity decorators from `@mikro-orm/decorators/legacy`, not `@mikro-orm/core`.
+- Treat `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for the module you are changing and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
+
 ### API Route Files MUST Export `metadata`
 
 Every `src/modules/<module>/api/**/route.ts` file that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth requirements. Omitting it triggers the generator warning:
@@ -189,6 +195,7 @@ Practical consequences:
 
 - Prefer writing migration files in **one shot** — generate them with `yarn db:generate`, review, commit, move on.
 - Treat `yarn db:generate` as a schema-diff probe. If it creates migrations for unrelated modules, delete that unrelated output and fix the stale snapshot instead of committing noise.
+- Manual SQL is allowed when it is the only clean way to avoid unrelated churn, but the touched module's `.snapshot-open-mercato.json` MUST be updated to the post-change schema in the same change.
 - For the specific entity change you are making, keep or write only the intended SQL migration and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` to the post-change schema in the same change.
 - Do not run `yarn db:migrate` unless the user explicitly asks you to apply migrations. A code change should carry migration files and snapshots; applying them is local database state.
 - Editing an already-applied migration is risky: the next `yarn dev` / `yarn db:migrate` will skip the file (it is already marked applied), so your edits will not land in the database. If iteration is truly unavoidable:

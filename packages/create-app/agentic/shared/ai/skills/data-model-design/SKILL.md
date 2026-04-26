@@ -37,8 +37,10 @@ When the developer describes data requirements:
 
 ### Standard Entity Template
 
+Define entities in `src/modules/<module_id>/data/entities.ts`. Standalone apps keep the module's entity classes together there unless the file becomes large enough that a split is justified.
+
 ```typescript
-import { Entity, Property, PrimaryKey, Index, Enum } from '@mikro-orm/core'
+import { Entity, Enum, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { v4 } from 'uuid'
 
 @Entity({ tableName: '<entities>' })
@@ -322,11 +324,11 @@ const enricher: ResponseEnricher = {
 ### Creating a Migration
 
 ```bash
-# 1. Modify or create entity files
+# 1. Modify src/modules/<module_id>/data/entities.ts
 # 2. Probe/generate migration
 yarn db:generate
 
-# 3. Review the generated migration
+# 3. Review the generated migration or use it as the baseline for scoped manual SQL
 # Check src/modules/<module_id>/migrations/Migration_YYYYMMDD_HHMMSS.ts
 
 # 4. Update src/modules/<module_id>/migrations/.snapshot-open-mercato.json
@@ -339,10 +341,11 @@ yarn db:migrate
 1. **Review every migration** — auto-generated doesn't mean correct
 2. **Check for unintended changes** — sometimes generators pick up unrelated diffs
 3. **Do not commit unrelated generated migrations** — delete them from the diff
-4. **Update `.snapshot-open-mercato.json`** — it is the baseline that prevents duplicate future migrations
-5. **New columns should have defaults** — prevents breaking existing rows
-6. **Never rename columns** — add new column, migrate data, remove old column (across releases)
-7. **Never drop tables** — soft delete or archive first
+4. **Scoped manual SQL is allowed** when generator churn is unrelated, but the migration and `.snapshot-open-mercato.json` must still describe the same post-change schema
+5. **Update `.snapshot-open-mercato.json`** — it is the baseline that prevents duplicate future migrations
+6. **New columns should have defaults** — prevents breaking existing rows
+7. **Never rename columns** — add new column, migrate data, remove old column (across releases)
+8. **Never drop tables** — soft delete or archive first
 
 ### Adding a Column to Existing Entity
 
@@ -504,7 +507,7 @@ export class TicketHistory {
 - **MUST** include standard columns (`id`, `created_at`, `updated_at`, `deleted_at`, `is_active`)
 - **MUST** use UUID v4 for primary keys
 - **MUST** index all FK columns and `organization_id` / `tenant_id`
-- **MUST** create a scoped migration after entity changes and update `.snapshot-open-mercato.json`
+- **MUST** create or keep a scoped migration after entity changes and update `.snapshot-open-mercato.json`
 - **MUST** review generated migration before applying
 - **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
 - **MUST NOT** run `yarn db:migrate` without explicit user confirmation

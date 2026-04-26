@@ -5,7 +5,7 @@ description: Design and implement consistent, production-grade backend/backoffic
 
 This skill guides creation of consistent, production-grade backend/backoffice interfaces using the established @open-mercato/ui component library. All implementations must leverage existing components to maintain visual and behavioral consistency across modules.
 
-For complete component documentation, see `references/ui-components.md`.
+For complete component documentation, see `references/ui-components.md`. Pair this skill with `packages/ui/AGENTS.md` and `packages/ui/src/backend/AGENTS.md` for the current design-system and backend-host rules.
 
 ## Design Principles
 
@@ -16,6 +16,7 @@ Backend UI prioritizes **usability, consistency, and productivity** over creativ
 3. **Data Density**: Admin users need information-rich interfaces. Optimize for scanning and quick actions.
 4. **Keyboard Navigation**: Support Cmd/Ctrl+Enter for primary actions, Escape to cancel, and standard shortcuts.
 5. **Clear Hierarchy**: Page → Section → Content. Use PageHeader, PageBody, and consistent spacing.
+6. **Design System Discipline**: Use semantic status tokens and the shared backend primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `EmptyState`). No hardcoded status colors or arbitrary text sizes.
 
 ## Required Component Library
 
@@ -55,6 +56,44 @@ Column configuration patterns:
 - Boolean columns: Use `BooleanIcon`
 - Status/enum columns: Use `EnumBadge` with severity presets
 - Actions column: Use `RowActions` for context menus
+
+### Preferred DataTable Host Pattern
+
+For standard CRUD lists, prefer the built-in host pattern instead of manually fetching and shaping rows:
+
+```tsx
+<DataTable
+  entityId="tickets.ticket"
+  apiPath="tickets/tickets"
+  extensionTableId="tickets.ticket"
+  columns={columns}
+  createHref="/backend/tickets/tickets/new"
+  emptyState={{
+    title: t('tickets.list.empty.title'),
+    description: t('tickets.list.empty.description'),
+  }}
+/>
+```
+
+Keep `extensionTableId` stable so DataTable injections remain backward-compatible.
+
+### Custom Pagination Pattern
+
+When you own the data source, wire the modern pagination props directly:
+
+```tsx
+<DataTable
+  columns={columns}
+  data={items}
+  page={page}
+  pageSize={pageSize}
+  totalCount={totalCount}
+  onPageChange={setPage}
+  rowClickActionIds={['edit', 'open']}
+/>
+```
+
+`pageSize` must stay at or below 100. If the table shows fewer rows than expected, first verify the API returns `totalCount`.
 
 ### Forms
 
@@ -205,6 +244,8 @@ Before writing any backend UI code, verify:
 - [ ] Error states use `ErrorMessage`, `ErrorNotice`, or `<Notice variant="error">`
 - [ ] Info/warning hints use `<Notice compact>` or `<Notice variant="warning">`
 - [ ] Empty states use `EmptyState`
+- [ ] Status displays use `StatusBadge` or `EnumBadge`, not hardcoded colors
+- [ ] Standalone inputs use `FormField`; detail sections use `SectionHeader` / `CollapsibleSection` when applicable
 - [ ] Column truncation configured with `meta.truncate` and `meta.maxWidth`
 - [ ] Boolean values use `BooleanIcon`
 - [ ] Status/enum values use `EnumBadge`
@@ -218,7 +259,7 @@ Before writing any backend UI code, verify:
 - Maintain vertical rhythm with `space-y-4` or `space-y-6`
 
 ### Colors
-- Use semantic colors from the theme (don't hardcode hex values)
+- Use semantic colors from the theme and status tokens (don't hardcode hex values or Tailwind status colors)
 - Destructive actions: `variant="destructive"` on buttons
 - Status badges: Use `useSeverityPreset()` for consistent coloring
 
@@ -240,7 +281,7 @@ Before writing any backend UI code, verify:
 2. **Manual table markup** - Always use DataTable
 3. **Custom toast/notification** - Always use flash()
 4. **Inline styles** - Use Tailwind classes
-5. **Hardcoded colors** - Use theme variables
+5. **Hardcoded colors or status classes** - Use theme variables and semantic status tokens
 6. **Missing loading states** - Every async operation needs feedback
 7. **Missing error handling** - Every failure needs user-friendly messaging
 8. **Missing keyboard shortcuts** - All dialogs need Cmd+Enter and Escape

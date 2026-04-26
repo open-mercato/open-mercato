@@ -29,6 +29,12 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 1. Run docs/snapshot validation and self-review for backward compatibility.
 2. Open a PR against `develop` with documentation/bug labels and a concise verification summary.
 
+### Phase 4: Standalone Guidance Follow-up
+
+1. Audit the standalone template AGENTS and copied AI skills for stale commands, wrong entity file paths, and incorrect MikroORM decorator imports.
+2. Update backend UI / DataTable guidance to match the current design-system primitives and host patterns, then mirror the corrections into the standalone copies.
+3. Re-run docs-focused validation, push the resumed branch, and refresh the PR summary with the new scope.
+
 ## Risks
 
 - Migration snapshots are generated JSON and easy to over-edit. Mitigation: keep changes limited to the two affected example module snapshots and verify with `yarn db:generate`.
@@ -55,3 +61,9 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 
 - [x] 3.1 Run validation and BC self-review — validation: `yarn build:packages` passed, `yarn db:generate` confirmed `example: no changes` and `example_customers_sync: no changes`, `git diff --check` passed; `yarn lint` is blocked by ESLint 10 / `@typescript-eslint/utils` FlatESLint incompatibility before linting changed files
 - [x] 3.2 Open PR with focused labels and summary — PR #1710
+
+### Phase 4: Standalone Guidance Follow-up
+
+- [ ] 4.1 Audit standalone AGENTS and copied AI guides for stale commands and outdated entity/migration patterns
+- [ ] 4.2 Update backend UI / design-system guidance and mirror corrections into standalone copies
+- [ ] 4.3 Re-validate docs, push the branch, and refresh the PR summary

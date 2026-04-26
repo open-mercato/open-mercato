@@ -47,7 +47,7 @@ Complete reference of all available UI components in `@open-mercato/ui`.
 
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
-| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `columns`, `data`, `filters`, `pagination`, `perspective`, `onRowClick` |
+| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `entityId`, `apiPath`, `extensionTableId`, `columns`, `data`, `page`, `pageSize`, `totalCount`, `onPageChange`, `onRowClick` |
 | **TruncatedCell** | `@open-mercato/ui/backend/TruncatedCell` | Table cell with text truncation and tooltip | `value`, `maxWidth` |
 | **EmptyState** | `@open-mercato/ui/backend/EmptyState` | Empty state placeholder | `title`, `description`, `action`, `icon` |
 | **RowActions** | `@open-mercato/ui/backend/RowActions` | Context menu for row actions | `items: {label, href?, onSelect?, destructive?}[]` |
@@ -127,14 +127,18 @@ const filters: FilterDef[] = [
 ]
 
 <DataTable
-  title="Items"
+  entityId="inventory.item"
+  apiPath="inventory/items"
+  extensionTableId="inventory.item"
   columns={columns}
-  data={data}
   filters={filters}
   filterValues={filterValues}
   onFiltersApply={handleFiltersApply}
   onFiltersClear={handleFiltersClear}
-  pagination={{ page, pageSize, total, totalPages, onPageChange }}
+  page={page}
+  pageSize={pageSize}
+  totalCount={totalCount}
+  onPageChange={setPage}
   onRowClick={(row) => router.push(`/items/${row.id}`)}
 />
 ```
@@ -228,6 +232,7 @@ const deleted = await deleteCrud('module/items', id)
 1. **Always use `flash()` for notifications** - Don't use `alert()` or custom toast implementations
 2. **Use `CrudForm` for forms** - Provides consistent validation, field rendering, and keyboard shortcuts
 3. **Use `DataTable` for lists** - Includes filtering, sorting, pagination, export, and perspectives
-4. **Use `JsonBuilder` for JSON editing** - Provides both raw JSON and visual builder modes
-5. **Dialog forms need `embedded={true}`** - And add `[&_.grid]:!grid-cols-1` to DialogContent for single-column layout
-6. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts
+4. **Keep `extensionTableId` stable** - Injection spots must remain backward-compatible
+5. **Use `JsonBuilder` for JSON editing** - Provides both raw JSON and visual builder modes
+6. **Dialog forms need `embedded={true}`** - And add `[&_.grid]:!grid-cols-1` to DialogContent for single-column layout
+7. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts
