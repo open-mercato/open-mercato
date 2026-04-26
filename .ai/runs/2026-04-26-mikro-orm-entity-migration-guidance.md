@@ -54,4 +54,4 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 ### Phase 3: PR Hygiene
 
 - [x] 3.1 Run validation and BC self-review — validation: `yarn build:packages` passed, `yarn db:generate` confirmed `example: no changes` and `example_customers_sync: no changes`, `git diff --check` passed; `yarn lint` is blocked by ESLint 10 / `@typescript-eslint/utils` FlatESLint incompatibility before linting changed files
-- [ ] 3.2 Open PR with focused labels and summary
+- [x] 3.2 Open PR with focused labels and summary — PR #1710
