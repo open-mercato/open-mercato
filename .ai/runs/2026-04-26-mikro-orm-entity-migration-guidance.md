@@ -64,6 +64,6 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 
 ### Phase 4: Standalone Guidance Follow-up
 
-- [ ] 4.1 Audit standalone AGENTS and copied AI guides for stale commands and outdated entity/migration patterns
-- [ ] 4.2 Update backend UI / design-system guidance and mirror corrections into standalone copies
+- [x] 4.1 Audit standalone AGENTS and copied AI guides for stale commands and outdated entity/migration patterns — d58bef0ef
+- [x] 4.2 Update backend UI / design-system guidance and mirror corrections into standalone copies — d58bef0ef
 - [ ] 4.3 Re-validate docs, push the branch, and refresh the PR summary
