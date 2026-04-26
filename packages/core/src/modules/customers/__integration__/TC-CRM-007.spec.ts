@@ -30,20 +30,19 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.goto('/backend/customers/deals/create');
 
       await page.locator('form').getByRole('textbox').first().fill(dealTitle);
-      // Radix Select migrations: click trigger then click option from portal
-      const selectByOption = async (label: string | RegExp, exact = true) => {
-        const trigger = page.locator('[role="combobox"][aria-expanded="false"]').first()
-        await trigger.click()
+      // Radix Select via CrudForm: target by data-crud-field-id
+      const selectByFieldId = async (fieldId: string, label: string | RegExp, exact = true) => {
+        await page.locator(`[data-crud-field-id="${fieldId}"] [role="combobox"]`).first().click()
         const opt = typeof label === 'string'
           ? page.getByRole('option', { name: label, exact })
           : page.getByRole('option', { name: label })
         await opt.first().click()
       }
-      await selectByOption('Open')
-      await selectByOption(pipelineName)
-      await selectByOption(stageName)
+      await selectByFieldId('status', 'Open')
+      await selectByFieldId('pipelineId', pipelineName)
+      await selectByFieldId('pipelineStageId', stageName)
       await page.getByRole('spinbutton').first().fill('25000');
-      await selectByOption(/USD/i, false)
+      await selectByFieldId('valueCurrency', /USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 

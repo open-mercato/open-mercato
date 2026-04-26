@@ -1075,8 +1075,8 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-    // Radix Select trigger
-    const kindTrigger = dialog.locator('[role="combobox"]').first();
+    // Radix Select trigger — target by CrudForm field id (kind picker)
+    const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
     await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
@@ -1087,18 +1087,16 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     if ((await kindTrigger.count()) > 0) {
       const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
       const kindLabel = options.kindLabel ?? 'Surcharge';
+      // Open Radix Select via click; then drive selection via keyboard so the
+      // listbox keystroke matching jumps to the desired option (Discount /
+      // Surcharge / etc.). This sidesteps modal-backdrop click interception
+      // that occurs when a Radix Select is rendered inside a Radix Dialog.
       await kindTrigger.click();
-      // Inside a Dialog, Radix Select listbox can be obscured by the modal
-      // backdrop in CI; force the click to bypass actionability checks.
-      const opt = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') });
-      const optExists = await opt.first().waitFor({ state: 'visible', timeout: 3_000 }).then(() => true).catch(() => false);
-      if (optExists) {
-        await opt.first().click({ force: true });
-      } else {
-        const fallback = page.getByRole('option', { name: 'Custom', exact: true });
-        await fallback.first().waitFor({ state: 'visible', timeout: 3_000 });
-        await fallback.first().click({ force: true });
-      }
+      await page.waitForTimeout(150);
+      // Type the first letter to jump to the matching option
+      await page.keyboard.type(kindLabel.charAt(0));
+      await page.waitForTimeout(150);
+      await page.keyboard.press('Enter');
       void expectedKindValue;
     }
 

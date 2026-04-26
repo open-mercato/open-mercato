@@ -31,8 +31,8 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await page.goto(`/backend/customers/people/${personId}`);
 
       await page.getByRole('button', { name: /^Edit$/i }).first().click();
-      // Radix Select: click trigger then click option from portal
-      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      // Company picker is a Radix Select inside CrudForm — target by field id
+      await page.locator('[data-crud-field-id="companyEntityId"] [role="combobox"]').click();
       await page.getByRole('option', { name: companyName, exact: true }).click();
       await page.getByRole('button', { name: /^Save$/ }).click();
       await expect(page.getByText(companyName, { exact: true })).toBeVisible();

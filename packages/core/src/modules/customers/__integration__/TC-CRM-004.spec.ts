@@ -30,8 +30,8 @@ test.describe('TC-CRM-004: Create Contact/Person', () => {
       await page.getByPlaceholder('name@example.com').fill(`qa.crm004.${Date.now()}@example.com`);
       await page.getByPlaceholder('+00 000 000 000').fill('+1 555 010 0042');
 
-      // Radix Select: click trigger then click option from portal
-      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      // Company picker is a Radix Select inside CrudForm — target by field id
+      await page.locator('[data-crud-field-id="companyEntityId"] [role="combobox"]').click();
       await page.getByRole('option', { name: companyName, exact: true }).click();
 
       await page.getByRole('button', { name: 'Create Person' }).first().click();
