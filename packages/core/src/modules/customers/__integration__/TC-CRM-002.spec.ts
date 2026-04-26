@@ -25,10 +25,18 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await page.locator('form').getByRole('textbox').first().fill(companyName);
       await page.getByPlaceholder('name@example.com').fill('invalid-email');
       await page.getByPlaceholder('https://example.com').fill('notaurl');
+      // Tab away from the URL field so React commits the controlled value before
+      // submit — otherwise the click may race the onChange and submit '' for URL.
+      await page.getByPlaceholder('https://example.com').press('Tab');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
-      await expect(page.getByText('Invalid email address')).toBeVisible();
-      await expect(page.getByText('Invalid URL')).toBeVisible();
+      // Both validation errors render under their respective fields after submit.
+      // Wait for both in parallel with extended timeouts — CI can be slow to flush
+      // the form's setErrors state for the second field.
+      await Promise.all([
+        expect(page.getByText('Invalid email address')).toBeVisible({ timeout: 10_000 }),
+        expect(page.getByText('Invalid URL')).toBeVisible({ timeout: 10_000 }),
+      ]);
 
       await page.getByPlaceholder('name@example.com').fill('qa+crm002@example.com');
       await page.getByPlaceholder('https://example.com').fill('https://example.com');
