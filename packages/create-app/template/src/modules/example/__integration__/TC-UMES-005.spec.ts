@@ -56,16 +56,18 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 2 — select sync direction
-    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible()
-    await syncSelect.selectOption('bidirectional')
+    // Step 2 — select sync direction (Radix Select)
+    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
+    await expect(syncTrigger).toBeVisible()
+    await syncTrigger.click()
+    await page.getByRole('option', { name: 'Bidirectional', exact: true }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 3 — select frequency and complete
-    const freqSelect = page.locator('[data-crud-field-id="frequency"] select')
-    await expect(freqSelect).toBeVisible()
-    await freqSelect.selectOption('daily')
+    // Step 3 — select frequency and complete (Radix Select)
+    const freqTrigger = page.locator('[data-crud-field-id="frequency"] [role="combobox"]')
+    await expect(freqTrigger).toBeVisible()
+    await freqTrigger.click()
+    await page.getByRole('option', { name: 'Daily', exact: true }).click()
     await page.getByRole('button', { name: 'Complete', exact: true }).click()
 
     // Verify wizard result output
@@ -90,9 +92,9 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Should be on step 2
-    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible()
+    // Should be on step 2 (Radix Select trigger replaces native <select>)
+    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
+    await expect(syncTrigger).toBeVisible()
 
     // Click back
     await page.getByRole('button', { name: 'Back', exact: true }).click()
