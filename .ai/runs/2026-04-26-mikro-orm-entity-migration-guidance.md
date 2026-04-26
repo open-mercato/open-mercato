@@ -41,15 +41,15 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 
 ### Phase 1: Guidance Alignment
 
-- [ ] 1.1 Clarify new-entity guidance entry points
-- [ ] 1.2 Update MikroORM migration skill scoped migration workflow
-- [ ] 1.3 Adjust code-review migration snapshot checks
+- [x] 1.1 Clarify new-entity guidance entry points — 54b34f77a
+- [x] 1.2 Update MikroORM migration skill scoped migration workflow — 54b34f77a
+- [x] 1.3 Adjust code-review migration snapshot checks — 54b34f77a
 
 ### Phase 2: Snapshot Repair
 
-- [ ] 2.1 Compare example entities, migrations, and snapshots
-- [ ] 2.2 Update stale example migration snapshots
-- [ ] 2.3 Verify db generation reports no example changes
+- [x] 2.1 Compare example entities, migrations, and snapshots — 7f3a452aa
+- [x] 2.2 Update stale example migration snapshots — 7f3a452aa
+- [x] 2.3 Verify db generation reports no example changes — 7f3a452aa
 
 ### Phase 3: PR Hygiene
 
