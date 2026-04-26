@@ -61,16 +61,19 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
 
     // Step 2 — wait for transition (apiKey input gone, syncDirection rendered)
     await expect(apiKeyInput).toHaveCount(0, { timeout: 10_000 })
-    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible({ timeout: 10_000 })
-    await syncSelect.selectOption('bidirectional')
+    // Wizard uses Radix Select in apps/mercato — interact via combobox + portal option
+    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
+    await expect(syncTrigger).toBeVisible({ timeout: 10_000 })
+    await syncTrigger.click()
+    await page.getByRole('option', { name: 'Bidirectional', exact: true }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 3 — wait for syncDirection gone, frequency rendered
-    await expect(syncSelect).toHaveCount(0, { timeout: 10_000 })
-    const freqSelect = page.locator('[data-crud-field-id="frequency"] select')
-    await expect(freqSelect).toBeVisible({ timeout: 10_000 })
-    await freqSelect.selectOption('daily')
+    // Step 3 — wait for syncDirection gone, frequency rendered (Radix Select)
+    await expect(page.locator('[data-crud-field-id="syncDirection"]')).toHaveCount(0, { timeout: 10_000 })
+    const freqTrigger = page.locator('[data-crud-field-id="frequency"] [role="combobox"]')
+    await expect(freqTrigger).toBeVisible({ timeout: 10_000 })
+    await freqTrigger.click()
+    await page.getByRole('option', { name: 'Daily', exact: true }).click()
     await page.getByRole('button', { name: 'Complete', exact: true }).click()
 
     // Verify wizard result output
@@ -97,10 +100,10 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await expect(apiSecretInput).toHaveValue('secret', { timeout: 5_000 })
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 2 — wait for transition (apiKey input gone, syncDirection rendered)
+    // Step 2 — wait for transition (apiKey input gone, syncDirection rendered as Radix combobox)
     await expect(apiKeyInput).toHaveCount(0, { timeout: 10_000 })
-    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible({ timeout: 10_000 })
+    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
+    await expect(syncTrigger).toBeVisible({ timeout: 10_000 })
 
     // Click back
     await page.getByRole('button', { name: 'Back', exact: true }).click()

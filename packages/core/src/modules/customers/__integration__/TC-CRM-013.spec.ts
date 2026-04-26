@@ -39,7 +39,9 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await page.goto('/backend/customers/deals/pipeline');
       await expect(page.getByRole('heading', { name: 'Sales Pipeline' })).toBeVisible();
 
-      await page.getByLabel('Pipeline').selectOption(pipelineId!);
+      // Pipeline picker is a Radix Select — click trigger and select by pipeline name
+      await page.locator('[role="combobox"]').first().click();
+      await page.getByRole('option', { name: pipelineName, exact: true }).click();
 
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();

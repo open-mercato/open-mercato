@@ -1000,14 +1000,16 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
 
   if (options.taxClassName) {
-    // Radix Select: trigger has placeholder "No tax class selected"
+    // Radix Select inside Dialog — force click on option to bypass overlay
     const taxClassTrigger = dialog
       .locator('[role="combobox"]')
       .filter({ hasText: /No tax class selected/i })
       .first();
     if ((await taxClassTrigger.count()) > 0) {
       await taxClassTrigger.click();
-      await page.getByRole('option', { name: options.taxClassName, exact: true }).click();
+      const opt = page.getByRole('option', { name: options.taxClassName, exact: true });
+      await opt.first().waitFor({ state: 'visible', timeout: 3_000 });
+      await opt.first().click({ force: true });
     }
   }
 
@@ -1086,14 +1088,17 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
       const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
       const kindLabel = options.kindLabel ?? 'Surcharge';
       await kindTrigger.click();
+      // Inside a Dialog, Radix Select listbox can be obscured by the modal
+      // backdrop in CI; force the click to bypass actionability checks.
       const opt = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') });
-      const optExists = await opt.first().isVisible().catch(() => false);
+      const optExists = await opt.first().waitFor({ state: 'visible', timeout: 3_000 }).then(() => true).catch(() => false);
       if (optExists) {
-        await opt.first().click();
+        await opt.first().click({ force: true });
       } else {
-        await page.getByRole('option', { name: 'Custom', exact: true }).first().click();
+        const fallback = page.getByRole('option', { name: 'Custom', exact: true });
+        await fallback.first().waitFor({ state: 'visible', timeout: 3_000 });
+        await fallback.first().click({ force: true });
       }
-      // Verify trigger reflects selection
       void expectedKindValue;
     }
 

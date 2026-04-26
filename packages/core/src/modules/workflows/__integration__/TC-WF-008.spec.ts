@@ -66,12 +66,12 @@ async function createMinimalDefinitionViaUi(
       : page.getByRole('option', { name: optionLabel })
     await opt.first().click()
   }
-  await pickRadix('step-0-type', 'START')
+  await pickRadix('step-0-type', 'Start')
 
   await addStepBtn.click()
   await fillText(page, page.locator('#step-1-id'), 'end')
   await fillText(page, page.locator('#step-1-name'), 'End')
-  await pickRadix('step-1-type', 'END')
+  await pickRadix('step-1-type', 'End')
 
   await page.getByRole('button', { name: /^add transition$/i }).click()
   await fillText(page, page.locator('#transition-0-id'), 'start-to-end')

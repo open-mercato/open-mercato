@@ -48,7 +48,9 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
 
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/pipeline');
-      await page.getByLabel('Pipeline').selectOption(pipelineId!);
+      // Pipeline picker is a Radix Select — click trigger and select by pipeline name
+      await page.locator('[role="combobox"]').first().click();
+      await page.getByRole('option', { name: pipelineName, exact: true }).click();
       const winLane = page.locator('main').locator('div').filter({ has: page.getByText(/^Win$/) }).first();
       await expect(winLane).toContainText(dealTitle);
     } finally {
