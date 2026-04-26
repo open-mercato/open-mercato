@@ -66,4 +66,4 @@ Make coding-agent guidance for new MikroORM entities match the v7 migration rule
 
 - [x] 4.1 Audit standalone AGENTS and copied AI guides for stale commands and outdated entity/migration patterns — d58bef0ef
 - [x] 4.2 Update backend UI / design-system guidance and mirror corrections into standalone copies — d58bef0ef
-- [ ] 4.3 Re-validate docs, push the branch, and refresh the PR summary
+- [x] 4.3 Re-validate docs, push the branch, and refresh the PR summary — validation: `git diff --check` passed, `yarn install --mode=skip-build` passed, `yarn lint` is still blocked by ESLint 10 / `@typescript-eslint/utils` FlatESLint incompatibility before linting changed files; branch pushed in `fc6ea7480`
