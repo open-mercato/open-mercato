@@ -183,6 +183,25 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
+  for (const autoSkill of ['auto-create-pr', 'auto-continue-pr', 'auto-review-pr', 'auto-fix-github']) {
+    copyFile(
+      srcDir,
+      `ai/skills/${autoSkill}/SKILL.md`,
+      join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
+    )
+    copyFile(
+      srcDir,
+      `ai/skills/${autoSkill}/STANDALONE.md`,
+      join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
+    )
+  }
+
+  copyFile(
+    srcDir,
+    'ai/skills/trim-unused-modules/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'trim-unused-modules', 'SKILL.md'),
+  )
+
   copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
   if (existsSync(GUIDES_DIR)) {
