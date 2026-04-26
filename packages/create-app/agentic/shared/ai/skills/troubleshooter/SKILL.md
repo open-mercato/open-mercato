@@ -128,9 +128,9 @@ yarn typecheck
 
 1. **Did you create a migration after adding/changing the entity?**
    ```bash
-   yarn db:generate     # Creates migration file
+   yarn db:generate     # Probes/creates migration file
    ```
-   Fix: Run `yarn db:generate` to create the migration.
+   Fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
 
 2. **Did you apply the migration?**
    ```bash
@@ -157,6 +157,10 @@ yarn typecheck
 2. **Did you modify a core module entity without ejecting?**
    Never edit `node_modules/@open-mercato/*`.
    Fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
+
+3. **Is a module snapshot stale?**
+   Check whether the generated SQL recreates a table or column that already has a committed migration.
+   Fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
 
 ### Entity changes not reflected
 

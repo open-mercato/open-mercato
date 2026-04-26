@@ -589,7 +589,7 @@ Add to `src/modules.ts`:
 
 ```bash
 yarn generate          # Discover module files, update .mercato/generated/
-yarn db:generate       # Create migration for new entity
+yarn db:generate       # Probe/create migration for the new entity
 ```
 
 ### Step 3: Review Migration
@@ -599,11 +599,13 @@ Check the generated migration file in `src/modules/<module_id>/migrations/`. Ver
 - All columns present with correct types
 - Indexes on `organization_id`, `tenant_id`
 - No unexpected changes
+- `migrations/.snapshot-open-mercato.json` was updated to the post-change schema
+- Unrelated generated migrations were deleted from the diff
 
 ### Step 4: Apply & Test
 
 ```bash
-yarn db:migrate        # Apply migration (confirm with user first)
+yarn db:migrate        # Apply migration only after explicit user confirmation
 yarn dev               # Start dev server
 ```
 
@@ -631,7 +633,7 @@ yarn dev               # Start dev server
 - [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
 - [ ] `yarn generate` run after creating files
-- [ ] `yarn db:generate` run after creating entity
+- [ ] Migration SQL is scoped to this entity and `.snapshot-open-mercato.json` is updated
 - [ ] No `any` types
 - [ ] No hardcoded user-facing strings
 - [ ] No direct ORM relationships to other modules
@@ -651,6 +653,8 @@ yarn dev               # Start dev server
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
 - **MUST** register module in `src/modules.ts` with `from: '@app'`
 - **MUST** run `yarn generate` after creating module files
-- **MUST** run `yarn db:generate` after creating/modifying entities
+- **MUST** create a scoped migration after creating/modifying entities and update `.snapshot-open-mercato.json`
+- **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
+- **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST NOT** create ORM relationships (`@ManyToOne`, `@OneToMany`) to entities in other modules
 - **MUST NOT** edit `.mercato/generated/*` files manually

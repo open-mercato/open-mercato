@@ -323,13 +323,14 @@ const enricher: ResponseEnricher = {
 
 ```bash
 # 1. Modify or create entity files
-# 2. Generate migration
+# 2. Probe/generate migration
 yarn db:generate
 
 # 3. Review the generated migration
 # Check src/modules/<module_id>/migrations/Migration_YYYYMMDD_HHMMSS.ts
 
-# 4. Apply migration (confirm with user first)
+# 4. Update src/modules/<module_id>/migrations/.snapshot-open-mercato.json
+# 5. Apply migration only after explicit user confirmation
 yarn db:migrate
 ```
 
@@ -337,9 +338,11 @@ yarn db:migrate
 
 1. **Review every migration** — auto-generated doesn't mean correct
 2. **Check for unintended changes** — sometimes generators pick up unrelated diffs
-3. **New columns should have defaults** — prevents breaking existing rows
-4. **Never rename columns** — add new column, migrate data, remove old column (across releases)
-5. **Never drop tables** — soft delete or archive first
+3. **Do not commit unrelated generated migrations** — delete them from the diff
+4. **Update `.snapshot-open-mercato.json`** — it is the baseline that prevents duplicate future migrations
+5. **New columns should have defaults** — prevents breaking existing rows
+6. **Never rename columns** — add new column, migrate data, remove old column (across releases)
+7. **Never drop tables** — soft delete or archive first
 
 ### Adding a Column to Existing Entity
 
@@ -355,8 +358,8 @@ new_field: string | null = null
 
 Then:
 ```bash
-yarn db:generate   # Creates ALTER TABLE ADD COLUMN migration
-yarn db:migrate    # Applies it
+yarn db:generate   # Probes/creates ALTER TABLE ADD COLUMN migration
+yarn db:migrate    # Applies it only after explicit user confirmation
 ```
 
 ### Removing a Column
@@ -484,7 +487,8 @@ export class TicketHistory {
 | `@ManyToOne` across modules | Tight coupling, breaks module isolation | Store FK as `uuid` column, use enrichers |
 | Storing computed values | Stale data, maintenance burden | Compute on read via enrichers or queries |
 | Using `any` for JSONB fields | No type safety | Define a Zod schema, use `z.infer` |
-| Manual migration SQL | Fragile, version-dependent | Use `yarn db:generate` |
+| Blindly committing all generated migrations | Captures unrelated snapshot drift | Keep only scoped SQL and update the matching snapshot |
+| Manual migration SQL without snapshot update | Future `yarn db:generate` recreates the same migration | Update `.snapshot-open-mercato.json` in the same change |
 | Renaming columns | Breaks existing data/queries | Add new column, migrate data, drop old |
 | Missing `organization_id` | Cross-tenant data leaks | Always include and index |
 | Using `varchar` without `length` | Defaults vary by DB | Always specify `length` |
@@ -500,8 +504,10 @@ export class TicketHistory {
 - **MUST** include standard columns (`id`, `created_at`, `updated_at`, `deleted_at`, `is_active`)
 - **MUST** use UUID v4 for primary keys
 - **MUST** index all FK columns and `organization_id` / `tenant_id`
-- **MUST** run `yarn db:generate` after entity changes, never hand-write migrations
+- **MUST** create a scoped migration after entity changes and update `.snapshot-open-mercato.json`
 - **MUST** review generated migration before applying
+- **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
+- **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST** use `nullable: true` with `= null` default for optional fields
 - **MUST** specify `length` on all `varchar` columns
 - **MUST NOT** use ORM relationship decorators across module boundaries
