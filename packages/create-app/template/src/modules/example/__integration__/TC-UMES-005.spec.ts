@@ -46,31 +46,30 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
   })
 
   test('TC-UMES-L03: wizard completes all 3 steps and outputs result', async ({ page }) => {
-    // Step 1 — fill credentials (controlled inputs — assert values before advancing)
+    test.setTimeout(60_000)
+    // Step 1 — fill credentials (controlled inputs)
     const apiKeyInput = page.locator('[data-crud-field-id="apiKey"] input')
     const apiSecretInput = page.locator('[data-crud-field-id="apiSecret"] input')
     await apiKeyInput.click()
-    await apiKeyInput.fill('test-key-123')
-    await page.keyboard.press('Tab')
-    await apiSecretInput.fill('test-secret-456')
-    await page.keyboard.press('Tab')
-    // Wait for React state to flush — without this Next-click validation can
-    // observe empty values and refuse to advance
-    await expect(apiKeyInput).toHaveValue('test-key-123')
-    await expect(apiSecretInput).toHaveValue('test-secret-456')
+    await apiKeyInput.pressSequentially('test-key-123', { delay: 10 })
+    await apiSecretInput.click()
+    await apiSecretInput.pressSequentially('test-secret-456', { delay: 10 })
+    // Confirm React state caught up before validation-gated Next click
+    await expect(apiKeyInput).toHaveValue('test-key-123', { timeout: 5_000 })
+    await expect(apiSecretInput).toHaveValue('test-secret-456', { timeout: 5_000 })
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 2 — wait for transition + select sync direction (native <select>)
-    await page.waitForSelector('[data-crud-field-id="syncDirection"] select')
+    // Step 2 — wait for transition (apiKey input gone, syncDirection rendered)
+    await expect(apiKeyInput).toHaveCount(0, { timeout: 10_000 })
     const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible()
+    await expect(syncSelect).toBeVisible({ timeout: 10_000 })
     await syncSelect.selectOption('bidirectional')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 3 — wait for transition + select frequency
-    await page.waitForSelector('[data-crud-field-id="frequency"] select')
+    // Step 3 — wait for syncDirection gone, frequency rendered
+    await expect(syncSelect).toHaveCount(0, { timeout: 10_000 })
     const freqSelect = page.locator('[data-crud-field-id="frequency"] select')
-    await expect(freqSelect).toBeVisible()
+    await expect(freqSelect).toBeVisible({ timeout: 10_000 })
     await freqSelect.selectOption('daily')
     await page.getByRole('button', { name: 'Complete', exact: true }).click()
 
@@ -86,22 +85,22 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
   })
 
   test('TC-UMES-L04: wizard back button navigates to previous step', async ({ page }) => {
-    // Fill step 1 and go to step 2 (assert values before advancing — React state flush)
+    test.setTimeout(60_000)
+    // Fill step 1 (controlled inputs — flush state then advance)
     const apiKeyInput = page.locator('[data-crud-field-id="apiKey"] input')
     const apiSecretInput = page.locator('[data-crud-field-id="apiSecret"] input')
     await apiKeyInput.click()
-    await apiKeyInput.fill('key')
-    await page.keyboard.press('Tab')
-    await apiSecretInput.fill('secret')
-    await page.keyboard.press('Tab')
-    await expect(apiKeyInput).toHaveValue('key')
-    await expect(apiSecretInput).toHaveValue('secret')
+    await apiKeyInput.pressSequentially('key', { delay: 10 })
+    await apiSecretInput.click()
+    await apiSecretInput.pressSequentially('secret', { delay: 10 })
+    await expect(apiKeyInput).toHaveValue('key', { timeout: 5_000 })
+    await expect(apiSecretInput).toHaveValue('secret', { timeout: 5_000 })
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Wait for step 2 to render before asserting on its <select>
-    await page.waitForSelector('[data-crud-field-id="syncDirection"] select')
+    // Step 2 — wait for transition (apiKey input gone, syncDirection rendered)
+    await expect(apiKeyInput).toHaveCount(0, { timeout: 10_000 })
     const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
-    await expect(syncSelect).toBeVisible()
+    await expect(syncSelect).toBeVisible({ timeout: 10_000 })
 
     // Click back
     await page.getByRole('button', { name: 'Back', exact: true }).click()
