@@ -46,7 +46,7 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
   })
 
   test('TC-UMES-L03: wizard completes all 3 steps and outputs result', async ({ page }) => {
-    // Step 1 — fill credentials (Tab between fills to commit controlled input state)
+    // Step 1 — fill credentials (controlled inputs — assert values before advancing)
     const apiKeyInput = page.locator('[data-crud-field-id="apiKey"] input')
     const apiSecretInput = page.locator('[data-crud-field-id="apiSecret"] input')
     await apiKeyInput.click()
@@ -54,6 +54,10 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await apiSecretInput.fill('test-secret-456')
     await page.keyboard.press('Tab')
+    // Wait for React state to flush — without this Next-click validation can
+    // observe empty values and refuse to advance
+    await expect(apiKeyInput).toHaveValue('test-key-123')
+    await expect(apiSecretInput).toHaveValue('test-secret-456')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
     // Step 2 — wait for transition + select sync direction (native <select>)
@@ -82,7 +86,7 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
   })
 
   test('TC-UMES-L04: wizard back button navigates to previous step', async ({ page }) => {
-    // Fill step 1 and go to step 2 (Tab between fills to commit controlled input state)
+    // Fill step 1 and go to step 2 (assert values before advancing — React state flush)
     const apiKeyInput = page.locator('[data-crud-field-id="apiKey"] input')
     const apiSecretInput = page.locator('[data-crud-field-id="apiSecret"] input')
     await apiKeyInput.click()
@@ -90,6 +94,8 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await apiSecretInput.fill('secret')
     await page.keyboard.press('Tab')
+    await expect(apiKeyInput).toHaveValue('key')
+    await expect(apiSecretInput).toHaveValue('secret')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
     // Wait for step 2 to render before asserting on its <select>
