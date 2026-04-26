@@ -40,11 +40,14 @@ test.describe('TC-CRM-031: DataTable Advanced Filter Builder', () => {
       const whereLabel = page.getByText('Where');
       await expect(whereLabel).toBeVisible();
 
-      const fieldSelect = page.locator('select[aria-label="Select field"]').first();
-      await fieldSelect.selectOption({ label: 'Name' });
+      // Radix Select: trigger has aria-label, options live in portal
+      const fieldTrigger = page.locator('[role="combobox"][aria-label="Select field"]').first();
+      await fieldTrigger.click();
+      await page.getByRole('option', { name: 'Name', exact: true }).click();
 
-      const operatorSelect = page.locator('select[aria-label="Select operator"]').first();
-      await operatorSelect.selectOption('contains');
+      const operatorTrigger = page.locator('[role="combobox"][aria-label="Select operator"]').first();
+      await operatorTrigger.click();
+      await page.getByRole('option', { name: 'contains', exact: true }).click();
 
       const valueInput = page.locator('input[aria-label="Text value"]').first();
       await valueInput.fill(`TC031${ts}`);

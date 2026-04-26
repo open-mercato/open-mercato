@@ -56,18 +56,18 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 2 — select sync direction (Radix Select)
-    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
-    await expect(syncTrigger).toBeVisible()
-    await syncTrigger.click()
-    await page.getByRole('option', { name: 'Bidirectional', exact: true }).click()
+    // Step 2 — wait for transition + select sync direction (native <select>)
+    await page.waitForSelector('[data-crud-field-id="syncDirection"] select')
+    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
+    await expect(syncSelect).toBeVisible()
+    await syncSelect.selectOption('bidirectional')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Step 3 — select frequency and complete (Radix Select)
-    const freqTrigger = page.locator('[data-crud-field-id="frequency"] [role="combobox"]')
-    await expect(freqTrigger).toBeVisible()
-    await freqTrigger.click()
-    await page.getByRole('option', { name: 'Daily', exact: true }).click()
+    // Step 3 — wait for transition + select frequency
+    await page.waitForSelector('[data-crud-field-id="frequency"] select')
+    const freqSelect = page.locator('[data-crud-field-id="frequency"] select')
+    await expect(freqSelect).toBeVisible()
+    await freqSelect.selectOption('daily')
     await page.getByRole('button', { name: 'Complete', exact: true }).click()
 
     // Verify wizard result output
@@ -92,9 +92,10 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await page.keyboard.press('Tab')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Should be on step 2 (Radix Select trigger replaces native <select>)
-    const syncTrigger = page.locator('[data-crud-field-id="syncDirection"] [role="combobox"]')
-    await expect(syncTrigger).toBeVisible()
+    // Wait for step 2 to render before asserting on its <select>
+    await page.waitForSelector('[data-crud-field-id="syncDirection"] select')
+    const syncSelect = page.locator('[data-crud-field-id="syncDirection"] select')
+    await expect(syncSelect).toBeVisible()
 
     // Click back
     await page.getByRole('button', { name: 'Back', exact: true }).click()

@@ -61,19 +61,27 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await addStepBtn.click()
       await fillText(page, page.locator('#step-0-id'), 'start')
       await fillText(page, page.locator('#step-0-name'), 'Start')
-      await page.locator('#step-0-type').selectOption('START')
+      // Radix Select: trigger has the id, options live in portal
+      const pickRadix = async (triggerId: string, optionLabel: string | RegExp) => {
+        await page.locator(`#${triggerId}`).click()
+        const opt = typeof optionLabel === 'string'
+          ? page.getByRole('option', { name: optionLabel, exact: true })
+          : page.getByRole('option', { name: optionLabel })
+        await opt.first().click()
+      }
+      await pickRadix('step-0-type', 'START')
 
       await addStepBtn.click()
       await fillText(page, page.locator('#step-1-id'), 'end')
       await fillText(page, page.locator('#step-1-name'), 'End')
-      await page.locator('#step-1-type').selectOption('END')
+      await pickRadix('step-1-type', 'END')
 
       // Transition: start → end
       await page.getByRole('button', { name: /^add transition$/i }).click()
       await fillText(page, page.locator('#transition-0-id'), 'start-to-end')
       await fillText(page, page.locator('#transition-0-name'), 'Auto advance')
-      await page.locator('#transition-0-from').selectOption('start')
-      await page.locator('#transition-0-to').selectOption('end')
+      await pickRadix('transition-0-from', /^start$/i)
+      await pickRadix('transition-0-to', /^end$/i)
 
       // Submit (two identical buttons — header + footer; click the first)
       await page.getByRole('button', { name: /^create workflow$/i }).first().click()
