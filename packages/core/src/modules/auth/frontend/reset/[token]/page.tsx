@@ -24,8 +24,8 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
     e.preventDefault()
     setError(null)
     const form = new FormData(e.currentTarget)
-    const password = String(form.get('password') ?? '').trim()
-    const confirmPassword = String(form.get('confirmPassword') ?? '').trim()
+    const password = String(form.get('password') ?? '')
+    const confirmPassword = String(form.get('confirmPassword') ?? '')
 
     if (!password) {
       setError(t('auth.profile.form.errors.newPasswordRequired', 'New password is required.'))

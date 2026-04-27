@@ -117,9 +117,18 @@ function requestOrigins(input: RequestInput): Set<string> {
   return origins
 }
 
-function logOriginDebugContext(input: RequestInput, allowedOrigins: Set<string>, rejectedOrigin?: string): void {
+function logOriginDebugContext(
+  input: RequestInput,
+  allowedOrigins: Set<string>,
+  rejectedOrigin?: string,
+  level: 'error' | 'warn' = 'error',
+  nodeEnv?: string,
+): void {
+  if (level === 'warn' && nodeEnv === 'test') return
+  const log = level === 'warn' ? console.warn : console.error
+
   if (typeof input === 'string') {
-    console.error('[origin-check] rejected string input', {
+    log('[origin-check] rejected string input', {
       requestUrl: input,
       rejectedOrigin: rejectedOrigin ?? null,
       allowedOrigins: Array.from(allowedOrigins),
@@ -128,14 +137,14 @@ function logOriginDebugContext(input: RequestInput, allowedOrigins: Set<string>,
   }
 
   if (!input) {
-    console.error('[origin-check] rejected empty input', {
+    log('[origin-check] rejected empty input', {
       rejectedOrigin: rejectedOrigin ?? null,
       allowedOrigins: Array.from(allowedOrigins),
     })
     return
   }
 
-  console.error('[origin-check] rejected request', {
+  log('[origin-check] rejected request', {
     requestUrl: input.url,
     host: input.headers.get('host'),
     forwardedHost: input.headers.get('x-forwarded-host'),
@@ -203,7 +212,7 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   for (const origin of headerOrigins) {
     if (allowedOrigins.has(origin)) continue
     if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
-    logOriginDebugContext(input, allowedOrigins, origin)
+    logOriginDebugContext(input, allowedOrigins, origin, 'warn', env.NODE_ENV)
     throw new AppOriginRejectedError('Request origin is not allowed')
   }
 
@@ -212,7 +221,7 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   if (shouldAllowLoopbackOrigin(urlOrigin, allowedOrigins, env)) return
   if (isLoopbackOrigin(urlOrigin) && hasAllowedHeaderOrigin) return
 
-  logOriginDebugContext(input, allowedOrigins, urlOrigin)
+  logOriginDebugContext(input, allowedOrigins, urlOrigin, 'warn', env.NODE_ENV)
   throw new AppOriginRejectedError('Request origin is not allowed')
 }
 
