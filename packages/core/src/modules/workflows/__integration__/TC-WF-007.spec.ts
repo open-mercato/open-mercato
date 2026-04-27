@@ -1,7 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  createWorkflowDefinitionFixture,
+  deleteWorkflowDefinitionIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -110,6 +113,80 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
         const leftoverId = await findDefinitionIdByWorkflowId(request, token, workflowId)
         await deleteWorkflowDefinitionIfExists(request, token, leftoverId)
       }
+    }
+  })
+
+  // Covers branch: NodeEditDialog's activity-type dropdown now lists WAIT
+  // (d8aa7f499) and WAIT_FOR_TIMER renders as a node in the visual editor
+  // (db48d0295). The definition is created via API to keep the test scoped to
+  // the visual editor surface — end-to-end creation via the Create form is
+  // already exercised by the first test in this describe.
+  test('exposes WAIT activity option and renders WAIT_FOR_TIMER node in visual editor', async ({ page, request }) => {
+    const timestamp = Date.now()
+    const workflowId = `qa-wf-007-timer-${timestamp}`
+    let token: string | null = null
+    let definitionId: string | null = null
+
+    try {
+      token = await getAuthToken(request, 'admin')
+
+      definitionId = await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName: `QA TC-WF-007 timer ${timestamp}`,
+        description: 'Integration test: timer node renders in visual editor',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            {
+              stepId: 'wait_for_timer',
+              stepName: 'Wait',
+              stepType: 'WAIT_FOR_TIMER',
+              config: { duration: 'PT5M' },
+            },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start-to-timer', fromStepId: 'start', toStepId: 'wait_for_timer', trigger: 'auto' },
+            { transitionId: 'timer-to-end', fromStepId: 'wait_for_timer', toStepId: 'end', trigger: 'auto' },
+          ],
+        },
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
+      await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
+
+      // All three nodes render, including the WAIT_FOR_TIMER step.
+      const nodes = page.locator('.react-flow__node')
+      await expect(nodes).toHaveCount(3, { timeout: 15_000 })
+      await expect(nodes.filter({ hasText: 'Wait' })).toHaveCount(1)
+      await expect(page.locator('.react-flow__edge')).toHaveCount(2, { timeout: 10_000 })
+
+      // Open NodeEditDialog by clicking the timer node.
+      await nodes.filter({ hasText: 'Wait' }).first().click()
+      const dialog = page.getByRole('dialog').first()
+      await expect(dialog).toBeVisible({ timeout: 10_000 })
+
+      // Add a fresh activity so the activity-type <select> mounts, then expand
+      // it (the default UI shows each activity as a collapsed accordion button).
+      await dialog.getByRole('button', { name: /add activity/i }).first().click()
+      const activityAccordion = dialog.getByRole('button', { name: /Activity \d/i }).first()
+      if (await activityAccordion.isVisible().catch(() => false)) {
+        await activityAccordion.click()
+      }
+
+      // The branch d8aa7f499 added WAIT to the activity-type dropdown. Native
+      // <select><option> doesn't expose reliable combobox semantics in headless
+      // runs, so we assert structurally.
+      const waitOption = dialog.locator('select >> option[value="WAIT"]').first()
+      await expect(
+        waitOption,
+        'NodeEditDialog activity type dropdown should offer the WAIT option',
+      ).toHaveCount(1, { timeout: 10_000 })
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
 })

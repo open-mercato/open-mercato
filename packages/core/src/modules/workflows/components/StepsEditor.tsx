@@ -193,6 +193,44 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                 </div>
               </div>
 
+              {step.stepType === 'WAIT_FOR_TIMER' && (
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
+                  <div>
+                    <Label htmlFor={`step-${index}-duration`} className="text-xs">
+                      {t('workflows.activities.waitDuration')}
+                    </Label>
+                    <Input
+                      id={`step-${index}-duration`}
+                      value={step.config?.duration || ''}
+                      onChange={(e) => updateStep(index, 'config', { ...step.config, duration: e.target.value, until: undefined })}
+                      placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                      disabled={!!step.config?.until}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('workflows.activities.waitDurationDescription')}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground pb-6">{t('workflows.activities.waitOr')}</span>
+                  <div>
+                    <Label htmlFor={`step-${index}-until`} className="text-xs">
+                      {t('workflows.activities.waitUntil')}
+                    </Label>
+                    <Input
+                      id={`step-${index}-until`}
+                      type="datetime-local"
+                      value={step.config?.until ? step.config.until.slice(0, 16) : ''}
+                      onChange={(e) => updateStep(index, 'config', { ...step.config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined })}
+                      disabled={!!step.config?.duration}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('workflows.activities.waitUntilDescription')}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <Label htmlFor={`step-${index}-description`} className="text-xs">
                   {t('workflows.steps.singular')} {t('workflows.definitions.description')}

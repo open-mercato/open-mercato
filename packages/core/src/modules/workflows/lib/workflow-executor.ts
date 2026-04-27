@@ -324,7 +324,7 @@ export async function executeWorkflow(
         if (
           currentStep?.stepType === 'USER_TASK' ||
           currentStep?.stepType === 'WAIT_FOR_SIGNAL' ||
-          currentStep?.stepType === 'TIMER'
+          currentStep?.stepType === 'WAIT_FOR_TIMER'
         ) {
           return {
             status: 'RUNNING',
