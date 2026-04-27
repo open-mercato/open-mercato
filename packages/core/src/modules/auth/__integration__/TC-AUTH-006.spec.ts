@@ -9,7 +9,8 @@ test.describe('TC-AUTH-006: Complete Password Reset', () => {
     await page.goto('/reset/qa-invalid-token');
     await expect(page.getByText(/set a new password/i)).toBeVisible();
 
-    await page.getByLabel(/new password/i).fill('Valid1!Pass');
+    await page.getByLabel(/^new password$/i).fill('Valid1!Pass');
+    await page.getByLabel(/^confirm new password$/i).fill('Valid1!Pass');
     await page.getByRole('button', { name: /update password/i }).click();
 
     await expect(page.getByText(/invalid or expired token/i)).toBeVisible();
