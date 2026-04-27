@@ -4,7 +4,7 @@ Date: 2026-04-27
 Slug: devsplash-base-url
 Branch: `fix/devsplash-base-url`
 Owner: pkarw
-Status: in-progress
+Status: complete (PR #1726)
 
 ## Goal
 
@@ -131,6 +131,6 @@ If `yarn build:app` is too slow / risky for an isolated worktree, document the r
 
 ### Phase 4: validation gate
 
-- [ ] 4.1 Run targeted Node tests for the new helper and existing splash state tests
-- [ ] 4.2 Run full validation gate (build:packages, generate, i18n, typecheck, test, build:app)
-- [ ] 4.3 Open PR against develop with `review`, `bug`, `skip-qa` labels and post summary comment
+- [x] 4.1 Run targeted Node tests for the new helper and existing splash state tests — d605efb0b
+- [x] 4.2 Run full validation gate (build:packages, generate, i18n, typecheck, test, build:app) — d605efb0b
+- [x] 4.3 Open PR #1726 against develop with `review`, `bug`, `skip-qa` labels and post label rationale comment — d605efb0b
