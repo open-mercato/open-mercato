@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
@@ -6,6 +6,20 @@ import {
   deleteMessageIfExists,
   selectRecipientFromComposer,
 } from './helpers';
+
+/**
+ * Workaround for the DS v2 Input/Textarea primitive focus race that breaks Playwright
+ * `.fill()` on controlled CrudForm fields. Click forces focus, an explicit clear handles
+ * existing values, and `keyboard.type` walks key events through the focus pipeline.
+ */
+async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
+  await locator.click({ force: true });
+  await locator.focus();
+  await locator.press('ControlOrMeta+a');
+  await locator.press('Delete');
+  await page.keyboard.type(value);
+  await expect(locator).toHaveValue(value);
+}
 
 async function waitForMessageDetailReady(page: Page, subject: string): Promise<void> {
   await expect(page.getByText(/Loading message\.\.\./i)).toHaveCount(0);
@@ -98,7 +112,7 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       expect(secondForwardPreview.ok()).toBeTruthy();
 
       await selectRecipientFromComposer(page, 'employee@acme.com');
-      await page.getByPlaceholder('Review and edit forwarded content...').fill(forwardedBody);
+      await safeFill(page, page.getByPlaceholder('Review and edit forwarded content...'), forwardedBody);
 
       const forwardResponsePromise = page.waitForResponse((response) => (
         response.request().method() === 'POST'
@@ -120,11 +134,7 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       const inlineReplyInput = page.getByPlaceholder('Write your reply...');
       await expect(inlineReplyInput).toBeVisible();
       await expect(inlineReplyInput).toBeEnabled();
-      await inlineReplyInput.fill(inlineReplyBody);
-      // Assert value flushed before submit — DS v2 Input/Textarea wrapper
-      // changed focus/blur sequencing and Playwright .fill() can race the
-      // React state commit if we click submit immediately afterwards.
-      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
+      await safeFill(page, inlineReplyInput, inlineReplyBody);
 
       const inlineReplyResponsePromise = page.waitForResponse((response) => {
         if (response.request().method() !== 'POST') return false;

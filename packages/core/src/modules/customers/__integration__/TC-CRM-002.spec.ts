@@ -1,7 +1,23 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+
+/**
+ * Workaround for the DS v2 Input primitive focus race that breaks Playwright `.fill()`
+ * when multiple fields are filled in quick succession. The wrapper-div + focus-within
+ * styling changed focus/blur sequencing — `.fill()` can land typed characters in the
+ * previously focused input. Click forces focus, an explicit clear handles existing
+ * values, and `keyboard.type` walks key events through the browser focus pipeline.
+ */
+async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
+  await locator.click({ force: true });
+  await locator.focus();
+  await locator.press('ControlOrMeta+a');
+  await locator.press('Delete');
+  await page.keyboard.type(value);
+  await expect(locator).toHaveValue(value);
+}
 
 /**
  * TC-CRM-002: Company Creation Validation Errors
@@ -22,35 +38,23 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await page.getByRole('button', { name: 'Create Company' }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/companies\/create$/i);
 
-      // Target by field id rather than placeholder — placeholder lookup
-      // was racing onto the wrong input under DS v2 (notaurl ended up in
-      // the email field instead of website on CI screenshots).
-      //
-      // After each .fill(), assert toHaveValue() to flush the controlled
-      // state in CrudForm's TextInput before the next action. The DS v2
-      // Input primitive added a wrapper-div + focus-within styling, which
-      // changed focus/blur event sequencing — fast sequential fills can
-      // race the React batched setState/useEffect(value) sync chain and
-      // cross-write between fields without this guard.
+      // Sequential fills on the DS v2 Input primitive race Playwright `.fill()` and
+      // cross-write characters between fields. `safeFill` walks key events through the
+      // explicit click → focus → clear → type → assert pipeline (memory option A).
       const displayNameInput = page.locator('[data-crud-field-id="displayName"] input');
       const emailInput = page.locator('[data-crud-field-id="primaryEmail"] input');
       const websiteInput = page.locator('[data-crud-field-id="websiteUrl"] input');
 
-      await displayNameInput.fill(companyName);
-      await expect(displayNameInput).toHaveValue(companyName);
-      await emailInput.fill('invalid-email');
-      await expect(emailInput).toHaveValue('invalid-email');
-      await websiteInput.fill('notaurl');
-      await expect(websiteInput).toHaveValue('notaurl');
+      await safeFill(page, displayNameInput, companyName);
+      await safeFill(page, emailInput, 'invalid-email');
+      await safeFill(page, websiteInput, 'notaurl');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
       await expect(page.getByText('Invalid email address')).toBeVisible();
       await expect(page.getByText('Invalid URL')).toBeVisible();
 
-      await emailInput.fill('qa+crm002@example.com');
-      await expect(emailInput).toHaveValue('qa+crm002@example.com');
-      await websiteInput.fill('https://example.com');
-      await expect(websiteInput).toHaveValue('https://example.com');
+      await safeFill(page, emailInput, 'qa+crm002@example.com');
+      await safeFill(page, websiteInput, 'https://example.com');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i);
