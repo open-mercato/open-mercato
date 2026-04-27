@@ -162,3 +162,104 @@ import { AiChat } from '@open-mercato/ui/ai'
 - `resolveAiAgentTools` in `lib/agent-tools.ts` filters the registered tool pack down to the agent's `allowedTools`.
 - `createModelFactory` in `lib/model-factory.ts` picks the LLM per the resolution order.
 - `runAiAgentText` / `runAiAgentObject` in `lib/agent-runtime.ts` compose the final request.
+
+## Using the Vercel AI SDK natively
+
+Most code should go through `runAiAgentText` / `runAiAgentObject` so policy, tool whitelisting, model resolution, mutation approvals, and tenant scoping are enforced for you. There are two escape hatches when you genuinely need raw AI SDK access — one fully bypassed, one wrapped.
+
+### Option A — Raw AI SDK (no agent wrapper)
+
+Use this only for internal scripts, migrations, evaluation harnesses, or non-tenant contexts. Reuse the framework's model factory so provider keys, env overrides, and tenant settings still flow through.
+
+```ts
+import { generateText, generateObject, streamText, streamObject } from 'ai'
+import { z } from 'zod'
+import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+
+const factory = createModelFactory({ moduleId: 'catalog' })
+const model = await factory.resolve()
+
+// Text
+const { text } = await generateText({ model, prompt: 'Summarize this...' })
+
+// Structured object
+const { object } = await generateObject({
+  model,
+  schema: z.object({ summary: z.string(), tags: z.array(z.string()) }),
+  prompt: 'Extract summary and tags from ...',
+})
+
+// Streaming
+const stream = streamText({ model, prompt: '...' })
+for await (const chunk of stream.textStream) { /* ... */ }
+```
+
+Optionally reuse the registered tool packs (still without agent policy):
+
+```ts
+import { resolveAiAgentTools } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-tools'
+
+const tools = await resolveAiAgentTools({
+  allowedTools: ['search.entities', 'attachments.list'],
+  container,
+  authContext,
+})
+const { text } = await generateText({ model, tools, prompt: '...', maxSteps: 5 })
+```
+
+**What you lose by going raw:**
+
+- `checkAgentPolicy` — `requiredFeatures`, `allowedTools` whitelist, `readOnly`/`mutationPolicy`, `acceptedMediaTypes` are not enforced.
+- The mutation approval flow — `prepareMutation` + `ai_pending_actions` + approval cards do not run; never call mutation tools this way.
+- Page-context resolution — `resolvePageContext` and tenant-scoped system-prompt composition are skipped.
+- Audit trail — runs are not associated with an agent id, so playground/settings overrides and per-agent telemetry do not apply.
+- Per-tenant prompt and model overrides set in the AI Assistant settings UI.
+- Attachment-to-model bridging (image/PDF parts produced by `acceptedMediaTypes`).
+
+### Option B — Wrapped agent with a native SDK callback (recommended escape hatch)
+
+When you want most of the wrapper's guarantees but need to reach into the raw AI SDK call (custom `providerOptions`, `experimental_*` flags, telemetry, additional `onStepFinish` logic, custom `abortSignal` plumbing, etc.), pass an `sdkOverride` callback. The runtime still:
+
+- runs `checkAgentPolicy` (features, tool whitelist, mutation policy, media types),
+- resolves the model via `createModelFactory` and tenant overrides,
+- builds the tool map from `allowedTools`,
+- composes the system prompt (including `resolvePageContext`),
+- routes any mutation tool calls through `prepareMutation` + the approval contract,
+
+and then hands the fully prepared options object to your callback so you can call `generateText` / `generateObject` / `streamText` / `streamObject` directly.
+
+```ts
+import { runAiAgentText } from '@open-mercato/ai-assistant'
+import { generateText } from 'ai'
+
+const result = await runAiAgentText({
+  agentId: 'customers.account_assistant',
+  container,
+  authContext,
+  prompt: 'Summarize this account',
+  sdkOverride: async ({ model, tools, system, messages, maxSteps }) => {
+    return generateText({
+      model,
+      tools,
+      system,
+      messages,
+      maxSteps,
+      experimental_telemetry: { isEnabled: true, functionId: 'customers.account_assistant' },
+      providerOptions: {
+        anthropic: { cacheControl: { type: 'ephemeral' } },
+      },
+      onStepFinish: (step) => { /* custom logging */ },
+    })
+  },
+})
+```
+
+The same hook is available on `runAiAgentObject` (where you receive the resolved `output.schema` and call `generateObject` / `streamObject`).
+
+**What you still lose with `sdkOverride`:**
+
+- If your callback ignores the supplied `tools` / `system` / `messages` arguments, you also bypass tool whitelisting, prompt composition, and mutation approvals — only the model factory and feature gate remain. Treat the supplied arguments as required inputs unless you know exactly which guardrail you are dropping.
+- Custom transports (e.g. swapping the HTTP client) move you outside the model factory's provider routing; per-tenant API key overrides set in settings will not apply.
+- UI streaming parts (`AiUiPart` tags consumed by `<AiChat>`) are produced by the default runtime path; if your callback returns a stream that does not emit those parts, the embedded chat UI degrades to plain text.
+
+Pick Option B by default when you "just need one extra AI SDK option" — it keeps every other guardrail in place. Reach for Option A only when you are deliberately working outside the agent contract.

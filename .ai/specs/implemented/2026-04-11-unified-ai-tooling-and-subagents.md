@@ -1523,6 +1523,7 @@ Exit criteria:
 Out of scope for this spec but expected follow-ups:
 
 - **Stacked Approval Queue** (D17): persistent multi-action queue where agents enqueue pending actions with `queueMode: 'stack'`, return control to the user, and resume via `ai.action.confirmed` / `ai.action.cancelled` subscribers; includes queue UI, role-based assignment, bulk approve/reject, SLA/expiry policy, and the worker-resume contract
+- **Native AI SDK escape hatch** (`sdkOverride` callback on `runAiAgentText` / `runAiAgentObject`): wrapper-preserved hook that runs `checkAgentPolicy`, `createModelFactory`, tool resolution, system-prompt composition, and the mutation-approval contract, then hands the prepared `{ model, tools, system, messages, maxSteps, output? }` to a caller-supplied callback so it can invoke `generateText` / `generateObject` / `streamText` / `streamObject` directly. Required for callers that need raw AI SDK options (`providerOptions`, `experimental_telemetry`, `onStepFinish`, custom `abortSignal`, telemetry routing) without dropping policy or approval enforcement. Must document explicitly which guardrails still apply when the callback ignores supplied `tools` / `system` / `messages` (model factory and feature gate remain; whitelisting, prompt composition, and mutation approvals are forfeited along with whichever inputs the callback discards). Companion docs requirement: keep the "Using the Vercel AI SDK natively" section in `apps/docs/docs/framework/ai-assistant/agents.mdx` aligned with the implementation, including the Option A (raw AI SDK + `createModelFactory`) escape and the loss list (policy, mutation approvals, page-context resolution, tenant prompt/model overrides, attachment-to-model bridging, `<AiChat>` UI parts).
 - per-module MCP endpoints
 - agent-to-agent composition (chained LLM calls) beyond the approval-queue resumption hook
 - RSC `streamUI`
@@ -1761,6 +1762,12 @@ When implemented, release notes must call out:
 | Risks include failure scenarios and mitigations | Pass | Concrete table included |
 
 ## Changelog
+
+### 2026-04-27 — Native Vercel AI SDK escape hatch (Phase 4 follow-up)
+- Added a Phase 4 follow-up entry for a `sdkOverride` callback on `runAiAgentText` / `runAiAgentObject` so callers can invoke `generateText` / `generateObject` / `streamText` / `streamObject` directly while the wrapper still runs `checkAgentPolicy`, `createModelFactory`, tool resolution, system-prompt composition, and the D16 mutation-approval contract.
+- Recorded the explicit loss surface for callbacks that discard the supplied `tools` / `system` / `messages` (whitelisting, prompt composition, and mutation approvals are forfeited along with whichever inputs the callback drops; only model factory and feature gate remain).
+- Required parity between the spec and the "Using the Vercel AI SDK natively" section of `apps/docs/docs/framework/ai-assistant/agents.mdx`, which documents both the wrapped escape (Option B / `sdkOverride`) and the raw `createModelFactory` + AI SDK escape (Option A) with their respective trade-offs (policy, mutation approvals, page-context resolution, tenant prompt/model overrides, attachment-to-model bridging, `<AiChat>` UI parts).
+- No BC impact: feature is additive; existing `runAiAgentText` / `runAiAgentObject` callers ignore the new optional `sdkOverride` field.
 
 ### 2026-04-18 — Catalog products bulk editor as V1 demo & verification target
 - Added Decision **D18. Catalog Products List Bulk Editor as V1 Demo & Verification Target** making the `catalog.merchandising_assistant` agent embedded on `/backend/catalog/catalog/products` the concrete acceptance surface for this spec.
