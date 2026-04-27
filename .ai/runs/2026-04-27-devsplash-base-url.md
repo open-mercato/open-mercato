@@ -126,8 +126,8 @@ If `yarn build:app` is too slow / risky for an isolated worktree, document the r
 
 ### Phase 3: template sync
 
-- [ ] 3.1 Add helper to `scripts/template-sync.ts` SYNC list and mirror to `packages/create-app/template/scripts/dev-splash-url.mjs`
-- [ ] 3.2 Run `tsx scripts/template-sync.ts --fix` to mirror the updated `dev.mjs` (and any other touched scripts) into the create-app template
+- [x] 3.1 Add helper to `scripts/template-sync.ts` SYNC list and mirror to `packages/create-app/template/scripts/dev-splash-url.mjs` — e133c2fc6
+- [x] 3.2 Apply targeted dev.mjs patch to `packages/create-app/template/scripts/dev.mjs` (kept pre-existing unrelated drift unchanged) — e133c2fc6
 
 ### Phase 4: validation gate
 
