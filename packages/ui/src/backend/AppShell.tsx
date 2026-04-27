@@ -3,7 +3,7 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Search, X } from 'lucide-react'
+import { ChevronDown, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
@@ -439,6 +439,39 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }, [navQueryActive, navQueryNorm])
   const effectiveCollapsed = collapsed
   const expandedSidebarWidth = '240px'
+
+  // Track scroll position of the desktop sidebar's inner scroll container so we can
+  // flip the affordance chevron between down/up (and hide it entirely when content
+  // fits without scrolling). The inner div is rendered deep in renderSidebar /
+  // renderSectionSidebar — we tag it with `data-sidebar-scroll="true"` and look it
+  // up via the aside ref so we don't have to thread refs through the JSX tree.
+  const sidebarAsideRef = React.useRef<HTMLElement>(null)
+  const [sidebarScrollState, setSidebarScrollState] = React.useState<'down' | 'up' | 'none'>('down')
+  React.useEffect(() => {
+    const aside = sidebarAsideRef.current
+    if (!aside) return
+    const target = aside.querySelector<HTMLElement>('[data-sidebar-scroll="true"]')
+    if (!target) return
+    const update = () => {
+      const { scrollTop, scrollHeight, clientHeight } = target
+      const canScroll = scrollHeight > clientHeight + 1
+      if (!canScroll) {
+        setSidebarScrollState('none')
+        return
+      }
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 8
+      setSidebarScrollState(atBottom ? 'up' : 'down')
+    }
+    update()
+    target.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(target)
+    return () => {
+      target.removeEventListener('scroll', update)
+      ro.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, effectiveCollapsed])
   const injectionContext = React.useMemo(
     () => ({
       path: pathname ?? '',
@@ -502,7 +535,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
   const asideWidth = effectiveCollapsed ? '80px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
-  const asideClassesBase = `border-r bg-background py-4 min-h-svh`;
+  const asideClassesBase = `border-r bg-background py-4`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
@@ -554,7 +587,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     const lastVisibleIndex = sortedSections.length - 1
 
     return (
-      <div className="flex flex-col min-h-full gap-3">
+      <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
           <div className="mb-2">
             <Link
@@ -567,22 +600,40 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             </Link>
           </div>
         )}
-        {/* No overflow on this container — settings sidebars can be tall, but a horizontal
-            clip side-effect of overflow-y-auto would hide the absolute active marker that
-            is positioned with negative left offsets. The aside (min-h-svh) lets page-level
-            scroll handle long contents instead. */}
-        <div className="flex flex-1 flex-col gap-3 pr-1">
-          <Link
-            href="/backend"
-            className={`flex items-center gap-2 ${compact ? 'justify-center px-2' : 'px-2'} py-1 text-sm text-muted-foreground hover:text-foreground transition-colors`}
-            aria-label={t('backend.nav.backToMain', 'Back')}
-          >
-            <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
-            {!compact && <span>{title}</span>}
-          </Link>
+        {!compact && (
+          <Input
+            type="text"
+            value={navQuery}
+            onChange={(e) => setNavQuery(e.target.value)}
+            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+            aria-label={t('appShell.searchNavAria', 'Search navigation')}
+            leftIcon={<Search aria-hidden />}
+            rightIcon={navQueryActive ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setNavQuery('')}
+                aria-label={t('appShell.searchNavClear', 'Clear search')}
+              >
+                <X className="size-3.5" aria-hidden />
+              </IconButton>
+            ) : undefined}
+            className="mb-2"
+          />
+        )}
+        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
-            const visibleItems = section.items
+            const matchesItemQuery = (item: typeof section.items[number]): boolean => {
+              if (!navQueryActive) return true
+              const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+              if (matchesQuery(label)) return true
+              return Array.isArray(item.children) && item.children.some(matchesItemQuery)
+            }
+            const visibleItems = navQueryActive
+              ? section.items.filter(matchesItemQuery)
+              : section.items
             if (visibleItems.length === 0) return null
             const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
             const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
@@ -590,10 +641,15 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             const open = openGroups[sectionKey] !== false
             const sortSectionItems = (items: typeof section.items = []) =>
               [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            const filterChildren = (children: typeof section.items | undefined) => {
+              if (!children) return [] as typeof section.items
+              if (!navQueryActive) return [...children]
+              return children.filter(matchesItemQuery)
+            }
 
             const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
               const label = item.labelKey ? t(item.labelKey, item.label) : item.label
-              const childItems = sortSectionItems(item.children)
+              const childItems = sortSectionItems(filterChildren(item.children))
               const isOnItemBranch = !!pathname && (
                 pathname === item.href ||
                 pathname.startsWith(`${item.href}/`)
@@ -602,7 +658,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 pathname === child.href ||
                 pathname.startsWith(`${child.href}/`)
               )))
-              const showChildren = childItems.length > 0 && isOnItemBranch
+              const showChildren = childItems.length > 0 && (isOnItemBranch || navQueryActive)
               const isActive = isOnItemBranch || hasActiveChild
               const base = compact ? 'w-10 h-10 justify-center' : 'w-full py-2 gap-2'
               const spacingStyle = !compact
@@ -741,7 +797,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     const shouldRenderSidebarInjectionSpots = !isMobileVariant
 
     return (
-      <div className="flex flex-col min-h-full gap-3">
+      <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
           <div className="mb-2">
             <Link
@@ -782,7 +838,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             className="mb-2"
           />
         )}
-        <div className="flex flex-1 flex-col gap-3 pr-1">
+        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
           {(() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
@@ -998,7 +1054,25 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
-      <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`} style={{ width: asideWidth }}>
+        {renderSidebar(effectiveCollapsed)}
+        {/* Scroll affordance — gradient fade + chevron that flips up when the user
+            reaches the bottom and disappears when nothing is scrollable. */}
+        {sidebarScrollState !== 'none' ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex h-10 items-end justify-center bg-gradient-to-t from-background via-background/80 to-transparent pb-1.5"
+          >
+            {/* Outer div owns the rotate transition so it doesn't fight with the
+                animate-bounce keyframes (both target `transform`). */}
+            <span
+              className={`inline-flex transition-transform duration-300 ${sidebarScrollState === 'up' ? 'rotate-180' : ''}`}
+            >
+              <ChevronDown className="size-4 animate-bounce text-muted-foreground/70" />
+            </span>
+          </div>
+        ) : null}
+      </aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">

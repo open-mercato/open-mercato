@@ -28,6 +28,19 @@ if (typeof globalThis.Response === 'undefined') {
   (globalThis as any).Response = MockResponse
 }
 
+// jsdom does not implement ResizeObserver. Components like AppShell (sticky sidebar
+// scroll affordance) and TruncatedCell instantiate one in effects, so any test that
+// renders them needs a stub. Provide a no-op global mock instead of forcing every
+// test file to ship its own.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  (globalThis as any).ResizeObserver = ResizeObserverStub
+}
+
 // Mock window.location.reload globally for all tests
 if (typeof window !== 'undefined' && window.location) {
   try {

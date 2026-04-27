@@ -538,3 +538,12 @@ TODO: Fix that latter to have reference by the package names
 body[data-column-chooser-open="true"] .om-demo-feedback-floating {
   display: none !important;
 }
+
+/* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

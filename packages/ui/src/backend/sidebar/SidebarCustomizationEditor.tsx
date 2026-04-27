@@ -1,6 +1,6 @@
 'use client'
 import * as React from 'react'
-import { ChevronUp, ChevronDown, GripVertical, RotateCcw, Trash2, Plus, Search } from 'lucide-react'
+import { ChevronUp, ChevronDown, GripVertical, RotateCcw, Trash2, Plus, Search, AlertTriangle } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -13,6 +13,7 @@ import { Input } from '../../primitives/input'
 import { Switch } from '../../primitives/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '../../primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
+import { Tag } from '../../primitives/tag'
 import {
   Select,
   SelectContent,
@@ -22,6 +23,7 @@ import {
 } from '../../primitives/select'
 import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
+import { Page, PageBody } from '../Page'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { useConfirmDialog } from '../confirm-dialog'
 import {
@@ -847,13 +849,12 @@ export function SidebarCustomizationEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="mx-auto max-w-6xl space-y-6 pb-24">
-        {/* Page header */}
+      <Page>
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-xl sm:text-2xl font-semibold leading-tight">
             {t('appShell.sidebarCustomizationHeading')}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('appShell.sidebarCustomizationHint', { locale: localeLabel })}
           </p>
         </header>
@@ -865,7 +866,7 @@ export function SidebarCustomizationEditor({
         ) : null}
 
         {/* Two-column: editor (variant + roles + order) + preview */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+        <PageBody className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
           <div className="space-y-6">
             {(() => {
               const showRolesCard = canApplyToRoles && availableRoleTargets.length > 0
@@ -899,7 +900,7 @@ export function SidebarCustomizationEditor({
                                 disabled={isBusy || loading}
                               >
                                 <SelectTrigger
-                                  className="absolute inset-y-0 right-0 h-full w-9 border-0 bg-transparent rounded-l-none rounded-r-md px-0 shadow-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 [&>span]:hidden [&>svg]:mx-auto"
+                                  className="pointer-events-none absolute inset-0 h-full w-full justify-end border-0 bg-transparent px-3 shadow-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 [&>span]:hidden [&>svg]:pointer-events-auto"
                                   aria-label={t('appShell.sidebarCustomizationVariantPickerLabel', 'Pick variant')}
                                 >
                                   <SelectValue />
@@ -986,9 +987,10 @@ export function SidebarCustomizationEditor({
                                 />
                                 <span className="flex-1 truncate font-medium text-foreground">{role.name}</span>
                                 {role.hasPreference ? (
-                                  <span className={`text-xs ${willClear ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                  <Tag variant={willClear ? 'error' : 'info'} dot={!willClear}>
+                                    {willClear ? <AlertTriangle className="size-3" aria-hidden /> : null}
                                     {willClear ? t('appShell.sidebarRoleWillClear') : t('appShell.sidebarRoleHasPreset')}
-                                  </span>
+                                  </Tag>
                                 ) : null}
                               </label>
                             )
@@ -1165,8 +1167,8 @@ export function SidebarCustomizationEditor({
               </div>
             </div>
           </aside>
-        </div>
-      </div>
+        </PageBody>
+      </Page>
     </>
   )
 }

@@ -19,7 +19,7 @@ export function SectionPage({
         {/* Padding lives on the inner scroll container so the absolute active-marker
             (left: -12px from each link) renders inside the inner div's padding box —
             CSS clips at padding-box edges, so a marker placed there stays visible. */}
-        <div className={`h-full overflow-y-auto ${collapsed ? 'pl-2 pr-1' : 'pl-3 pr-1'}`}>
+        <div className={`h-full overflow-y-auto scrollbar-hide ${collapsed ? 'pl-2 pr-1' : 'pl-3 pr-1'}`}>
           <SectionNav
             title={title}
             titleKey={titleKey}
