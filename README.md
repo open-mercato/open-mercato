@@ -421,3 +421,11 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+
+## 💰 Bounty Contribution
+
+- **Task:** bug: [Catalog / Pricing] Tier-pricing tie-break selects the LOWER `minQuantity` 
+- **Reward:** $50
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
