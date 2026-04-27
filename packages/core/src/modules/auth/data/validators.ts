@@ -24,14 +24,39 @@ export const refreshSessionRequestSchema = z.object({
   refreshToken: z.string().min(1),
 })
 
+export const sidebarPreferencesScopeSchema = z.union([
+  z.object({ type: z.literal('user') }),
+  z.object({ type: z.literal('role'), roleId: z.string().uuid() }),
+])
+
 export const sidebarPreferencesInputSchema = z.object({
   version: z.number().int().positive().optional(),
   groupOrder: z.array(z.string().min(1)).max(200).optional(),
   groupLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
   itemLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
   hiddenItems: z.array(z.string().min(1)).max(500).optional(),
+  itemOrder: z.record(z.string().min(1), z.array(z.string().min(1)).max(500)).optional(),
   applyToRoles: z.array(z.string().uuid()).optional(),
   clearRoleIds: z.array(z.string().uuid()).optional(),
+  scope: sidebarPreferencesScopeSchema.optional(),
+}).superRefine((value, ctx) => {
+  const scopeType = value.scope?.type ?? 'user'
+  if (scopeType === 'role') {
+    if ((value.applyToRoles?.length ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['applyToRoles'],
+        message: 'applyToRoles is only valid when scope.type === "user"',
+      })
+    }
+    if ((value.clearRoleIds?.length ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['clearRoleIds'],
+        message: 'clearRoleIds is only valid when scope.type === "user"',
+      })
+    }
+  }
 })
 
 // Optional helpers for CLI or admin forms

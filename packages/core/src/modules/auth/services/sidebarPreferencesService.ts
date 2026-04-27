@@ -1,5 +1,5 @@
 import { EntityManager } from '@mikro-orm/postgresql'
-import { Role, RoleSidebarPreference, User, UserSidebarPreference } from '../data/entities'
+import { Role, RoleSidebarPreference, SidebarVariant, User, UserSidebarPreference } from '../data/entities'
 import {
   SIDEBAR_PREFERENCES_VERSION,
   SidebarPreferencesSettings,
@@ -39,8 +39,10 @@ export async function loadSidebarPreference(
   em: EntityManager,
   scope: SidebarPreferenceScope,
 ): Promise<SidebarPreferencesSettings> {
-  const { userId, tenantId, organizationId, locale } = normalizeScope(scope)
-  const existing = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId, locale })
+  // Cross-locale: variants & preferences are scoped per (user, tenant, org) only.
+  // The `locale` field on the row is kept for audit / when the row was created.
+  const { userId, tenantId, organizationId } = normalizeScope(scope)
+  const existing = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId })
   return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
 }
 
@@ -54,7 +56,7 @@ export async function saveSidebarPreference(
     version: input?.version ?? SIDEBAR_PREFERENCES_VERSION,
   })
   const { userId, tenantId, organizationId, locale } = normalizeScope(scope)
-  let pref = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId, locale })
+  let pref = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId })
   if (!pref) {
     pref = em.create(UserSidebarPreference, {
       user: em.getReference(User, userId),
@@ -73,7 +75,7 @@ export async function saveSidebarPreference(
 
 export async function loadRoleSidebarPreferences(
   em: EntityManager,
-  options: { roleIds: string[]; tenantId?: string | null; locale: string },
+  options: { roleIds: string[]; tenantId?: string | null; locale?: string },
 ): Promise<Map<string, SidebarPreferencesSettings>> {
   if (!options.roleIds.length) return new Map()
   const tenantId = options.tenantId ?? null
@@ -81,7 +83,6 @@ export async function loadRoleSidebarPreferences(
   const prefs = await em.find(RoleSidebarPreference, {
     role: { $in: options.roleIds },
     tenantId: tenantFilter,
-    locale: options.locale,
   })
   const map = new Map<string, SidebarPreferencesSettings>()
   for (const pref of prefs) {
@@ -101,7 +102,7 @@ export async function loadRoleSidebarPreferences(
 
 export async function loadFirstRoleSidebarPreference(
   em: EntityManager,
-  options: { roleIds: string[]; tenantId?: string | null; locale: string },
+  options: { roleIds: string[]; tenantId?: string | null; locale?: string },
 ): Promise<SidebarPreferencesSettings | null> {
   if (!options.roleIds.length) return null
   const tenantId = options.tenantId ?? null
@@ -109,7 +110,6 @@ export async function loadFirstRoleSidebarPreference(
   const prefs = await em.find(RoleSidebarPreference, {
     role: { $in: options.roleIds },
     tenantId: tenantFilter,
-    locale: options.locale,
   })
   if (!prefs.length) return null
   const ordered = options.roleIds
@@ -135,7 +135,7 @@ export async function saveRoleSidebarPreference(
     version: input?.version ?? SIDEBAR_PREFERENCES_VERSION,
   })
   const { roleId, tenantId, locale } = normalizeRoleScope(scope)
-  let pref = await em.findOne(RoleSidebarPreference, { role: roleId, tenantId, locale })
+  let pref = await em.findOne(RoleSidebarPreference, { role: roleId, tenantId })
   if (!pref) {
     pref = em.create(RoleSidebarPreference, {
       role: em.getReference(Role, roleId),
@@ -214,6 +214,205 @@ function normalizeRoleScope(scope: RoleSidebarPreferenceScope) {
   return {
     roleId: scope.roleId,
     tenantId: scope.tenantId ?? null,
+    locale: scope.locale,
+  }
+}
+
+// --- Named variants (per-user library of saved sidebar layouts) ----------------
+
+export type VariantScope = {
+  userId: string
+  tenantId?: string | null
+  organizationId?: string | null
+  locale: string
+}
+
+export type SidebarVariantRecord = {
+  id: string
+  name: string
+  isActive: boolean
+  settings: SidebarPreferencesSettings
+  createdAt: Date
+  updatedAt?: Date | null
+}
+
+function toVariantRecord(variant: SidebarVariant): SidebarVariantRecord {
+  return {
+    id: variant.id,
+    name: variant.name,
+    isActive: variant.isActive === true,
+    settings: normalizeSidebarSettings(variant.settingsJson as SidebarPreferencesSettings | undefined),
+    createdAt: variant.createdAt,
+    updatedAt: variant.updatedAt ?? null,
+  }
+}
+
+export async function listSidebarVariants(
+  em: EntityManager,
+  scope: VariantScope,
+): Promise<SidebarVariantRecord[]> {
+  // Cross-locale: variants are scoped per (user, tenant) only.
+  const { userId, tenantId } = normalizeVariantScope(scope)
+  const variants = await em.find(
+    SidebarVariant,
+    { user: userId, tenantId, deletedAt: null },
+    { orderBy: { createdAt: 'asc' } },
+  )
+  return variants.map(toVariantRecord)
+}
+
+export async function loadSidebarVariant(
+  em: EntityManager,
+  scope: VariantScope,
+  variantId: string,
+): Promise<SidebarVariantRecord | null> {
+  const { userId, tenantId } = normalizeVariantScope(scope)
+  const variant = await em.findOne(SidebarVariant, {
+    id: variantId,
+    user: userId,
+    tenantId,
+    deletedAt: null,
+  })
+  return variant ? toVariantRecord(variant) : null
+}
+
+export async function nextVariantAutoName(
+  em: EntityManager,
+  scope: VariantScope,
+  prefix = 'My preferences',
+): Promise<string> {
+  const variants = await listSidebarVariants(em, scope)
+  // Match names like "My preferences", "My preferences 2", "My preferences 17"
+  const usedNumbers = new Set<number>()
+  for (const variant of variants) {
+    if (variant.name === prefix) {
+      usedNumbers.add(1)
+      continue
+    }
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = variant.name.match(new RegExp(`^${escaped}\\s+(\\d+)$`))
+    if (match) {
+      const n = Number.parseInt(match[1], 10)
+      if (!Number.isNaN(n)) usedNumbers.add(n)
+    }
+  }
+  if (!usedNumbers.has(1)) return prefix
+  let next = 2
+  while (usedNumbers.has(next)) next += 1
+  return `${prefix} ${next}`
+}
+
+export async function createSidebarVariant(
+  em: EntityManager,
+  scope: VariantScope,
+  input: {
+    name?: string | null
+    settings?: SidebarPreferencesSettings | null
+    isActive?: boolean
+  },
+): Promise<SidebarVariantRecord> {
+  const { userId, tenantId, organizationId, locale } = normalizeVariantScope(scope)
+  const finalName = (input.name ?? '').trim() || (await nextVariantAutoName(em, scope))
+  const settings = normalizeSidebarSettings({
+    ...(input.settings ?? {}),
+    version: input.settings?.version ?? SIDEBAR_PREFERENCES_VERSION,
+  })
+
+  if (input.isActive === true) {
+    await deactivateAllVariants(em, scope)
+  }
+
+  const variant = em.create(SidebarVariant, {
+    user: em.getReference(User, userId),
+    tenantId,
+    organizationId,
+    locale,
+    name: finalName,
+    settingsJson: settings,
+    isActive: input.isActive === true,
+    createdAt: new Date(),
+  })
+  await em.flush()
+  return toVariantRecord(variant)
+}
+
+export async function updateSidebarVariant(
+  em: EntityManager,
+  scope: VariantScope,
+  variantId: string,
+  input: {
+    name?: string
+    settings?: SidebarPreferencesSettings | null
+    isActive?: boolean
+  },
+): Promise<SidebarVariantRecord | null> {
+  const { userId, tenantId } = normalizeVariantScope(scope)
+  const variant = await em.findOne(SidebarVariant, {
+    id: variantId,
+    user: userId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!variant) return null
+  if (typeof input.name === 'string' && input.name.trim().length > 0) {
+    variant.name = input.name.trim()
+  }
+  if (input.settings) {
+    variant.settingsJson = normalizeSidebarSettings({
+      ...input.settings,
+      version: input.settings.version ?? SIDEBAR_PREFERENCES_VERSION,
+    })
+  }
+  if (typeof input.isActive === 'boolean') {
+    if (input.isActive) {
+      await deactivateAllVariants(em, scope, variantId)
+    }
+    variant.isActive = input.isActive
+  }
+  await em.flush()
+  return toVariantRecord(variant)
+}
+
+export async function deleteSidebarVariant(
+  em: EntityManager,
+  scope: VariantScope,
+  variantId: string,
+): Promise<boolean> {
+  const { userId, tenantId } = normalizeVariantScope(scope)
+  const variant = await em.findOne(SidebarVariant, {
+    id: variantId,
+    user: userId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!variant) return false
+  variant.deletedAt = new Date()
+  variant.isActive = false
+  await em.flush()
+  return true
+}
+
+async function deactivateAllVariants(
+  em: EntityManager,
+  scope: VariantScope,
+  exceptId?: string,
+): Promise<void> {
+  const { userId, tenantId } = normalizeVariantScope(scope)
+  const where: Record<string, unknown> = {
+    user: userId,
+    tenantId,
+    isActive: true,
+    deletedAt: null,
+  }
+  if (exceptId) where.id = { $ne: exceptId }
+  await em.nativeUpdate(SidebarVariant, where as any, { isActive: false })
+}
+
+function normalizeVariantScope(scope: VariantScope) {
+  return {
+    userId: scope.userId,
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
     locale: scope.locale,
   }
 }
