@@ -36,5 +36,5 @@ Note: `apps/mercato/.env` is gitignored, so the local-only file is fixed by the 
 
 ### Phase 1: Remove `NODE_ENV` from tracked env templates
 
-- [ ] 1.1 Remove `NODE_ENV` from `apps/mercato/.env.example`
-- [ ] 1.2 Remove `NODE_ENV` from `packages/create-app/template/.env.example`
+- [x] 1.1 Remove `NODE_ENV` from `apps/mercato/.env.example` — 5f6a2f226
+- [x] 1.2 Remove `NODE_ENV` from `packages/create-app/template/.env.example` — 5f6a2f226
