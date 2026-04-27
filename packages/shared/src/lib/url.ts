@@ -77,29 +77,43 @@ function originFromHost(protocol: string, rawHost: string | null): string | null
   return normalizeOrigin(`${protocol}//${host}`)
 }
 
-function requestOrigins(input: RequestInput): Set<string> {
-  const origins = new Set<string>()
-  if (!input) return origins
+type RequestOriginCandidates = {
+  urlOrigin: string | null
+  headerOrigins: Set<string>
+}
+
+function readRequestOriginCandidates(input: RequestInput): RequestOriginCandidates {
+  const candidates: RequestOriginCandidates = {
+    urlOrigin: null,
+    headerOrigins: new Set<string>(),
+  }
+  if (!input) return candidates
 
   const requestUrl = typeof input === 'string' ? input : input.url
   let parsedUrl: URL
   try {
     parsedUrl = new URL(requestUrl)
   } catch {
-    return origins
+    return candidates
   }
 
-  const urlOrigin = normalizeOrigin(parsedUrl.origin)
-  if (urlOrigin) origins.add(urlOrigin)
-
-  if (typeof input === 'string') return origins
+  candidates.urlOrigin = normalizeOrigin(parsedUrl.origin)
+  if (typeof input === 'string') return candidates
 
   const forwardedProto = readFirstHeaderValue(input.headers.get('x-forwarded-proto')) ?? parsedUrl.protocol.replace(/:$/, '')
   const protocol = forwardedProto.endsWith(':') ? forwardedProto : `${forwardedProto}:`
   const hostOrigin = originFromHost(protocol, input.headers.get('host'))
   const forwardedHostOrigin = originFromHost(protocol, input.headers.get('x-forwarded-host'))
-  if (hostOrigin) origins.add(hostOrigin)
-  if (forwardedHostOrigin) origins.add(forwardedHostOrigin)
+  if (hostOrigin) candidates.headerOrigins.add(hostOrigin)
+  if (forwardedHostOrigin) candidates.headerOrigins.add(forwardedHostOrigin)
+  return candidates
+}
+
+function requestOrigins(input: RequestInput): Set<string> {
+  const origins = new Set<string>()
+  const { urlOrigin, headerOrigins } = readRequestOriginCandidates(input)
+  if (urlOrigin) origins.add(urlOrigin)
+  for (const origin of headerOrigins) origins.add(origin)
   return origins
 }
 
@@ -183,16 +197,23 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
     }
     return
   }
-  const origins = requestOrigins(input)
-  if (origins.size === 0) return
+  const { urlOrigin, headerOrigins } = readRequestOriginCandidates(input)
+  const hasAllowedHeaderOrigin = Array.from(headerOrigins).some((origin) => allowedOrigins.has(origin))
 
-  for (const origin of origins) {
-    if (!allowedOrigins.has(origin)) {
-      if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
-      logOriginDebugContext(input, allowedOrigins, origin)
-      throw new AppOriginRejectedError('Request origin is not allowed')
-    }
+  for (const origin of headerOrigins) {
+    if (allowedOrigins.has(origin)) continue
+    if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
+    logOriginDebugContext(input, allowedOrigins, origin)
+    throw new AppOriginRejectedError('Request origin is not allowed')
   }
+
+  if (!urlOrigin) return
+  if (allowedOrigins.has(urlOrigin)) return
+  if (shouldAllowLoopbackOrigin(urlOrigin, allowedOrigins, env)) return
+  if (isLoopbackOrigin(urlOrigin) && hasAllowedHeaderOrigin) return
+
+  logOriginDebugContext(input, allowedOrigins, urlOrigin)
+  throw new AppOriginRejectedError('Request origin is not allowed')
 }
 
 export function resolveRequestOrigin(req: Request): string {
