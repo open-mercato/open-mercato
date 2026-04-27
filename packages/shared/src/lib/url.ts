@@ -103,6 +103,35 @@ function requestOrigins(input: RequestInput): Set<string> {
   return origins
 }
 
+function logOriginDebugContext(input: RequestInput, allowedOrigins: Set<string>, rejectedOrigin?: string): void {
+  if (typeof input === 'string') {
+    console.error('[origin-check] rejected string input', {
+      requestUrl: input,
+      rejectedOrigin: rejectedOrigin ?? null,
+      allowedOrigins: Array.from(allowedOrigins),
+    })
+    return
+  }
+
+  if (!input) {
+    console.error('[origin-check] rejected empty input', {
+      rejectedOrigin: rejectedOrigin ?? null,
+      allowedOrigins: Array.from(allowedOrigins),
+    })
+    return
+  }
+
+  console.error('[origin-check] rejected request', {
+    requestUrl: input.url,
+    host: input.headers.get('host'),
+    forwardedHost: input.headers.get('x-forwarded-host'),
+    forwardedProto: input.headers.get('x-forwarded-proto'),
+    derivedOrigins: Array.from(requestOrigins(input)),
+    rejectedOrigin: rejectedOrigin ?? null,
+    allowedOrigins: Array.from(allowedOrigins),
+  })
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
@@ -149,6 +178,7 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   const allowedOrigins = readAllowedOrigins(env)
   if (allowedOrigins.size === 0) {
     if (env.NODE_ENV === 'production') {
+      logOriginDebugContext(input, allowedOrigins)
       throw new AppOriginConfigurationError('APP_URL must be configured in production')
     }
     return
@@ -159,6 +189,7 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   for (const origin of origins) {
     if (!allowedOrigins.has(origin)) {
       if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
+      logOriginDebugContext(input, allowedOrigins, origin)
       throw new AppOriginRejectedError('Request origin is not allowed')
     }
   }
