@@ -7,7 +7,7 @@ function getStorageKey(pageType: string, groupId: string) {
 }
 
 export function useGroupCollapse(pageType: string, groupId: string, defaultExpanded = true) {
-  const { value: expanded, toggle, setValue } = usePersistedBooleanFlag(
+  const { value: expanded, toggle, setValue, isHydrated } = usePersistedBooleanFlag(
     getStorageKey(pageType, groupId),
     defaultExpanded,
   )
@@ -18,5 +18,5 @@ export function useGroupCollapse(pageType: string, groupId: string, defaultExpan
       setValue(next)
     }
   }, [setValue])
-  return { expanded, toggle, setExpanded }
+  return { expanded, toggle, setExpanded, isHydrated }
 }
