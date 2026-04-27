@@ -23,9 +23,25 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    const form = new FormData(e.currentTarget)
+    const password = String(form.get('password') ?? '').trim()
+    const confirmPassword = String(form.get('confirmPassword') ?? '').trim()
+
+    if (!password) {
+      setError(t('auth.profile.form.errors.newPasswordRequired', 'New password is required.'))
+      return
+    }
+    if (!confirmPassword) {
+      setError(t('auth.profile.form.errors.confirmPasswordRequired', 'Please confirm the new password.'))
+      return
+    }
+    if (password !== confirmPassword) {
+      setError(t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.'))
+      return
+    }
+
     setSubmitting(true)
     try {
-      const form = new FormData(e.currentTarget)
       form.set('token', params.token)
       const { ok, result } = await apiCall<{ ok?: boolean; error?: string; redirect?: string }>(
         '/api/auth/reset/confirm',
@@ -50,13 +66,23 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
         </CardHeader>
         <CardContent>
           <form className="grid gap-3" onSubmit={onSubmit}>
-            {error && <div className="text-sm text-red-600">{error}</div>}
+            {error && <div className="text-sm text-status-error-text">{error}</div>}
             <div className="grid gap-1">
               <Label htmlFor="password">{t('auth.reset.form.password', 'New password')}</Label>
               <Input id="password" name="password" type="password" required minLength={passwordPolicy.minLength} />
               {passwordDescription ? (
                 <p className="text-xs text-muted-foreground">{passwordDescription}</p>
               ) : null}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="confirmPassword">{t('auth.profile.form.confirmPassword', 'Confirm new password')}</Label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                required
+                minLength={passwordPolicy.minLength}
+              />
             </div>
             <Button type="submit" className="mt-2 w-full" disabled={submitting}>
               {submitting ? t('auth.reset.form.loading', '...') : t('auth.reset.form.submit', 'Update password')}
