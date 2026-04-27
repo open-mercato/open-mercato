@@ -124,23 +124,37 @@ test('resolveDevBaseUrl keeps non-standard configured ports', () => {
   assert.equal(result.port, 8080)
 })
 
-test('resolveDevBaseUrl uses configured port when actualPort matches', () => {
+test('resolveDevBaseUrl uses configured loopback port when actualPort matches', () => {
   const result = resolveDevBaseUrl(
-    { APP_URL: 'http://example.test:8080' },
+    { APP_URL: 'http://localhost:8080' },
     { actualPort: 8080 },
   )
-  assert.equal(result.url, 'http://example.test:8080')
+  assert.equal(result.url, 'http://localhost:8080')
   assert.equal(result.portWasRandomized, false)
 })
 
-test('resolveDevBaseUrl reports randomization when actualPort differs from configured port', () => {
+test('resolveDevBaseUrl reports randomization for loopback hosts when actualPort differs', () => {
   const result = resolveDevBaseUrl(
-    { APP_URL: 'http://example.test:8080' },
+    { APP_URL: 'http://localhost:8080' },
     { actualPort: 8123 },
   )
-  assert.equal(result.url, 'http://example.test:8123')
+  assert.equal(result.url, 'http://localhost:8123')
   assert.equal(result.portWasRandomized, true)
   assert.equal(result.port, 8123)
+})
+
+test('resolveDevBaseUrl keeps proxy-fronted port even when the internal bound port differs', () => {
+  // APP_URL declares the public port (e.g. a non-standard reverse proxy port).
+  // The dev server may bind to a different internal port; that internal port
+  // is NOT reachable from the developer's browser and must not be substituted
+  // into the printed URL.
+  const result = resolveDevBaseUrl(
+    { APP_URL: 'https://devsandbox.openmercato.com:9000' },
+    { actualPort: 3000 },
+  )
+  assert.equal(result.url, 'https://devsandbox.openmercato.com:9000')
+  assert.equal(result.port, 9000)
+  assert.equal(result.portWasRandomized, false)
 })
 
 test('resolveDevBaseUrl keeps proxy host port-less even when an internal port is bound', () => {

@@ -159,20 +159,6 @@ function shouldRetrySplashServerWithRandomPort(error) {
   return error.code === 'EADDRINUSE'
 }
 
-function normalizePublicBaseUrl(value) {
-  if (typeof value !== 'string' || value.trim().length === 0) return null
-
-  try {
-    const parsed = new URL(value)
-    parsed.pathname = ''
-    parsed.search = ''
-    parsed.hash = ''
-    return parsed.toString().replace(/\/$/, '')
-  } catch {
-    return null
-  }
-}
-
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())

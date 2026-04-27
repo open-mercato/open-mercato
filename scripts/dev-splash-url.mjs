@@ -118,21 +118,24 @@ export function resolveDevBaseUrl(env = {}, options = {}) {
 
   let resolvedPort
   let portWasRandomized = false
+  const isLoopbackHost = LOOPBACK_HOSTS.has(hostname.toLowerCase())
 
   if (actualPort !== null) {
-    if (configuredPort !== null && configuredPort !== actualPort) {
-      // Configured port was taken; the runtime fell back to a free one. The
-      // printed URL must reflect what the developer can actually open.
+    if (configured && !isLoopbackHost) {
+      // Proxy-fronted dev: the developer reaches the app via the configured
+      // public URL. `actualPort` is the internal port the local dev server
+      // bound to, which is hidden behind the proxy and must never leak into
+      // the printed URL -- regardless of whether the configured URL declared
+      // an explicit port or not.
+      resolvedPort = configuredPort
+    } else if (configuredPort !== null && configuredPort !== actualPort) {
+      // Loopback dev: the configured port was taken and the runtime fell back
+      // to a free one. The printed URL must reflect what the developer can
+      // actually open.
       resolvedPort = actualPort
       portWasRandomized = true
     } else if (configuredPort !== null) {
       resolvedPort = configuredPort
-    } else if (configured && !LOOPBACK_HOSTS.has(hostname.toLowerCase())) {
-      // Configured URL has no explicit port (e.g. https://devsandbox.openmercato.com).
-      // The dev server is fronted by a reverse proxy on the standard port for
-      // the scheme; the locally-bound `actualPort` is internal and must not
-      // leak into the printed URL.
-      resolvedPort = null
     } else {
       resolvedPort = actualPort
     }
