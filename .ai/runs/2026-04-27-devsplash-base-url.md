@@ -134,3 +134,4 @@ If `yarn build:app` is too slow / risky for an isolated worktree, document the r
 - [x] 4.1 Run targeted Node tests for the new helper and existing splash state tests — d605efb0b
 - [x] 4.2 Run full validation gate (build:packages, generate, i18n, typecheck, test, build:app) — d605efb0b
 - [x] 4.3 Open PR #1726 against develop with `review`, `bug`, `skip-qa` labels and post label rationale comment — d605efb0b
+- [x] Post-review fix: tighten randomization heuristic for proxy-fronted hosts and drop dead `normalizePublicBaseUrl` helper — 7f38eb45f
