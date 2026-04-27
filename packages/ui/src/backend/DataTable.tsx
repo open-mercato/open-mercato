@@ -204,6 +204,7 @@ export type DataTableProps<T> = {
   rowClickActionIds?: string[]
   disableRowClick?: boolean
   bulkActions?: BulkAction<T>[]
+  selectionScopeKey?: string
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -861,6 +862,7 @@ export function DataTable<T>({
   rowClickActionIds,
   disableRowClick = false,
   bulkActions: bulkActionsProp,
+  selectionScopeKey,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -1289,6 +1291,7 @@ export function DataTable<T>({
   const hasPropBulkActions = Array.isArray(bulkActionsProp) && bulkActionsProp.length > 0
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
@@ -1313,6 +1316,19 @@ export function DataTable<T>({
     onRowSelectionChange: setRowSelection,
   })
   React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
+  React.useEffect(() => {
+    if (selectionScopeKey === undefined) {
+      selectionScopeKeyRef.current = undefined
+      return
+    }
+    if (selectionScopeKeyRef.current === undefined) {
+      selectionScopeKeyRef.current = selectionScopeKey
+      return
+    }
+    if (selectionScopeKeyRef.current === selectionScopeKey) return
+    selectionScopeKeyRef.current = selectionScopeKey
+    setRowSelection({})
+  }, [selectionScopeKey])
   React.useEffect(() => {
     if (hasInjectedBulkActions) return
     if (Object.keys(rowSelection).length === 0) return

@@ -115,5 +115,17 @@ function printSummary(selectedIds: string[]): void {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
   }
 
+  if (selectedIds.includes('claude-code')) {
+    console.log('')
+    console.log('   ⚡ Autonomous skills shipped under .ai/skills/:')
+    console.log('      /auto-create-pr  <task>    — delegate a whole task end-to-end as a PR')
+    console.log('      /auto-continue-pr <PR#>    — resume an in-progress agent PR')
+    console.log('      /auto-review-pr   <PR#>    — automated code review (optional autofix)')
+    console.log('      /auto-fix-github  <issue#> — fix a GitHub issue and open a PR')
+    console.log('      /trim-unused-modules       — slim classic-mode defaults after adding your own module')
+    console.log('      See .ai/skills/auto-create-pr/STANDALONE.md for portability notes')
+    console.log('      (base-branch discovery, opt-in pipeline labels, script probing).')
+  }
+
   console.log('')
 }
