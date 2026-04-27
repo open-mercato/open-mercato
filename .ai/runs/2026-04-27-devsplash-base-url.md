@@ -121,8 +121,8 @@ If `yarn build:app` is too slow / risky for an isolated worktree, document the r
 
 ### Phase 2: apply helper across devsplash variants
 
-- [ ] 2.1 Update `scripts/dev.mjs` to use the helper
-- [ ] 2.2 Update `scripts/dev-ephemeral.ts` to use the helper (splash + ephemeral baseUrl)
+- [x] 2.1 Update `scripts/dev.mjs` to use the helper — 771c6efdd
+- [x] 2.2 Update `scripts/dev-ephemeral.ts` to use the helper (splash + ephemeral baseUrl) — 771c6efdd
 
 ### Phase 3: template sync
 
