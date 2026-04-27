@@ -116,8 +116,8 @@ If `yarn build:app` is too slow / risky for an isolated worktree, document the r
 
 ### Phase 1: helper module + unit tests
 
-- [ ] 1.1 Create `scripts/dev-splash-url.mjs` with the helper API
-- [ ] 1.2 Create `scripts/__tests__/dev-splash-url.test.mjs` covering all required scenarios
+- [x] 1.1 Create `scripts/dev-splash-url.mjs` with the helper API — 2ba66444b
+- [x] 1.2 Create `scripts/__tests__/dev-splash-url.test.mjs` covering all required scenarios — 2ba66444b
 
 ### Phase 2: apply helper across devsplash variants
 
