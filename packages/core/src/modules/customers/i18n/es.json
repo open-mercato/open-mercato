@@ -827,6 +827,8 @@
   "customers.deals.pipeline.sort.expectedCloseAt": "Cierre previsto (más próximo primero)",
   "customers.deals.pipeline.sort.label": "Ordenar por",
   "customers.deals.pipeline.sort.probability": "Probabilidad (de mayor a menor)",
+  "customers.deals.pipeline.stageTotal": "Total",
+  "customers.deals.pipeline.stageTotal.more": "+{count} más",
   "customers.deals.pipeline.subtitle": "Sigue las oportunidades por etapa del pipeline y arrástralas entre columnas para actualizar su progreso.",
   "customers.deals.pipeline.switch.label": "Pipeline",
   "customers.deals.pipeline.title": "Pipeline de ventas",

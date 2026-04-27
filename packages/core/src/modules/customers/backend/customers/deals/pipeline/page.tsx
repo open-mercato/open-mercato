@@ -6,11 +6,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { SimpleTooltip, TooltipProvider } from '@open-mercato/ui/primitives/tooltip'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { computeStageTotals, type StageTotal } from './lib/computeStageTotals'
 
 type DealAssociation = { id: string; label: string }
 
@@ -52,6 +54,7 @@ type PipelineRecord = { id: string; name: string; isDefault: boolean }
 type PipelineStageRecord = { id: string; label: string; order: number; pipelineId: string }
 
 const DEALS_QUERY_LIMIT = 100
+const VISIBLE_TOTALS = 1
 
 const dealsQueryKey = (scopeVersion: number, pipelineId: string | null) =>
   ['customers', 'deals', 'pipeline', `scope:${scopeVersion}`, `pipeline:${pipelineId ?? 'none'}`] as const
@@ -213,6 +216,20 @@ export default function SalesPipelinePage(): React.ReactElement {
     },
   })
 
+  const baseCurrencyQuery = useQuery<string | null>({
+    queryKey: ['currencies', 'base', `scope:${scopeVersion}`],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const payload = await readApiResultOrThrow<{ items: Array<{ code: string }> }>(
+        '/api/currencies/currencies?isBase=true&isActive=true&pageSize=1',
+        undefined,
+        { errorMessage: translate('customers.deals.pipeline.loadError', 'Failed to load currencies.') },
+      )
+      const code = payload?.items?.[0]?.code
+      return code ? code.toUpperCase() : null
+    },
+  })
+
   React.useEffect(() => {
     if (selectedPipelineId) return
     const pipelines = pipelinesQuery.data
@@ -336,6 +353,14 @@ export default function SalesPipelinePage(): React.ReactElement {
   const total = dealsQuery.data?.total ?? deals.length
   const dealMap = React.useMemo(() => createDealMap(deals), [deals])
   const groupedDeals = React.useMemo(() => groupDealsByStageId(deals), [deals])
+  const baseCurrency = baseCurrencyQuery.data ?? null
+  const stageTotalsByStageId = React.useMemo(() => {
+    const map = new Map<string | null, StageTotal[]>()
+    groupedDeals.forEach((laneDeals, stageKey) => {
+      map.set(stageKey, computeStageTotals(laneDeals, baseCurrency))
+    })
+    return map
+  }, [groupedDeals, baseCurrency])
   const stages = React.useMemo(
     () => buildStageDefinitionsFromPipelineStages(stagesQuery.data ?? [], deals, t),
     [stagesQuery.data, deals, t],
@@ -458,7 +483,52 @@ export default function SalesPipelinePage(): React.ReactElement {
     )
   }
 
+  const renderLaneFooter = (totals: StageTotal[]) => {
+    const visible = totals.slice(0, VISIBLE_TOTALS)
+    const hidden = totals.length - VISIBLE_TOTALS
+    const fullBreakdown = totals.length > 0 ? (
+      <div className="flex flex-col gap-1">
+        {totals.map((total) => (
+          <div key={total.currency} className="font-medium">
+            {formatCurrency(total.sum, total.currency, '—')}
+          </div>
+        ))}
+      </div>
+    ) : null
+
+    return (
+      <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/20 px-4 py-3">
+        <span className="text-xs text-muted-foreground">
+          {translate('customers.deals.pipeline.stageTotal', 'Total')}
+        </span>
+        <span className="text-xs font-medium text-foreground">
+          {totals.length > 0 ? (
+            <>
+              {visible.map((total) => (
+                <span key={total.currency} className="whitespace-nowrap">
+                  {formatCurrency(total.sum, total.currency, '—')}
+                </span>
+              ))}
+              {hidden > 0 ? (
+                <SimpleTooltip content={fullBreakdown}>
+                  <span className="ml-2 cursor-help text-muted-foreground">
+                    (<span className="underline decoration-dotted decoration-muted-foreground underline-offset-2">
+                      {translate('customers.deals.pipeline.stageTotal.more', '+{count} more', { count: hidden })}
+                    </span>)
+                  </span>
+                </SimpleTooltip>
+              ) : null}
+            </>
+          ) : (
+            '—'
+          )}
+        </span>
+      </div>
+    )
+  }
+
   return (
+    <TooltipProvider delayDuration={250}>
     <Page>
       <PageBody>
         <div className="flex flex-col gap-4">
@@ -564,7 +634,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                     return (
                       <div
                         key={stage.id}
-                        className={`flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all md:w-72 md:flex-none ${
+                        className={`flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all md:max-h-[60vh] md:w-72 md:flex-none ${
                           isActive ? 'ring-2 ring-ring/40' : ''
                         }`}
                         onDragOver={handleDragOver(stage.id)}
@@ -680,6 +750,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                             })
                           )}
                         </div>
+                        {renderLaneFooter(stageTotalsByStageId.get(stageKey) ?? [])}
                       </div>
                     )
                   })
@@ -690,5 +761,6 @@ export default function SalesPipelinePage(): React.ReactElement {
         </div>
       </PageBody>
     </Page>
+    </TooltipProvider>
   )
 }

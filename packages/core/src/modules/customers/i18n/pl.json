@@ -827,6 +827,8 @@
   "customers.deals.pipeline.sort.expectedCloseAt": "Planowane zamknięcie (najbliższe pierwsze)",
   "customers.deals.pipeline.sort.label": "Sortuj według",
   "customers.deals.pipeline.sort.probability": "Prawdopodobieństwo (malejąco)",
+  "customers.deals.pipeline.stageTotal": "Razem",
+  "customers.deals.pipeline.stageTotal.more": "+{count} więcej",
   "customers.deals.pipeline.subtitle": "Monitoruj szanse według etapu lejka i przeciągaj je między kolumnami, aby aktualizować postęp.",
   "customers.deals.pipeline.switch.label": "Lejek",
   "customers.deals.pipeline.title": "Lejek sprzedaży",

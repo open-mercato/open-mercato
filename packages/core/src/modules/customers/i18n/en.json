@@ -827,6 +827,8 @@
   "customers.deals.pipeline.sort.expectedCloseAt": "Expected close (soonest first)",
   "customers.deals.pipeline.sort.label": "Sort by",
   "customers.deals.pipeline.sort.probability": "Probability (high to low)",
+  "customers.deals.pipeline.stageTotal": "Total",
+  "customers.deals.pipeline.stageTotal.more": "+{count} more",
   "customers.deals.pipeline.subtitle": "Track deals by pipeline stage and drag them between lanes to update progress.",
   "customers.deals.pipeline.switch.label": "Pipeline",
   "customers.deals.pipeline.title": "Sales Pipeline",
