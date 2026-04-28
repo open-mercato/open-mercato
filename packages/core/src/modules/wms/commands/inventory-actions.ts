@@ -1,6 +1,8 @@
 import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -41,8 +43,17 @@ import {
 import {
   ensureOrganizationScope,
   ensureTenantScope,
+  inventoryBalanceCrudEvents,
+  inventoryBalanceCrudIndexer,
+  inventoryMovementCrudEvents,
+  inventoryMovementCrudIndexer,
+  inventoryReservationCrudEvents,
+  inventoryReservationCrudIndexer,
   requireId,
   toNumericString,
+  WMS_INVENTORY_BALANCE_RESOURCE,
+  WMS_INVENTORY_MOVEMENT_RESOURCE,
+  WMS_INVENTORY_RESERVATION_RESOURCE,
 } from './shared'
 
 type Scope = { tenantId: string; organizationId: string }
@@ -77,6 +88,73 @@ type MutationLogInput = {
   parentResourceId?: string | null
   tenantId: string | null
   organizationId: string | null
+  cacheAliases?: string[]
+}
+
+type AffectedReservation = { entity: InventoryReservation; action: 'created' | 'updated' | 'deleted' }
+type AffectedMovement = { entity: InventoryMovement; action: 'created' | 'updated' | 'deleted' }
+type AffectedBalance = { entity: InventoryBalance; action: 'created' | 'updated' | 'deleted' }
+
+type AffectedSideEffects = {
+  reservations?: AffectedReservation[]
+  movements?: AffectedMovement[]
+  balances?: AffectedBalance[]
+}
+
+async function emitInventorySideEffects(
+  ctx: CommandRuntimeContext,
+  affected: AffectedSideEffects,
+): Promise<void> {
+  let de: DataEngine | null = null
+  try {
+    de = ctx.container.resolve('dataEngine') as DataEngine
+  } catch {
+    de = null
+  }
+  if (!de) return
+
+  for (const { entity, action } of affected.reservations ?? []) {
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action,
+      entity,
+      identifiers: {
+        id: entity.id,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      },
+      indexer: inventoryReservationCrudIndexer,
+      events: inventoryReservationCrudEvents,
+    })
+  }
+  for (const { entity, action } of affected.movements ?? []) {
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action,
+      entity,
+      identifiers: {
+        id: entity.id,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      },
+      indexer: inventoryMovementCrudIndexer,
+      events: inventoryMovementCrudEvents,
+    })
+  }
+  for (const { entity, action } of affected.balances ?? []) {
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action,
+      entity,
+      identifiers: {
+        id: entity.id,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      },
+      indexer: inventoryBalanceCrudIndexer,
+      events: inventoryBalanceCrudEvents,
+    })
+  }
 }
 
 function resolveScope(ctx: CommandRuntimeContext, fallback?: { tenantId?: string | null; organizationId?: string | null }): Scope {
@@ -155,6 +233,9 @@ function serializeAllocationBuckets(buckets: AllocationBucket[]): Array<{ locati
 
 async function buildMutationLog(input: MutationLogInput) {
   const { translate } = await resolveTranslations()
+  const aliases = Array.from(
+    new Set((input.cacheAliases ?? []).filter((alias) => typeof alias === 'string' && alias.length > 0)),
+  )
   return {
     actionLabel: translate(input.actionKey, input.fallbackLabel),
     resourceKind: input.resourceKind,
@@ -163,6 +244,7 @@ async function buildMutationLog(input: MutationLogInput) {
     parentResourceId: input.parentResourceId ?? null,
     tenantId: input.tenantId,
     organizationId: input.organizationId,
+    ...(aliases.length ? { context: { cacheAliases: aliases } } : {}),
   }
 }
 
@@ -482,9 +564,9 @@ async function upsertBalanceBucket(
     lotId?: string
     serialNumber?: string
   },
-) {
+): Promise<{ balance: InventoryBalance; created: boolean }> {
   const existing = await findExactBalanceForUpdate(em, scope, input)
-  if (existing) return existing
+  if (existing) return { balance: existing, created: false }
   const balance = em.create(InventoryBalance, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -500,7 +582,7 @@ async function upsertBalanceBucket(
   })
   em.persist(balance)
   await em.flush()
-  return balance
+  return { balance, created: true }
 }
 
 async function resolveReceivedAtForBalance(
@@ -598,6 +680,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
       )
       let remaining = input.quantity
       const buckets: AllocationBucket[] = []
+      const touchedBalances: InventoryBalance[] = []
       for (const balance of ordered) {
         if (remaining <= 0) break
         const available = getAvailableQuantity(balance)
@@ -621,6 +704,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
           'quantityReserved',
           toNumber(persistedBalance.quantityReserved) + quantity,
         )
+        touchedBalances.push(persistedBalance)
         buckets.push({
           balanceId: persistedBalance.id,
           locationId,
@@ -660,7 +744,13 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
         warehouseId: input.warehouseId,
         catalogVariantId: input.catalogVariantId,
         quantity: input.quantity,
+        reservationEntity: reservation,
+        touchedBalances,
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      reservations: [{ entity: result.reservationEntity, action: 'created' }],
+      balances: result.touchedBalances.map((entity) => ({ entity, action: 'updated' as const })),
     })
     void emitWmsEvent('wms.inventory.reserved', {
       id: result.reservationId,
@@ -686,7 +776,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     buildMutationLog({
       actionKey: 'wms.audit.inventory.reserve',
       fallbackLabel: 'Reserve inventory',
-      resourceKind: 'wms.inventoryReservation',
+      resourceKind: WMS_INVENTORY_RESERVATION_RESOURCE,
       resourceId: result?.reservationId ?? null,
       parentResourceId:
         input?.warehouseId && input?.catalogVariantId
@@ -694,6 +784,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
           : null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -710,6 +801,7 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
       const metadata = extractReservationMetadata(reservation)
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'
+      const touchedBalances: InventoryBalance[] = []
       for (const bucket of buckets) {
         const balance = await findReservationBucketBalance(
           trx,
@@ -731,6 +823,7 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
             Math.max(0, toNumber(balance.quantityReserved) - bucket.quantity),
           )
         }
+        touchedBalances.push(balance)
       }
       reservation.status = 'released'
       reservation.metadata = {
@@ -746,7 +839,13 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
         quantity: reservation.quantity,
         tenantId: reservation.tenantId,
         organizationId: reservation.organizationId,
+        reservationEntity: reservation,
+        touchedBalances,
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      reservations: [{ entity: result.reservationEntity, action: 'updated' }],
+      balances: result.touchedBalances.map((entity) => ({ entity, action: 'updated' as const })),
     })
     void emitWmsEvent('wms.inventory.released', {
       id: result.reservationId,
@@ -769,10 +868,11 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
     buildMutationLog({
       actionKey: 'wms.audit.inventory.release',
       fallbackLabel: 'Release inventory reservation',
-      resourceKind: 'wms.inventoryReservation',
+      resourceKind: WMS_INVENTORY_RESERVATION_RESOURCE,
       resourceId: result?.reservationId ?? input?.reservationId ?? null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -796,9 +896,12 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
           quantity: reservation.quantity,
           tenantId: reservation.tenantId,
           organizationId: reservation.organizationId,
+          reservationEntity: reservation,
+          touchedBalances: [] as InventoryBalance[],
         }
       }
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
+      const touchedBalances: InventoryBalance[] = []
       for (const bucket of buckets) {
         const balance = await findReservationBucketBalance(
           trx,
@@ -820,6 +923,7 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
           'quantityAllocated',
           toNumber(balance.quantityAllocated) + bucket.quantity,
         )
+        touchedBalances.push(balance)
       }
       reservation.metadata = {
         ...metadata,
@@ -835,7 +939,13 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
         quantity: reservation.quantity,
         tenantId: reservation.tenantId,
         organizationId: reservation.organizationId,
+        reservationEntity: reservation,
+        touchedBalances,
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      reservations: [{ entity: result.reservationEntity, action: 'updated' }],
+      balances: result.touchedBalances.map((entity) => ({ entity, action: 'updated' as const })),
     })
     void emitWmsEvent('wms.inventory.allocated', {
       id: result.reservationId,
@@ -852,10 +962,11 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
     buildMutationLog({
       actionKey: 'wms.audit.inventory.allocate',
       fallbackLabel: 'Allocate inventory reservation',
-      resourceKind: 'wms.inventoryReservation',
+      resourceKind: WMS_INVENTORY_RESERVATION_RESOURCE,
       resourceId: result?.reservationId ?? input?.reservationId ?? null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -874,7 +985,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const balance = await upsertBalanceBucket(trx, scope, {
+      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
@@ -915,7 +1026,14 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
         quantity: delta,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        movementEntity: movement,
+        balanceEntity: balance,
+        balanceAction: balanceWasNew ? ('created' as const) : ('updated' as const),
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      movements: [{ entity: result.movementEntity, action: 'created' }],
+      balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
     })
     void emitWmsEvent('wms.inventory.adjusted', {
       id: result.movementId,
@@ -938,7 +1056,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
     buildMutationLog({
       actionKey: 'wms.audit.inventory.adjust',
       fallbackLabel: 'Adjust inventory',
-      resourceKind: 'wms.inventoryMovement',
+      resourceKind: WMS_INVENTORY_MOVEMENT_RESOURCE,
       resourceId: result?.movementId ?? null,
       parentResourceId:
         input?.warehouseId && input?.catalogVariantId
@@ -946,6 +1064,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
           : null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -964,7 +1083,7 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const balance = await upsertBalanceBucket(trx, scope, {
+      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
@@ -1003,7 +1122,14 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
         quantity: input.quantity,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        movementEntity: movement,
+        balanceEntity: balance,
+        balanceAction: balanceWasNew ? ('created' as const) : ('updated' as const),
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      movements: [{ entity: result.movementEntity, action: 'created' }],
+      balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
     })
     void emitWmsEvent('wms.inventory.received', {
       id: result.movementId,
@@ -1027,7 +1153,7 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
     buildMutationLog({
       actionKey: 'wms.audit.inventory.receive',
       fallbackLabel: 'Receive inventory',
-      resourceKind: 'wms.inventoryMovement',
+      resourceKind: WMS_INVENTORY_MOVEMENT_RESOURCE,
       resourceId: result?.movementId ?? null,
       parentResourceId:
         input?.warehouseId && input?.catalogVariantId
@@ -1035,6 +1161,7 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
           : null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -1055,23 +1182,27 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
       if (sourceWarehouseId !== input.warehouseId || targetWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const sourceBalance = await upsertBalanceBucket(trx, scope, {
+      const sourceResult = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.fromLocationId,
         catalogVariantId: input.catalogVariantId,
         lotId: input.lotId,
         serialNumber: input.serialNumber,
       })
+      const sourceBalance = sourceResult.balance
+      const sourceBalanceAction = sourceResult.created ? ('created' as const) : ('updated' as const)
       if (getAvailableQuantity(sourceBalance) < input.quantity - 0.000001) {
         throw new CrudHttpError(409, { error: 'insufficient_stock' })
       }
-      const targetBalance = await upsertBalanceBucket(trx, scope, {
+      const targetResult = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.toLocationId,
         catalogVariantId: input.catalogVariantId,
         lotId: input.lotId,
         serialNumber: input.serialNumber,
       })
+      const targetBalance = targetResult.balance
+      const targetBalanceAction = targetResult.created ? ('created' as const) : ('updated' as const)
       setNumeric(
         sourceBalance as unknown as Record<string, unknown>,
         'quantityOnHand',
@@ -1109,7 +1240,16 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
         quantity: input.quantity,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        movementEntity: movement,
+        balances: [
+          { entity: sourceBalance, action: sourceBalanceAction },
+          { entity: targetBalance, action: targetBalanceAction },
+        ] as AffectedBalance[],
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      movements: [{ entity: result.movementEntity, action: 'created' }],
+      balances: result.balances,
     })
     void emitWmsEvent('wms.inventory.moved', {
       id: result.movementId,
@@ -1132,7 +1272,7 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
     buildMutationLog({
       actionKey: 'wms.audit.inventory.move',
       fallbackLabel: 'Move inventory',
-      resourceKind: 'wms.inventoryMovement',
+      resourceKind: WMS_INVENTORY_MOVEMENT_RESOURCE,
       resourceId: result?.movementId ?? null,
       parentResourceId:
         input?.warehouseId && input?.catalogVariantId
@@ -1140,6 +1280,7 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
           : null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 
@@ -1158,7 +1299,7 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const balance = await upsertBalanceBucket(trx, scope, {
+      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
@@ -1170,11 +1311,14 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
       if (delta === 0) {
         return {
           adjustmentDelta: '0',
-          movementId: null,
+          movementId: null as string | null,
           warehouseId: input.warehouseId,
           catalogVariantId: input.catalogVariantId,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
+          movementEntity: null as InventoryMovement | null,
+          balanceEntity: balance,
+          balanceAction: ('updated' as const),
         }
       }
       setNumeric(
@@ -1203,12 +1347,19 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
       await trx.flush()
       return {
         adjustmentDelta: toNumericString(delta),
-        movementId: movement.id,
+        movementId: movement.id as string | null,
         warehouseId: input.warehouseId,
         catalogVariantId: input.catalogVariantId,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        movementEntity: movement as InventoryMovement | null,
+        balanceEntity: balance,
+        balanceAction: balanceWasNew ? ('created' as const) : ('updated' as const),
       }
+    })
+    await emitInventorySideEffects(ctx, {
+      movements: result.movementEntity ? [{ entity: result.movementEntity, action: 'created' }] : [],
+      balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
     })
     if (result.movementId) {
       void emitWmsEvent('wms.inventory.reconciled', {
@@ -1236,7 +1387,7 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
     buildMutationLog({
       actionKey: 'wms.audit.inventory.cycleCount',
       fallbackLabel: 'Run cycle count reconciliation',
-      resourceKind: 'wms.inventoryMovement',
+      resourceKind: WMS_INVENTORY_MOVEMENT_RESOURCE,
       resourceId: result?.movementId ?? null,
       parentResourceId:
         input?.warehouseId && input?.catalogVariantId
@@ -1244,6 +1395,7 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           : null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      cacheAliases: [WMS_INVENTORY_BALANCE_RESOURCE],
     }),
 }
 

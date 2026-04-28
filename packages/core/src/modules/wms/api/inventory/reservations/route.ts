@@ -23,6 +23,7 @@ const crud = makeCrudRoute({
   list: {
     schema: inventoryReservationListQuerySchema,
     entityId: E.wms.inventory_reservation,
+    disableListCache: true,
     fields: [
       'id',
       'organization_id',

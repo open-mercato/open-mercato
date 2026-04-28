@@ -23,6 +23,7 @@ const crud = makeCrudRoute({
   list: {
     schema: inventoryBalanceListQuerySchema,
     entityId: E.wms.inventory_balance,
+    disableListCache: true,
     fields: [
       'id',
       'organization_id',
