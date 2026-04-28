@@ -86,6 +86,26 @@ export function createSyncRunService(em: EntityManager) {
     },
 
     async markStatus(runId: string, status: SyncRun['status'], scope: SyncScope, error?: string): Promise<SyncRun | null> {
+      if (status === 'running') {
+        const updated = await em.nativeUpdate(
+          SyncRun,
+          {
+            id: runId,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+            status: 'pending',
+          },
+          {
+            status,
+            ...(error !== undefined ? { lastError: error } : {}),
+            updatedAt: new Date(),
+          },
+        )
+        if (updated === 0) return null
+        return this.getRun(runId, scope)
+      }
+
       const row = await this.getRun(runId, scope)
       if (!row) return null
       const isTerminal = row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled'
