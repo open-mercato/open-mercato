@@ -585,19 +585,46 @@ describe('catalog.apply_attribute_extraction — contract', () => {
   })
 })
 
-describe('catalog.apply_attribute_extraction — handler', () => {
+describe('catalog.apply_attribute_extraction — prepare phase issues no API write', () => {
   const tool = findTool('catalog.apply_attribute_extraction')
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
     loadCustomFieldDefinitionIndexMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('surfaces attribute_not_in_schema when an attribute key is unknown', async () => {
+  it('loadBeforeRecords does NOT invoke the API operation runner', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
+    const ctx = makeMutationCtx()
+    await tool.loadBeforeRecords!(
+      {
+        records: [
+          { recordId: PRODUCT_ID_A, attributes: { color: 'red' } },
+        ],
+      } as any,
+      ctx as any,
+    )
+    expect(runMock).not.toHaveBeenCalled()
+    expect(createRunnerMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('catalog.apply_attribute_extraction — handler delegates to API runner', () => {
+  const tool = findTool('catalog.apply_attribute_extraction')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    loadCustomFieldDefinitionIndexMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
+  })
+
+  it('surfaces attribute_not_in_schema without invoking the runner when an attribute key is unknown', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
     loadCustomFieldDefinitionIndexMock.mockResolvedValue(new Map([['color', {}]]))
-    const bus: FakeBus = { execute: jest.fn() }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    const ctx = makeMutationCtx()
     const result = (await tool.handler(
       {
         records: [
@@ -609,7 +636,7 @@ describe('catalog.apply_attribute_extraction — handler', () => {
       } as any,
       ctx as any,
     )) as any
-    expect(bus.execute).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
     expect(result.records[0]).toMatchObject({
       recordId: PRODUCT_ID_A,
       status: 'failed',
@@ -618,7 +645,7 @@ describe('catalog.apply_attribute_extraction — handler', () => {
     expect(result.failedRecordIds).toEqual([PRODUCT_ID_A])
   })
 
-  it('delegates to catalog.products.update with cf_* keys when every attribute is in the schema', async () => {
+  it('issues PUT /catalog/products with the canonical customFields envelope when every attribute is in the schema', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
     loadCustomFieldDefinitionIndexMock.mockResolvedValue(
       new Map([
@@ -626,8 +653,8 @@ describe('catalog.apply_attribute_extraction — handler', () => {
         ['weight_kg', {}],
       ]),
     )
-    const bus: FakeBus = { execute: jest.fn().mockResolvedValue({ result: { productId: PRODUCT_ID_A } }) }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx()
     const result = (await tool.handler(
       {
         records: [
@@ -639,16 +666,61 @@ describe('catalog.apply_attribute_extraction — handler', () => {
       } as any,
       ctx as any,
     )) as any
-    expect(bus.execute).toHaveBeenCalledTimes(1)
-    const [, options] = bus.execute.mock.calls[0]
-    expect(options.input).toMatchObject({
+    expect(createRunnerMock).toHaveBeenCalledTimes(1)
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('PUT')
+    expect(operation.path).toBe('/catalog/products')
+    expect(operation.body).toEqual({
       id: PRODUCT_ID_A,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      cf_color: 'red',
-      cf_weight_kg: 12,
+      customFields: { color: 'red', weight_kg: 12 },
     })
+    // Canonical envelope is enforced — legacy `cf_*` prefixes must not leak.
+    expect(operation.body).not.toHaveProperty('cf_color')
+    expect(operation.body).not.toHaveProperty('cf:color')
+    expect(result.records[0]).toMatchObject({
+      recordId: PRODUCT_ID_A,
+      status: 'updated',
+      after: { attributes: { color: 'red', weight_kg: 12 } },
+    })
+  })
+
+  it('records per-record failure with succeeded rows preserved when the runner returns success=false', async () => {
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_B }))
+    loadCustomFieldDefinitionIndexMock.mockResolvedValue(
+      new Map([
+        ['color', {}],
+      ]),
+    )
+    runMock
+      .mockResolvedValueOnce({ success: true, statusCode: 200, data: { ok: true } })
+      .mockResolvedValueOnce({
+        success: false,
+        statusCode: 412,
+        error: 'stale',
+        details: { code: 'stale_version' },
+      })
+    const ctx = makeMutationCtx()
+    const result = (await tool.handler(
+      {
+        records: [
+          { recordId: PRODUCT_ID_A, attributes: { color: 'red' } },
+          { recordId: PRODUCT_ID_B, attributes: { color: 'blue' } },
+        ],
+      } as any,
+      ctx as any,
+    )) as any
     expect(result.records[0]).toMatchObject({ recordId: PRODUCT_ID_A, status: 'updated' })
+    expect(result.records[1]).toMatchObject({
+      recordId: PRODUCT_ID_B,
+      status: 'failed',
+      error: { code: 'stale_version', message: 'stale' },
+    })
+    expect(result.failedRecordIds).toEqual([PRODUCT_ID_B])
   })
 })
 

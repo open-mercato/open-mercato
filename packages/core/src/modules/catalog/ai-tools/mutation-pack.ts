@@ -62,8 +62,6 @@ import {
   createAiApiOperationRunner,
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CatalogProduct, CatalogProductPrice } from '../data/entities'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
@@ -80,34 +78,6 @@ function resolveEm(ctx: CatalogToolContext): EntityManager {
 
 function buildScope(ctx: CatalogToolContext, tenantId: string) {
   return { tenantId, organizationId: ctx.organizationId }
-}
-
-function buildAuthContextFromTool(
-  ctx: CatalogToolContext,
-  tenantId: string,
-  organizationId: string,
-): AuthContext {
-  return {
-    sub: ctx.userId ?? 'ai-agent',
-    tenantId,
-    orgId: organizationId,
-    roles: [],
-    isApiKey: false,
-  } as AuthContext
-}
-
-function buildCommandRuntimeContext(
-  ctx: CatalogToolContext,
-  tenantId: string,
-  organizationId: string,
-): CommandRuntimeContext {
-  return {
-    container: ctx.container,
-    auth: buildAuthContextFromTool(ctx, tenantId, organizationId),
-    organizationScope: null,
-    selectedOrganizationId: organizationId,
-    organizationIds: [organizationId],
-  }
 }
 
 function recordVersionFromUpdatedAt(updatedAt: Date | null | undefined): string | null {
@@ -532,7 +502,7 @@ const applyAttributeExtractionTool: CatalogAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: ApplyAttributeExtractionInput = applyAttributeExtractionInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
     const knownKeys = await resolveAttributeKeyIndex(ctx, tenantId)
     const results: BulkRecordResult[] = []
     const failedRecordIds: string[] = []
@@ -568,19 +538,37 @@ const applyAttributeExtractionTool: CatalogAiToolDefinition = {
         continue
       }
       const organizationId = product.organizationId
-      const commandInput: Record<string, unknown> = {
+      const customFields: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(entry.attributes ?? {})) {
+        customFields[key] = value
+      }
+      const body: Record<string, unknown> = {
         id: product.id,
         tenantId,
         organizationId,
-      }
-      for (const [key, value] of Object.entries(entry.attributes ?? {})) {
-        commandInput[`cf_${key}`] = value
+        customFields,
       }
       try {
-        await commandBus.execute<Record<string, unknown>, { productId: string }>(
-          'catalog.products.update',
-          { input: commandInput, ctx: buildCommandRuntimeContext(ctx, tenantId, organizationId) },
-        )
+        const response = await runner.run({
+          method: 'PUT',
+          path: '/catalog/products',
+          body,
+        })
+        if (!response.success) {
+          const code =
+            typeof (response.details as { code?: unknown } | undefined)?.code === 'string'
+              ? ((response.details as { code: string }).code)
+              : 'command_failed'
+          failedRecordIds.push(product.id)
+          results.push({
+            recordId: product.id,
+            status: 'failed',
+            before: { attributes: {} },
+            after: null,
+            error: { code, message: response.error ?? 'API operation failed' },
+          })
+          continue
+        }
         results.push({
           recordId: product.id,
           status: 'updated',
