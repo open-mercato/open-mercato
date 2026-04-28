@@ -1,25 +1,31 @@
-import * as React from "react"
-import { cn } from "@open-mercato/shared/lib/utils"
-import { Checkbox, type CheckboxProps } from "./checkbox"
+"use client"
 
-export type CheckboxFieldProps = Omit<CheckboxProps, "id"> & {
+import * as React from 'react'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { Radio } from './radio'
+
+export type RadioFieldProps = Omit<React.ComponentProps<typeof Radio>, 'id'> & {
   id?: string
   label: React.ReactNode
   sublabel?: React.ReactNode
   description?: React.ReactNode
   badge?: React.ReactNode
   link?: React.ReactNode
-  /** When true, renders the checkbox on the right of the label content. */
+  /** When true, renders the radio on the right of the label content. */
   flip?: boolean
-  /** Additional className for the outer wrapper. */
   containerClassName?: string
-  /** Additional className for the right-side content stack. */
   contentClassName?: string
 }
 
-export const CheckboxField = React.forwardRef<
-  React.ElementRef<typeof Checkbox>,
-  CheckboxFieldProps
+let autoIdCounter = 0
+function useAutoId(prefix = 'radio-field') {
+  const [id] = React.useState(() => `${prefix}-${++autoIdCounter}`)
+  return id
+}
+
+export const RadioField = React.forwardRef<
+  React.ElementRef<typeof Radio>,
+  RadioFieldProps
 >(({
   id: idProp,
   label,
@@ -30,35 +36,33 @@ export const CheckboxField = React.forwardRef<
   flip = false,
   containerClassName,
   contentClassName,
-  size = "md",
   className,
   disabled,
-  ...checkboxProps
+  ...radioProps
 }, ref) => {
-  const reactId = React.useId()
-  const id = idProp ?? `checkbox-field-${reactId}`
+  const fallbackId = useAutoId()
+  const id = idProp ?? fallbackId
 
   const hasMultiLine = Boolean(description || sublabel || link)
-  const checkbox = (
-    <Checkbox
+  const radio = (
+    <Radio
       ref={ref}
       id={id}
-      size={size}
       disabled={disabled}
-      className={cn(hasMultiLine && "mt-0.5", className)}
-      {...checkboxProps}
+      className={cn(hasMultiLine && 'mt-0.5', className)}
+      {...radioProps}
     />
   )
 
   const content = (
-    <div className={cn("flex flex-1 min-w-0 flex-col gap-2.5", contentClassName)}>
+    <div className={cn('flex flex-1 min-w-0 flex-col gap-2.5', contentClassName)}>
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1">
           <label
             htmlFor={id}
             className={cn(
-              "text-sm font-medium leading-5 text-foreground select-none",
-              disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+              'text-sm font-medium leading-5 text-foreground select-none',
+              disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
             )}
           >
             {label}
@@ -79,15 +83,15 @@ export const CheckboxField = React.forwardRef<
   return (
     <div
       className={cn(
-        "flex gap-2",
-        hasMultiLine ? "items-start" : "items-center",
-        flip && "flex-row-reverse",
+        'flex gap-2',
+        hasMultiLine ? 'items-start' : 'items-center',
+        flip && 'flex-row-reverse',
         containerClassName
       )}
     >
-      {flip ? content : checkbox}
-      {flip ? checkbox : content}
+      {flip ? content : radio}
+      {flip ? radio : content}
     </div>
   )
 })
-CheckboxField.displayName = "CheckboxField"
+RadioField.displayName = 'RadioField'
