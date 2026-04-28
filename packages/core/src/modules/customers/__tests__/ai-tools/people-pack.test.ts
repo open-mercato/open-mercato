@@ -176,72 +176,195 @@ describe('customers.get_person', () => {
     findWithDecryptionMock.mockReset()
     findOneWithDecryptionMock.mockReset()
     loadCustomFieldValuesMock.mockReset()
-    loadCustomFieldValuesMock.mockResolvedValue({})
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
   const missingId = '0e4a4e66-2894-4f6c-96bb-fdfa32a9177b'
   const existingId = 'ba9d7593-367c-4a93-9918-c998ff3e5a1d'
 
-  it('returns { found: false } for missing / cross-tenant records (no throw)', async () => {
-    findOneWithDecryptionMock.mockResolvedValue(null)
+  it('declares same name/schema/requiredFeatures and is not a mutation', () => {
+    expect(tool.name).toBe('customers.get_person')
+    expect(tool.requiredFeatures).toEqual(['customers.people.view'])
+    expect(tool.isMutation).toBeFalsy()
+    expect(tool.inputSchema.safeParse({ personId: existingId }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ personId: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('returns { found: false } when the API responds 404', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 404, error: 'Person not found' })
     const ctx = makeCtx()
     const result = (await tool.handler({ personId: missingId }, ctx as any)) as Record<string, unknown>
     expect(result.found).toBe(false)
     expect(result.personId).toBe(missingId)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('GET')
+    expect(operation.path).toBe(`/customers/people/${missingId}`)
+    expect(operation.query).toBeUndefined()
   })
 
-  it('returns found=false when entity tenant mismatches ctx.tenantId', async () => {
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: existingId,
-      tenantId: 'tenant-2',
-      organizationId: 'org-1',
-      displayName: 'Leak',
-    })
+  it('returns { found: false } when the API responds 403 (cross-tenant/org)', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 403, error: 'Access denied' })
     const ctx = makeCtx()
     const result = (await tool.handler({ personId: existingId }, ctx as any)) as Record<string, unknown>
     expect(result.found).toBe(false)
   })
 
-  it('returns a populated record with profile and custom fields on happy path', async () => {
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: existingId,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      displayName: 'Alice',
-      description: null,
-      primaryEmail: 'alice@example.com',
-      primaryPhone: null,
-      status: 'active',
-      lifecycleStage: null,
-      source: null,
-      ownerUserId: null,
-      createdAt: new Date('2024-01-01'),
-      updatedAt: new Date('2024-01-02'),
-      personProfile: {
-        id: 'prof-1',
-        firstName: 'Alice',
-        lastName: 'Example',
-        preferredName: null,
-        jobTitle: 'CTO',
-        department: null,
-        seniority: null,
-        timezone: null,
-        linkedInUrl: null,
-        twitterUrl: null,
-        company: null,
+  it('bubbles a clean Error for non-404/403 runner failures', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 500, error: 'boom' })
+    const ctx = makeCtx()
+    await expect(tool.handler({ personId: existingId }, ctx as any)).rejects.toThrow('boom')
+  })
+
+  it('maps a populated detail payload (no includeRelated) into the AI shape', async () => {
+    runMock.mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: {
+        person: {
+          id: existingId,
+          displayName: 'Alice',
+          description: null,
+          primaryEmail: 'alice@example.com',
+          primaryPhone: null,
+          status: 'active',
+          lifecycleStage: null,
+          source: null,
+          ownerUserId: null,
+          organizationId: 'org-1',
+          tenantId: 'tenant-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+        },
+        profile: {
+          id: 'prof-1',
+          firstName: 'Alice',
+          lastName: 'Example',
+          preferredName: null,
+          jobTitle: 'CTO',
+          department: null,
+          seniority: null,
+          timezone: null,
+          linkedInUrl: null,
+          twitterUrl: null,
+          companyEntityId: null,
+        },
+        customFields: { notes: 'vip' },
       },
-    })
-    loadCustomFieldValuesMock.mockResolvedValue({
-      [existingId]: { notes: 'vip' },
     })
     const ctx = makeCtx()
     const result = (await tool.handler({ personId: existingId }, ctx as any)) as Record<string, unknown>
     expect(result.found).toBe(true)
     const person = result.person as Record<string, unknown>
     expect(person.displayName).toBe('Alice')
+    expect(person.tenantId).toBe('tenant-1')
     const profile = result.profile as Record<string, unknown>
     expect(profile.jobTitle).toBe('CTO')
     expect(result.customFields).toEqual({ notes: 'vip' })
     expect(result.related).toBeNull()
+  })
+
+  it('includeRelated: true requests every relation via include and maps the aggregated payload', async () => {
+    runMock.mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: {
+        person: {
+          id: existingId,
+          displayName: 'Alice',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+        },
+        profile: null,
+        customFields: {},
+        addresses: [
+          {
+            id: 'addr-1',
+            name: 'HQ',
+            purpose: 'billing',
+            addressLine1: '1 Main St',
+            isPrimary: true,
+          },
+        ],
+        activities: [
+          {
+            id: 'act-1',
+            activityType: 'call',
+            subject: 'Intro',
+            body: null,
+            occurredAt: '2024-01-03T00:00:00.000Z',
+            createdAt: '2024-01-03T00:00:00.000Z',
+          },
+        ],
+        comments: [
+          {
+            id: 'note-1',
+            body: 'Hello',
+            authorUserId: 'user-1',
+            createdAt: '2024-01-03T00:00:00.000Z',
+          },
+        ],
+        todos: [
+          {
+            id: 'task-1',
+            todoId: 'task-1',
+            todoSource: 'example',
+            createdAt: '2024-01-03T00:00:00.000Z',
+          },
+        ],
+        interactions: [
+          {
+            id: 'int-1',
+            interactionType: 'task',
+            title: 'Follow up',
+            status: 'planned',
+            scheduledAt: '2024-01-04T00:00:00.000Z',
+          },
+        ],
+        tags: [{ id: 'tag-1', label: 'VIP', color: '#ff0000' }],
+        deals: [
+          {
+            id: 'deal-1',
+            title: 'Big deal',
+            status: 'open',
+            pipelineStageId: 'stage-1',
+            valueAmount: '1000',
+            valueCurrency: 'USD',
+          },
+        ],
+      },
+    })
+    const ctx = makeCtx()
+    const result = (await tool.handler(
+      { personId: existingId, includeRelated: true },
+      ctx as any,
+    )) as Record<string, unknown>
+    expect(result.found).toBe(true)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.path).toBe(`/customers/people/${existingId}`)
+    expect(operation.query.include).toBe('addresses,comments,activities,interactions,deals,todos')
+    const related = result.related as Record<string, unknown>
+    expect(Array.isArray(related.addresses)).toBe(true)
+    expect((related.addresses as any[])[0].id).toBe('addr-1')
+    expect((related.activities as any[])[0].activityType).toBe('call')
+    expect((related.notes as any[])[0].body).toBe('Hello')
+    expect((related.tasks as any[])[0].todoId).toBe('task-1')
+    expect((related.interactions as any[])[0].interactionType).toBe('task')
+    expect((related.tags as any[])[0]).toEqual({
+      id: 'tag-1',
+      slug: 'VIP',
+      label: 'VIP',
+      color: '#ff0000',
+    })
+    expect((related.deals as any[])[0].id).toBe('deal-1')
+  })
+
+  it('rejects calls without a tenant context', async () => {
+    const ctx = makeCtx({ tenantId: null })
+    await expect(tool.handler({ personId: existingId }, ctx as any)).rejects.toThrow(
+      /Tenant context is required/,
+    )
   })
 })
