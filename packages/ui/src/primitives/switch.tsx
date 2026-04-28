@@ -1,3 +1,5 @@
+"use client"
+
 import * as React from 'react'
 
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -66,7 +68,9 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         onKeyDown={handleKeyDown}
         disabled={disabled}
         className={cn(
-          'inline-flex h-6 w-11 items-center rounded-full border border-transparent bg-input/60 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary',
+          'group relative inline-flex h-5 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-transparent p-0',
+          'focus-visible:outline-none focus-visible:shadow-focus',
+          'disabled:cursor-not-allowed disabled:opacity-60',
           className
         )}
         {...props}
@@ -74,10 +78,19 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         <span
           aria-hidden
           className={cn(
-            'inline-block size-5 translate-x-0 rounded-full bg-background shadow transition-transform duration-200',
-            currentChecked ? 'translate-x-5' : 'translate-x-0'
+            'pointer-events-none flex h-4 w-7 items-center rounded-full px-0.5 transition-colors duration-150',
+            'bg-border group-hover:bg-muted-foreground/30',
+            'group-data-[state=checked]:bg-accent-indigo group-data-[state=checked]:group-hover:bg-accent-indigo/85'
           )}
-        />
+        >
+          <span
+            className={cn(
+              'block size-3 rounded-full bg-white transition-transform duration-200',
+              'shadow-[0_1px_2px_rgba(10,13,20,0.10),0_0_0_0.5px_rgba(10,13,20,0.04)]',
+              currentChecked ? 'translate-x-3' : 'translate-x-0'
+            )}
+          />
+        </span>
       </button>
     )
   }
