@@ -156,7 +156,7 @@ const seedDemoWithRules: ModuleCli = {
       }
 
       console.log(`\n✅ Demo workflow with guard rules seeded successfully!`)
-      console.log(`  - Workflow: checkout_simple_v1`)
+      console.log(`  - Workflow: workflows.checkout-demo`)
       console.log(`  - Guard rules seeded: ${seededCount}`)
       console.log(`  - Guard rules skipped: ${skippedCount}`)
     } catch (error) {
@@ -346,43 +346,12 @@ const seedOrderApproval: ModuleCli = {
         await em.flush()
       }
 
-      // 2. Read the order approval workflow definition
-      const approvalPath = path.join(__dirname, 'examples', 'order-approval-definition.json')
-      const approvalData = JSON.parse(fs.readFileSync(approvalPath, 'utf8'))
-
-      // Check if it already exists
-      const existing = await em.findOne(WorkflowDefinition, {
-        workflowId: approvalData.workflowId,
-        tenantId,
-        organizationId,
-      })
-
-      if (existing) {
-        console.log(`✅ Order approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
-        console.log(`  - Guard rules seeded: ${rulesSeeded}`)
-        console.log(`  - Guard rules skipped: ${rulesSkipped}`)
-        return
-      }
-
-      // Create the workflow definition
-      const workflow = em.create(WorkflowDefinition, {
-        ...approvalData,
-        tenantId,
-        organizationId,
-      })
-
-      await em.persist(workflow).flush()
-
-      console.log(`✅ Seeded order approval workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
+      console.log(`✅ Seeded order approval guard rules`)
       console.log(`  - Guard rules seeded: ${rulesSeeded}`)
       console.log(`  - Guard rules skipped: ${rulesSkipped}`)
       console.log('')
-      console.log('Order approval workflow is ready!')
+      console.log('Note: The "sales.order-approval" workflow definition is now code-defined')
+      console.log('(see packages/core/src/modules/sales/workflows.ts) and no longer needs DB seeding.')
     } catch (error) {
       console.error('Error seeding order approval workflow:', error)
       throw error

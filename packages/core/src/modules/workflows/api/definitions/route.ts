@@ -98,18 +98,25 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const definitions = await em.find(WorkflowDefinition, where, {
-      orderBy: { createdAt: 'DESC' },
-    })
-
-    const dbWorkflowIds = new Set(definitions.map((d: WorkflowDefinition) => d.workflowId))
-    const serializedDb = definitions.map(serializeWorkflowDefinition)
-
+    // Determine which code workflows are shadowed by a DB row (so we can
+    // exclude them from the code-only list) without loading all DB rows.
     const enabledFilter = enabled !== null ? enabled === 'true' : null
     const searchLower = search ? search.toLowerCase() : null
+    const allCodeIds = getAllCodeWorkflows().map((cw) => cw.workflowId)
+    const shadowed = allCodeIds.length > 0
+      ? new Set(
+          (
+            await em.find(
+              WorkflowDefinition,
+              { ...where, workflowId: { $in: allCodeIds } },
+              { fields: ['workflowId'] as any },
+            )
+          ).map((d: WorkflowDefinition) => d.workflowId),
+        )
+      : new Set<string>()
 
     const codeOnly = getAllCodeWorkflows()
-      .filter((cw) => !dbWorkflowIds.has(cw.workflowId))
+      .filter((cw) => !shadowed.has(cw.workflowId))
       .filter((cw) => {
         if (searchLower) {
           const matches =
@@ -123,11 +130,25 @@ export async function GET(request: NextRequest) {
       })
       .map((cw) => serializeCodeWorkflowDefinition(cw, `code:${cw.workflowId}`))
 
+    const dbCount = await em.count(WorkflowDefinition, where)
+    const total = dbCount + codeOnly.length
+
+    // Fetch only the prefix of DB rows we might need to fill the requested
+    // page after merging with the (already-filtered) code-only list.
+    const dbWindowLimit = offset + limit
+    const dbWindow = dbWindowLimit > 0
+      ? await em.find(WorkflowDefinition, where, {
+          orderBy: { workflowName: 'ASC' },
+          limit: dbWindowLimit,
+        })
+      : []
+
+    const serializedDb = dbWindow.map(serializeWorkflowDefinition)
+
     const merged = [...serializedDb, ...codeOnly].sort((a, b) =>
       a.workflowName.localeCompare(b.workflowName),
     )
 
-    const total = merged.length
     const paginated = merged.slice(offset, offset + limit)
 
     return NextResponse.json({

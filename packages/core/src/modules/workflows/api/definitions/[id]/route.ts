@@ -169,6 +169,13 @@ export async function PUT(
         tenantId,
       })
 
+      if (existingOverride && existingOverride.organizationId !== organizationId) {
+        return NextResponse.json(
+          { error: 'Workflow definition is already customized by another organization in this tenant' },
+          { status: 409 }
+        )
+      }
+
       if (existingOverride) {
         // Revive if soft-deleted, then apply updates
         existingOverride.deletedAt = null
@@ -179,7 +186,6 @@ export async function PUT(
         existingOverride.metadata = codeDef.metadata ?? null
         existingOverride.enabled = input.enabled ?? codeDef.enabled
         existingOverride.codeWorkflowId = codeDef.workflowId
-        existingOverride.organizationId = organizationId
         existingOverride.updatedBy = auth.sub
         existingOverride.updatedAt = new Date()
         await em.flush()

@@ -1,5 +1,5 @@
 {
-  "workflowId": "simple_approval_v1",
+  "workflowId": "workflows.simple-approval",
   "workflowName": "Simple Approval Workflow",
   "description": "Basic three-step approval workflow for testing: Start → Approval → End",
   "version": 1,

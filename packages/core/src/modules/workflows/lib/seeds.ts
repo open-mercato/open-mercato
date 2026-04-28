@@ -190,10 +190,9 @@ async function seedGuardRules(
 }
 
 export async function seedExampleWorkflows(em: EntityManager, scope: WorkflowSeedScope): Promise<void> {
-  await seedWorkflowDefinition(em, scope, 'checkout-demo-definition.json')
+  await seedWorkflowDefinition(em, scope, 'workflows.checkout-demo-definition.json')
   await seedGuardRules(em, scope, 'guard-rules-example.json')
   await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
-  await seedWorkflowDefinition(em, scope, 'simple-approval-definition.json')
+  await seedWorkflowDefinition(em, scope, 'workflows.simple-approval-definition.json')
   await seedGuardRules(em, scope, 'order-approval-guard-rules.json')
-  await seedWorkflowDefinition(em, scope, 'order-approval-definition.json')
 }

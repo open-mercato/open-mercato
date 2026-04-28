@@ -76,6 +76,10 @@ export async function findWorkflowDefinition(
   const codeDef = getCodeWorkflow(workflowId)
   if (!codeDef) return null
 
+  // When no version was requested, mirror the DB branch's `enabled = true` filter
+  // so disabled code workflows aren't silently executable.
+  if (version === undefined && !codeDef.enabled) return null
+
   // Construct a virtual WorkflowDefinition object (not persisted)
   const virtual = new WorkflowDefinition()
   virtual.id = codeWorkflowUuid(workflowId)

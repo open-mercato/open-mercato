@@ -1,5 +1,5 @@
 {
-  "workflowId": "checkout_simple_v1",
+  "workflowId": "workflows.checkout-demo",
   "workflowName": "Checkout with Payment Webhook",
   "description": "Realistic checkout workflow with signal-based payment confirmation: validate cart, initiate payment, wait for webhook, send confirmation",
   "version": 1,
