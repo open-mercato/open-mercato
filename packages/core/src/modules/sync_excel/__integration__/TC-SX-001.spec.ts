@@ -46,6 +46,7 @@ const ENTITY_TYPE = 'customers.person'
 const INTEGRATION_ID = 'sync_excel'
 const PERSON_PROFILE_ENTITY_ID = 'customers:customer_person_profile'
 const DATA_SYNC_IMPORT_QUEUE = 'data-sync-import'
+const AUTO_SPAWN_WORKERS_ENABLED = process.env.AUTO_SPAWN_WORKERS === 'true'
 
 let bootstrapDataPromise: Promise<BootstrapData> | null = null
 
@@ -104,11 +105,14 @@ async function waitForCompletedRun(
   runId: string,
 ): Promise<void> {
   await expect.poll(async () => {
-    await drainDataSyncImportQueue()
     const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(runId)}`, { token })
     expect(runResponse.status()).toBe(200)
     const runBody = await readJson(runResponse)
-    return String(runBody.status ?? '')
+    const status = String(runBody.status ?? '')
+    if (status !== 'completed' && !AUTO_SPAWN_WORKERS_ENABLED) {
+      await drainDataSyncImportQueue()
+    }
+    return status
   }, { timeout: 30_000, intervals: [250, 500, 1_000, 2_000] }).toBe('completed')
 }
 
