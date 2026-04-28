@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/open-mercato-open-mercato-badge.png)](https://mseep.ai/app/open-mercato-open-mercato)
+
 <p align="center">
   <img src="./apps/mercato/public/open-mercato.svg" alt="Open Mercato logo" width="120" />
 </p>
