@@ -1,9 +1,15 @@
 /**
  * Step 3.9 — `customers.list_companies` / `customers.get_company` unit tests.
+ *
+ * Phase 3a of `2026-04-27-ai-tools-api-backed-dry-refactor`: the list tool
+ * delegates to the in-process API operation runner over
+ * `GET /api/customers/companies`.
  */
 const findWithDecryptionMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 const loadCustomFieldValuesMock = jest.fn()
+const runMock = jest.fn()
+const createRunnerMock = jest.fn(() => ({ run: runMock }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
@@ -13,6 +19,19 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: (...args: unknown[]) => loadCustomFieldValuesMock(...args),
 }))
+
+jest.mock(
+  '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+  () => {
+    const actual = jest.requireActual(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+    )
+    return {
+      ...actual,
+      createAiApiOperationRunner: (...args: unknown[]) => createRunnerMock(...args),
+    }
+  },
+)
 
 import companiesAiTools from '../../ai-tools/companies-pack'
 import { knownFeatureIds, makeCtx } from './shared'
@@ -29,11 +48,14 @@ describe('customers.list_companies', () => {
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
     loadCustomFieldValuesMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
   it('declares existing RBAC features', () => {
     expect(tool.requiredFeatures).toContain('customers.companies.view')
     for (const feature of tool.requiredFeatures!) expect(knownFeatureIds.has(feature)).toBe(true)
+    expect(tool.isMutation).toBeFalsy()
   })
 
   it('caps limit at 100', () => {
@@ -41,40 +63,74 @@ describe('customers.list_companies', () => {
     expect(tool.inputSchema.safeParse({ limit: 100 }).success).toBe(true)
   })
 
-  it('filters cross-tenant rows via queryEngine with kind=company filter', async () => {
-    // Post-PR #1593: customers.list_companies delegates to queryEngine.query
-    // on the `customers:customer_entity` index with `kind=company` filter,
-    // then enriches via findWithDecryption for company profiles.
-    const ctx = makeCtx()
-    ctx.queryEngine.query.mockResolvedValue({
-      items: [
-        {
-          id: 'c1',
-          tenant_id: 'tenant-1',
-          organization_id: 'org-1',
-          display_name: 'Acme',
-          kind: 'company',
-          created_at: '2024-01-01T00:00:00.000Z',
-        },
-      ],
-      total: 1,
+  it('delegates to the API runner with default page/pageSize and maps the response', async () => {
+    runMock.mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: {
+        items: [
+          {
+            id: 'c1',
+            display_name: 'Acme',
+            primary_email: 'hello@acme.example',
+            domain: 'acme.example',
+            website_url: 'https://acme.example',
+            industry: 'manufacturing',
+            size_bucket: 'medium',
+            tenant_id: 'tenant-1',
+            organization_id: 'org-1',
+            created_at: '2024-01-01T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
     })
-    // Enrichment calls (profiles, tag assignments) return empty arrays so
-    // the list path doesn't blow up when downstream enrichment runs.
-    findWithDecryptionMock.mockResolvedValue([])
+    const ctx = makeCtx()
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((entry) => entry.id)).toEqual(['c1'])
-    const [entityType, queryArg] = ctx.queryEngine.query.mock.calls[0]
-    expect(entityType).toBe('customers:customer_entity')
-    expect(queryArg.filters.kind).toBe('company')
-    expect(queryArg.tenantId).toBe('tenant-1')
-    expect(queryArg.organizationId).toBe('org-1')
+    expect(items[0].displayName).toBe('Acme')
+    expect(items[0].domain).toBe('acme.example')
+    expect(items[0].websiteUrl).toBe('https://acme.example')
+    expect(items[0].industry).toBe('manufacturing')
+    expect(items[0].sizeBucket).toBe('medium')
+
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('GET')
+    expect(operation.path).toBe('/customers/companies')
+    expect(operation.query).toMatchObject({ page: 1, pageSize: 50 })
+  })
+
+  it('translates q/limit/offset/tags inputs to API query params', async () => {
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { items: [], total: 0 } })
+    const ctx = makeCtx()
+    await tool.handler(
+      {
+        q: '  acme  ',
+        limit: 25,
+        offset: 75,
+        tags: ['11111111-1111-1111-1111-111111111111'],
+      },
+      ctx as any,
+    )
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.query.search).toBe('acme')
+    expect(operation.query.pageSize).toBe(25)
+    // offset 75 with limit 25 → page 4
+    expect(operation.query.page).toBe(4)
+    expect(operation.query.tagIds).toBe('11111111-1111-1111-1111-111111111111')
   })
 
   it('throws when tenant context is missing', async () => {
     const ctx = makeCtx({ tenantId: null })
     await expect(tool.handler({}, ctx as any)).rejects.toThrow(/Tenant context is required/)
+  })
+
+  it('bubbles a clean Error when the runner reports failure', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 403, error: 'forbidden by route policy' })
+    const ctx = makeCtx()
+    await expect(tool.handler({}, ctx as any)).rejects.toThrow('forbidden by route policy')
   })
 })
 
