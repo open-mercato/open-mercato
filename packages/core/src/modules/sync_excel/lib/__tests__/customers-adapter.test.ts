@@ -235,6 +235,11 @@ describe('sync_excel customers adapter', () => {
       totalEstimate: 1,
       processedCount: 1,
       hasMore: false,
+      refreshCoverageEntityTypes: expect.arrayContaining([
+        'customers:customer_entity',
+        'customers:customer_person_profile',
+        'customers:customer_address',
+      ]),
     })
     expect(batches[0].items[0]).toMatchObject({
       externalId: 'ext-1',

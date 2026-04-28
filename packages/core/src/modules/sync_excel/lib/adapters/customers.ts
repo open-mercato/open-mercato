@@ -18,6 +18,7 @@ import { Attachment } from '../../../attachments/data/entities'
 import { SyncExcelUpload } from '../../data/entities'
 import { parseCsvDocument, type CsvPreviewRow } from '../parser'
 import { readSyncExcelUploadBuffer } from '../upload-storage'
+import { E } from '#generated/entities.ids.generated'
 
 type SyncExcelCursor = {
   uploadId: string
@@ -26,6 +27,12 @@ type SyncExcelCursor = {
 }
 
 type Container = Awaited<ReturnType<typeof createRequestContainer>>
+
+const CUSTOMER_IMPORT_COVERAGE_ENTITY_TYPES = [
+  E.customers.customer_entity,
+  E.customers.customer_person_profile,
+  E.customers.customer_address,
+]
 
 type PersonFieldValues = {
   externalId?: string | null
@@ -840,6 +847,7 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
           hasMore: nextOffset < document.rows.length,
           totalEstimate: document.totalRows,
           processedCount: batchRows.length,
+          refreshCoverageEntityTypes: CUSTOMER_IMPORT_COVERAGE_ENTITY_TYPES,
           batchIndex,
           message: `Processed ${nextOffset} of ${document.totalRows} CSV rows`,
         }
