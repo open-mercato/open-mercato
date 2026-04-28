@@ -1,7 +1,7 @@
 # API-Backed AI Tool DRY Refactor
 
 **Date:** 2026-04-27  
-**Status:** Draft  
+**Status:** Implemented (2026-04-29)  
 **Scope:** OSS, `@open-mercato/ai-assistant`, `customers`, `catalog`
 
 ## TLDR
@@ -233,11 +233,69 @@ Each tool should:
 
 ### Phase 5: Document Exceptions
 
-Document any tool that cannot be API-backed yet. Initial expected exception:
+#### Migrated tools (16)
 
-- `catalog.update_product_media_descriptions`: currently writes attachment `storageMetadata` directly because no documented attachment/media command exists for alt text/caption updates.
+| Phase | Tool | Endpoint(s) consumed |
+|-------|------|----------------------|
+| 3a | `customers.list_people` | `GET /api/customers/people` |
+| 3a | `customers.list_companies` | `GET /api/customers/companies` |
+| 3a | `customers.list_deals` | `GET /api/customers/deals` |
+| 3b | `catalog.list_products` | `GET /api/catalog/products` |
+| 3b | `catalog.list_variants` | `GET /api/catalog/variants` |
+| 3b | `catalog.list_prices` | `GET /api/catalog/prices` |
+| 3b | `catalog.list_offers` | `GET /api/catalog/offers` (+ EM pre-resolution against `CatalogProductPrice` for `variantId`) |
+| 3c | `customers.get_person` | `GET /api/customers/people/[id]` |
+| 3c | `customers.get_company` | `GET /api/customers/companies/[id]` |
+| 3c | `customers.get_deal` | `GET /api/customers/deals/[id]` (+ optional `/customers/activities`, `/customers/comments` when `includeRelated` is set; bounded at 3 calls) |
+| 3c | `catalog.list_option_schemas` | `GET /api/catalog/option-schemas` |
+| 3c | `catalog.list_unit_conversions` | `GET /api/catalog/product-unit-conversions` |
+| 4 | `customers.update_deal_stage` | `PUT /api/customers/deals` |
+| 4 | `catalog.update_product` | `PUT /api/catalog/products` |
+| 4 | `catalog.bulk_update_products` | `PUT /api/catalog/products` (looped per record inside the confirmed handler; single pending action; per-record result array preserved) |
+| 4 | `catalog.apply_attribute_extraction` | `PUT /api/catalog/products` with the canonical `customFields` envelope |
 
-Do not add that missing API in this refactor. Create a separate small spec if product media metadata needs to become a first-class API/command operation.
+#### Documented exceptions
+
+These tools were left on their existing direct-ORM / service paths because the documented API surface does not expose what they need. None should be migrated until the missing API is created in a separate spec.
+
+| Tool | Reason |
+|------|--------|
+| `catalog.list_categories` | Route hardcodes `deletedAt: null` so `includeArchived: true` cannot be honored, and there is no `parentId` filter; tree-shaped output is not represented in the documented HTTP API. |
+| `catalog.get_category` | Same root cause as `list_categories` — needs hierarchy/tree shape the route does not expose. |
+| `catalog.get_product` | `includeRelated` would issue >5 round-trips and there is no documented API for product↔category or product↔tag assignments. |
+| `catalog.get_product_bundle` | Depends on the shared `buildProductBundle` aggregator that composes prices, categories, and tag assignments not exposed as one endpoint. |
+| `catalog.list_selected_products` | Same `buildProductBundle` dependency. |
+| `catalog.search_products` | Hybrid search service + query engine path with structured filter narrowing — not a pure projection of any documented endpoint. |
+| `catalog.get_product_media` | `/api/catalog/product-media` returns thumbnail-shaped fields, not the full attachment metadata the AI tool exposes. |
+| `catalog.list_product_media` | Same as `get_product_media`. |
+| `catalog.list_product_tags` | No documented product-tag assignments API. |
+| `catalog.get_attribute_schema` | Uses the `loadCustomFieldDefinitionIndex` resolver and merged-schema composition rather than a CRUD projection. |
+| `catalog.get_category_brief` | Same `loadCustomFieldDefinitionIndex` dependency. |
+| `catalog.list_price_kinds` | Shares the `listPriceKindsCore` composition with `list_price_kinds_base`; partial migration is risky. |
+| `catalog.list_price_kinds_base` | Same shared composition. |
+| `catalog.update_product_media_descriptions` | No documented attachments-metadata API/command; persists `storageMetadata.altText`/`caption` via guarded direct EM flush. |
+
+#### Out of scope (eligible for a follow-up wave)
+
+Phase 3 was scoped to the high-duplication `list_*`/`get_*` tools called out in the original Implementation Plan. The following customers tools look API-migratable but were intentionally not addressed in this spec:
+
+- `customers.list_activities`
+- `customers.list_tasks`
+- `customers.list_addresses`
+- `customers.list_tags`
+- `customers.get_settings`
+
+#### N/A — pure inference tools (no API surface at all)
+
+These tools are LLM-only proposal/draft generators with no persistence path, so they are naturally outside the scope of an API-backed refactor:
+
+- `catalog.draft_description_from_attributes`
+- `catalog.draft_description_from_media`
+- `catalog.extract_attributes_from_description`
+- `catalog.suggest_price_adjustment`
+- `catalog.suggest_title_variants`
+
+Do not add the missing APIs in this refactor. Each gap above is a candidate for a separate small API/command spec.
 
 ## File Manifest
 
@@ -356,6 +414,13 @@ Do not add that missing API in this refactor. Create a separate small spec if pr
 Approved for implementation as a minimal, BC-preserving refactor. The only known non-compliant item is intentionally out of scope and documented as follow-up debt.
 
 ## Changelog
+
+### 2026-04-29
+
+- **Status: Implemented.** Phases 1–4 landed on `feat/ai-framework-unification`; 16 typed AI tools now reuse existing API route handlers in-process via `createAiApiOperationRunner` / `defineApiBackedAiTool`. No public contract surfaces (tool names, schemas, route URLs, command IDs, event IDs, ACL feature IDs, generated file shapes, DB schema) changed. Pending-action prepare/preview/approval/cancel flow is unchanged — mutations execute API-backed only inside the confirmed handler.
+- Plumbing: trusted-auth context is injected into the synthesized in-process `Request` via `Symbol.for('open-mercato.auth.trustedContext')`; `resolveAuthFromRequestDetailed` short-circuits on it and the rest of the auth path is unchanged when the symbol is absent. Manifest sharing was hoisted into `packages/shared/src/modules/registry.ts` so the AI runner and the HTTP slug-router consume one source of truth.
+- Test posture: added 10 hermetic runner tests + 12 helper tests, plus per-tool delegation/mapping tests. Each migration commit replaced ORM/query-engine mocks with runner mocks. Final suite: ai-assistant 582/582, customers 438/438, catalog 551/551.
+- Documented exceptions: 14 catalog tools left on direct paths (see Phase 5 table) where the documented API does not expose the data they compose. The originally-anticipated `catalog.update_product_media_descriptions` exception remains; the rest are new findings discovered during phased execution. Each is a candidate for a follow-up API/command spec.
 
 ### 2026-04-27
 
