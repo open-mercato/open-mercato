@@ -39,7 +39,16 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await page.goto('/backend/customers/deals/pipeline');
       await expect(page.getByRole('heading', { name: 'Sales Pipeline' })).toBeVisible();
 
-      await page.getByLabel('Pipeline').selectOption(pipelineId!);
+      // Pipeline picker is a Radix Select inside <label>Pipeline ...</label>.
+      // The page also has a "Sort by" Select — scope by the wrapping label so
+      // .first() doesn't accidentally pick Sort while the pipelines query loads.
+      const pipelineCombobox = page
+        .locator('label')
+        .filter({ has: page.getByText('Pipeline', { exact: true }) })
+        .getByRole('combobox');
+      await expect(pipelineCombobox).toBeVisible({ timeout: 10_000 });
+      await pipelineCombobox.click();
+      await page.getByRole('option', { name: pipelineName, exact: true }).click();
 
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
