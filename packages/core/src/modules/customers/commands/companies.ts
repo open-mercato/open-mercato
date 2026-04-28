@@ -22,6 +22,7 @@ import {
   CustomerInteraction,
   CustomerTodoLink,
   CustomerEntity,
+  CustomerPersonCompanyLink,
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
@@ -49,7 +50,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_ENTITY_ID } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
@@ -70,6 +71,41 @@ const companyCrudEvents: CrudEventsConfig<CustomerEntity> = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+type CompanyDeleteBlockerCounts = {
+  personLinks: number
+  dealLinks: number
+  directPeople: number
+}
+
+function buildCompanyHasDependentsError(
+  translate: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+  counts: CompanyDeleteBlockerCounts,
+): CrudHttpError {
+  const blockers: string[] = []
+  if (counts.personLinks > 0) {
+    blockers.push(
+      translate('customers.companies.delete.blockers.persons', 'linked persons ({{count}})', { count: counts.personLinks }),
+    )
+  }
+  if (counts.dealLinks > 0) {
+    blockers.push(
+      translate('customers.companies.delete.blockers.deals', 'linked deals ({{count}})', { count: counts.dealLinks }),
+    )
+  }
+  if (counts.directPeople > 0) {
+    blockers.push(
+      translate('customers.companies.delete.blockers.directPeople', 'persons whose primary company is this one ({{count}})', { count: counts.directPeople }),
+    )
+  }
+  const summary = blockers.join(', ')
+  const message = translate(
+    'customers.companies.delete.blocked',
+    'Cannot delete company: {{blockers}}. Please unlink or reassign first.',
+    { blockers: summary },
+  )
+  return new CrudHttpError(422, { error: message, code: 'COMPANY_HAS_DEPENDENTS' })
 }
 
 function companyEntityIndexEntry(entity: CustomerEntity): QueryIndexEventEntry {
@@ -781,28 +817,80 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Company id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadCompanySnapshot(em, id)
-      const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+      const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
+      const snapshot = await loadCompanySnapshot(baseEm, id)
+      const entity = await baseEm.findOne(CustomerEntity, { id, deletedAt: null })
       const record = assertFound(entity, 'Company not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
-      await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
-      await em.nativeDelete(CustomerDealCompanyLink, { company: record })
-      await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerCompanyProfile, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      if (profile) {
-        await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
+
+      const dependentScope = {
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
       }
-      await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
-      em.remove(record)
-      await em.flush()
+      const personLinks = await baseEm.count(CustomerPersonCompanyLink, {
+        company: record,
+        deletedAt: null,
+        ...dependentScope,
+      })
+      const dealLinks = await baseEm.count(CustomerDealCompanyLink, {
+        company: record,
+      })
+      const directPeople = await baseEm.count(CustomerPersonProfile, {
+        company: record,
+        ...dependentScope,
+      })
+      if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
+        const { translate } = await resolveTranslations()
+        throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
+      }
+
+      const profile = await baseEm.findOne(CustomerCompanyProfile, { entity: record })
+
+      await baseEm.transactional(async (em) => {
+        const recheckPersonLinks = await em.count(CustomerPersonCompanyLink, {
+          company: record,
+          deletedAt: null,
+          ...dependentScope,
+        })
+        const recheckDealLinks = await em.count(CustomerDealCompanyLink, {
+          company: record,
+        })
+        const recheckDirectPeople = await em.count(CustomerPersonProfile, {
+          company: record,
+          ...dependentScope,
+        })
+        if (recheckPersonLinks > 0 || recheckDealLinks > 0 || recheckDirectPeople > 0) {
+          const { translate } = await resolveTranslations()
+          throw buildCompanyHasDependentsError(translate, {
+            personLinks: recheckPersonLinks,
+            dealLinks: recheckDealLinks,
+            directPeople: recheckDirectPeople,
+          })
+        }
+
+        await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
+        await em.nativeDelete(CustomerDealCompanyLink, { company: record })
+        await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerCompanyProfile, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        if (profile) {
+          await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
+        }
+        await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
+        const txEntity = await findOneWithDecryption(
+          em,
+          CustomerEntity,
+          { id: record.id },
+          undefined,
+          { tenantId: record.tenantId, organizationId: record.organizationId },
+        )
+        if (txEntity) em.remove(txEntity)
+      })
 
       const indexDeletes: QueryIndexEventEntry[] = []
       const memberUpserts: QueryIndexEventEntry[] = []

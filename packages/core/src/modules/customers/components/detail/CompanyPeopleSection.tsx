@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/shared/lib/browser/safeLocalStorage'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { CreatePersonDialog } from './CreatePersonDialog'
 import { PersonCard } from './PersonCard'
@@ -319,6 +320,13 @@ export function CompanyPeopleSection({
     void loadVisiblePeople()
   }, [loadVisiblePeople])
 
+  useAppEvent('customers.person_company_link.deleted', (event) => {
+    const payload = event.payload as { companyEntityId?: string | null } | null | undefined
+    if (payload && payload.companyEntityId === companyId) {
+      void loadVisiblePeople()
+    }
+  }, [companyId, loadVisiblePeople])
+
   React.useEffect(() => {
     setListPage(1)
   }, [searchQuery, sortMode])
@@ -520,9 +528,6 @@ export function CompanyPeopleSection({
             companyId,
           },
         )
-        applyPeopleChange((current) => current.filter((entry) => entry.id !== personId))
-        setVisiblePeople((current) => current.filter((entry) => entry.id !== personId))
-        setListTotalCount((current) => Math.max(0, current - 1))
         await loadVisiblePeople()
         flash(
           translate(
@@ -546,7 +551,6 @@ export function CompanyPeopleSection({
       }
     },
     [
-      applyPeopleChange,
       companyId,
       loadVisiblePeople,
       onLoadingChange,

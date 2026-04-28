@@ -431,14 +431,7 @@ export function TasksSection({
         ) : null}
 
         {!isInitialLoading && !hasTasks ? (
-          <TabEmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openCreateDialog,
-              disabled: isMutating || !entityId,
-            }}
-          />
+          <TabEmptyState title={emptyState.title} />
         ) : null}
 
         {!isInitialLoading && hasTasks ? (

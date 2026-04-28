@@ -57,8 +57,30 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoShownRef = useRef(false)
+  const [otherModalOpen, setOtherModalOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Track whether another Radix Dialog or native <dialog> modal is currently open.
+  // The floating button + auto-popup must defer while the user is mid-task in another modal —
+  // stacking the feedback dialog on top deactivates the underlying dialog (Radix DismissableLayer)
+  // and leaves it with pointer-events:none, which the user perceives as a frozen page.
+  useEffect(() => {
+    if (!mounted || open) {
+      setOtherModalOpen(false)
+      return
+    }
+    const check = () => {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
+    setOtherModalOpen(check())
+    const observer = new MutationObserver(() => setOtherModalOpen(check()))
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-state', 'open'], childList: true })
+    return () => observer.disconnect()
+  }, [mounted, open])
 
   // Caption rotation animation
   useEffect(() => {
@@ -74,14 +96,24 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
 
+    function isAnotherModalOpen() {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
+
     function resetTimer() {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
       inactivityTimer.current = setTimeout(() => {
-        if (!autoShownRef.current) {
-          autoShownRef.current = true
-          setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
-          setOpen(true)
+        if (autoShownRef.current) return
+        if (isAnotherModalOpen()) {
+          inactivityTimer.current = setTimeout(resetTimer, 5_000)
+          return
         }
+        autoShownRef.current = true
+        setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
+        setOpen(true)
       }, 30_000)
     }
 
@@ -168,6 +200,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   }, [submitState, resetForm])
 
   if (!mounted) return null
+  if (otherModalOpen && !open) return null
 
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)

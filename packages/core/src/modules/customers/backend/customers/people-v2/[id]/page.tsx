@@ -249,7 +249,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
+    setSectionAction((prev) => (action !== null ? action : prev))
   }, [])
 
   React.useEffect(() => {
@@ -424,6 +424,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 dealsCount={dealCount}
                 companiesCount={companyCount}
                 tasksCount={todoCount}
+                sectionAction={sectionAction}
               >
                 <div className="min-w-0">
                 {(() => {

@@ -3,7 +3,17 @@ import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
-import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Activators,
+} from '@dnd-kit/core'
+import type { KeyboardSensorOptions } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
@@ -75,6 +85,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
+import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
@@ -90,6 +101,31 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
   true,
 )
+
+function isFormControlTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as Element).tagName !== 'string') return false
+  const el = target as HTMLElement
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (el.isContentEditable) return true
+  return false
+}
+
+function resolveActivatorEventTarget(event: React.SyntheticEvent | Event): EventTarget | null {
+  const native = (event as React.SyntheticEvent).nativeEvent
+  if (native && typeof (native as Event).target !== 'undefined') return (native as Event).target
+  return (event as Event).target ?? null
+}
+
+class GuardedKeyboardSensor extends KeyboardSensor {
+  static activators: Activators<KeyboardSensorOptions> = KeyboardSensor.activators.map((activator) => ({
+    eventName: activator.eventName,
+    handler: (event, options, context) => {
+      if (isFormControlTarget(resolveActivatorEventTarget(event))) return false
+      return activator.handler(event, options, context)
+    },
+  }))
+}
 
 function resolveInternalNavigationTarget(target: string | URL | null | undefined): string | null {
   if (typeof window === 'undefined' || target == null) return null
@@ -425,16 +461,31 @@ class FieldDefinitionsManagerErrorBoundary extends React.Component<
 }
 
 function SortableGroupItem({ id, children, disabled }: { id: string; children: React.ReactNode; disabled?: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled })
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     position: 'relative' as const,
   }
+  const handleProps = React.useMemo<SortableGroupHandleProps>(() => ({
+    ref: setActivatorNodeRef,
+    attributes: attributes as unknown as Record<string, unknown>,
+    listeners: listeners as unknown as Record<string, unknown> | undefined,
+    isDragging,
+    disabled: !!disabled,
+  }), [setActivatorNodeRef, attributes, listeners, isDragging, disabled])
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {children}
+    <div ref={setNodeRef} style={style}>
+      <SortableGroupHandleProvider value={handleProps}>{children}</SortableGroupHandleProvider>
     </div>
   )
 }
@@ -1667,7 +1718,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
   const sortableSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
+    useSensor(GuardedKeyboardSensor),
   )
   const handleGroupDragEnd = React.useCallback((event: DragEndEvent) => {
     const { active, over } = event
