@@ -453,6 +453,15 @@ async function listCanonicalInteractions(
   return body?.items ?? [];
 }
 
+async function flushQueuesForMappingQuery(query: { interactionId?: string; todoId?: string }): Promise<void> {
+  if (typeof query.interactionId === 'string' && query.interactionId.length > 0) {
+    await flushExampleCustomersSyncQueues({ outbound: true, inbound: false });
+  }
+  if (typeof query.todoId === 'string' && query.todoId.length > 0) {
+    await flushExampleCustomersSyncQueues({ outbound: false, inbound: true });
+  }
+}
+
 async function waitForMapping(
   request: APIRequestContext,
   token: string,
@@ -462,6 +471,7 @@ async function waitForMapping(
   let mapping: MappingItem | null = null;
   await expect
     .poll(async () => {
+      await flushQueuesForMappingQuery(query);
       const items = await listMappings(request, token, query, scope);
       mapping = items[0] ?? null;
       return mapping ? mapping.todoId : null;

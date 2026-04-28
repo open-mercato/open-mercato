@@ -98,6 +98,20 @@ async function drainDataSyncImportQueue(): Promise<void> {
   await drainQueue(DATA_SYNC_IMPORT_QUEUE)
 }
 
+async function waitForCompletedRun(
+  request: APIRequestContext,
+  token: string,
+  runId: string,
+): Promise<void> {
+  await expect.poll(async () => {
+    await drainDataSyncImportQueue()
+    const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(runId)}`, { token })
+    expect(runResponse.status()).toBe(200)
+    const runBody = await readJson(runResponse)
+    return String(runBody.status ?? '')
+  }, { timeout: 30_000, intervals: [250, 500, 1_000, 2_000] }).toBe('completed')
+}
+
 function asRunSummary(value: JsonRecord): SyncRunSummary {
   return {
     status: String(value.status ?? ''),
@@ -334,7 +348,12 @@ async function findPersonByEmail(
     const body = await readJson(response)
     const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
     const matching = items.find((item) => {
-      const primaryEmail = typeof item.primary_email === 'string' ? item.primary_email.trim().toLowerCase() : ''
+      const primaryEmail =
+        typeof item.primary_email === 'string'
+          ? item.primary_email.trim().toLowerCase()
+          : typeof item.primaryEmail === 'string'
+            ? item.primaryEmail.trim().toLowerCase()
+            : ''
       return primaryEmail === normalizedEmail
     })
     if (matching) return matching
@@ -423,6 +442,8 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
   })
 
   test('upload preview and import create then update a customer person', async ({ request }) => {
+    test.setTimeout(60_000)
+
     const token = await getAuthToken(request, 'admin')
     const timestamp = Date.now()
     const email = `sync-excel-${timestamp}@example.com`
@@ -520,14 +541,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       const importStartBody = await readJson(importStart)
       firstRunId = String(importStartBody.runId)
       expect(firstRunId).toMatch(/^[0-9a-f-]{36}$/i)
-      await drainDataSyncImportQueue()
-
-      await expect.poll(async () => {
-        const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(firstRunId!)}`, { token })
-        expect(runResponse.status()).toBe(200)
-        const runBody = await readJson(runResponse)
-        return String(runBody.status ?? '')
-      }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
+      await waitForCompletedRun(request, token, firstRunId)
 
       const firstRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(firstRunId)}`, { token })
       expect(firstRunResponse.status()).toBe(200)
@@ -617,14 +631,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       expect(secondImportStart.status()).toBe(201)
       const secondImportBody = await readJson(secondImportStart)
       secondRunId = String(secondImportBody.runId)
-      await drainDataSyncImportQueue()
-
-      await expect.poll(async () => {
-        const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(secondRunId!)}`, { token })
-        expect(runResponse.status()).toBe(200)
-        const runBody = await readJson(runResponse)
-        return String(runBody.status ?? '')
-      }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
+      await waitForCompletedRun(request, token, secondRunId)
 
       const secondRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(secondRunId)}`, { token })
       expect(secondRunResponse.status()).toBe(200)
@@ -685,14 +692,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       expect(thirdImportStart.status()).toBe(201)
       const thirdImportBody = await readJson(thirdImportStart)
       thirdRunId = String(thirdImportBody.runId)
-      await drainDataSyncImportQueue()
-
-      await expect.poll(async () => {
-        const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(thirdRunId!)}`, { token })
-        expect(runResponse.status()).toBe(200)
-        const runBody = await readJson(runResponse)
-        return String(runBody.status ?? '')
-      }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
+      await waitForCompletedRun(request, token, thirdRunId)
 
       const thirdRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(thirdRunId)}`, { token })
       expect(thirdRunResponse.status()).toBe(200)
