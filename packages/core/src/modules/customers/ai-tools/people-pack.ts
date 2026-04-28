@@ -4,12 +4,23 @@
  * Read-only tools scoped to `ctx.tenantId` / `ctx.organizationId` that wrap
  * the existing customers query engine + encryption helpers. Mutation tools
  * are deferred to Step 5.13+ under the pending-action contract.
+ *
+ * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * `customers.list_people` is now an API-backed wrapper over
+ * `GET /api/customers/people`. The `companyId` AI input has no inclusion
+ * equivalent on the route (the route exposes `excludeLinkedCompanyId` only)
+ * so it is pre-resolved against `CustomerPersonProfile.company` and threaded
+ * through the route's `ids` filter.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
+import type {
+  AiApiOperationRequest,
+  AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import {
   CustomerEntity,
@@ -25,11 +36,13 @@ import {
 } from '../data/entities'
 import { assertTenantScope, type CustomersAiToolDefinition, type CustomersToolContext } from './types'
 
-function resolveEm(ctx: CustomersToolContext): EntityManager {
+const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+
+function resolveEm(ctx: CustomersToolContext | AiToolExecutionContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
 }
 
-function buildScope(ctx: CustomersToolContext, tenantId: string) {
+function buildScope(ctx: CustomersToolContext | AiToolExecutionContext, tenantId: string) {
   return {
     tenantId,
     organizationId: ctx.organizationId,
@@ -46,113 +59,121 @@ const listPeopleInput = z
   })
   .passthrough()
 
-const listPeopleTool: CustomersAiToolDefinition = {
+type ListPeopleInput = z.infer<typeof listPeopleInput>
+
+type ListPeopleApiItem = {
+  id?: string
+  display_name?: string | null
+  displayName?: string | null
+  primary_email?: string | null
+  primaryEmail?: string | null
+  primary_phone?: string | null
+  primaryPhone?: string | null
+  status?: string | null
+  lifecycle_stage?: string | null
+  lifecycleStage?: string | null
+  source?: string | null
+  owner_user_id?: string | null
+  ownerUserId?: string | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+}
+
+type ListPeopleApiResponse = {
+  items?: ListPeopleApiItem[]
+  total?: number
+}
+
+type ListPeopleOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+const listPeopleTool = defineApiBackedAiTool<ListPeopleInput, ListPeopleApiResponse, ListPeopleOutput>({
   name: 'customers.list_people',
   displayName: 'List people',
   description:
     'Search / list people (CRM persons) for the caller tenant + organization. Returns { items, total, limit, offset }.',
   inputSchema: listPeopleInput,
   requiredFeatures: ['customers.people.view'],
-  tags: ['read', 'customers'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listPeopleInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: async (input, ctx) => {
+    const { tenantId } = assertTenantScope(ctx as unknown as CustomersToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
+    const page = Math.floor(offset / limit) + 1
 
-    let idRestriction: string[] | null = null
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
+    }
+    if (input.q?.trim()) query.search = input.q.trim()
+    if (input.tags && input.tags.length > 0) query.tagIds = input.tags.join(',')
+
     if (input.companyId) {
+      const em = resolveEm(ctx)
       const profiles = await findWithDecryption<CustomerPersonProfile>(
         em,
         CustomerPersonProfile,
-        { tenantId, company: input.companyId } as any,
+        { tenantId, company: input.companyId } as never,
         undefined,
         buildScope(ctx, tenantId),
       )
       const ids = profiles
         .map((profile) => {
-          const entity = (profile as any).entity
+          const entity = (profile as { entity?: unknown }).entity
           if (!entity) return null
-          return typeof entity === 'string' ? entity : entity.id ?? null
+          if (typeof entity === 'string') return entity
+          const candidate = (entity as { id?: unknown }).id
+          return typeof candidate === 'string' ? candidate : null
         })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!ids.length) {
-        return { items: [], total: 0, limit, offset }
-      }
-      idRestriction = ids
-    }
-    if (input.tags && input.tags.length > 0) {
-      const assignments = await findWithDecryption<CustomerTagAssignment>(
-        em,
-        CustomerTagAssignment,
-        { tenantId, tag: { $in: input.tags } } as any,
-        undefined,
-        buildScope(ctx, tenantId),
-      )
-      const scopedIds = assignments
-        .map((assignment) => {
-          const entity = (assignment as any).entity
-          if (!entity) return null
-          return typeof entity === 'string' ? entity : entity.id ?? null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!scopedIds.length) {
-        return { items: [], total: 0, limit, offset }
-      }
-      idRestriction = idRestriction
-        ? idRestriction.filter((id) => scopedIds.includes(id))
-        : scopedIds
-      if (!idRestriction.length) {
-        return { items: [], total: 0, limit, offset }
-      }
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      // Empty match — feed a non-existent uuid so the route returns
+      // { items: [], total: 0 } without us bypassing the API.
+      query.ids = ids.length ? ids.join(',') : NIL_UUID
     }
 
-    const filters: Record<string, unknown> = {
-      kind: 'person',
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/customers/people',
+      query,
     }
-    if (input.q?.trim()) {
-      const pattern = `%${input.q.trim()}%`
-      filters.$or = [
-        { display_name: { $ilike: pattern } },
-        { primary_email: { $ilike: pattern } },
-        { primary_phone: { $ilike: pattern } },
-        { description: { $ilike: pattern } },
-      ]
-    }
-    if (idRestriction) {
-      filters.id = { $in: idRestriction }
-    }
-
-    const qe = ctx.container.resolve<QueryEngine>('queryEngine')
-    const result: QueryResult = await qe.query('customers:customer_entity', {
-      filters,
-      sort: [{ field: 'created_at', dir: SortDir.Desc }],
-      page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
-      tenantId,
-      organizationId: ctx.organizationId ?? undefined,
-    })
-
+    return operation
+  },
+  mapResponse: (response, input) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListPeopleApiResponse
+    const rawItems: ListPeopleApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: result.items.map((row: Record<string, unknown>) => ({
-        id: row.id,
-        displayName: row.display_name ?? row.displayName,
-        primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
-        primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
-        status: row.status ?? null,
-        lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
-        source: row.source ?? null,
-        ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
-        organizationId: row.organization_id ?? row.organizationId ?? null,
-        tenantId: row.tenant_id ?? row.tenantId ?? null,
-        createdAt: row.created_at ?? row.createdAt ? new Date(String(row.created_at ?? row.createdAt)).toISOString() : null,
-      })),
-      total: result.total,
+      items: rawItems.map((row) => {
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          displayName: row.display_name ?? row.displayName ?? null,
+          primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
+          primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
+          status: row.status ?? null,
+          lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
+          source: row.source ?? null,
+          ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+        }
+      }),
+      total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CustomersAiToolDefinition
 
 const getPersonInput = z.object({
   personId: z.string().uuid().describe('Person entity id (UUID).'),
