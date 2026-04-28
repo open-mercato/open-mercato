@@ -739,7 +739,7 @@ export default function MyTimesheetsPage() {
               <tbody>
                 {projects.map((project) => (
                   <tr key={project.id} className="group border-b hover:bg-muted/30">
-                    <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium">
+                    <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium text-foreground">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 truncate" title={project.name}>

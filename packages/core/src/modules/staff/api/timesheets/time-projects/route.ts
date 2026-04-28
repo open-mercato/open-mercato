@@ -1,9 +1,11 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { StaffTimeProject } from '../../../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { StaffTimeProject, StaffTimeProjectMember, StaffTeamMember } from '../../../data/entities'
 import { staffTimeProjectCreateSchema, staffTimeProjectUpdateSchema } from '../../../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
@@ -47,10 +49,37 @@ const listSchema = z
     projectType: z.string().optional(),
     status: z.string().optional(),
     customerId: z.string().uuid().optional(),
+    mine: z.string().optional(),
+    include: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
+
+async function resolveCallerAssignedProjectIds(
+  em: EntityManager,
+  userId: string,
+  tenantId: string,
+  organizationId: string,
+): Promise<string[]> {
+  const scopeCtx = { tenantId, organizationId }
+  const staffMember = await findOneWithDecryption(
+    em.fork(),
+    StaffTeamMember,
+    { userId, tenantId, organizationId, deletedAt: null },
+    {},
+    scopeCtx,
+  )
+  if (!staffMember) return []
+  const memberships = await em.fork().find(StaffTimeProjectMember, {
+    staffMemberId: staffMember.id,
+    tenantId,
+    organizationId,
+    status: 'active',
+    deletedAt: null,
+  })
+  return Array.from(new Set(memberships.map((m) => m.timeProjectId)))
+}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -62,6 +91,7 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: 'staff:staff_time_project' },
+  enrichers: { entityId: 'staff:staff_time_project' },
   list: {
     schema: listSchema,
     entityId: 'staff:staff_time_project',
@@ -90,21 +120,39 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
       startDate: F.start_date,
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      let narrowIds: string[] | null = null
       if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
-        const ids = query.ids
+        narrowIds = query.ids
           .split(',')
           .map((value) => value.trim())
           .filter((value) => value.length > 0)
-        if (ids.length > 0) {
-          filters[F.id] = { $in: ids }
+      }
+      if (parseBooleanFlag(query.mine) && ctx.auth) {
+        const em = ctx.container.resolve('em') as EntityManager
+        const tenantId = ctx.auth.tenantId ?? ''
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? ''
+        const assigned = await resolveCallerAssignedProjectIds(
+          em,
+          ctx.auth.sub,
+          tenantId,
+          organizationId,
+        )
+        narrowIds = narrowIds
+          ? narrowIds.filter((id) => assigned.includes(id))
+          : assigned
+        if (narrowIds.length === 0) {
+          filters[F.id] = { $in: ['00000000-0000-0000-0000-000000000000'] }
+          return filters
         }
+      }
+      if (narrowIds && narrowIds.length > 0) {
+        filters[F.id] = { $in: narrowIds }
       }
       const term = sanitizeSearchTerm(query.q)
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [{ [F.name]: { $ilike: like } }, { [F.code]: { $ilike: like } }]
+        filters[F.name] = { $ilike: `%${escapeLikePattern(term)}%` }
       }
       if (typeof query.projectType === 'string' && query.projectType.trim().length > 0) {
         filters[F.project_type] = query.projectType.trim()
