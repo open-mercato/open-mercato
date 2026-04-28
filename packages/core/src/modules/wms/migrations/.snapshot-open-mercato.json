@@ -1,10 +1,12 @@
 {
+  "name": "public",
   "namespaces": [
     "public"
   ],
-  "name": "public",
   "tables": [
     {
+      "name": "wms_inventory_lots",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -247,8 +249,6 @@
           "mappedType": "text"
         }
       },
-      "name": "wms_inventory_lots",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_inventory_lots_variant_lot_unique_idx",
@@ -296,6 +296,8 @@
       "nativeEnums": {}
     },
     {
+      "name": "wms_product_inventory_profiles",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -554,8 +556,6 @@
           "mappedType": "decimal"
         }
       },
-      "name": "wms_product_inventory_profiles",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_inventory_profiles_product_unique_idx",
@@ -602,6 +602,8 @@
       "nativeEnums": {}
     },
     {
+      "name": "wms_warehouses",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -844,8 +846,6 @@
           "mappedType": "text"
         }
       },
-      "name": "wms_warehouses",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_warehouses_org_code_unique_idx",
@@ -883,6 +883,8 @@
       "nativeEnums": {}
     },
     {
+      "name": "wms_inventory_reservations",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -1141,8 +1143,6 @@
           "mappedType": "text"
         }
       },
-      "name": "wms_inventory_reservations",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_inventory_reservations_status_idx",
@@ -1202,8 +1202,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouses",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouses"
         },
         "wms_inventory_reservations_lot_id_foreign": {
           "constraintName": "wms_inventory_reservations_lot_id_foreign",
@@ -1215,13 +1214,14 @@
             "id"
           ],
           "referencedTableName": "public.wms_inventory_lots",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         }
       },
       "nativeEnums": {}
     },
     {
+      "name": "wms_warehouse_locations",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -1464,8 +1464,6 @@
           "mappedType": "json"
         }
       },
-      "name": "wms_warehouse_locations",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_warehouse_locations_warehouse_code_unique_idx",
@@ -1529,8 +1527,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouses",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouses"
         },
         "wms_warehouse_locations_parent_id_foreign": {
           "constraintName": "wms_warehouse_locations_parent_id_foreign",
@@ -1542,13 +1539,14 @@
             "id"
           ],
           "referencedTableName": "public.wms_warehouse_locations",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         }
       },
       "nativeEnums": {}
     },
     {
+      "name": "wms_inventory_movements",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -1887,8 +1885,6 @@
           "mappedType": "text"
         }
       },
-      "name": "wms_inventory_movements",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_inventory_movements_warehouse_performed_at_idx",
@@ -1953,8 +1949,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouses",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouses"
         },
         "wms_inventory_movements_location_from_id_foreign": {
           "constraintName": "wms_inventory_movements_location_from_id_foreign",
@@ -1966,8 +1961,7 @@
             "id"
           ],
           "referencedTableName": "public.wms_warehouse_locations",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         },
         "wms_inventory_movements_location_to_id_foreign": {
           "constraintName": "wms_inventory_movements_location_to_id_foreign",
@@ -1979,8 +1973,7 @@
             "id"
           ],
           "referencedTableName": "public.wms_warehouse_locations",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         },
         "wms_inventory_movements_lot_id_foreign": {
           "constraintName": "wms_inventory_movements_lot_id_foreign",
@@ -1992,13 +1985,14 @@
             "id"
           ],
           "referencedTableName": "public.wms_inventory_lots",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         }
       },
       "nativeEnums": {}
     },
     {
+      "name": "wms_inventory_balances",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -2241,8 +2235,6 @@
           "mappedType": "decimal"
         }
       },
-      "name": "wms_inventory_balances",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_inventory_balances_serial_unique_idx",
@@ -2319,8 +2311,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouses",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouses"
         },
         "wms_inventory_balances_location_id_foreign": {
           "constraintName": "wms_inventory_balances_location_id_foreign",
@@ -2331,8 +2322,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouse_locations",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouse_locations"
         },
         "wms_inventory_balances_lot_id_foreign": {
           "constraintName": "wms_inventory_balances_lot_id_foreign",
@@ -2344,13 +2334,14 @@
             "id"
           ],
           "referencedTableName": "public.wms_inventory_lots",
-          "deleteRule": "set null",
-          "updateRule": "cascade"
+          "deleteRule": "set null"
         }
       },
       "nativeEnums": {}
     },
     {
+      "name": "wms_warehouse_zones",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -2529,8 +2520,6 @@
           "mappedType": "integer"
         }
       },
-      "name": "wms_warehouse_zones",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "wms_warehouse_zones_warehouse_code_unique_idx",
@@ -2584,12 +2573,12 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.wms_warehouses",
-          "updateRule": "cascade"
+          "referencedTableName": "public.wms_warehouses"
         }
       },
       "nativeEnums": {}
     }
   ],
+  "views": [],
   "nativeEnums": {}
 }
