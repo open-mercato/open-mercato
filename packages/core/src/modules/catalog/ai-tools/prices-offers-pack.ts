@@ -12,9 +12,13 @@
  * over the base enumerator.
  *
  * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
- * `catalog.list_prices` is now an API-backed wrapper over
- * `GET /api/catalog/prices`. Tool name, schema, requiredFeatures, and output
- * shape are unchanged.
+ * `catalog.list_prices` and `catalog.list_offers` are now API-backed wrappers
+ * over `GET /api/catalog/prices` and `GET /api/catalog/offers`. Tool names,
+ * schemas, requiredFeatures, and output shapes are unchanged. The offers
+ * route does not expose a `variantId` filter; the AI input is pre-resolved
+ * via `CatalogProductPrice` to the matching offer ids and threaded through
+ * the route's `id` filter (or post-filtered when more than one matches),
+ * mirroring Phase 3a's `companyId` → `ids` trick for `customers.list_people`.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
@@ -24,7 +28,7 @@ import type {
   AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogOffer, CatalogProductPrice } from '../data/entities'
+import { CatalogProductPrice } from '../data/entities'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
 import { listPriceKindsCore } from './_shared'
 
@@ -219,113 +223,149 @@ const listOffersInput = z
   })
   .passthrough()
 
-const listOffersTool: CatalogAiToolDefinition = {
+const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+
+type ListOffersInput = z.infer<typeof listOffersInput>
+
+type ListOffersApiItem = {
+  id?: string
+  product_id?: string | null
+  productId?: string | null
+  channel_id?: string | null
+  channelId?: string | null
+  title?: string | null
+  description?: string | null
+  default_media_id?: string | null
+  defaultMediaId?: string | null
+  default_media_url?: string | null
+  defaultMediaUrl?: string | null
+  is_active?: boolean | null
+  isActive?: boolean | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+}
+
+type ListOffersApiResponse = {
+  items?: ListOffersApiItem[]
+  total?: number
+}
+
+type ListOffersOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+async function resolveOfferIdsForVariant(
+  ctx: AiToolExecutionContext | CatalogToolContext,
+  tenantId: string,
+  variantId: string,
+): Promise<string[]> {
+  const em = resolveEm(ctx)
+  const priceWhere: Record<string, unknown> = { tenantId, variant: variantId }
+  if (ctx.organizationId) priceWhere.organizationId = ctx.organizationId
+  const prices = await findWithDecryption<CatalogProductPrice>(
+    em,
+    CatalogProductPrice,
+    priceWhere as any,
+    undefined,
+    buildScope(ctx, tenantId),
+  )
+  const offerIds = prices
+    .map((price) => (price as any).offer)
+    .map((offer) => (offer && typeof offer === 'object' ? offer.id : offer))
+    .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
+  return Array.from(new Set(offerIds))
+}
+
+const listOffersTool = defineApiBackedAiTool<
+  ListOffersInput,
+  ListOffersApiResponse,
+  ListOffersOutput
+>({
   name: 'catalog.list_offers',
   displayName: 'List offers',
   description:
     'List catalog offers for the caller tenant + organization, optionally narrowed to a product (or a variant via its prices).',
   inputSchema: listOffersInput,
   requiredFeatures: ['catalog.products.view'],
-  tags: ['read', 'catalog'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listOffersInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: async (input, ctx) => {
+    const { tenantId } = assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const scope = buildScope(ctx, tenantId)
-    if (input.variantId) {
-      const priceWhere: Record<string, unknown> = { tenantId, variant: input.variantId }
-      if (ctx.organizationId) priceWhere.organizationId = ctx.organizationId
-      const prices = await findWithDecryption<CatalogProductPrice>(
-        em,
-        CatalogProductPrice,
-        priceWhere as any,
-        undefined,
-        scope,
-      )
-      const offerIds = prices
-        .map((price) => (price as any).offer)
-        .map((offer) => (offer && typeof offer === 'object' ? offer.id : offer))
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!offerIds.length) return { items: [], total: 0, limit, offset }
-      const where: Record<string, unknown> = {
-        tenantId,
-        id: { $in: Array.from(new Set(offerIds)) },
-        deletedAt: null,
-      }
-      if (ctx.organizationId) where.organizationId = ctx.organizationId
-      if (input.productId) where.product = input.productId
-      if (input.active === true) where.isActive = true
-      const [rows, total] = await Promise.all([
-        findWithDecryption<CatalogOffer>(
-          em,
-          CatalogOffer,
-          where as any,
-          { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-          scope,
-        ),
-        em.count(CatalogOffer, where as any),
-      ])
-      const filtered = rows.filter((row) => row.tenantId === tenantId)
-      return {
-        items: filtered.map((row) => ({
-          id: row.id,
-          title: row.title,
-          description: row.description ?? null,
-          channelId: row.channelId,
-          productId: (row as any).product && typeof (row as any).product === 'object'
-            ? (row as any).product.id
-            : (row as any).product ?? null,
-          defaultMediaId: row.defaultMediaId ?? null,
-          defaultMediaUrl: row.defaultMediaUrl ?? null,
-          isActive: !!row.isActive,
-          organizationId: row.organizationId ?? null,
-          tenantId: row.tenantId ?? null,
-          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-        })),
-        total,
-        limit,
-        offset,
-      }
+    const page = Math.floor(offset / limit) + 1
+
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
     }
-    const where: Record<string, unknown> = { tenantId, deletedAt: null }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.productId) where.product = input.productId
-    if (input.active === true) where.isActive = true
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CatalogOffer>(
-        em,
-        CatalogOffer,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-        scope,
-      ),
-      em.count(CatalogOffer, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    if (input.productId) query.productId = input.productId
+    if (input.active === true) query.isActive = 'true'
+
+    if (input.variantId) {
+      const offerIds = await resolveOfferIdsForVariant(ctx, tenantId, input.variantId)
+      if (offerIds.length === 0) {
+        // Empty match — feed a non-existent uuid so the route returns an
+        // empty page without us bypassing the API.
+        query.id = NIL_UUID
+      } else if (offerIds.length === 1) {
+        query.id = offerIds[0]
+      }
+      // For >1 offer ids the route's single-id filter cannot narrow; the
+      // mapper post-filters the unfiltered response by the resolved ids.
+    }
+
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/catalog/offers',
+      query,
+    }
+    return operation
+  },
+  mapResponse: async (response, input, ctx) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListOffersApiResponse
+    let rawItems: ListOffersApiItem[] = Array.isArray(data.items) ? data.items : []
+    let total = typeof data.total === 'number' ? data.total : 0
+
+    if (input.variantId) {
+      const { tenantId } = assertTenantScope(ctx as unknown as CatalogToolContext)
+      const offerIds = await resolveOfferIdsForVariant(ctx, tenantId, input.variantId)
+      const offerIdSet = new Set(offerIds)
+      rawItems = rawItems.filter((row) => typeof row.id === 'string' && offerIdSet.has(row.id))
+      total = rawItems.length
+    }
+
     return {
-      items: filtered.map((row) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description ?? null,
-        channelId: row.channelId,
-        productId: (row as any).product && typeof (row as any).product === 'object'
-          ? (row as any).product.id
-          : (row as any).product ?? null,
-        defaultMediaId: row.defaultMediaId ?? null,
-        defaultMediaUrl: row.defaultMediaUrl ?? null,
-        isActive: !!row.isActive,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-      })),
+      items: rawItems.map((row) => {
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          title: row.title ?? '',
+          description: row.description ?? null,
+          channelId: row.channel_id ?? row.channelId ?? null,
+          productId: row.product_id ?? row.productId ?? null,
+          defaultMediaId: row.default_media_id ?? row.defaultMediaId ?? null,
+          defaultMediaUrl: row.default_media_url ?? row.defaultMediaUrl ?? null,
+          isActive: !!(row.is_active ?? row.isActive),
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+        }
+      }),
       total,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CatalogAiToolDefinition
 
 export const pricesOffersAiTools: CatalogAiToolDefinition[] = [
   listPricesTool,
