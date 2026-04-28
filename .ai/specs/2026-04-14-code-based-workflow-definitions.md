@@ -165,6 +165,8 @@ The `const` modifier on `TSteps` tells TypeScript to infer literal types for the
 
 **Workflow ID convention:** Prefix with module name using dot notation: `module.workflow-name` (e.g., `sales.order-approval`, `workflows.demo-checkout`). This follows the same namespacing convention as event IDs (`module.entity.action`) and ACL features (`module.action`). Unlike those systems, the workflows generator extension validates uniqueness at `yarn generate` time — duplicate `workflowId` across modules is a hard error. This is cheap to add since we're building a new generator extension.
 
+The shared `workflowDefinitionDataSchema` `workflowId` regex permits dots so that module-prefixed code IDs round-trip through customize/PUT validation without escaping. Earlier the validator only accepted `[a-z0-9-]`; it was widened to `[a-z0-9.-]` so that `code:<workflowId>` payloads (which embed the dotted ID inside the persisted JSONB) validate successfully.
+
 **Runtime behavior:** `defineWorkflow()` also validates the definition against `workflowDefinitionDataSchema` at call time (import-time). This catches issues that TypeScript can't (e.g., missing START step, no transitions). Validation errors throw with a clear message including the `workflowId`.
 
 **Output type:**
@@ -267,6 +269,10 @@ registerCodeWorkflowDefinitions(codeWorkflowDefinitions)
 5. Return merged list, sorted by workflowName
 ```
 
+The list endpoint executes split `find` and `count` queries (rather than `findAndCount`) so that pagination metadata stays consistent when the merge layer drops shadowed code definitions. Tests under `__integration__/TC-WF-010.spec.ts` assert this contract.
+
+**Legacy seed alignment:** Pre-existing tenants seeded via `seedExampleWorkflows()` carried `workflowId`s that did not match the new code-defined IDs (`workflows.demo-checkout`, etc.). To prevent the merge layer from showing both the legacy seeded row AND the code definition as separate entries, a one-shot rename migration aligns the legacy IDs with their code counterparts (see Migration & Compatibility).
+
 **GET /api/workflows/definitions/:id** — single definition:
 
 ```
@@ -339,14 +345,32 @@ Accepts both UUID (DB definitions) and `code:<workflowId>` (code definitions). R
 
 ### PUT /api/workflows/definitions/:id (modified behavior)
 
-- If target is a code-based definition (`code:<workflowId>`): creates a new DB row with `code_workflow_id=workflowId`. Returns the new DB row.
+- Accepts the full edit-form payload, including `triggers` embedded inside the `definition` object (the visual editor and form serialize triggers as part of the definition rather than as a sibling field).
+- If target is a code-based definition (`code:<workflowId>`):
+  - If no DB row exists for this `workflowId` in the tenant → creates a new DB row with `code_workflow_id=workflowId`.
+  - If a soft-deleted override row exists for this `workflowId` in the tenant → revives it (clears `deletedAt`, applies updates, re-flushes). This is required because the unique constraint on `(workflow_id, tenant_id)` would otherwise reject a fresh insert after a prior `reset-to-code`.
+  - Returns the resulting DB row.
 - If target is already an override (`code_workflow_id` set): updates the DB row as before.
 - If target is a user-created definition: updates as before.
+
+### POST /api/workflows/definitions/:id/customize (new)
+
+Dedicated entry point for the "Customize" action on code-based definitions. Used by the UI button in the definition list and detail page banners.
+
+- Accepts only `code:<workflowId>` IDs. UUID targets return `400`.
+- Resolves the code definition from the in-memory registry; `404` if not found.
+- Materializes the override:
+  - If no DB row exists for `workflowId` in the tenant → inserts a new row with `code_workflow_id=workflowId` and the code definition's payload as the starting state.
+  - If a soft-deleted override row exists → revives it (clears `deletedAt`, refreshes `updatedAt`, leaves the previously-customized payload intact so that a customize-after-reset-after-customize sequence behaves predictably).
+- Returns the materialized DB row in the same envelope as `GET .../:id`.
+- Routed through the standard CRUD mutation guard so feature gates and audit hooks fire consistently.
+- The legacy `PUT` against `code:<workflowId>` IDs is retained for parity with bulk import tooling, but `/customize` is the documented path going forward.
 
 ### POST /api/workflows/definitions/:id/reset-to-code (new)
 
 - Only valid for definitions with `code_workflow_id` set (code overrides).
-- Deletes the DB override row.
+- Hard-deletes the DB override row (no soft-delete) so that a subsequent customize re-materializes from the code registry rather than reviving a stale payload.
+- Wired through the CRUD mutation guard, matching the conventions used by other workflow write endpoints.
 - Returns the code registry version.
 - Response: `200 { definition: CodeWorkflowDefinition, message: 'Reset to code version' }`
 - Error: `404` if not a code override, `409` if instances are running against this override.
@@ -395,6 +419,15 @@ New locale keys:
 - Add `code_workflow_id varchar(100) NULL` to `workflow_definitions`.
 - All existing rows get `code_workflow_id=null` (user-created), preserving current behavior.
 - No data backfill needed.
+
+### Legacy Seed ID Rename Migration
+
+A follow-up migration (`Migration20260428102318`) renames legacy `seedExampleWorkflows()`-produced `workflowId`s to their code-defined counterparts so that the merge layer treats them as the same definition rather than two siblings:
+
+- Per rename pair `{ from, to }`:
+  - Update `workflow_definitions.workflow_id` from the legacy ID to the code-defined ID.
+  - Update `workflow_instances.workflow_id` for instances pointing at definitions that match.
+- The `down()` reverses both updates and is conflict-aware: it skips rows where reverting would collide with an existing row in the same tenant. The two `down()` statements are ordered so that `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, preventing dangling references mid-migration.
 
 ### Backward Compatibility
 
@@ -547,6 +580,13 @@ Deferred to a separate spec. Covers:
 - **Mitigation**: The generator extension validates `workflowId` uniqueness at `yarn generate` time and emits a hard error. This is a build-time check — conflicts never reach runtime.
 - **Residual risk**: None after generator validation.
 
+#### Soft-deleted override revival on re-customize
+- **Scenario**: A tenant customizes a code definition (DB override created), runs `reset-to-code` (override hard-deleted in current implementation), then customizes again. If a prior implementation soft-deleted the override row, the re-customize would collide on the `(workflow_id, tenant_id)` unique constraint.
+- **Severity**: Medium
+- **Affected area**: `POST .../customize`, `PUT .../:id` for `code:*` targets
+- **Mitigation**: Both write paths look up any existing override (including soft-deleted) before insert; if found, they revive the row by clearing `deletedAt` and applying updates. `reset-to-code` itself uses hard-delete so the common path inserts cleanly, but the revival branch protects against any historical soft-deleted rows still in the database.
+- **Residual risk**: None. Cross-organization conflicts within the same tenant are not blocked — any organization in the tenant can revive the soft-deleted row, matching the tenant-scoped unique constraint semantics.
+
 #### Event triggers not active for code definitions (Phase 2 gap)
 - **Scenario**: Code definition declares triggers, but trigger service only reads from DB.
 - **Severity**: Medium
@@ -554,7 +594,7 @@ Deferred to a separate spec. Covers:
 - **Mitigation**: Phase 2 extends trigger service to read from code registry. Documented as known limitation until Phase 2 is complete.
 - **Residual risk**: None after Phase 2.
 
-## Final Compliance Report — 2026-04-14
+## Final Compliance Report — 2026-04-28
 
 ### AGENTS.md Files Reviewed
 
@@ -597,7 +637,7 @@ None.
 
 ### Verdict
 
-**Fully compliant** — ready for implementation.
+**Fully compliant** — ready for implementation. Post-implementation fixes through 2026-04-28 (dedicated `/customize` endpoint, soft-deleted override revival, embedded triggers in PUT, dotted `workflowId` regex, mutation-guard wiring on reset, list `find`/`count` split, legacy seed-ID rename migration, removal of cross-organization customize block) were re-reviewed against the same compliance matrix with no regressions.
 
 ## Changelog
 
@@ -606,3 +646,34 @@ None.
 - Design decision: in-memory registry with no DB sync (avoids horizontal scaling issues)
 - Design decision: no definition snapshot — executor uses live-read pattern (matches existing behavior for DB definitions)
 - Four-phase implementation plan: builder → executor integration → override support → activity registry
+
+### 2026-04-15
+- Phase 1 shipped: `defineWorkflow()` builder in `@open-mercato/shared/modules/workflows`, generator extension for `workflows.ts` auto-discovery, in-memory `code-registry`, bootstrap wiring registering `codeWorkflowDefinitions` from the generated aggregate. Unit tests cover builder type inference and Zod validation.
+
+### 2026-04-20
+- Phase 2 shipped: `code_workflow_id varchar(100) NULL` column added to `workflow_definitions`; `findWorkflowDefinition()` falls back to the in-memory registry when no DB row matches; list and detail endpoints merge code registry + DB sources; `source`, `codeModuleId`, and `isCodeBased` added to API serializer and OpenAPI schema. Integration tests exercise starting a workflow from a code definition.
+
+### 2026-04-22
+- Phase 3 shipped: customize/reset-to-code routes wired up, definition list shows `Code` / `Customized` badges, detail page shows source banners, visual editor opens read-only on code-defined workflows, i18n keys added.
+
+### 2026-04-24
+- Added dedicated `POST /api/workflows/definitions/:id/customize` endpoint as the documented entry point for materializing a code-based definition into a tenant DB override (PR #1444 follow-up commit `1f76646e7`).
+- Fixed soft-deleted override revival in the customize flow so a customize-after-reset sequence no longer collides on `(workflow_id, tenant_id)` (`978be2ccf`).
+- `PUT` against `code:<workflowId>` IDs retained as a fallback path; both write paths share the revive-or-insert branch.
+
+### 2026-04-25
+- PUT/customize payloads now accept the edit-form shape with triggers embedded inside the `definition` object, fixing a regression where the visual editor's serialized payload was rejected by validation (`8c677eb41`, PRs #1586/#1601).
+
+### 2026-04-26
+- Widened the shared `workflowDefinitionDataSchema` `workflowId` regex to permit dots so module-prefixed code IDs (`workflows.demo-checkout`, `sales.order-approval`) round-trip through customize/PUT without escaping (`ef5d9cf48`).
+
+### 2026-04-27
+- Wired `reset-to-code` through the CRUD mutation guard for parity with other workflow mutations and simplified the list merge implementation (`78b7afe53`).
+- Added integration coverage for the `/customize` endpoint and a regression test for the full-payload PUT path (`087212df5`); added a UI integration test for the Customize / Reset-to-code flow (`c73bb6092`).
+- Aligned legacy `seedExampleWorkflows()` IDs with code-defined IDs via `Migration20260428102318` so the merge layer treats them as the same definition (`a24f9d305`).
+- Realigned definitions-list tests with the new split `find` / `count` query path (`715e013af`); covered list badge flip, edit persistence, and read-only code-detail rendering (`b8041b7eb`).
+
+### 2026-04-28
+- Removed the cross-organization customize block: any organization within the tenant can now revive a soft-deleted override row, matching the tenant-scoped unique constraint semantics. The previous 409 response (and corresponding OpenAPI entry) was dropped from `/customize` and the `code:*` PUT path.
+- Corrected the `Migration20260428102318` `down()` ordering so `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, eliminating a transient mismatch during rollback.
+- Switched override insert/delete paths from `persistAndFlush`/`removeAndFlush` to explicit `persist`+`flush` / `remove`+`flush` for consistency with surrounding code.
