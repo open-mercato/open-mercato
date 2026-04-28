@@ -128,6 +128,12 @@ export {
   type AiToolExecutionContext,
 } from './modules/ai_assistant/lib/ai-api-operation-runner'
 
+// API-backed AI tool helper (Phase 2 of API-backed AI tool DRY refactor)
+export {
+  defineApiBackedAiTool,
+  type ApiBackedAiToolConfig,
+} from './modules/ai_assistant/lib/api-backed-tool'
+
 // Mutation-preparation helper (Phase 3 WS-C — Step 5.6)
 export {
   prepareMutation,
