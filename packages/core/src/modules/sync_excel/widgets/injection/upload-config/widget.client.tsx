@@ -10,7 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -821,7 +821,7 @@ export default function SyncExcelUploadConfigWidget({
       ) : null}
 
       {!resolvedIntegrationEnabled ? (
-        <Notice
+        <StatusAlert
           variant="warning"
           title={t('sync_excel.widget.disabled.title', 'Integration disabled')}
           message={t('sync_excel.widget.disabled.message', 'Enable this integration to upload CSV files and start imports.')}
@@ -1008,7 +1008,7 @@ export default function SyncExcelUploadConfigWidget({
                 </div>
 
                 {matchStrategy === 'custom' ? (
-                  <Notice
+                  <StatusAlert
                     variant="warning"
                     title={t('sync_excel.widget.matchStrategy.customWarningTitle', 'Use custom matching with care')}
                     message={t(
@@ -1019,7 +1019,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {hasExistingRunForCurrentUpload ? (
-                  <Notice
+                  <StatusAlert
                     variant="warning"
                     title={t('sync_excel.widget.validation.reimportTitle', 'This upload already has a run')}
                     message={t(
@@ -1030,7 +1030,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {!hasSafeDedupeStrategy ? (
-                  <Notice
+                  <StatusAlert
                     variant="warning"
                     title={t('sync_excel.widget.validation.duplicateRiskTitle', 'Duplicate risk')}
                     message={t(
@@ -1041,7 +1041,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {diagnostics.duplicateTargets.length > 0 ? (
-                  <Notice
+                  <StatusAlert
                     variant="error"
                     title={t('sync_excel.widget.validation.duplicateTargetsTitle', 'Duplicate target fields')}
                     message={t(
@@ -1053,7 +1053,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {!diagnostics.hasIdentityTarget ? (
-                  <Notice
+                  <StatusAlert
                     variant="warning"
                     title={t('sync_excel.widget.validation.identityTitle', 'Map an identity field')}
                     message={t('sync_excel.widget.validation.identityMessage', 'Map either External ID or Primary email so reimports can match existing people.')}
@@ -1061,7 +1061,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {!diagnostics.hasNameTarget ? (
-                  <Notice
+                  <StatusAlert
                     variant="warning"
                     title={t('sync_excel.widget.validation.nameTitle', 'Map a name field')}
                     message={t('sync_excel.widget.validation.nameMessage', 'Map Last name or Display name so the importer can build person records.')}
@@ -1069,7 +1069,7 @@ export default function SyncExcelUploadConfigWidget({
                 ) : null}
 
                 {diagnostics.hasIdentityTarget && diagnostics.hasNameTarget && diagnostics.duplicateTargets.length === 0 ? (
-                  <Notice
+                  <StatusAlert
                     variant="info"
                     title={t('sync_excel.widget.validation.readyTitle', 'Ready to import')}
                     message={t('sync_excel.widget.validation.readyMessage', 'The current mapping is valid for the first customers.person slice.')}
@@ -1115,7 +1115,7 @@ export default function SyncExcelUploadConfigWidget({
             </div>
 
             {runDetail?.lastError ? (
-              <Notice
+              <StatusAlert
                 variant="error"
                 title={t('sync_excel.widget.run.errorTitle', 'Run error')}
                 message={runDetail.lastError}
@@ -1140,6 +1140,23 @@ export default function SyncExcelUploadConfigWidget({
         </Card>
       ) : null}
     </div>
+  )
+}
+
+function StatusAlert({
+  variant,
+  title,
+  message,
+}: {
+  variant: 'warning' | 'error' | 'info'
+  title: string
+  message: string
+}) {
+  return (
+    <Alert variant={variant === 'error' ? 'destructive' : variant}>
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   )
 }
 

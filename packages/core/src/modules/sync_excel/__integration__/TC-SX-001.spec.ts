@@ -1,4 +1,11 @@
+import path from 'node:path'
+import { config as loadEnv } from 'dotenv'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
+import '@open-mercato/core/modules/customers/commands/index'
+import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap'
+import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createQueue } from '@open-mercato/queue'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
 
@@ -30,12 +37,65 @@ type IntegrationLogEntry = {
 }
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
+const APP_ROOT = TEST_APP_ROOT
+  ? path.resolve(TEST_APP_ROOT)
+  : path.resolve(process.cwd(), 'apps/mercato')
+const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 const ENTITY_TYPE = 'customers.person'
 const INTEGRATION_ID = 'sync_excel'
 const PERSON_PROFILE_ENTITY_ID = 'customers:customer_person_profile'
+const DATA_SYNC_IMPORT_QUEUE = 'data-sync-import'
+
+let bootstrapDataPromise: Promise<BootstrapData> | null = null
+
+if (!TEST_APP_ROOT) {
+  loadEnv({ path: path.resolve(APP_ROOT, '.env') })
+  process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
+}
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
+}
+
+async function getBootstrapData(): Promise<BootstrapData> {
+  if (!bootstrapDataPromise) {
+    bootstrapDataPromise = bootstrapFromAppRoot(APP_ROOT)
+  }
+  return bootstrapDataPromise
+}
+
+async function drainQueue(queueName: string): Promise<number> {
+  const data = await getBootstrapData()
+  const worker = data.modules
+    .flatMap((module) => module.workers ?? [])
+    .find((entry) => entry.queue === queueName)
+  if (!worker) return 0
+
+  const container = await createRequestContainer()
+  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 })
+  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
+
+  try {
+    let processedJobs = 0
+    while (true) {
+      const result = await queue.process(
+        async (job, ctx) => {
+          await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
+        },
+        { limit: 100 },
+      )
+      const handled = result.processed + result.failed
+      processedJobs += handled
+      if (handled === 0) return processedJobs
+    }
+  } finally {
+    await queue.close()
+  }
+}
+
+async function drainDataSyncImportQueue(): Promise<void> {
+  await drainQueue(DATA_SYNC_IMPORT_QUEUE)
 }
 
 function asRunSummary(value: JsonRecord): SyncRunSummary {
@@ -460,6 +520,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       const importStartBody = await readJson(importStart)
       firstRunId = String(importStartBody.runId)
       expect(firstRunId).toMatch(/^[0-9a-f-]{36}$/i)
+      await drainDataSyncImportQueue()
 
       await expect.poll(async () => {
         const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(firstRunId!)}`, { token })
@@ -556,6 +617,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       expect(secondImportStart.status()).toBe(201)
       const secondImportBody = await readJson(secondImportStart)
       secondRunId = String(secondImportBody.runId)
+      await drainDataSyncImportQueue()
 
       await expect.poll(async () => {
         const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(secondRunId!)}`, { token })
@@ -623,6 +685,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       expect(thirdImportStart.status()).toBe(201)
       const thirdImportBody = await readJson(thirdImportStart)
       thirdRunId = String(thirdImportBody.runId)
+      await drainDataSyncImportQueue()
 
       await expect.poll(async () => {
         const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(thirdRunId!)}`, { token })
