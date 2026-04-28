@@ -7,7 +7,7 @@ function getStorageKey(pageType: string) {
 }
 
 export function useZoneCollapse(pageType: string) {
-  const { value: collapsed, toggle, setValue } = usePersistedBooleanFlag(
+  const { value: collapsed, toggle, setValue, isHydrated } = usePersistedBooleanFlag(
     getStorageKey(pageType),
     false,
   )
@@ -18,5 +18,5 @@ export function useZoneCollapse(pageType: string) {
       setValue(next)
     }
   }, [setValue])
-  return { collapsed, toggle, setCollapsed }
+  return { collapsed, toggle, setCollapsed, isHydrated }
 }

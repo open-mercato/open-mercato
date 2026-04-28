@@ -22,12 +22,19 @@ export const PORTAL_FOOTER_HANDLE = 'section:portal:footer'
 export const PORTAL_SIDEBAR_HANDLE = 'section:portal:sidebar'
 export const PORTAL_USER_MENU_HANDLE = 'section:portal:user-menu'
 
+export type ShellLogo = {
+  src: string
+  alt?: string
+}
+
 export type PortalShellProps = {
   children: ReactNode
   /** Override orgSlug (used on public pages without context) */
   orgSlug?: string
   /** Override organization name (used on public pages without context) */
   organizationName?: string
+  /** Override the brand logo rendered in the header, footer, and sidebar. */
+  logo?: ShellLogo
   /** Whether to show authenticated layout. Auto-detected from context when omitted. */
   authenticated?: boolean
   /** Logout handler. Auto-provided from context when omitted. */
@@ -148,6 +155,7 @@ export function PortalShell({
   children,
   orgSlug: orgSlugProp,
   organizationName: orgNameProp,
+  logo,
   authenticated: authenticatedProp,
   onLogout: onLogoutProp,
   enableEventBridge = false,
@@ -237,7 +245,7 @@ export function PortalShell({
         <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="mx-auto flex h-16 w-full max-w-screen-lg items-center justify-between px-6">
             <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-              <Image src="/open-mercato.svg" alt="" width={28} height={28} className="" priority />
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={28} height={28} className="" priority />
               <span className="text-[15px] font-semibold tracking-tight">{headerTitle}</span>
             </Link>
             <nav aria-label="Primary" className="flex items-center gap-1">
@@ -260,7 +268,7 @@ export function PortalShell({
         <footer className="border-t" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-6">
             <Link href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
-              <Image src="/open-mercato.svg" alt="" width={20} height={20} className="" />
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={20} height={20} className="" />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </Link>
             <p className="text-xs text-muted-foreground/60">
@@ -278,7 +286,7 @@ export function PortalShell({
     <div className="flex h-full flex-col" data-portal-handle={PORTAL_SIDEBAR_HANDLE}>
       <div className="flex h-16 items-center gap-2.5 border-b px-5">
         <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-          <Image src="/open-mercato.svg" alt="" width={22} height={22} className="" />
+          <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={22} height={22} className="" />
           <span className="text-[14px] font-semibold tracking-tight truncate">{headerTitle}</span>
         </Link>
       </div>

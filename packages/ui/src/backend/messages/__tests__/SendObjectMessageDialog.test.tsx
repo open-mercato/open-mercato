@@ -74,4 +74,25 @@ describe('SendObjectMessageDialog', () => {
       open: true,
     }))
   })
+
+  it('allows callers to style and label the trigger button', () => {
+    renderWithProviders(
+      <SendObjectMessageDialog
+        object={{
+          entityModule: 'customers',
+          entityType: 'person',
+          entityId: '11111111-1111-4111-8111-111111111111',
+        }}
+        buttonVariant="outline"
+        buttonSize="icon"
+        buttonClassName="size-8"
+        buttonLabel="Send message"
+      />,
+      { dict: {} },
+    )
+
+    const button = screen.getByRole('button', { name: 'Send message' })
+    expect(button.className).toEqual(expect.stringContaining('size-8'))
+    expect(button.className).toEqual(expect.stringContaining('border'))
+  })
 })

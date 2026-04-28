@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { User } from 'lucide-react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CollapsibleZoneLayout } from '../crud/CollapsibleZoneLayout'
 
@@ -75,6 +76,19 @@ describe('CollapsibleZoneLayout', () => {
       configurable: true,
       writable: true,
       value: currentWidth,
+    })
+    const requestAnimationFrameMock = (callback: FrameRequestCallback) => {
+      return window.setTimeout(() => callback(0), 0)
+    }
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: requestAnimationFrameMock,
+    })
+    Object.defineProperty(globalThis, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: requestAnimationFrameMock,
     })
 
     Object.defineProperty(window, 'matchMedia', {
@@ -167,5 +181,51 @@ describe('CollapsibleZoneLayout', () => {
 
     expect(zone1.compareDocumentPosition(zone2) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
     expect(screen.getByRole('button', { name: 'Collapse form panel' })).toBeInTheDocument()
+  })
+
+  it('expands and navigates to a section from the collapsed rail', async () => {
+    currentWidth = 1180
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: currentWidth,
+    })
+    const scrollIntoView = jest.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    })
+
+    const { container } = renderWithProviders(
+      <CollapsibleZoneLayout
+        zone1={(
+          <div id="collapsible-group-wrapper-personalData">
+            <button type="button" aria-controls="collapsible-group-personalData">Personal group</button>
+          </div>
+        )}
+        zone2={<div>Zone 2</div>}
+        entityName="Ada Lovelace"
+        pageType="person-v2"
+        sections={[
+          { id: 'personalData', icon: User, label: 'Personal data' },
+        ]}
+      />,
+      { dict: {} },
+    )
+
+    const layout = container.firstElementChild as HTMLElement
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'collapsed')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personal data' }))
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'stacked')
+      expect(screen.getByText('Personal group')).toHaveFocus()
+    })
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 })

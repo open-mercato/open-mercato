@@ -8,7 +8,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useQueryClient } from '@tanstack/react-query'
+import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { PersonTagsDialog } from './PersonTagsDialog'
 import { useCustomerDictionary, invalidateCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
@@ -17,6 +19,8 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { PersonOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { getInitials, formatFallbackLabel } from './utils'
+
+const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
 type PersonDetailHeaderProps = {
   data: PersonOverview
@@ -243,6 +247,27 @@ export function PersonDetailHeader({
 
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
+          <SendObjectMessageDialog
+            object={{
+              entityModule: 'customers',
+              entityType: 'person',
+              entityId: person.id,
+              previewData: {
+                title: displayName,
+                subtitle: person.primaryEmail ?? companyName ?? undefined,
+              },
+            }}
+            viewHref={`/backend/customers/people-v2/${person.id}`}
+            buttonVariant="outline"
+            buttonSize="icon"
+            buttonClassName={HEADER_ICON_BUTTON_CLASS}
+            buttonLabel={t('customers.people.detail.actions.sendMessage', 'Send message')}
+          />
+          <ObjectHistoryButton
+            resourceKind="customers.person"
+            resourceId={person.id}
+            organizationId={person.organizationId ?? undefined}
+          />
           <IconButton
             variant="outline"
             size="sm"

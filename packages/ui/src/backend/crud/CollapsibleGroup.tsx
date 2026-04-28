@@ -25,7 +25,7 @@ export interface CollapsibleGroupHandle {
 export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, CollapsibleGroupProps>(
   function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, fieldCount, chevronPosition = 'right', icon, children }, ref) {
     const t = useT()
-    const { expanded, toggle, setExpanded } = useGroupCollapse(pageType, groupId, defaultExpanded)
+    const { expanded, toggle, setExpanded, isHydrated } = useGroupCollapse(pageType, groupId, defaultExpanded)
     const contentId = `collapsible-group-${groupId}`
 
     React.useImperativeHandle(ref, () => ({
@@ -58,7 +58,17 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
     ) : null
 
     return (
-      <div className={cn('rounded-lg border bg-card', errorCount > 0 && 'border-destructive')}>
+      <div
+        id={`collapsible-group-wrapper-${groupId}`}
+        className={cn(
+          'rounded-lg border bg-card',
+          !isHydrated && 'invisible',
+          errorCount > 0 && 'border-destructive',
+        )}
+        data-collapsible-group-id={groupId}
+        data-persistence-hydrated={isHydrated ? 'true' : 'false'}
+        aria-hidden={isHydrated ? undefined : true}
+      >
         {title && (
           <Button
             type="button"
