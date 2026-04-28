@@ -2,20 +2,19 @@
  * `catalog.list_variants` (Phase 1 WS-C, Step 3.10).
  *
  * Enumerate variants for a single product with option values + media refs.
+ *
+ * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * `catalog.list_variants` is now an API-backed wrapper over
+ * `GET /api/catalog/variants`. Tool name, schema, requiredFeatures, and
+ * output shape are unchanged.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogProductVariant } from '../data/entities'
+import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
+import type {
+  AiApiOperationRequest,
+  AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
-
-function resolveEm(ctx: CatalogToolContext): EntityManager {
-  return ctx.container.resolve<EntityManager>('em')
-}
-
-function buildScope(ctx: CatalogToolContext, tenantId: string) {
-  return { tenantId, organizationId: ctx.organizationId }
-}
 
 const listVariantsInput = z
   .object({
@@ -25,67 +24,123 @@ const listVariantsInput = z
   })
   .passthrough()
 
-const listVariantsTool: CatalogAiToolDefinition = {
+type ListVariantsInput = z.infer<typeof listVariantsInput>
+
+type ListVariantsApiItem = {
+  id?: string
+  product_id?: string | null
+  productId?: string | null
+  name?: string | null
+  sku?: string | null
+  barcode?: string | null
+  status_entry_id?: string | null
+  statusEntryId?: string | null
+  option_values?: unknown
+  optionValues?: unknown
+  default_media_id?: string | null
+  defaultMediaId?: string | null
+  default_media_url?: string | null
+  defaultMediaUrl?: string | null
+  weight_value?: string | number | null
+  weightValue?: string | number | null
+  weight_unit?: string | null
+  weightUnit?: string | null
+  dimensions?: unknown
+  tax_rate?: string | number | null
+  taxRate?: string | number | null
+  tax_rate_id?: string | null
+  taxRateId?: string | null
+  is_default?: boolean | null
+  isDefault?: boolean | null
+  is_active?: boolean | null
+  isActive?: boolean | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+}
+
+type ListVariantsApiResponse = {
+  items?: ListVariantsApiItem[]
+  total?: number
+}
+
+type ListVariantsOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+const listVariantsTool = defineApiBackedAiTool<
+  ListVariantsInput,
+  ListVariantsApiResponse,
+  ListVariantsOutput
+>({
   name: 'catalog.list_variants',
   displayName: 'List variants',
   description:
     'List the variants of a catalog product (including option values, SKU, barcode, default media ref). Returns { items, total, limit, offset }.',
   inputSchema: listVariantsInput,
   requiredFeatures: ['catalog.products.view'],
-  tags: ['read', 'catalog'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listVariantsInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: (input, ctx) => {
+    assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = {
-      tenantId,
-      product: input.productId,
-      deletedAt: null,
+    const page = Math.floor(offset / limit) + 1
+
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
+      productId: input.productId,
     }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CatalogProductVariant>(
-        em,
-        CatalogProductVariant,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'asc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CatalogProductVariant, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/catalog/variants',
+      query,
+    }
+    return operation
+  },
+  mapResponse: (response, input) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListVariantsApiResponse
+    const rawItems: ListVariantsApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: filtered.map((row) => ({
-        id: row.id,
-        name: row.name ?? null,
-        sku: row.sku ?? null,
-        barcode: row.barcode ?? null,
-        statusEntryId: row.statusEntryId ?? null,
-        optionValues: row.optionValues ?? null,
-        defaultMediaId: row.defaultMediaId ?? null,
-        defaultMediaUrl: row.defaultMediaUrl ?? null,
-        weightValue: row.weightValue ?? null,
-        weightUnit: row.weightUnit ?? null,
-        dimensions: row.dimensions ?? null,
-        taxRate: row.taxRate ?? null,
-        taxRateId: row.taxRateId ?? null,
-        isDefault: !!row.isDefault,
-        isActive: !!row.isActive,
-        productId: (row as any).product && typeof (row as any).product === 'object'
-          ? (row as any).product.id
-          : (row as any).product ?? null,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-      })),
-      total,
+      items: rawItems.map((row) => {
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          name: row.name ?? null,
+          sku: row.sku ?? null,
+          barcode: row.barcode ?? null,
+          statusEntryId: row.status_entry_id ?? row.statusEntryId ?? null,
+          optionValues: row.option_values ?? row.optionValues ?? null,
+          defaultMediaId: row.default_media_id ?? row.defaultMediaId ?? null,
+          defaultMediaUrl: row.default_media_url ?? row.defaultMediaUrl ?? null,
+          weightValue: row.weight_value ?? row.weightValue ?? null,
+          weightUnit: row.weight_unit ?? row.weightUnit ?? null,
+          dimensions: row.dimensions ?? null,
+          taxRate: row.tax_rate ?? row.taxRate ?? null,
+          taxRateId: row.tax_rate_id ?? row.taxRateId ?? null,
+          isDefault: !!(row.is_default ?? row.isDefault),
+          isActive: !!(row.is_active ?? row.isActive),
+          productId: row.product_id ?? row.productId ?? null,
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+        }
+      }),
+      total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CatalogAiToolDefinition
 
 export const variantsAiTools: CatalogAiToolDefinition[] = [listVariantsTool]
 
