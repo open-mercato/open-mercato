@@ -5,39 +5,20 @@
  * `customers.list_companies` is now an API-backed wrapper over
  * `GET /api/customers/companies`. Tool name, schema, requiredFeatures, and
  * output shape are unchanged.
+ *
+ * Phase 3c of the same spec migrates `customers.get_company` to a single
+ * in-process call to `GET /api/customers/companies/<id>?include=...` over the
+ * documented aggregate detail route. Tool name, schema, requiredFeatures, and
+ * output shape are unchanged.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
-import type {
-  AiApiOperationRequest,
-  AiToolExecutionContext,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { E } from '#generated/entities.ids.generated'
 import {
-  CustomerEntity,
-  CustomerCompanyProfile,
-  CustomerPersonProfile,
-  CustomerAddress,
-  CustomerActivity,
-  CustomerComment,
-  CustomerTodoLink,
-  CustomerInteraction,
-  CustomerDealCompanyLink,
-  CustomerTagAssignment,
-  CustomerTag,
-} from '../data/entities'
+  createAiApiOperationRunner,
+  type AiApiOperationRequest,
+  type AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { assertTenantScope, type CustomersAiToolDefinition, type CustomersToolContext } from './types'
-
-function resolveEm(ctx: CustomersToolContext | AiToolExecutionContext): EntityManager {
-  return ctx.container.resolve<EntityManager>('em')
-}
-
-function buildScope(ctx: CustomersToolContext | AiToolExecutionContext, tenantId: string) {
-  return { tenantId, organizationId: ctx.organizationId }
-}
 
 const listCompaniesInput = z
   .object({
@@ -163,6 +144,15 @@ const getCompanyInput = z.object({
     .describe('When true, include notes, activities, deals, people, addresses, tasks, and tags (each capped at 100).'),
 })
 
+type GetCompanyInput = z.infer<typeof getCompanyInput>
+
+function toIsoCompany(value: unknown): string | null {
+  if (!value) return null
+  const dt = value instanceof Date ? value : new Date(String(value))
+  if (Number.isNaN(dt.getTime())) return null
+  return dt.toISOString()
+}
+
 const getCompanyTool: CustomersAiToolDefinition = {
   name: 'customers.get_company',
   displayName: 'Get company',
@@ -172,99 +162,47 @@ const getCompanyTool: CustomersAiToolDefinition = {
   requiredFeatures: ['customers.companies.view'],
   tags: ['read', 'customers'],
   handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = getCompanyInput.parse(rawInput)
-    const em = resolveEm(ctx)
-    const where: Record<string, unknown> = {
-      id: input.companyId,
-      tenantId,
-      kind: 'company',
-      deletedAt: null,
+    const { tenantId: _tenantId } = assertTenantScope(ctx)
+    void _tenantId
+    const input: GetCompanyInput = getCompanyInput.parse(rawInput)
+    const includeRelated = !!input.includeRelated
+
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: `/customers/companies/${input.companyId}`,
     }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const entity = await findOneWithDecryption<CustomerEntity>(
-      em,
-      CustomerEntity,
-      where as any,
-      { populate: ['companyProfile'] as any } as any,
-      buildScope(ctx, tenantId),
-    )
-    if (!entity || entity.tenantId !== tenantId) {
+    if (includeRelated) {
+      operation.query = {
+        include: 'addresses,comments,activities,interactions,deals,todos,people',
+      }
+    }
+
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
+    const response = await runner.run<Record<string, unknown>>(operation)
+    if (!response.success) {
+      if (response.statusCode === 404 || response.statusCode === 403) {
+        return { found: false as const, companyId: input.companyId }
+      }
+      throw new Error(response.error ?? `Failed to fetch company ${input.companyId}`)
+    }
+    const data = (response.data ?? {}) as Record<string, unknown>
+    const companyRow = (data.company ?? null) as Record<string, unknown> | null
+    if (!companyRow) {
       return { found: false as const, companyId: input.companyId }
     }
-    const profile = (entity as any).companyProfile as CustomerCompanyProfile | null | undefined
-    const customFieldValues = await loadCustomFieldValues({
-      em,
-      entityId: E.customers.customer_entity,
-      recordIds: [entity.id],
-      tenantIdByRecord: { [entity.id]: entity.tenantId ?? null },
-      organizationIdByRecord: { [entity.id]: entity.organizationId ?? null },
-      tenantFallbacks: [entity.tenantId ?? tenantId].filter((value): value is string => !!value),
-    })
-    const customFields = customFieldValues[entity.id] ?? {}
+    const profileRow = (data.profile ?? null) as Record<string, unknown> | null
+    const customFields = (data.customFields ?? {}) as Record<string, unknown>
 
     let related: Record<string, unknown> | null = null
-    if (input.includeRelated) {
-      const scope = buildScope(ctx, tenantId)
-      const [addresses, activities, comments, todoLinks, interactions, tagAssignments, dealLinks, people] =
-        await Promise.all([
-          findWithDecryption<CustomerAddress>(
-            em,
-            CustomerAddress,
-            { tenantId, entity: entity.id } as any,
-            { limit: 100, orderBy: { isPrimary: 'desc', createdAt: 'desc' } as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerActivity>(
-            em,
-            CustomerActivity,
-            { tenantId, entity: entity.id } as any,
-            { limit: 100, orderBy: { occurredAt: 'desc', createdAt: 'desc' } as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerComment>(
-            em,
-            CustomerComment,
-            { tenantId, entity: entity.id } as any,
-            { limit: 100, orderBy: { createdAt: 'desc' } as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerTodoLink>(
-            em,
-            CustomerTodoLink,
-            { tenantId, entity: entity.id } as any,
-            { limit: 100, orderBy: { createdAt: 'desc' } as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerInteraction>(
-            em,
-            CustomerInteraction,
-            { tenantId, entity: entity.id, deletedAt: null } as any,
-            { limit: 100, orderBy: { scheduledAt: 'desc', createdAt: 'desc' } as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerTagAssignment>(
-            em,
-            CustomerTagAssignment,
-            { tenantId, entity: entity.id } as any,
-            { populate: ['tag'] as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerDealCompanyLink>(
-            em,
-            CustomerDealCompanyLink,
-            { company: entity.id } as any,
-            { populate: ['deal'] as any } as any,
-            scope,
-          ),
-          findWithDecryption<CustomerPersonProfile>(
-            em,
-            CustomerPersonProfile,
-            { tenantId, company: entity.id } as any,
-            { limit: 100, populate: ['entity'] as any } as any,
-            scope,
-          ),
-        ])
+    if (includeRelated) {
+      const addresses = Array.isArray(data.addresses) ? (data.addresses as Array<Record<string, unknown>>) : []
+      const activities = Array.isArray(data.activities) ? (data.activities as Array<Record<string, unknown>>) : []
+      const notes = Array.isArray(data.comments) ? (data.comments as Array<Record<string, unknown>>) : []
+      const todos = Array.isArray(data.todos) ? (data.todos as Array<Record<string, unknown>>) : []
+      const interactions = Array.isArray(data.interactions) ? (data.interactions as Array<Record<string, unknown>>) : []
+      const tagsRows = Array.isArray(data.tags) ? (data.tags as Array<Record<string, unknown>>) : []
+      const dealsRows = Array.isArray(data.deals) ? (data.deals as Array<Record<string, unknown>>) : []
+      const peopleRows = Array.isArray(data.people) ? (data.people as Array<Record<string, unknown>>) : []
       related = {
         addresses: addresses.map((address) => ({
           id: address.id,
@@ -283,93 +221,134 @@ const getCompanyTool: CustomersAiToolDefinition = {
           activityType: activity.activityType,
           subject: activity.subject ?? null,
           body: activity.body ?? null,
-          occurredAt: activity.occurredAt ? new Date(activity.occurredAt).toISOString() : null,
-          createdAt: activity.createdAt ? new Date(activity.createdAt).toISOString() : null,
+          occurredAt: toIsoCompany(activity.occurredAt),
+          createdAt: toIsoCompany(activity.createdAt),
         })),
-        notes: comments.map((comment) => ({
+        notes: notes.map((comment) => ({
           id: comment.id,
           body: comment.body,
           authorUserId: comment.authorUserId ?? null,
-          createdAt: comment.createdAt ? new Date(comment.createdAt).toISOString() : null,
+          createdAt: toIsoCompany(comment.createdAt),
         })),
-        tasks: todoLinks.map((link) => ({
-          id: link.id,
-          todoId: link.todoId,
-          todoSource: link.todoSource,
-          createdAt: link.createdAt ? new Date(link.createdAt).toISOString() : null,
+        tasks: todos.map((task) => ({
+          id: task.id,
+          todoId: task.todoId ?? task.id,
+          todoSource: task.todoSource ?? null,
+          createdAt: toIsoCompany(task.createdAt),
         })),
         interactions: interactions.map((interaction) => ({
           id: interaction.id,
           interactionType: interaction.interactionType,
           title: interaction.title ?? null,
           status: interaction.status,
-          scheduledAt: interaction.scheduledAt ? new Date(interaction.scheduledAt).toISOString() : null,
-          occurredAt: interaction.occurredAt ? new Date(interaction.occurredAt).toISOString() : null,
+          scheduledAt: toIsoCompany(interaction.scheduledAt),
+          occurredAt: toIsoCompany(interaction.occurredAt),
         })),
-        tags: tagAssignments
-          .map((assignment) => {
-            const tag = (assignment as any).tag as CustomerTag | string | null
-            if (!tag || typeof tag === 'string') return null
-            return { id: tag.id, slug: tag.slug, label: tag.label, color: tag.color ?? null }
+        tags: tagsRows
+          .map((tag) => {
+            if (!tag || typeof tag !== 'object') return null
+            const id = typeof tag.id === 'string' ? tag.id : null
+            const label = typeof tag.label === 'string' ? tag.label : null
+            if (!id || !label) return null
+            const slug = typeof tag.slug === 'string' ? tag.slug : label
+            const color = typeof tag.color === 'string' ? tag.color : null
+            return { id, slug, label, color }
           })
-          .filter((entry): entry is { id: string; slug: string; label: string; color: string | null } => entry !== null),
-        deals: dealLinks
-          .map((link) => {
-            const deal = (link as any).deal
-            if (!deal || typeof deal === 'string') return null
+          .filter(
+            (entry): entry is { id: string; slug: string; label: string; color: string | null } =>
+              entry !== null,
+          ),
+        deals: dealsRows
+          .map((deal) => {
+            if (!deal || typeof deal !== 'object') return null
+            const id = typeof deal.id === 'string' ? deal.id : null
+            if (!id) return null
             return {
-              id: deal.id,
-              title: deal.title,
-              status: deal.status ?? null,
-              pipelineStageId: deal.pipelineStageId ?? null,
-              valueAmount: deal.valueAmount ?? null,
-              valueCurrency: deal.valueCurrency ?? null,
+              id,
+              title: typeof deal.title === 'string' ? deal.title : '',
+              status: typeof deal.status === 'string' ? deal.status : null,
+              pipelineStageId:
+                typeof deal.pipelineStageId === 'string' ? deal.pipelineStageId : null,
+              valueAmount:
+                typeof deal.valueAmount === 'string'
+                  ? deal.valueAmount
+                  : deal.valueAmount === null || deal.valueAmount === undefined
+                    ? null
+                    : String(deal.valueAmount),
+              valueCurrency:
+                typeof deal.valueCurrency === 'string' ? deal.valueCurrency : null,
             }
           })
-          .filter((value): value is { id: string; title: string; status: string | null; pipelineStageId: string | null; valueAmount: string | null; valueCurrency: string | null } => value !== null),
-        people: people
-          .map((profileRow) => {
-            const entityRef = (profileRow as any).entity as CustomerEntity | null
-            if (!entityRef || entityRef.deletedAt) return null
+          .filter(
+            (
+              value,
+            ): value is {
+              id: string
+              title: string
+              status: string | null
+              pipelineStageId: string | null
+              valueAmount: string | null
+              valueCurrency: string | null
+            } => value !== null,
+          ),
+        people: peopleRows
+          .map((person) => {
+            if (!person || typeof person !== 'object') return null
+            const id = typeof person.id === 'string' ? person.id : null
+            const displayName = typeof person.displayName === 'string' ? person.displayName : null
+            if (!id || !displayName) return null
             return {
-              id: entityRef.id,
-              displayName: entityRef.displayName,
-              primaryEmail: entityRef.primaryEmail ?? null,
-              primaryPhone: entityRef.primaryPhone ?? null,
-              jobTitle: profileRow.jobTitle ?? null,
-              department: profileRow.department ?? null,
+              id,
+              displayName,
+              primaryEmail:
+                typeof person.primaryEmail === 'string' ? person.primaryEmail : null,
+              primaryPhone:
+                typeof person.primaryPhone === 'string' ? person.primaryPhone : null,
+              jobTitle: typeof person.jobTitle === 'string' ? person.jobTitle : null,
+              department: typeof person.department === 'string' ? person.department : null,
             }
           })
-          .filter((value): value is { id: string; displayName: string; primaryEmail: string | null; primaryPhone: string | null; jobTitle: string | null; department: string | null } => value !== null),
+          .filter(
+            (
+              value,
+            ): value is {
+              id: string
+              displayName: string
+              primaryEmail: string | null
+              primaryPhone: string | null
+              jobTitle: string | null
+              department: string | null
+            } => value !== null,
+          ),
       }
     }
     return {
       found: true as const,
       company: {
-        id: entity.id,
-        displayName: entity.displayName,
-        description: entity.description ?? null,
-        primaryEmail: entity.primaryEmail ?? null,
-        primaryPhone: entity.primaryPhone ?? null,
-        status: entity.status ?? null,
-        lifecycleStage: entity.lifecycleStage ?? null,
-        source: entity.source ?? null,
-        ownerUserId: entity.ownerUserId ?? null,
-        organizationId: entity.organizationId ?? null,
-        tenantId: entity.tenantId ?? null,
-        createdAt: entity.createdAt ? new Date(entity.createdAt).toISOString() : null,
-        updatedAt: entity.updatedAt ? new Date(entity.updatedAt).toISOString() : null,
+        id: companyRow.id,
+        displayName: companyRow.displayName ?? null,
+        description: companyRow.description ?? null,
+        primaryEmail: companyRow.primaryEmail ?? null,
+        primaryPhone: companyRow.primaryPhone ?? null,
+        status: companyRow.status ?? null,
+        lifecycleStage: companyRow.lifecycleStage ?? null,
+        source: companyRow.source ?? null,
+        ownerUserId: companyRow.ownerUserId ?? null,
+        organizationId: companyRow.organizationId ?? null,
+        tenantId: companyRow.tenantId ?? null,
+        createdAt: toIsoCompany(companyRow.createdAt),
+        updatedAt: toIsoCompany(companyRow.updatedAt),
       },
-      profile: profile
+      profile: profileRow
         ? {
-            id: profile.id,
-            legalName: profile.legalName ?? null,
-            brandName: profile.brandName ?? null,
-            domain: profile.domain ?? null,
-            websiteUrl: profile.websiteUrl ?? null,
-            industry: profile.industry ?? null,
-            sizeBucket: profile.sizeBucket ?? null,
-            annualRevenue: profile.annualRevenue ?? null,
+            id: profileRow.id,
+            legalName: profileRow.legalName ?? null,
+            brandName: profileRow.brandName ?? null,
+            domain: profileRow.domain ?? null,
+            websiteUrl: profileRow.websiteUrl ?? null,
+            industry: profileRow.industry ?? null,
+            sizeBucket: profileRow.sizeBucket ?? null,
+            annualRevenue: profileRow.annualRevenue ?? null,
           }
         : null,
       customFields,
