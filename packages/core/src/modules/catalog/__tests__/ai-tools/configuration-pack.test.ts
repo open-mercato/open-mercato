@@ -1,10 +1,10 @@
 /**
  * Step 3.10 — option schemas / unit conversions unit tests.
  *
- * Phase 3c of `2026-04-27-ai-tools-api-backed-dry-refactor`:
- * `catalog.list_option_schemas` delegates to the in-process API operation
- * runner over `GET /api/catalog/option-schemas`. Tests mock the runner module
- * rather than the ORM/query engine for that tool.
+ * Phase 3c of `2026-04-27-ai-tools-api-backed-dry-refactor`: both tools
+ * delegate to the in-process API operation runner (option-schemas and
+ * product-unit-conversions CRUD list routes). Tests mock the runner module
+ * rather than the ORM/query engine.
  */
 const findWithDecryptionMock = jest.fn()
 const runMock = jest.fn()
@@ -126,20 +126,61 @@ describe('catalog.list_unit_conversions', () => {
 
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('scopes by product when provided', async () => {
-    findWithDecryptionMock.mockResolvedValue([])
+  it('threads productId through to the API as ?productId=', async () => {
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { items: [], total: 0 } })
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(0)
-    await tool.handler({ productId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, ctx as any)
-    const whereArg = findWithDecryptionMock.mock.calls[0][2]
-    expect(whereArg.product).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
-    expect(whereArg.deletedAt).toBeNull()
+    const productId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    await tool.handler({ productId }, ctx as any)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('GET')
+    expect(operation.path).toBe('/catalog/product-unit-conversions')
+    expect(operation.query.productId).toBe(productId)
+    expect(operation.query.pageSize).toBe(50)
+  })
+
+  it('maps a snake_case API row into the existing AI shape', async () => {
+    runMock.mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: {
+        items: [
+          {
+            id: 'uc-1',
+            product_id: 'p-1',
+            unit_code: 'kg',
+            to_base_factor: '1',
+            sort_order: 0,
+            is_active: true,
+            tenant_id: 'tenant-1',
+            organization_id: 'org-1',
+            created_at: '2024-01-01T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    })
+    const ctx = makeCtx()
+    const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
+    const items = result.items as Array<Record<string, unknown>>
+    expect(items[0].productId).toBe('p-1')
+    expect(items[0].unitCode).toBe('kg')
+    expect(items[0].toBaseFactor).toBe('1')
+    expect(items[0].sortOrder).toBe(0)
+    expect(items[0].isActive).toBe(true)
   })
 
   it('rejects missing tenant', async () => {
     const ctx = makeCtx({ tenantId: null })
     await expect(tool.handler({}, ctx as any)).rejects.toThrow(/Tenant context is required/)
+  })
+
+  it('bubbles a clean Error when the runner reports failure', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 500, error: 'boom' })
+    const ctx = makeCtx()
+    await expect(tool.handler({}, ctx as any)).rejects.toThrow('boom')
   })
 })
