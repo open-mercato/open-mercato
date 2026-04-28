@@ -111,14 +111,16 @@ TODO: Fix that latter to have reference by the package names
   --font-size-overline: 0.6875rem;
   --font-size-overline--line-height: 1rem;
 
-  /* ═══ Design System: Z-Index Scale ═══ */
-  --z-base: 0;
-  --z-sticky: 10;
-  --z-dropdown: 20;
-  --z-overlay: 30;
-  --z-modal: 40;
-  --z-toast: 50;
-  --z-tooltip: 60;
+  /* ═══ Design System: Z-Index Scale (Tailwind v4 namespace: z-{name} → var(--z-index-{name})) ═══ */
+  --z-index-base: 0;
+  --z-index-sticky: 10;
+  --z-index-dropdown: 20;
+  --z-index-overlay: 30;
+  --z-index-modal: 40;
+  --z-index-toast: 50;
+  --z-index-tooltip: 60;
+  --z-index-banner: 70;
+  --z-index-top: 100;
 }
 
 :root {
