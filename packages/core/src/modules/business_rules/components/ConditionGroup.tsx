@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { ConditionRow } from './ConditionRow'
 import type { GroupCondition, ConditionExpression, SimpleCondition } from './utils/conditionValidation'
 import type { LogicalOperator } from './../data/validators'
@@ -104,17 +111,21 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
         <span className="text-xs font-medium text-muted-foreground">
           {t('business_rules.components.conditionGroup.group', { depth: depth + 1 })}
         </span>
-        <select
+        <Select
           value={group.operator}
-          onChange={handleOperatorChange}
-          className="px-3 py-1.5 text-sm font-semibold border border-border rounded bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onValueChange={(value) => handleOperatorChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
         >
-          {logicalOperators.map((op) => (
-            <option key={op.value} value={op.value}>
-              {op.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="sm" className="w-auto min-w-[6rem] font-semibold">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {logicalOperators.map((op) => (
+              <SelectItem key={op.value} value={op.value}>
+                {op.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <span className="text-xs text-muted-foreground">
           ({t('business_rules.components.conditionGroup.ruleCount', { count: group.rules.length })})

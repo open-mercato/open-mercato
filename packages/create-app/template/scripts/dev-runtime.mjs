@@ -55,9 +55,9 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
-const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const { resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
-const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
+const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
 const rawPassthrough = classic || verbose
@@ -412,10 +412,10 @@ function spawnMercato(args) {
   return child
 }
 
-function waitForExit(child, label = 'Child process') {
+function waitForExit(child) {
   return new Promise((resolve) => {
     child.on('exit', (code, signal) => {
-      resolve({ label, code, signal })
+      resolve({ code, signal })
     })
   })
 }
@@ -439,32 +439,6 @@ function resolveChildExitCode(result, fallback = 1) {
     return 143
   }
   return fallback
-}
-
-function formatChildExitStatus(result) {
-  if (typeof result?.code === 'number') {
-    return `exit code ${result.code}`
-  }
-  if (result?.signal) {
-    return `signal ${result.signal}`
-  }
-  return 'an unknown status'
-}
-
-function resolveUnexpectedExitCode(result) {
-  const exitCode = resolveChildExitCode(result, 1)
-  return exitCode === 0 ? 1 : exitCode
-}
-
-function reportUnexpectedChildExit(result) {
-  const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
-  console.error(message)
-  rememberRawLog(message)
-  publishRuntimeFailure(message, {
-    progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
-    progressLabel: splashState.progressLabel || startupProgress.label,
-    failureLines: [...collectRuntimeFailureLines(), message].slice(-10),
-  })
 }
 
 function joinBaseUrl(baseUrl, pathname) {
@@ -1547,16 +1521,12 @@ async function runClassicRuntime() {
 
   const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
   const server = spawnMercato(['server', 'dev'])
-  const result = await Promise.race([
-    waitForExit(watch, 'Generator watch'),
-    waitForExit(server, 'App runtime'),
-  ])
+  const result = await Promise.race([waitForExit(watch), waitForExit(server)])
   if (isGracefulShutdownResult(result)) {
     return
   }
 
-  reportUnexpectedChildExit(result)
-  shutdown(resolveUnexpectedExitCode(result))
+  shutdown(resolveChildExitCode(result, 0))
 }
 
 if (classic) {
@@ -1571,11 +1541,7 @@ printRuntimePackagesSummary()
 const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch', classifyWatchLine)
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
 
-const result = await Promise.race([
-  waitForExit(watch, 'Generator watch'),
-  waitForExit(server, 'App runtime'),
-])
+const result = await Promise.race([waitForExit(watch), waitForExit(server)])
 if (!isGracefulShutdownResult(result)) {
-  reportUnexpectedChildExit(result)
-  shutdown(resolveUnexpectedExitCode(result))
+  shutdown(resolveChildExitCode(result, 0))
 }

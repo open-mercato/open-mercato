@@ -4,6 +4,15 @@ import * as React from 'react'
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '../utils/apiCall'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 
 /**
  * Event definition returned by the API
@@ -101,25 +110,29 @@ export function EventSelect({
   const isEmpty = !isLoading && filteredEvents.length === 0
 
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={`h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
+    <Select
+      value={value || undefined}
+      onValueChange={(next) => onChange(next ?? '')}
       disabled={disabled || isLoading}
     >
-      <option value="" disabled>
-        {isLoading ? 'Loading...' : isEmpty ? 'No events available' : placeholder}
-      </option>
-      {Object.entries(eventsByModule).map(([module, moduleEvents]) => (
-        <optgroup key={module} label={formatModuleName(module)}>
-          {moduleEvents.map(event => (
-            <option key={event.id} value={event.id}>
-              {event.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      <SelectTrigger size="lg" className={className}>
+        <SelectValue
+          placeholder={isLoading ? 'Loading...' : isEmpty ? 'No events available' : placeholder}
+        />
+      </SelectTrigger>
+      <SelectContent>
+        {Object.entries(eventsByModule).map(([module, moduleEvents]) => (
+          <SelectGroup key={module}>
+            <SelectLabel>{formatModuleName(module)}</SelectLabel>
+            {moduleEvents.map(event => (
+              <SelectItem key={event.id} value={event.id}>
+                {event.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

@@ -1,6 +1,12 @@
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import type { ProviderSettingField } from '../lib/providers'
@@ -34,30 +40,33 @@ export function renderProviderFieldInput(opts: {
       )
     case 'boolean':
       return (
-        <div className="flex items-center gap-2 py-1">
-          <Switch
+        <div className="py-1">
+          <SwitchField
             id={field.key}
+            label={field.placeholder ?? ''}
+            flip
             checked={Boolean(value)}
             onCheckedChange={(checked) => onChange(checked)}
           />
-          <Label htmlFor={field.key}>{field.placeholder ?? ''}</Label>
         </div>
       )
     case 'select':
       return (
-        <select
-          {...common}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(evt) => onChange(evt.target.value)}
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => onChange(next ?? '')}
         >
-          <option value="">—</option>
-          {(field.options ?? []).map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger {...common}>
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options ?? []).map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )
     case 'secret':
       return (

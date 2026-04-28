@@ -209,7 +209,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
         color: '#1B1B1B',
@@ -242,18 +242,18 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
           </DialogHeader>
 
           {submitState === 'sent' ? (
-            <div className="rounded-lg border border-status-success-border bg-status-success-bg px-4 py-6 text-center">
-              <p className="font-medium text-status-success-text">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-6 text-center dark:border-emerald-900 dark:bg-emerald-950/40">
+              <p className="font-medium text-emerald-800 dark:text-emerald-200">
                 {t('demoFeedback.dialog.successTitle', 'Thank you!')}
               </p>
-              <p className="mt-1 text-sm text-status-success-text">
+              <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
                 {t('demoFeedback.dialog.successBody', 'We\u2019ll get back to you shortly.')}
               </p>
             </div>
           ) : (
             <div className="grid gap-3">
               {submitError && (
-                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
                   {submitError}
                 </div>
               )}
@@ -267,9 +267,9 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={submitState === 'sending'}
                   aria-invalid={Boolean(fieldErrors.email)}
-                  className={fieldErrors.email ? 'border-status-error-border aria-invalid:ring-destructive' : undefined}
+                  className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
-                {fieldErrors.email && <p className="text-xs text-status-error-text">{fieldErrors.email}</p>}
+                {fieldErrors.email && <p className="text-xs text-red-600">{fieldErrors.email}</p>}
               </div>
 
               <textarea
@@ -303,7 +303,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                     {t('demoFeedback.form.privacyLink', 'Privacy Policy')}
                   </a>
                   {fieldErrors.termsAccepted && (
-                    <span className="mt-0.5 block text-status-error-text">{fieldErrors.termsAccepted}</span>
+                    <span className="mt-0.5 block text-red-600">{fieldErrors.termsAccepted}</span>
                   )}
                 </span>
               </label>
