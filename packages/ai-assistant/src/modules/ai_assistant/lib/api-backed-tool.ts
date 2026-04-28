@@ -58,7 +58,7 @@ export function defineApiBackedAiTool<TInput, TApi, TOutput>(
   const handler = async (input: TInput, context: McpToolContext): Promise<TOutput> => {
     const toolCtx: AiToolExecutionContext = {
       ...context,
-      tool: definition,
+      tool: definition as unknown as AiToolDefinition,
     }
     const operation = await toOperation(input, toolCtx)
     const runner = createAiApiOperationRunner(toolCtx)

@@ -19,7 +19,16 @@
  *   the command context.
  * - Validation: exactly one of `toPipelineStageId` / `toStage` must be set.
  */
+/**
+ * Phase 4 of `2026-04-27-ai-tools-api-backed-dry-refactor.md`: the
+ * confirmed handler now executes the write through the in-process API
+ * operation runner over `PUT /api/customers/deals`. Pending-action
+ * contract, prepare/preview, mutation policy, and `loadBeforeRecord`
+ * are unchanged.
+ */
 const findOneWithDecryptionMock = jest.fn()
+const runMock = jest.fn()
+const createRunnerMock = jest.fn(() => ({ run: runMock }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -29,6 +38,19 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
+
+jest.mock(
+  '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+  () => {
+    const actual = jest.requireActual(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+    )
+    return {
+      ...actual,
+      createAiApiOperationRunner: (...args: unknown[]) => createRunnerMock(...args),
+    }
+  },
+)
 
 import dealsAiTools from '../../ai-tools/deals-pack'
 import { knownFeatureIds } from './shared'
@@ -43,23 +65,16 @@ type FakeContainer = {
   resolve: jest.Mock
 }
 
-type FakeBus = {
-  execute: jest.Mock
-}
-
 function makeMutationCtx(options: {
   tenantId?: string | null
   organizationId?: string | null
-  commandBus?: FakeBus
   em?: { findOne: jest.Mock }
   userFeatures?: string[]
 } = {}) {
   const em = options.em ?? { findOne: jest.fn() }
-  const bus = options.commandBus ?? { execute: jest.fn().mockResolvedValue({ result: { dealId: 'deal-1' } }) }
   const container: FakeContainer = {
     resolve: jest.fn((name: string) => {
       if (name === 'em') return em
-      if (name === 'commandBus') return bus
       throw new Error(`unexpected resolve: ${name}`)
     }),
   }
@@ -71,7 +86,6 @@ function makeMutationCtx(options: {
     userFeatures: options.userFeatures ?? ['customers.deals.manage'],
     isSuperAdmin: false,
     em,
-    bus,
   }
 }
 
@@ -83,6 +97,8 @@ describe('customers.update_deal_stage — contract', () => {
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
   it('declares isMutation=true', () => {
@@ -135,6 +151,8 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
   it('returns the current stage snapshot keyed to updatedAt as recordVersion', async () => {
@@ -215,14 +233,45 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
   })
 })
 
-describe('customers.update_deal_stage — handler delegates to commandBus', () => {
+describe('customers.update_deal_stage — prepare phase issues no API write', () => {
   const tool = findTool('customers.update_deal_stage')
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('delegates a stage change via pipelineStageId to customers.deals.update', async () => {
+  it('loadBeforeRecord does NOT invoke the API operation runner', async () => {
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: DEAL_ID,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      status: 'open',
+      pipelineStage: 'Prospect',
+      pipelineStageId: STAGE_ID,
+      updatedAt: new Date('2026-04-18T12:00:00Z'),
+    })
+    const ctx = makeMutationCtx()
+    await tool.loadBeforeRecord!(
+      { dealId: DEAL_ID, toStage: 'won' } as any,
+      ctx as any,
+    )
+    expect(runMock).not.toHaveBeenCalled()
+    expect(createRunnerMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('customers.update_deal_stage — handler delegates to API runner', () => {
+  const tool = findTool('customers.update_deal_stage')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
+  })
+
+  it('issues PUT /customers/deals with pipelineStageId and id+tenant+org body shape', async () => {
     const initialUpdatedAt = new Date('2026-04-18T12:00:00Z')
     const laterUpdatedAt = new Date('2026-04-18T13:00:00Z')
     findOneWithDecryptionMock
@@ -247,24 +296,22 @@ describe('customers.update_deal_stage — handler delegates to commandBus', () =
     const em = {
       findOne: jest.fn().mockResolvedValue({ id: STAGE_ID, label: 'Negotiation' }),
     }
-    const bus: FakeBus = { execute: jest.fn().mockResolvedValue({ result: { dealId: DEAL_ID } }) }
-    const ctx = makeMutationCtx({ em, commandBus: bus })
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx({ em })
     const result = await tool.handler(
       { dealId: DEAL_ID, toPipelineStageId: STAGE_ID },
       ctx as any,
     )
-    expect(bus.execute).toHaveBeenCalledTimes(1)
-    const [commandId, options] = bus.execute.mock.calls[0]
-    expect(commandId).toBe('customers.deals.update')
-    expect(options.input).toEqual({
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('PUT')
+    expect(operation.path).toBe('/customers/deals')
+    expect(operation.body).toEqual({
       id: DEAL_ID,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       pipelineStageId: STAGE_ID,
     })
-    expect(options.ctx.auth?.tenantId).toBe('tenant-1')
-    expect(options.ctx.auth?.orgId).toBe('org-1')
-    expect(options.ctx.selectedOrganizationId).toBe('org-1')
     expect(result).toMatchObject({
       recordId: DEAL_ID,
       commandName: 'customers.deals.update',
@@ -281,7 +328,7 @@ describe('customers.update_deal_stage — handler delegates to commandBus', () =
     })
   })
 
-  it('delegates a plain status change via toStage', async () => {
+  it('issues PUT /customers/deals with status when toStage is provided', async () => {
     findOneWithDecryptionMock
       .mockResolvedValueOnce({
         id: DEAL_ID,
@@ -301,21 +348,26 @@ describe('customers.update_deal_stage — handler delegates to commandBus', () =
         pipelineStageId: null,
         updatedAt: new Date(),
       })
-    const bus: FakeBus = { execute: jest.fn().mockResolvedValue({ result: { dealId: DEAL_ID } }) }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx()
     await tool.handler({ dealId: DEAL_ID, toStage: 'won' }, ctx as any)
-    const [, options] = bus.execute.mock.calls[0]
-    expect(options.input.status).toBe('won')
-    expect(options.input.pipelineStageId).toBeUndefined()
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('PUT')
+    expect(operation.path).toBe('/customers/deals')
+    expect(operation.body.status).toBe('won')
+    expect(operation.body.pipelineStageId).toBeUndefined()
+    expect(operation.body.id).toBe(DEAL_ID)
+    expect(operation.body.tenantId).toBe('tenant-1')
+    expect(operation.body.organizationId).toBe('org-1')
   })
 
-  it('throws when the deal is outside the caller scope', async () => {
+  it('throws without calling the runner when the deal is outside the caller scope', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)
     const ctx = makeMutationCtx()
     await expect(
       tool.handler({ dealId: DEAL_ID, toStage: 'won' }, ctx as any),
     ).rejects.toThrow(/not accessible/)
-    expect(ctx.bus.execute).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
   })
 
   it('throws when the pipeline stage id is unknown', async () => {
@@ -333,6 +385,27 @@ describe('customers.update_deal_stage — handler delegates to commandBus', () =
     await expect(
       tool.handler({ dealId: DEAL_ID, toPipelineStageId: STAGE_ID }, ctx as any),
     ).rejects.toThrow(/Pipeline stage/)
-    expect(ctx.bus.execute).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
+  })
+
+  it('bubbles a clean error when the API runner returns success=false', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      id: DEAL_ID,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      status: 'open',
+      pipelineStage: null,
+      pipelineStageId: null,
+      updatedAt: new Date(),
+    })
+    runMock.mockResolvedValue({
+      success: false,
+      statusCode: 412,
+      error: 'stale_version',
+    })
+    const ctx = makeMutationCtx()
+    await expect(
+      tool.handler({ dealId: DEAL_ID, toStage: 'won' }, ctx as any),
+    ).rejects.toThrow(/stale_version/)
   })
 })

@@ -23,8 +23,6 @@ import {
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import {
   CustomerDeal,
   CustomerPipelineStage,
@@ -395,16 +393,6 @@ async function loadDealWithStage(
   return deal
 }
 
-function buildAuthContextFromTool(ctx: CustomersToolContext, tenantId: string): AuthContext {
-  return {
-    sub: ctx.userId ?? 'ai-agent',
-    tenantId,
-    orgId: ctx.organizationId ?? null,
-    roles: [],
-    isApiKey: false,
-  } as AuthContext
-}
-
 const updateDealStageTool: CustomersAiToolDefinition = {
   name: 'customers.update_deal_stage',
   displayName: 'Update deal stage',
@@ -450,7 +438,7 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       pipelineStageId: deal.pipelineStageId ?? null,
     }
 
-    const commandInput: Record<string, unknown> = {
+    const body: Record<string, unknown> = {
       id: deal.id,
       tenantId,
       organizationId,
@@ -460,23 +448,20 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       if (!stage) {
         throw new Error(`Pipeline stage "${input.toPipelineStageId}" not found.`)
       }
-      commandInput.pipelineStageId = input.toPipelineStageId
+      body.pipelineStageId = input.toPipelineStageId
     } else if (input.toStage) {
-      commandInput.status = input.toStage
+      body.status = input.toStage
     }
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const commandRuntimeCtx: CommandRuntimeContext = {
-      container: ctx.container,
-      auth: buildAuthContextFromTool(ctx, tenantId),
-      organizationScope: null,
-      selectedOrganizationId: organizationId,
-      organizationIds: [organizationId],
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
+    const response = await runner.run({
+      method: 'PUT',
+      path: '/customers/deals',
+      body,
+    })
+    if (!response.success) {
+      throw new Error(response.error ?? `Failed to update deal "${deal.id}"`)
     }
-    await commandBus.execute<Record<string, unknown>, { dealId: string }>(
-      'customers.deals.update',
-      { input: commandInput, ctx: commandRuntimeCtx },
-    )
 
     const after = await loadDealWithStage(em, ctx, tenantId, deal.id)
     return {
