@@ -129,13 +129,15 @@ import { SocialButton, type SocialBrand } from '@open-mercato/ui/primitives/soci
 Brand-styled OAuth/sign-in button. Pass the provider's logo as children — the component handles bg/border/text per brand.
 
 - `brand`: `apple` · `github` · `x` · `google` · `facebook` · `dropbox` · `linkedin`
-- `style`: `filled` (default — brand bg, white text) · `stroke` (white bg, brand-tinted border)
+- `appearance`: `filled` (default — brand bg, white text) · `stroke` (white bg, brand-tinted border)
 - `iconOnly` (boolean) — square 40×40 icon-only mode
+
+> Note: the visual treatment is named `appearance` (not `style`) to avoid shadowing the native HTML/React `style` (`CSSProperties`) attribute.
 
 Brand colors live as theme-invariant tokens in `globals.css` (`--brand-facebook`, `--brand-linkedin`, etc.).
 
 ```tsx
-<SocialButton brand="google" style="stroke">
+<SocialButton brand="google" appearance="stroke">
   <GoogleIcon /> Continue with Google
 </SocialButton>
 

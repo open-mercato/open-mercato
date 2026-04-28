@@ -51,24 +51,25 @@ export type SocialButtonProps = React.ComponentProps<'button'> &
   VariantProps<typeof socialButtonVariants> & {
     asChild?: boolean
     brand: SocialBrand
-    style?: 'filled' | 'stroke'
+    /** Visual treatment of the button. Renamed from `style` to avoid shadowing the native HTML/React `style` (CSSProperties) attribute. */
+    appearance?: 'filled' | 'stroke'
   }
 
 export function SocialButton({
   className,
   brand,
-  style = 'filled',
+  appearance = 'filled',
   iconOnly,
   asChild = false,
   ...props
 }: SocialButtonProps) {
   const Comp = asChild ? Slot : 'button'
-  const brandClasses = style === 'stroke' ? strokeByBrand[brand] : filledByBrand[brand]
+  const brandClasses = appearance === 'stroke' ? strokeByBrand[brand] : filledByBrand[brand]
   return (
     <Comp
       data-slot="social-button"
       data-brand={brand}
-      data-style={style}
+      data-appearance={appearance}
       type={asChild ? undefined : 'button'}
       className={cn(socialButtonVariants({ iconOnly, className }), brandClasses)}
       {...props}
