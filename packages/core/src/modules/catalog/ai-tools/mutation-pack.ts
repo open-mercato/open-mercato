@@ -58,6 +58,10 @@ import {
 } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
+import {
+  createAiApiOperationRunner,
+  type AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CatalogProduct, CatalogProductPrice } from '../data/entities'
@@ -259,21 +263,25 @@ const updateProductTool: CatalogAiToolDefinition = {
       }
     }
 
-    const commandInput: Record<string, unknown> = {
+    const body: Record<string, unknown> = {
       id: row.id,
       tenantId,
       organizationId,
     }
-    if (input.title !== undefined) commandInput.title = input.title
-    if (input.subtitle !== undefined) commandInput.subtitle = input.subtitle
-    if (input.description !== undefined) commandInput.description = input.description
-    if (input.isActive !== undefined) commandInput.isActive = input.isActive
+    if (input.title !== undefined) body.title = input.title
+    if (input.subtitle !== undefined) body.subtitle = input.subtitle
+    if (input.description !== undefined) body.description = input.description
+    if (input.isActive !== undefined) body.isActive = input.isActive
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    await commandBus.execute<Record<string, unknown>, { productId: string }>(
-      'catalog.products.update',
-      { input: commandInput, ctx: buildCommandRuntimeContext(ctx, tenantId, organizationId) },
-    )
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
+    const response = await runner.run({
+      method: 'PUT',
+      path: '/catalog/products',
+      body,
+    })
+    if (!response.success) {
+      throw new Error(response.error ?? `Failed to update product "${row.id}"`)
+    }
 
     const after = await loadProductForScope(em, ctx, tenantId, row.id)
     return {

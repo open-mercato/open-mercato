@@ -27,9 +27,22 @@
  * - Input schemas are `z.object(...).strict()` per spec §7 — unknown
  *   fields (including hallucinated attribute names) are rejected.
  */
+/**
+ * Phase 4 of `2026-04-27-ai-tools-api-backed-dry-refactor.md`: the
+ * confirmed handlers for `catalog.update_product`,
+ * `catalog.bulk_update_products`, and `catalog.apply_attribute_extraction`
+ * now route the write through the in-process API operation runner over
+ * `PUT /api/catalog/products`. Pending-action contract, prepare/preview,
+ * mutation policy, `loadBeforeRecord(s)`, and AI output shape are
+ * unchanged. `catalog.update_product_media_descriptions` remains a
+ * direct EM write (Phase 5 exception — no documented attachment metadata
+ * API/command).
+ */
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const loadCustomFieldDefinitionIndexMock = jest.fn()
+const runMock = jest.fn()
+const createRunnerMock = jest.fn(() => ({ run: runMock }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
@@ -40,6 +53,19 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
   loadCustomFieldDefinitionIndex: (...args: unknown[]) => loadCustomFieldDefinitionIndexMock(...args),
 }))
+
+jest.mock(
+  '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+  () => {
+    const actual = jest.requireActual(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+    )
+    return {
+      ...actual,
+      createAiApiOperationRunner: (...args: unknown[]) => createRunnerMock(...args),
+    }
+  },
+)
 
 import mutationAiTools from '../../ai-tools/mutation-pack'
 import { knownFeatureIds } from './shared'
@@ -215,35 +241,57 @@ describe('catalog.update_product — loadBeforeRecord', () => {
   })
 })
 
-describe('catalog.update_product — handler delegates to commandBus', () => {
+describe('catalog.update_product — prepare phase issues no API write', () => {
   const tool = findTool('catalog.update_product')
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('delegates title + subtitle updates to catalog.products.update', async () => {
+  it('loadBeforeRecord does NOT invoke the API operation runner', async () => {
+    findOneWithDecryptionMock.mockResolvedValue(clonePrototype({}))
+    const ctx = makeMutationCtx()
+    await tool.loadBeforeRecord!(
+      { productId: PRODUCT_ID_A, title: 'Renamed' } as any,
+      ctx as any,
+    )
+    expect(runMock).not.toHaveBeenCalled()
+    expect(createRunnerMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('catalog.update_product — handler delegates to API runner', () => {
+  const tool = findTool('catalog.update_product')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
+  })
+
+  it('issues PUT /catalog/products with id+tenant+org+patch body shape', async () => {
     findOneWithDecryptionMock
       .mockResolvedValueOnce(clonePrototype({}))
       .mockResolvedValueOnce(clonePrototype({ title: 'Renamed', subtitle: null }))
-    const bus: FakeBus = { execute: jest.fn().mockResolvedValue({ result: { productId: PRODUCT_ID_A } }) }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx()
     const result = await tool.handler(
       { productId: PRODUCT_ID_A, title: 'Renamed', subtitle: null } as any,
       ctx as any,
     )
-    expect(bus.execute).toHaveBeenCalledTimes(1)
-    const [commandId, options] = bus.execute.mock.calls[0]
-    expect(commandId).toBe('catalog.products.update')
-    expect(options.input).toEqual({
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('PUT')
+    expect(operation.path).toBe('/catalog/products')
+    expect(operation.body).toEqual({
       id: PRODUCT_ID_A,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       title: 'Renamed',
       subtitle: null,
     })
-    expect(options.ctx.auth?.tenantId).toBe('tenant-1')
-    expect(options.ctx.selectedOrganizationId).toBe('org-1')
     expect(result).toMatchObject({
       recordId: PRODUCT_ID_A,
       commandName: 'catalog.products.update',
@@ -252,13 +300,26 @@ describe('catalog.update_product — handler delegates to commandBus', () => {
     })
   })
 
-  it('throws without calling the bus when the product is out of scope', async () => {
+  it('throws without calling the runner when the product is out of scope', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)
     const ctx = makeMutationCtx()
     await expect(
       tool.handler({ productId: PRODUCT_ID_A, title: 'X' } as any, ctx as any),
     ).rejects.toThrow(/not accessible/)
-    expect(ctx.bus.execute).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
+  })
+
+  it('bubbles a clean error when the API runner returns success=false', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(clonePrototype({}))
+    runMock.mockResolvedValue({
+      success: false,
+      statusCode: 412,
+      error: 'stale_version',
+    })
+    const ctx = makeMutationCtx()
+    await expect(
+      tool.handler({ productId: PRODUCT_ID_A, title: 'X' } as any, ctx as any),
+    ).rejects.toThrow(/stale_version/)
   })
 })
 
