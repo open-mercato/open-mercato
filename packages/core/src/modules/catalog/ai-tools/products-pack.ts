@@ -1,17 +1,24 @@
 /**
  * `catalog.list_products` + `catalog.get_product` (Phase 1 WS-C, Step 3.10).
  *
- * Read-only tools scoped to `ctx.tenantId` + `ctx.organizationId`. Queries
- * run through `findWithDecryption` / `findOneWithDecryption` so GDPR and
- * encryption defaults stay in force. Mutation tools are deferred to Step
- * 5.14 under the pending-action contract.
+ * Read-only tools scoped to `ctx.tenantId` + `ctx.organizationId`. Mutation
+ * tools are deferred to Step 5.14 under the pending-action contract.
+ *
+ * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * `catalog.list_products` is now an API-backed wrapper over
+ * `GET /api/catalog/products`. Tool name, schema, requiredFeatures, and
+ * output shape are unchanged.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
+import type {
+  AiApiOperationRequest,
+  AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   CatalogProduct,
@@ -21,15 +28,14 @@ import {
   CatalogProductVariant,
   CatalogProductPrice,
   CatalogProductUnitConversion,
-  CatalogOffer,
 } from '../data/entities'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
 
-function resolveEm(ctx: CatalogToolContext): EntityManager {
+function resolveEm(ctx: CatalogToolContext | AiToolExecutionContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
 }
 
-function buildScope(ctx: CatalogToolContext, tenantId: string) {
+function buildScope(ctx: CatalogToolContext | AiToolExecutionContext, tenantId: string) {
   return { tenantId, organizationId: ctx.organizationId }
 }
 
@@ -44,113 +50,119 @@ const listProductsInput = z
   })
   .passthrough()
 
-const listProductsTool: CatalogAiToolDefinition = {
+type ListProductsInput = z.infer<typeof listProductsInput>
+
+type ListProductsApiItem = {
+  id?: string
+  title?: string | null
+  subtitle?: string | null
+  sku?: string | null
+  handle?: string | null
+  product_type?: string | null
+  productType?: string | null
+  status_entry_id?: string | null
+  statusEntryId?: string | null
+  primary_currency_code?: string | null
+  primaryCurrencyCode?: string | null
+  default_media_id?: string | null
+  defaultMediaId?: string | null
+  default_media_url?: string | null
+  defaultMediaUrl?: string | null
+  is_active?: boolean | null
+  isActive?: boolean | null
+  is_configurable?: boolean | null
+  isConfigurable?: boolean | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+  updated_at?: string | null
+  updatedAt?: string | null
+}
+
+type ListProductsApiResponse = {
+  items?: ListProductsApiItem[]
+  total?: number
+}
+
+type ListProductsOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+const listProductsTool = defineApiBackedAiTool<
+  ListProductsInput,
+  ListProductsApiResponse,
+  ListProductsOutput
+>({
   name: 'catalog.list_products',
   displayName: 'List products',
   description:
     'Search / list catalog products for the caller tenant + organization. Returns { items, total, limit, offset }.',
   inputSchema: listProductsInput,
   requiredFeatures: ['catalog.products.view'],
-  tags: ['read', 'catalog'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listProductsInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: (input, ctx) => {
+    assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = {
-      tenantId,
-      deletedAt: null,
+    const page = Math.floor(offset / limit) + 1
+
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
     }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.active === true) where.isActive = true
-    if (input.q) {
-      const pattern = `%${escapeLikePattern(input.q)}%`
-      where.$or = [
-        { title: { $ilike: pattern } },
-        { subtitle: { $ilike: pattern } },
-        { sku: { $ilike: pattern } },
-        { handle: { $ilike: pattern } },
-      ]
+    if (input.q?.trim()) query.search = input.q.trim()
+    if (input.categoryId) query.categoryIds = input.categoryId
+    if (input.tagIds && input.tagIds.length > 0) query.tagIds = input.tagIds.join(',')
+    if (input.active === true) query.isActive = 'true'
+
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/catalog/products',
+      query,
     }
-    if (input.categoryId) {
-      const assignments = await findWithDecryption<CatalogProductCategoryAssignment>(
-        em,
-        CatalogProductCategoryAssignment,
-        { tenantId, category: input.categoryId } as any,
-        undefined,
-        buildScope(ctx, tenantId),
-      )
-      const ids = assignments
-        .map((assignment) => {
-          const product = (assignment as any).product
-          if (!product) return null
-          return typeof product === 'string' ? product : product.id ?? null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!ids.length) return { items: [], total: 0, limit, offset }
-      where.id = { $in: ids }
-    }
-    if (input.tagIds && input.tagIds.length > 0) {
-      const assignments = await findWithDecryption<CatalogProductTagAssignment>(
-        em,
-        CatalogProductTagAssignment,
-        { tenantId, tag: { $in: input.tagIds } } as any,
-        undefined,
-        buildScope(ctx, tenantId),
-      )
-      const scopedIds = assignments
-        .map((assignment) => {
-          const product = (assignment as any).product
-          if (!product) return null
-          return typeof product === 'string' ? product : product.id ?? null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!scopedIds.length) return { items: [], total: 0, limit, offset }
-      if (where.id && typeof where.id === 'object' && Array.isArray((where.id as any).$in)) {
-        const narrowed = ((where.id as any).$in as string[]).filter((id) => scopedIds.includes(id))
-        if (!narrowed.length) return { items: [], total: 0, limit, offset }
-        where.id = { $in: narrowed }
-      } else {
-        where.id = { $in: scopedIds }
-      }
-    }
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CatalogProduct>(
-        em,
-        CatalogProduct,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CatalogProduct, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    return operation
+  },
+  mapResponse: (response, input) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListProductsApiResponse
+    const rawItems: ListProductsApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: filtered.map((row) => ({
-        id: row.id,
-        title: row.title,
-        subtitle: row.subtitle ?? null,
-        sku: row.sku ?? null,
-        handle: row.handle ?? null,
-        productType: row.productType,
-        statusEntryId: row.statusEntryId ?? null,
-        primaryCurrencyCode: row.primaryCurrencyCode ?? null,
-        defaultMediaId: row.defaultMediaId ?? null,
-        defaultMediaUrl: row.defaultMediaUrl ?? null,
-        isActive: !!row.isActive,
-        isConfigurable: !!row.isConfigurable,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-        updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
-      })),
-      total,
+      items: rawItems.map((row) => {
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        const updatedAtRaw = row.updated_at ?? row.updatedAt ?? null
+        const updatedAt = updatedAtRaw ? new Date(String(updatedAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          title: row.title ?? null,
+          subtitle: row.subtitle ?? null,
+          sku: row.sku ?? null,
+          handle: row.handle ?? null,
+          productType: row.product_type ?? row.productType ?? null,
+          statusEntryId: row.status_entry_id ?? row.statusEntryId ?? null,
+          primaryCurrencyCode: row.primary_currency_code ?? row.primaryCurrencyCode ?? null,
+          defaultMediaId: row.default_media_id ?? row.defaultMediaId ?? null,
+          defaultMediaUrl: row.default_media_url ?? row.defaultMediaUrl ?? null,
+          isActive: !!(row.is_active ?? row.isActive),
+          isConfigurable: !!(row.is_configurable ?? row.isConfigurable),
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+          updatedAt,
+        }
+      }),
+      total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CatalogAiToolDefinition
 
 const getProductInput = z.object({
   productId: z.string().uuid().describe('Catalog product id (UUID).'),
