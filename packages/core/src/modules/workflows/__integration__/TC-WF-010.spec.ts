@@ -13,7 +13,7 @@ import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/cor
  * reused PUT with the full form payload and was silently broken).
  */
 
-const CODE_WORKFLOW_ID = 'workflows.simple-approval'
+const CODE_WORKFLOW_ID = 'sales.order-approval'
 const CODE_WORKFLOW_API_ID = `code:${CODE_WORKFLOW_ID}`
 
 type DetailResponse = {
@@ -122,12 +122,12 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       if (stale) await deleteWorkflowDefinitionIfExists(request, apiToken, stale)
 
       // Step 1: list page shows the row with the "Code-defined" badge.
-      // There are two workflows named "Simple Approval Workflow" (one seeded user
-      // def, one code-defined), so we pick the row carrying the Code-defined badge.
+      // sales.order-approval is the only purely code-defined workflow in the
+      // current seed set (other code workflows are shadowed by JSON seed rows).
       await page.goto('/backend/definitions')
       const codeRow = page
         .getByRole('row')
-        .filter({ hasText: 'Simple Approval' })
+        .filter({ hasText: 'Sales Order Approval' })
         .filter({ hasText: 'Code-defined' })
       await expect(codeRow).toHaveCount(1)
       await expect(codeRow.getByText('Customized', { exact: true })).toHaveCount(0)
@@ -148,7 +148,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       await page.goto('/backend/definitions')
       const customizedRow = page
         .getByRole('row')
-        .filter({ hasText: 'Simple Approval' })
+        .filter({ hasText: 'Sales Order Approval' })
         .filter({ hasText: 'Customized' })
       await expect(customizedRow).toHaveCount(1)
       // No row for this workflow should show Code-defined anymore
@@ -156,7 +156,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       await expect(
         page
           .getByRole('row')
-          .filter({ hasText: 'workflows.simple-approval' })
+          .filter({ hasText: 'sales.order-approval' })
           .filter({ hasText: 'Code-defined' }),
       ).toHaveCount(0)
     } finally {

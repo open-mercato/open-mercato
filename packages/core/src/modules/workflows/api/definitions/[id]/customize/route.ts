@@ -86,13 +86,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       tenantId,
     })
 
-    if (existingOverride && existingOverride.organizationId !== organizationId) {
-      return NextResponse.json(
-        { error: 'Workflow definition is already customized by another organization in this tenant' },
-        { status: 409 },
-      )
-    }
-
     let saved: WorkflowDefinition
     if (existingOverride) {
       existingOverride.deletedAt = null
@@ -124,7 +117,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      await em.persistAndFlush(override)
+      em.persist(override)
+      await em.flush()
       saved = override
     }
 
@@ -184,11 +178,6 @@ export const openApi = {
           status: 404,
           description: 'Code workflow not found',
           example: { error: 'Workflow definition not found' },
-        },
-        {
-          status: 409,
-          description: 'Already customized by another organization in the tenant',
-          example: { error: 'Workflow definition is already customized by another organization in this tenant' },
         },
       ],
     },

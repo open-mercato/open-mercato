@@ -125,7 +125,8 @@ export async function POST(
     const codeDef = getCodeWorkflow(definition.codeWorkflowId)
 
     // Hard-delete the DB override row
-    await em.removeAndFlush(definition)
+    em.remove(definition)
+    await em.flush()
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
