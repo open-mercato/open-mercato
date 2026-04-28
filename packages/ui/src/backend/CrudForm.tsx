@@ -1919,6 +1919,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     const form = document.getElementById(formId)
     if (!form) return
+
+    // Don't steal focus if the user is already typing inside the form. The auto-focus
+    // is meant for "submit failed, jump to first invalid field" — not for "user is
+    // editing one error field and our focus jumps to a different remaining error
+    // each keystroke as the errors object shrinks". Keystrokes would otherwise land
+    // in the wrong input.
+    const active = document.activeElement
+    if (active instanceof HTMLElement && form.contains(active)) {
+      lastErrorFieldRef.current = fieldId
+      return
+    }
+
     const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
     const target =
       container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
