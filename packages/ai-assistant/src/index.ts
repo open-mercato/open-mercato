@@ -117,6 +117,17 @@ export {
   type AiUiPartQueue,
 } from './modules/ai_assistant/lib/agent-tools'
 
+// In-process API operation runner (Phase 1 of API-backed AI tool DRY refactor)
+export {
+  createAiApiOperationRunner,
+  type AiApiOperationRequest,
+  type AiApiOperationResponse,
+  type AiApiOperationRunner,
+  type AiApiOperationRunnerOptions,
+  type AiApiHttpMethod,
+  type AiToolExecutionContext,
+} from './modules/ai_assistant/lib/ai-api-operation-runner'
+
 // Mutation-preparation helper (Phase 3 WS-C — Step 5.6)
 export {
   prepareMutation,
