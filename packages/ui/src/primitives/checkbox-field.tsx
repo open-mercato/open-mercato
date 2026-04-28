@@ -17,12 +17,6 @@ export type CheckboxFieldProps = Omit<CheckboxProps, "id"> & {
   contentClassName?: string
 }
 
-let autoIdCounter = 0
-function useAutoId(prefix = "checkbox-field") {
-  const [id] = React.useState(() => `${prefix}-${++autoIdCounter}`)
-  return id
-}
-
 export const CheckboxField = React.forwardRef<
   React.ElementRef<typeof Checkbox>,
   CheckboxFieldProps
@@ -41,8 +35,8 @@ export const CheckboxField = React.forwardRef<
   disabled,
   ...checkboxProps
 }, ref) => {
-  const fallbackId = useAutoId()
-  const id = idProp ?? fallbackId
+  const reactId = React.useId()
+  const id = idProp ?? `checkbox-field-${reactId}`
 
   const checkbox = (
     <Checkbox
