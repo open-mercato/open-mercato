@@ -24,6 +24,6 @@ Each plan includes:
 ## Two layouts coexist
 
 - **Flat file** (`.ai/runs/<date>-<slug>.md`) — used by the default `auto-create-pr` / `auto-continue-pr` skills. A single markdown file with a `## Progress` checklist. Resumed by matching unchecked boxes.
-- **Per-run folder** (`.ai/runs/<date>-<slug>/`) — used by the `-sophisticated` variants (`auto-create-pr-sophisticated`, `auto-continue-pr-sophisticated`). Contains `PLAN.md` (with a top-of-file `## Tasks` table), `HANDOFF.md` (rewritten after every Step), append-only `NOTIFY.md`, `step-<X.Y>-checks.md` verification logs per Step, and optional `step-<X.Y>-artifacts/` folders. Resumed by the first `Status != done` row in the Tasks table.
+- **Per-run folder** (`.ai/runs/<date>-<slug>/`) — used by the `-loop` variants (`auto-create-pr-loop`, `auto-continue-pr-loop`). Contains `PLAN.md` (with a top-of-file `## Tasks` table), `HANDOFF.md` (rewritten after every Step), append-only `NOTIFY.md`, `step-<X.Y>-checks.md` verification logs per Step, and optional `step-<X.Y>-artifacts/` folders. Resumed by the first `Status != done` row in the Tasks table.
 
 Both layouts live side-by-side; the skill that created a run is responsible for reading it back.

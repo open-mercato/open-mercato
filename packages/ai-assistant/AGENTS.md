@@ -79,6 +79,8 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 
 ### How to Add a New AI Agent
 
+> **Use the [`create-ai-agent` skill](../../.ai/skills/create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
+
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).

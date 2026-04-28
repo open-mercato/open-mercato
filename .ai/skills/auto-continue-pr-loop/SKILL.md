@@ -1,9 +1,9 @@
 ---
-name: auto-continue-pr-sophisticated
-description: Advanced `auto-continue-pr` workflow for PRs started by `auto-create-pr-sophisticated`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, executes lean per-step commits, batches verification into `checkpoint-<N>-checks.md` every 5 resumed steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and preserves the run-folder and label contract. Use the original `auto-continue-pr` for simple `auto-create-pr` runs.
+name: auto-continue-pr-loop
+description: Advanced `auto-continue-pr` workflow for PRs started by `auto-create-pr-loop`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, executes lean per-step commits, batches verification into `checkpoint-<N>-checks.md` every 5 resumed steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and preserves the run-folder and label contract. Use the original `auto-continue-pr` for simple `auto-create-pr` runs.
 ---
 
-# Auto Continue PR (sophisticated)
+# Auto Continue PR (loop)
 
 Resume an `auto-create-pr` run that did not finish in one go. Given a PR
 number, you re-enter the same worktree discipline, read `HANDOFF.md` for
@@ -256,7 +256,7 @@ Append a NOTIFY entry announcing the resume:
 
 ### 4. Resume execution — lean per-Step loop + checkpoint pass every 5 Steps
 
-From the resume point forward, apply the **same lean/checkpoint pattern** documented in `.ai/skills/auto-create-pr-sophisticated/SKILL.md` step 6.
+From the resume point forward, apply the **same lean/checkpoint pattern** documented in `.ai/skills/auto-create-pr-loop/SKILL.md` step 6.
 
 #### 4a. Per-Step loop (lean, no per-Step chatter)
 
@@ -396,7 +396,7 @@ Fire when every row in the Tasks table is `done` (including work from earlier re
 
 Record the outcome in `${RUN_DIR}/final-gate-checks.md`. Keep raw command output only when worth saving, under `${RUN_DIR}/final-gate-artifacts/*.log`.
 
-**Full validation gate** (same as `auto-create-pr-sophisticated` / `code-review` / `auto-fix-github`):
+**Full validation gate** (same as `auto-create-pr-loop` / `code-review` / `auto-fix-github`):
 
 - `yarn build:packages`
 - `yarn generate`

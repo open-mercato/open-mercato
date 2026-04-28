@@ -218,7 +218,7 @@ const { text } = await generateText({ model, tools, prompt: '...', maxSteps: 5 }
 
 ### Option B — Wrapped agent with a native SDK callback (recommended escape hatch)
 
-When you want most of the wrapper's guarantees but need to reach into the raw AI SDK call (custom `providerOptions`, `experimental_*` flags, telemetry, additional `onStepFinish` logic, custom `abortSignal` plumbing, etc.), pass an `sdkOverride` callback. The runtime still:
+When you want most of the wrapper's guarantees but need to reach into the raw AI SDK call (custom `providerOptions`, `experimental_*` flags, telemetry, additional `onStepFinish` logic, custom `abortSignal` plumbing, etc.), pass a `generateText` callback to `runAiAgentText` (or a `generateObject` callback to `runAiAgentObject`). The callback name mirrors the AI SDK function it ultimately invokes, so the call site stays coherent with the underlying SDK. The runtime still:
 
 - runs `checkAgentPolicy` (features, tool whitelist, mutation policy, media types),
 - resolves the model via `createModelFactory` and tenant overrides,
@@ -226,7 +226,7 @@ When you want most of the wrapper's guarantees but need to reach into the raw AI
 - composes the system prompt (including `resolvePageContext`),
 - routes any mutation tool calls through `prepareMutation` + the approval contract,
 
-and then hands the fully prepared options object to your callback so you can call `generateText` / `generateObject` / `streamText` / `streamObject` directly.
+and then hands the fully prepared options object to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
 
 ```ts
 import { runAiAgentText } from '@open-mercato/ai-assistant'
@@ -237,7 +237,7 @@ const result = await runAiAgentText({
   container,
   authContext,
   prompt: 'Summarize this account',
-  sdkOverride: async ({ model, tools, system, messages, maxSteps }) => {
+  generateText: async ({ model, tools, system, messages, maxSteps }) => {
     return generateText({
       model,
       tools,
@@ -254,9 +254,9 @@ const result = await runAiAgentText({
 })
 ```
 
-The same hook is available on `runAiAgentObject` (where you receive the resolved `output.schema` and call `generateObject` / `streamObject`).
+The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` so the callback can call `generateObject` / `streamObject` directly.
 
-**What you still lose with `sdkOverride`:**
+**What you still lose with the `generateText` / `generateObject` callbacks:**
 
 - If your callback ignores the supplied `tools` / `system` / `messages` arguments, you also bypass tool whitelisting, prompt composition, and mutation approvals — only the model factory and feature gate remain. Treat the supplied arguments as required inputs unless you know exactly which guardrail you are dropping.
 - Custom transports (e.g. swapping the HTTP client) move you outside the model factory's provider routing; per-tenant API key overrides set in settings will not apply.
