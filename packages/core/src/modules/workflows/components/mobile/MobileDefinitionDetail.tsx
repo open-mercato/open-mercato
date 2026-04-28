@@ -72,7 +72,7 @@ export function MobileDefinitionDetail({
                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{step.stepName || step.stepId}</div>
-                    <div className="text-[10px] uppercase text-muted-foreground">
+                    <div className="text-overline uppercase text-muted-foreground">
                       {step.stepType || step.type || 'unknown'}
                     </div>
                   </div>
@@ -126,7 +126,7 @@ export function MobileDefinitionDetail({
                     <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                     <span className="truncate font-mono text-xs">{transition.toStepId}</span>
                   </div>
-                  <div className="text-[10px] text-muted-foreground">
+                  <div className="text-overline text-muted-foreground">
                     {transition.trigger || 'auto'}
                   </div>
                 </div>

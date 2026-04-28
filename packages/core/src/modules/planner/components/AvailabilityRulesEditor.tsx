@@ -1412,7 +1412,7 @@ export function AvailabilityRulesEditor({
                           ) : (
                             windows.map((window, windowIndex) => {
                               const windowError = weeklyWindowErrors[index]?.[windowIndex] ?? null
-                              const errorClass = windowError ? 'border-red-500 focus-visible:ring-red-400' : ''
+                              const errorClass = windowError ? 'border-red-500 aria-invalid:ring-destructive' : ''
                               return (
                                 <div key={`${day.code}-${windowIndex}`} className="space-y-1">
                                   <div className="flex flex-wrap items-center gap-2">
@@ -1736,7 +1736,7 @@ export function AvailabilityRulesEditor({
                           <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
                           {editorWindows.map((window, index) => {
                             const windowError = editorWindowErrors[index] ?? null
-                            const errorClass = windowError ? 'border-red-500 focus-visible:ring-red-400' : ''
+                            const errorClass = windowError ? 'border-red-500 aria-invalid:ring-destructive' : ''
                             return (
                               <div key={`${index}-${window.start}`} className="space-y-1">
                                 <div className="flex flex-wrap items-center gap-2">

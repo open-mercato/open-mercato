@@ -172,8 +172,8 @@ function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
 
 function DetailStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-muted/20 px-4 py-3">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+    <div className="rounded-lg border bg-muted/30 px-4 py-3">
+      <div className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-sm font-medium">{value}</div>
     </div>
   )
@@ -563,8 +563,8 @@ export default function PaymentTransactionsPage() {
                             [t('payment_gateways.transactions.columns.lastWebhookAt', 'Last webhook'), formatDateTime(detail.transaction.lastWebhookAt)],
                             [t('payment_gateways.transactions.columns.lastPolledAt', 'Last poll'), formatDateTime(detail.transaction.lastPolledAt)],
                           ].map(([label, value]) => (
-                            <div key={label} className="rounded-lg border bg-muted/20 px-4 py-3">
-                              <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+                            <div key={label} className="rounded-lg border bg-muted/30 px-4 py-3">
+                              <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
                               <dd className="mt-1 break-all text-sm">{value}</dd>
                             </div>
                           ))}
@@ -580,7 +580,7 @@ export default function PaymentTransactionsPage() {
                           <div className="overflow-hidden rounded-lg border">
                             <table className="w-full text-sm">
                               <thead>
-                                <tr className="border-b bg-muted/40">
+                                <tr className="border-b bg-muted/50">
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.eventType', 'Event')}</th>
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.status', 'Status')}</th>
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.processed', 'Processed')}</th>
@@ -616,7 +616,7 @@ export default function PaymentTransactionsPage() {
                           <div className="overflow-hidden rounded-lg border">
                             <table className="w-full text-sm">
                               <thead>
-                                <tr className="border-b bg-muted/40">
+                                <tr className="border-b bg-muted/50">
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.time', 'Time')}</th>
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.level', 'Level')}</th>
                                   <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.message', 'Message')}</th>
@@ -658,14 +658,14 @@ export default function PaymentTransactionsPage() {
                                         </td>
                                       </tr>
                                       {isExpanded ? (
-                                        <tr className="border-b bg-muted/15 last:border-0">
+                                        <tr className="border-b bg-muted/30 last:border-0">
                                           <td colSpan={3} className="px-4 py-4">
                                             <div className="space-y-4 rounded-lg border bg-card p-4">
                                               {metadataEntries.length > 0 ? (
                                                 <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                                                   {metadataEntries.map(([label, value]) => (
-                                                    <div key={label} className="rounded-md border bg-muted/20 px-3 py-2">
-                                                      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+                                                    <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                                                      <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
                                                       <dd className="mt-1 break-all text-sm">{value}</dd>
                                                     </div>
                                                   ))}
@@ -674,8 +674,8 @@ export default function PaymentTransactionsPage() {
                                               {inlineEntries.length > 0 ? (
                                                 <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                                                   {inlineEntries.map(([key, value]) => (
-                                                    <div key={key} className="rounded-md border bg-muted/20 px-3 py-2">
-                                                      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{formatLogDetailLabel(key)}</dt>
+                                                    <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
+                                                      <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{formatLogDetailLabel(key)}</dt>
                                                       <dd className="mt-1 break-words text-sm">{formatLogPrimitiveValue(value)}</dd>
                                                     </div>
                                                   ))}

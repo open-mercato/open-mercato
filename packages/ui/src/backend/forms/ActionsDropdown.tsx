@@ -154,7 +154,7 @@ export function ActionsDropdown({
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-52 rounded-md border bg-background p-1 shadow-md focus:outline-none z-[1000]"
+          className="fixed w-52 rounded-md border bg-background p-1 shadow-md focus-visible:outline-none z-dropdown"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           style={{

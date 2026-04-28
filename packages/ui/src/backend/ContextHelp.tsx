@@ -21,7 +21,7 @@ export function ContextHelp({ title, children, defaultOpen = false, bulb = true,
       <Button
         type="button"
         variant="ghost"
-        className="w-full justify-start gap-2 px-4 py-3 text-left hover:bg-accent/40"
+        className="w-full justify-start gap-2 px-4 py-3 text-left hover:bg-accent/50"
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >

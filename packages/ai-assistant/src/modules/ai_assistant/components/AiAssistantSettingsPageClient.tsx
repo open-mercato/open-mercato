@@ -189,7 +189,7 @@ function AiAssistantSettingsContent() {
           {/* OpenCode Server Status */}
           <div className={`p-4 rounded-lg border-2 ${
             health?.status === 'ok' && health.opencode?.healthy
-              ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+              ? 'border-status-success-border bg-status-success-bg'
               : 'border-destructive/50 bg-destructive/5'
           }`}>
             <div className="flex items-start justify-between">
@@ -200,7 +200,7 @@ function AiAssistantSettingsContent() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {health?.status === 'ok' && health.opencode?.healthy ? (
-                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1 text-status-success-text">
                       <CheckCircle2 className="h-3 w-3" />
                       Connected
                     </span>
@@ -221,7 +221,7 @@ function AiAssistantSettingsContent() {
                 </p>
               </div>
               {health?.status === 'ok' && health.opencode?.healthy && (
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 shrink-0">
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon shrink-0">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
@@ -239,9 +239,9 @@ function AiAssistantSettingsContent() {
             return (
               <div className={`p-4 rounded-lg border-2 ${
                 mcpConnected
-                  ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+                  ? 'border-status-success-border bg-status-success-bg'
                   : mcpConnecting
-                    ? 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-900/10'
+                    ? 'border-status-warning-border bg-status-warning-bg'
                     : 'border-destructive/50 bg-destructive/5'
               }`}>
                 <div className="flex items-start justify-between">
@@ -252,12 +252,12 @@ function AiAssistantSettingsContent() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       {mcpConnected ? (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <span className="flex items-center gap-1 text-status-success-text">
                           <CheckCircle2 className="h-3 w-3" />
                           Connected
                         </span>
                       ) : mcpConnecting ? (
-                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <span className="flex items-center gap-1 text-status-warning-text">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Connecting...
                         </span>
@@ -273,7 +273,7 @@ function AiAssistantSettingsContent() {
                     </p>
                   </div>
                   {mcpConnected && (
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 shrink-0">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon shrink-0">
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
@@ -287,7 +287,7 @@ function AiAssistantSettingsContent() {
           {/* Meilisearch Status */}
           <div className={`p-4 rounded-lg border-2 ${
             health?.search?.available
-              ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+              ? 'border-status-success-border bg-status-success-bg'
               : 'border-destructive/50 bg-destructive/5'
           }`}>
             <div className="flex items-start justify-between">
@@ -298,7 +298,7 @@ function AiAssistantSettingsContent() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {health?.search?.available ? (
-                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1 text-status-success-text">
                       <CheckCircle2 className="h-3 w-3" />
                       Connected
                     </span>
@@ -314,7 +314,7 @@ function AiAssistantSettingsContent() {
                 </p>
               </div>
               {health?.search?.available && (
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 shrink-0">
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon shrink-0">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
@@ -330,12 +330,12 @@ function AiAssistantSettingsContent() {
             <Key className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium">MCP Authentication:</span>
             {settings?.mcpKeyConfigured ? (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs">
+              <span className="flex items-center gap-1 text-status-success-text text-xs">
                 <CheckCircle2 className="h-3 w-3" />
                 MCP_SERVER_API_KEY configured
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-xs">
+              <span className="flex items-center gap-1 text-status-warning-text text-xs">
                 <XCircle className="h-3 w-3" />
                 MCP_SERVER_API_KEY not set
               </span>
@@ -353,12 +353,12 @@ function AiAssistantSettingsContent() {
             <span className="font-medium">LLM Provider:</span>
             <span className="font-medium">{provider?.name || 'Anthropic'}</span>
             {provider?.configured ? (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs">
+              <span className="flex items-center gap-1 text-status-success-text text-xs">
                 <CheckCircle2 className="h-3 w-3" />
                 {provider?.envKey} configured
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-xs">
+              <span className="flex items-center gap-1 text-status-warning-text text-xs">
                 <XCircle className="h-3 w-3" />
                 {provider?.envKey || 'ANTHROPIC_API_KEY'} not set
               </span>

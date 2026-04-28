@@ -307,7 +307,7 @@ export function FormFieldArrayEditor({
                           id={`${id}-${index}-required`}
                           checked={field.required}
                           onChange={(e) => updateFormField(index, 'required', e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
                           disabled={disabled}
                         />
                         <Label htmlFor={`${id}-${index}-required`} className="text-xs font-medium cursor-pointer">

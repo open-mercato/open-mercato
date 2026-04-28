@@ -18,7 +18,7 @@ const alwaysEnabledComponentOverrides: ComponentOverride[] = [
         React.createElement(
           'div',
           {
-            className: 'rounded-md border border-dotted border-border/40 p-2',
+            className: 'rounded-md border border-dotted border-border/70 p-2',
             'data-testid': 'example-notes-wrapper',
           },
           React.createElement(Original, props as object)

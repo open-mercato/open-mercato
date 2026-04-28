@@ -317,7 +317,7 @@ export default function PipelineStagesPage() {
             <>
               <div className="flex items-center gap-3">
                 <select
-                  className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={selectedPipelineId ?? ''}
                   onChange={(e) => setSelectedPipelineId(e.target.value || null)}
                 >
@@ -379,7 +379,7 @@ export default function PipelineStagesPage() {
                           <div className="flex flex-col gap-1">
                             <button
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
                               onClick={() => moveStage(index, 'up')}
                               disabled={index === 0}
                               aria-label={t('customers.config.pipelineStages.moveUp', 'Move up')}
@@ -388,7 +388,7 @@ export default function PipelineStagesPage() {
                             </button>
                             <button
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
                               onClick={() => moveStage(index, 'down')}
                               disabled={index === stages.length - 1}
                               aria-label={t('customers.config.pipelineStages.moveDown', 'Move down')}
