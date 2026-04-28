@@ -1139,21 +1139,18 @@ function ContactEmailInlineEditor({
                 }
               }}
             >
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  className="w-full rounded-md border pl-8 pr-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={draft}
-                  onChange={(event) => {
-                    if (error) setError(null)
-                    setDraft(event.target.value)
-                  }}
-                  placeholder={placeholder}
-                  type="email"
-                  autoFocus
-                  spellCheck={false}
-                />
-              </div>
+              <Input
+                leftIcon={<Mail />}
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                placeholder={placeholder}
+                type="email"
+                autoFocus
+                spellCheck={false}
+              />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               {!error && duplicate ? (
                 <p className="text-xs text-muted-foreground">
