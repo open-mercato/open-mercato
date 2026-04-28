@@ -393,22 +393,52 @@ describe('catalog.bulk_update_products — loadBeforeRecords', () => {
   })
 })
 
-describe('catalog.bulk_update_products — handler groups per-record results', () => {
+describe('catalog.bulk_update_products — prepare phase issues no API write', () => {
   const tool = findTool('catalog.bulk_update_products')
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('marks cross-tenant row as skipped/record_not_found without aborting the batch', async () => {
+  it('loadBeforeRecords does NOT invoke the API operation runner', async () => {
     findOneWithDecryptionMock
       .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_B }))
+    const ctx = makeMutationCtx()
+    await tool.loadBeforeRecords!(
+      {
+        records: [
+          { recordId: PRODUCT_ID_A, title: 'T-A' },
+          { recordId: PRODUCT_ID_B, title: 'T-B' },
+        ],
+      } as any,
+      ctx as any,
+    )
+    expect(runMock).not.toHaveBeenCalled()
+    expect(createRunnerMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('catalog.bulk_update_products — handler delegates to API runner per record', () => {
+  const tool = findTool('catalog.bulk_update_products')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
+  })
+
+  it('issues one PUT /catalog/products call per accessible record and emits a single pending action', async () => {
+    findOneWithDecryptionMock
       .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A, title: 'T-A' }))
       .mockResolvedValueOnce(null) // cross-tenant B
       .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_C }))
-      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_C }))
-    const bus: FakeBus = { execute: jest.fn().mockResolvedValue({ result: { productId: 'ok' } }) }
-    const ctx = makeMutationCtx({ commandBus: bus })
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_C, title: 'T-C' }))
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx()
     const result = (await tool.handler(
       {
         records: [
@@ -419,24 +449,38 @@ describe('catalog.bulk_update_products — handler groups per-record results', (
       } as any,
       ctx as any,
     )) as any
+    expect(createRunnerMock).toHaveBeenCalledTimes(1) // single pending action / single runner instance
+    expect(runMock).toHaveBeenCalledTimes(2)
+    const firstCall = runMock.mock.calls[0][0]
+    expect(firstCall.method).toBe('PUT')
+    expect(firstCall.path).toBe('/catalog/products')
+    expect(firstCall.body).toEqual({
+      id: PRODUCT_ID_A,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      title: 'T-A',
+    })
     expect(result.commandName).toBe('catalog.products.update')
     expect(result.failedRecordIds).toEqual([PRODUCT_ID_B])
     expect(result.records).toHaveLength(3)
-    expect(result.records[0]).toMatchObject({ recordId: PRODUCT_ID_A, status: 'updated' })
+    expect(result.records[0]).toMatchObject({
+      recordId: PRODUCT_ID_A,
+      status: 'updated',
+      before: { title: 'Widget' },
+      after: { title: 'T-A' },
+    })
     expect(result.records[1]).toMatchObject({
       recordId: PRODUCT_ID_B,
       status: 'skipped',
       error: { code: 'record_not_found' },
     })
     expect(result.records[2]).toMatchObject({ recordId: PRODUCT_ID_C, status: 'updated' })
-    expect(bus.execute).toHaveBeenCalledTimes(2)
     expect(result.error).toBeUndefined()
   })
 
-  it('marks all_records_failed when every record is out of scope', async () => {
+  it('marks all_records_failed when every record is out of scope without calling the runner', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)
-    const bus: FakeBus = { execute: jest.fn() }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    const ctx = makeMutationCtx()
     const result = (await tool.handler(
       {
         records: [
@@ -446,23 +490,57 @@ describe('catalog.bulk_update_products — handler groups per-record results', (
       } as any,
       ctx as any,
     )) as any
-    expect(bus.execute).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
     expect(result.failedRecordIds).toEqual([PRODUCT_ID_A, PRODUCT_ID_B])
     expect(result.error).toEqual({ code: 'all_records_failed', message: expect.any(String) })
   })
 
-  it('records per-record failure when the command throws', async () => {
+  it('records per-record failure with succeeded rows preserved when the runner returns success=false', async () => {
     findOneWithDecryptionMock
       .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
-      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A })) // after read
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A, title: 'A' })) // after read for A
       .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_B }))
-    const bus: FakeBus = {
-      execute: jest
-        .fn()
-        .mockResolvedValueOnce({ result: { productId: PRODUCT_ID_A } })
-        .mockRejectedValueOnce(Object.assign(new Error('stale'), { code: 'stale_version' })),
-    }
-    const ctx = makeMutationCtx({ commandBus: bus })
+    runMock
+      .mockResolvedValueOnce({ success: true, statusCode: 200, data: { ok: true } })
+      .mockResolvedValueOnce({
+        success: false,
+        statusCode: 412,
+        error: 'stale',
+        details: { code: 'stale_version' },
+      })
+    const ctx = makeMutationCtx()
+    const result = (await tool.handler(
+      {
+        records: [
+          { recordId: PRODUCT_ID_A, title: 'A' },
+          { recordId: PRODUCT_ID_B, title: 'B' },
+        ],
+      } as any,
+      ctx as any,
+    )) as any
+    expect(result.records[0]).toMatchObject({
+      recordId: PRODUCT_ID_A,
+      status: 'updated',
+      before: { title: 'Widget' },
+      after: { title: 'A' },
+    })
+    expect(result.records[1]).toMatchObject({
+      recordId: PRODUCT_ID_B,
+      status: 'failed',
+      error: { code: 'stale_version', message: 'stale' },
+    })
+    expect(result.failedRecordIds).toEqual([PRODUCT_ID_B])
+  })
+
+  it('records per-record failure when the runner throws', async () => {
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A }))
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_A, title: 'A' }))
+      .mockResolvedValueOnce(clonePrototype({ id: PRODUCT_ID_B }))
+    runMock
+      .mockResolvedValueOnce({ success: true, statusCode: 200, data: { ok: true } })
+      .mockRejectedValueOnce(Object.assign(new Error('boom'), { code: 'runner_failed' }))
+    const ctx = makeMutationCtx()
     const result = (await tool.handler(
       {
         records: [
@@ -476,7 +554,7 @@ describe('catalog.bulk_update_products — handler groups per-record results', (
     expect(result.records[1]).toMatchObject({
       recordId: PRODUCT_ID_B,
       status: 'failed',
-      error: { code: 'stale_version', message: 'stale' },
+      error: { code: 'runner_failed', message: 'boom' },
     })
     expect(result.failedRecordIds).toEqual([PRODUCT_ID_B])
   })

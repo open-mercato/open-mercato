@@ -361,7 +361,7 @@ const bulkUpdateProductsTool: CatalogAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: BulkUpdateProductsInput = bulkUpdateProductsInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
     const results: BulkRecordResult[] = []
     const failedRecordIds: string[] = []
     for (const entry of input.records) {
@@ -393,20 +393,36 @@ const bulkUpdateProductsTool: CatalogAiToolDefinition = {
           continue
         }
       }
-      const commandInput: Record<string, unknown> = {
+      const body: Record<string, unknown> = {
         id: product.id,
         tenantId,
         organizationId,
       }
-      if (entry.title !== undefined) commandInput.title = entry.title
-      if (entry.subtitle !== undefined) commandInput.subtitle = entry.subtitle
-      if (entry.description !== undefined) commandInput.description = entry.description
-      if (entry.isActive !== undefined) commandInput.isActive = entry.isActive
+      if (entry.title !== undefined) body.title = entry.title
+      if (entry.subtitle !== undefined) body.subtitle = entry.subtitle
+      if (entry.description !== undefined) body.description = entry.description
+      if (entry.isActive !== undefined) body.isActive = entry.isActive
       try {
-        await commandBus.execute<Record<string, unknown>, { productId: string }>(
-          'catalog.products.update',
-          { input: commandInput, ctx: buildCommandRuntimeContext(ctx, tenantId, organizationId) },
-        )
+        const response = await runner.run({
+          method: 'PUT',
+          path: '/catalog/products',
+          body,
+        })
+        if (!response.success) {
+          const code =
+            typeof (response.details as { code?: unknown } | undefined)?.code === 'string'
+              ? ((response.details as { code: string }).code)
+              : 'command_failed'
+          failedRecordIds.push(product.id)
+          results.push({
+            recordId: product.id,
+            status: 'failed',
+            before,
+            after: null,
+            error: { code, message: response.error ?? 'API operation failed' },
+          })
+          continue
+        }
         const after = await loadProductForScope(em, ctx, tenantId, product.id)
         results.push({
           recordId: product.id,
