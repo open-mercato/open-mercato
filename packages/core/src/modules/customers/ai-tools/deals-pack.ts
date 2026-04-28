@@ -6,26 +6,27 @@
  * `customers.list_deals` is now an API-backed wrapper over
  * `GET /api/customers/deals`. Tool name, schema, requiredFeatures, and output
  * shape are unchanged.
+ *
+ * Phase 3c of the same spec migrates `customers.get_deal` to the documented
+ * aggregate detail route. The handler issues 1 call without `includeRelated`
+ * (`GET /customers/deals/<id>`) and 3 bounded calls with `includeRelated`
+ * (deal detail + activities + comments by `dealId`). The 3-call cap matches
+ * the spec's residual N+1 budget; deeper aggregation can earn a first-class
+ * API later without touching the AI surface.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
-import type {
-  AiApiOperationRequest,
-  AiToolExecutionContext,
+import {
+  createAiApiOperationRunner,
+  type AiApiOperationRequest,
+  type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { E } from '#generated/entities.ids.generated'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import {
   CustomerDeal,
-  CustomerDealCompanyLink,
-  CustomerDealPersonLink,
-  CustomerActivity,
-  CustomerComment,
-  CustomerEntity,
   CustomerPipelineStage,
 } from '../data/entities'
 import {
@@ -170,6 +171,15 @@ const getDealInput = z.object({
     .describe('When true, include notes, activities, linked people and companies (each capped at 100).'),
 })
 
+type GetDealInput = z.infer<typeof getDealInput>
+
+function toIsoDeal(value: unknown): string | null {
+  if (!value) return null
+  const dt = value instanceof Date ? value : new Date(String(value))
+  if (Number.isNaN(dt.getTime())) return null
+  return dt.toISOString()
+}
+
 const getDealTool: CustomersAiToolDefinition = {
   name: 'customers.get_deal',
   displayName: 'Get deal',
@@ -179,125 +189,138 @@ const getDealTool: CustomersAiToolDefinition = {
   requiredFeatures: ['customers.deals.view'],
   tags: ['read', 'customers'],
   handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = getDealInput.parse(rawInput)
-    const em = resolveEm(ctx)
-    const where: Record<string, unknown> = { id: input.dealId, tenantId, deletedAt: null }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const deal = await findOneWithDecryption<CustomerDeal>(
-      em,
-      CustomerDeal,
-      where as any,
-      undefined,
-      buildScope(ctx, tenantId),
-    )
-    if (!deal || deal.tenantId !== tenantId) {
+    const { tenantId: _tenantId } = assertTenantScope(ctx)
+    void _tenantId
+    const input: GetDealInput = getDealInput.parse(rawInput)
+    const includeRelated = !!input.includeRelated
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
+
+    const detailResponse = await runner.run<Record<string, unknown>>({
+      method: 'GET',
+      path: `/customers/deals/${input.dealId}`,
+    })
+    if (!detailResponse.success) {
+      if (detailResponse.statusCode === 404 || detailResponse.statusCode === 403) {
+        return { found: false as const, dealId: input.dealId }
+      }
+      throw new Error(detailResponse.error ?? `Failed to fetch deal ${input.dealId}`)
+    }
+    const detail = (detailResponse.data ?? {}) as Record<string, unknown>
+    const dealRow = (detail.deal ?? null) as Record<string, unknown> | null
+    if (!dealRow) {
       return { found: false as const, dealId: input.dealId }
     }
-    const customFieldValues = await loadCustomFieldValues({
-      em,
-      entityId: E.customers.customer_deal,
-      recordIds: [deal.id],
-      tenantIdByRecord: { [deal.id]: deal.tenantId ?? null },
-      organizationIdByRecord: { [deal.id]: deal.organizationId ?? null },
-      tenantFallbacks: [deal.tenantId ?? tenantId].filter((value): value is string => !!value),
-    })
-    const customFields = customFieldValues[deal.id] ?? {}
+    const customFields = (detail.customFields ?? {}) as Record<string, unknown>
+    const peopleRows = Array.isArray(detail.people) ? (detail.people as Array<Record<string, unknown>>) : []
+    const companiesRows = Array.isArray(detail.companies)
+      ? (detail.companies as Array<Record<string, unknown>>)
+      : []
 
     let related: Record<string, unknown> | null = null
-    if (input.includeRelated) {
-      const scope = buildScope(ctx, tenantId)
-      const [activities, comments, personLinks, companyLinks] = await Promise.all([
-        findWithDecryption<CustomerActivity>(
-          em,
-          CustomerActivity,
-          { tenantId, deal: deal.id } as any,
-          { limit: 100, orderBy: { occurredAt: 'desc', createdAt: 'desc' } as any } as any,
-          scope,
-        ),
-        findWithDecryption<CustomerComment>(
-          em,
-          CustomerComment,
-          { tenantId, deal: deal.id } as any,
-          { limit: 100, orderBy: { createdAt: 'desc' } as any } as any,
-          scope,
-        ),
-        findWithDecryption<CustomerDealPersonLink>(
-          em,
-          CustomerDealPersonLink,
-          { deal: deal.id } as any,
-          { populate: ['person'] as any } as any,
-          scope,
-        ),
-        findWithDecryption<CustomerDealCompanyLink>(
-          em,
-          CustomerDealCompanyLink,
-          { deal: deal.id } as any,
-          { populate: ['company'] as any } as any,
-          scope,
-        ),
+    if (includeRelated) {
+      const [activitiesResponse, commentsResponse] = await Promise.all([
+        runner.run<{ items?: Array<Record<string, unknown>>; total?: number }>({
+          method: 'GET',
+          path: '/customers/activities',
+          query: { dealId: input.dealId, page: 1, pageSize: 100, sortField: 'occurredAt', sortDir: 'desc' },
+        }),
+        runner.run<{ items?: Array<Record<string, unknown>>; total?: number }>({
+          method: 'GET',
+          path: '/customers/comments',
+          query: { dealId: input.dealId, page: 1, pageSize: 100 },
+        }),
       ])
+      const activities =
+        activitiesResponse.success && Array.isArray(activitiesResponse.data?.items)
+          ? (activitiesResponse.data!.items as Array<Record<string, unknown>>)
+          : []
+      const comments =
+        commentsResponse.success && Array.isArray(commentsResponse.data?.items)
+          ? (commentsResponse.data!.items as Array<Record<string, unknown>>)
+          : []
+
       related = {
         activities: activities.map((activity) => ({
           id: activity.id,
-          activityType: activity.activityType,
+          activityType: activity.activityType ?? activity.activity_type ?? null,
           subject: activity.subject ?? null,
           body: activity.body ?? null,
-          occurredAt: activity.occurredAt ? new Date(activity.occurredAt).toISOString() : null,
-          createdAt: activity.createdAt ? new Date(activity.createdAt).toISOString() : null,
+          occurredAt: toIsoDeal(activity.occurredAt ?? activity.occurred_at),
+          createdAt: toIsoDeal(activity.createdAt ?? activity.created_at),
         })),
         notes: comments.map((comment) => ({
           id: comment.id,
           body: comment.body,
-          authorUserId: comment.authorUserId ?? null,
-          createdAt: comment.createdAt ? new Date(comment.createdAt).toISOString() : null,
+          authorUserId: comment.authorUserId ?? comment.author_user_id ?? null,
+          createdAt: toIsoDeal(comment.createdAt ?? comment.created_at),
         })),
-        people: personLinks
-          .map((link) => {
-            const person = (link as any).person as CustomerEntity | null
-            if (!person || person.deletedAt) return null
+        people: peopleRows
+          .map((person) => {
+            if (!person || typeof person !== 'object') return null
+            const id = typeof person.id === 'string' ? person.id : null
+            if (!id) return null
+            const subtitle = typeof person.subtitle === 'string' ? person.subtitle : null
+            const label = typeof person.label === 'string' ? person.label : ''
             return {
-              id: person.id,
-              displayName: person.displayName,
-              primaryEmail: person.primaryEmail ?? null,
-              primaryPhone: person.primaryPhone ?? null,
-              participantRole: link.participantRole ?? null,
+              id,
+              displayName: label,
+              primaryEmail: subtitle && subtitle.includes('@') ? subtitle : null,
+              primaryPhone: subtitle && !subtitle.includes('@') ? subtitle : null,
+              participantRole: null,
             }
           })
-          .filter((value): value is { id: string; displayName: string; primaryEmail: string | null; primaryPhone: string | null; participantRole: string | null } => value !== null),
-        companies: companyLinks
-          .map((link) => {
-            const company = (link as any).company as CustomerEntity | null
-            if (!company || company.deletedAt) return null
+          .filter(
+            (value): value is {
+              id: string
+              displayName: string
+              primaryEmail: string | null
+              primaryPhone: string | null
+              participantRole: string | null
+            } => value !== null,
+          ),
+        companies: companiesRows
+          .map((company) => {
+            if (!company || typeof company !== 'object') return null
+            const id = typeof company.id === 'string' ? company.id : null
+            if (!id) return null
+            const label = typeof company.label === 'string' ? company.label : ''
             return {
-              id: company.id,
-              displayName: company.displayName,
-              primaryEmail: company.primaryEmail ?? null,
-              primaryPhone: company.primaryPhone ?? null,
+              id,
+              displayName: label,
+              primaryEmail: null,
+              primaryPhone: null,
             }
           })
-          .filter((value): value is { id: string; displayName: string; primaryEmail: string | null; primaryPhone: string | null } => value !== null),
+          .filter(
+            (value): value is {
+              id: string
+              displayName: string
+              primaryEmail: string | null
+              primaryPhone: string | null
+            } => value !== null,
+          ),
       }
     }
+
     return {
       found: true as const,
       deal: {
-        id: deal.id,
-        title: deal.title,
-        description: deal.description ?? null,
-        status: deal.status ?? null,
-        pipelineId: deal.pipelineId ?? null,
-        pipelineStageId: deal.pipelineStageId ?? null,
-        valueAmount: deal.valueAmount ?? null,
-        valueCurrency: deal.valueCurrency ?? null,
-        probability: deal.probability ?? null,
-        ownerUserId: deal.ownerUserId ?? null,
-        expectedCloseAt: deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toISOString() : null,
-        source: deal.source ?? null,
-        organizationId: deal.organizationId ?? null,
-        tenantId: deal.tenantId ?? null,
-        createdAt: deal.createdAt ? new Date(deal.createdAt).toISOString() : null,
-        updatedAt: deal.updatedAt ? new Date(deal.updatedAt).toISOString() : null,
+        id: dealRow.id,
+        title: typeof dealRow.title === 'string' ? dealRow.title : '',
+        description: dealRow.description ?? null,
+        status: dealRow.status ?? null,
+        pipelineId: dealRow.pipelineId ?? null,
+        pipelineStageId: dealRow.pipelineStageId ?? null,
+        valueAmount: dealRow.valueAmount ?? null,
+        valueCurrency: dealRow.valueCurrency ?? null,
+        probability: dealRow.probability ?? null,
+        ownerUserId: dealRow.ownerUserId ?? null,
+        expectedCloseAt: toIsoDeal(dealRow.expectedCloseAt),
+        source: dealRow.source ?? null,
+        organizationId: dealRow.organizationId ?? null,
+        tenantId: dealRow.tenantId ?? null,
+        createdAt: toIsoDeal(dealRow.createdAt),
+        updatedAt: toIsoDeal(dealRow.updatedAt),
       },
       customFields,
       related,

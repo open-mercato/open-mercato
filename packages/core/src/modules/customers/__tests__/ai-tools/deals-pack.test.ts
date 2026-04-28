@@ -143,30 +143,172 @@ describe('customers.get_deal', () => {
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
     loadCustomFieldValuesMock.mockReset()
-    loadCustomFieldValuesMock.mockResolvedValue({})
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
   const dealId = '35dc2d65-6b3f-4846-a37f-a5ca7b89037c'
 
-  it('returns { found: false } on miss (no throw)', async () => {
-    findOneWithDecryptionMock.mockResolvedValue(null)
+  it('declares same name/schema/requiredFeatures and is not a mutation', () => {
+    expect(tool.name).toBe('customers.get_deal')
+    expect(tool.requiredFeatures).toEqual(['customers.deals.view'])
+    expect(tool.isMutation).toBeFalsy()
+    expect(tool.inputSchema.safeParse({ dealId }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ dealId: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('returns { found: false } on 404 (and only one runner call without related)', async () => {
+    runMock.mockResolvedValueOnce({ success: false, statusCode: 404, error: 'Deal not found' })
+    const ctx = makeCtx()
+    const result = (await tool.handler({ dealId }, ctx as any)) as Record<string, unknown>
+    expect(result.found).toBe(false)
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('GET')
+    expect(operation.path).toBe(`/customers/deals/${dealId}`)
+    expect(operation.query).toBeUndefined()
+  })
+
+  it('returns { found: false } on 403', async () => {
+    runMock.mockResolvedValueOnce({ success: false, statusCode: 403, error: 'Access denied' })
     const ctx = makeCtx()
     const result = (await tool.handler({ dealId }, ctx as any)) as Record<string, unknown>
     expect(result.found).toBe(false)
   })
 
-  it('returns { found: false } when tenant mismatches', async () => {
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: dealId,
-      tenantId: 'tenant-2',
-      organizationId: 'org-1',
-      title: 'Leak',
-      status: 'open',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+  it('bubbles a clean Error for non-404/403 runner failures', async () => {
+    runMock.mockResolvedValueOnce({ success: false, statusCode: 500, error: 'boom' })
+    const ctx = makeCtx()
+    await expect(tool.handler({ dealId }, ctx as any)).rejects.toThrow('boom')
+  })
+
+  it('maps a populated deal payload (no includeRelated) into the AI shape with a single API call', async () => {
+    runMock.mockResolvedValueOnce({
+      success: true,
+      statusCode: 200,
+      data: {
+        deal: {
+          id: dealId,
+          title: 'Big deal',
+          description: null,
+          status: 'open',
+          pipelineId: null,
+          pipelineStageId: 'stage-1',
+          valueAmount: '1000',
+          valueCurrency: 'USD',
+          probability: 0.5,
+          ownerUserId: null,
+          expectedCloseAt: null,
+          source: null,
+          organizationId: 'org-1',
+          tenantId: 'tenant-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+        },
+        people: [],
+        companies: [],
+        customFields: { lane: 'enterprise' },
+      },
     })
     const ctx = makeCtx()
     const result = (await tool.handler({ dealId }, ctx as any)) as Record<string, unknown>
-    expect(result.found).toBe(false)
+    expect(result.found).toBe(true)
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const deal = result.deal as Record<string, unknown>
+    expect(deal.title).toBe('Big deal')
+    expect(deal.pipelineStageId).toBe('stage-1')
+    expect(deal.valueAmount).toBe('1000')
+    expect(result.customFields).toEqual({ lane: 'enterprise' })
+    expect(result.related).toBeNull()
+  })
+
+  it('includeRelated: true performs deal + activities + comments calls and merges peoples from the detail payload', async () => {
+    runMock.mockResolvedValueOnce({
+      success: true,
+      statusCode: 200,
+      data: {
+        deal: {
+          id: dealId,
+          title: 'Big deal',
+          status: 'open',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+        },
+        people: [
+          { id: 'p-1', label: 'Alice', subtitle: 'alice@example.com', kind: 'person' },
+        ],
+        companies: [{ id: 'c-1', label: 'Acme', subtitle: null, kind: 'company' }],
+        customFields: {},
+      },
+    })
+    runMock.mockResolvedValueOnce({
+      success: true,
+      statusCode: 200,
+      data: {
+        items: [
+          {
+            id: 'act-1',
+            activityType: 'call',
+            subject: 'Hello',
+            body: null,
+            occurredAt: '2024-01-03T00:00:00.000Z',
+            createdAt: '2024-01-03T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    })
+    runMock.mockResolvedValueOnce({
+      success: true,
+      statusCode: 200,
+      data: {
+        items: [
+          {
+            id: 'note-1',
+            body: 'note',
+            author_user_id: 'u1',
+            created_at: '2024-01-03T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    })
+    const ctx = makeCtx()
+    const result = (await tool.handler(
+      { dealId, includeRelated: true },
+      ctx as any,
+    )) as Record<string, unknown>
+    expect(result.found).toBe(true)
+    expect(runMock).toHaveBeenCalledTimes(3)
+    const detailOp = runMock.mock.calls[0][0]
+    expect(detailOp.path).toBe(`/customers/deals/${dealId}`)
+    const activitiesOp = runMock.mock.calls[1][0]
+    expect(activitiesOp.path).toBe('/customers/activities')
+    expect(activitiesOp.query.dealId).toBe(dealId)
+    const commentsOp = runMock.mock.calls[2][0]
+    expect(commentsOp.path).toBe('/customers/comments')
+    expect(commentsOp.query.dealId).toBe(dealId)
+    const related = result.related as Record<string, unknown>
+    expect((related.activities as any[])[0].activityType).toBe('call')
+    expect((related.notes as any[])[0]).toMatchObject({
+      id: 'note-1',
+      body: 'note',
+      authorUserId: 'u1',
+    })
+    expect((related.people as any[])[0]).toMatchObject({
+      id: 'p-1',
+      displayName: 'Alice',
+      primaryEmail: 'alice@example.com',
+    })
+    expect((related.companies as any[])[0]).toMatchObject({ id: 'c-1', displayName: 'Acme' })
+  })
+
+  it('rejects calls without a tenant context', async () => {
+    const ctx = makeCtx({ tenantId: null })
+    await expect(tool.handler({ dealId }, ctx as any)).rejects.toThrow(
+      /Tenant context is required/,
+    )
   })
 })
