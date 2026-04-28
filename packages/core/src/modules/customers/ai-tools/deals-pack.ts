@@ -1,12 +1,21 @@
 /**
  * `customers.list_deals` + `customers.get_deal` (Phase 1 WS-C, Step 3.9).
  * `customers.update_deal_stage` mutation tool (Phase 3 WS-C, Step 5.13).
+ *
+ * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * `customers.list_deals` is now an API-backed wrapper over
+ * `GET /api/customers/deals`. Tool name, schema, requiredFeatures, and output
+ * shape are unchanged.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
+import type {
+  AiApiOperationRequest,
+  AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { type QueryEngine, type QueryResult, SortDir } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -26,11 +35,11 @@ import {
   type CustomersToolLoadBeforeSingleRecord,
 } from './types'
 
-function resolveEm(ctx: CustomersToolContext): EntityManager {
+function resolveEm(ctx: CustomersToolContext | AiToolExecutionContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
 }
 
-function buildScope(ctx: CustomersToolContext, tenantId: string) {
+function buildScope(ctx: CustomersToolContext | AiToolExecutionContext, tenantId: string) {
   return { tenantId, organizationId: ctx.organizationId }
 }
 
@@ -46,109 +55,112 @@ const listDealsInput = z
   })
   .passthrough()
 
-const listDealsTool: CustomersAiToolDefinition = {
+type ListDealsInput = z.infer<typeof listDealsInput>
+
+type ListDealsApiItem = {
+  id?: string
+  title?: string | null
+  description?: string | null
+  status?: string | null
+  pipeline_id?: string | null
+  pipelineId?: string | null
+  pipeline_stage_id?: string | null
+  pipelineStageId?: string | null
+  value_amount?: string | number | null
+  valueAmount?: string | number | null
+  value_currency?: string | null
+  valueCurrency?: string | null
+  probability?: number | null
+  owner_user_id?: string | null
+  ownerUserId?: string | null
+  expected_close_at?: string | null
+  expectedCloseAt?: string | null
+  source?: string | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+}
+
+type ListDealsApiResponse = {
+  items?: ListDealsApiItem[]
+  total?: number
+}
+
+type ListDealsOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+const listDealsTool = defineApiBackedAiTool<ListDealsInput, ListDealsApiResponse, ListDealsOutput>({
   name: 'customers.list_deals',
   displayName: 'List deals',
   description:
     'Search / list deals for the caller tenant + organization. Optional filters include linked person / company / pipeline stage.',
   inputSchema: listDealsInput,
   requiredFeatures: ['customers.deals.view'],
-  tags: ['read', 'customers'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listDealsInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: (input, ctx) => {
+    assertTenantScope(ctx as unknown as CustomersToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
+    const page = Math.floor(offset / limit) + 1
 
-    let dealIdRestriction: string[] | null = null
-    if (input.personId) {
-      const personLinks = await findWithDecryption<CustomerDealPersonLink>(
-        em,
-        CustomerDealPersonLink,
-        { person: input.personId } as any,
-        undefined,
-        buildScope(ctx, tenantId),
-      )
-      const ids = personLinks
-        .map((link) => {
-          const deal = (link as any).deal
-          if (!deal) return null
-          return typeof deal === 'string' ? deal : deal.id ?? null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      dealIdRestriction = ids
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
     }
-    if (input.companyId) {
-      const companyLinks = await findWithDecryption<CustomerDealCompanyLink>(
-        em,
-        CustomerDealCompanyLink,
-        { company: input.companyId } as any,
-        undefined,
-        buildScope(ctx, tenantId),
-      )
-      const ids = companyLinks
-        .map((link) => {
-          const deal = (link as any).deal
-          if (!deal) return null
-          return typeof deal === 'string' ? deal : deal.id ?? null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      dealIdRestriction = dealIdRestriction
-        ? dealIdRestriction.filter((id) => ids.includes(id))
-        : ids
-    }
-    if (dealIdRestriction !== null && dealIdRestriction.length === 0) {
-      return { items: [], total: 0, limit, offset }
-    }
+    if (input.q?.trim()) query.search = input.q.trim()
+    if (input.personId) query.personId = input.personId
+    if (input.companyId) query.companyId = input.companyId
+    if (input.pipelineStageId) query.pipelineStageId = input.pipelineStageId
+    if (input.status) query.status = input.status
 
-    const filters: Record<string, unknown> = {}
-    if (input.q?.trim()) {
-      const pattern = `%${input.q.trim()}%`
-      filters.$or = [
-        { title: { $ilike: pattern } },
-        { description: { $ilike: pattern } },
-      ]
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/customers/deals',
+      query,
     }
-    if (input.pipelineStageId) filters.pipeline_stage_id = input.pipelineStageId
-    if (input.status) filters.status = input.status
-    if (dealIdRestriction) {
-      filters.id = { $in: dealIdRestriction }
-    }
-
-    const qe = ctx.container.resolve<QueryEngine>('queryEngine')
-    const result: QueryResult = await qe.query('customers:customer_deal', {
-      filters,
-      sort: [{ field: 'created_at', dir: SortDir.Desc }],
-      page: { page: Math.floor(offset / limit) + 1, pageSize: limit },
-      tenantId,
-      organizationId: ctx.organizationId ?? undefined,
-    })
-
+    return operation
+  },
+  mapResponse: (response, input) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListDealsApiResponse
+    const rawItems: ListDealsApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: result.items.map((row: Record<string, unknown>) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description ?? null,
-        status: row.status ?? null,
-        pipelineId: row.pipeline_id ?? row.pipelineId ?? null,
-        pipelineStageId: row.pipeline_stage_id ?? row.pipelineStageId ?? null,
-        valueAmount: row.value_amount ?? row.valueAmount ?? null,
-        valueCurrency: row.value_currency ?? row.valueCurrency ?? null,
-        probability: row.probability ?? null,
-        ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
-        expectedCloseAt: row.expected_close_at ?? row.expectedCloseAt ? new Date(String(row.expected_close_at ?? row.expectedCloseAt)).toISOString() : null,
-        source: row.source ?? null,
-        organizationId: row.organization_id ?? row.organizationId ?? null,
-        tenantId: row.tenant_id ?? row.tenantId ?? null,
-        createdAt: row.created_at ?? row.createdAt ? new Date(String(row.created_at ?? row.createdAt)).toISOString() : null,
-      })),
-      total: result.total,
+      items: rawItems.map((row) => {
+        const expectedCloseRaw = row.expected_close_at ?? row.expectedCloseAt ?? null
+        const expectedCloseAt = expectedCloseRaw ? new Date(String(expectedCloseRaw)).toISOString() : null
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          title: row.title ?? null,
+          description: row.description ?? null,
+          status: row.status ?? null,
+          pipelineId: row.pipeline_id ?? row.pipelineId ?? null,
+          pipelineStageId: row.pipeline_stage_id ?? row.pipelineStageId ?? null,
+          valueAmount: row.value_amount ?? row.valueAmount ?? null,
+          valueCurrency: row.value_currency ?? row.valueCurrency ?? null,
+          probability: row.probability ?? null,
+          ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
+          expectedCloseAt,
+          source: row.source ?? null,
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+        }
+      }),
+      total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CustomersAiToolDefinition
 
 const getDealInput = z.object({
   dealId: z.string().uuid().describe('Deal id (UUID).'),
