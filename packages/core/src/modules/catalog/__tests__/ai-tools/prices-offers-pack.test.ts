@@ -1,7 +1,14 @@
 /**
  * Step 3.10 — prices / price_kinds / offers unit tests.
+ *
+ * Phase 3b of `2026-04-27-ai-tools-api-backed-dry-refactor`:
+ * `catalog.list_prices` delegates to the in-process API operation runner over
+ * `GET /api/catalog/prices`. The price-kinds and offers tools still use the
+ * ORM path until their own commits.
  */
 const findWithDecryptionMock = jest.fn()
+const runMock = jest.fn()
+const createRunnerMock = jest.fn(() => ({ run: runMock }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
@@ -12,8 +19,21 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
+jest.mock(
+  '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+  () => {
+    const actual = jest.requireActual(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner',
+    )
+    return {
+      ...actual,
+      createAiApiOperationRunner: (...args: unknown[]) => createRunnerMock(...args),
+    }
+  },
+)
+
 import pricesOffersAiTools from '../../ai-tools/prices-offers-pack'
-import { makeCtx } from './shared'
+import { knownFeatureIds, makeCtx } from './shared'
 
 function findTool(name: string) {
   const tool = pricesOffersAiTools.find((entry) => entry.name === name)
@@ -26,27 +46,68 @@ describe('catalog.list_prices', () => {
 
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
+    runMock.mockReset()
+    createRunnerMock.mockClear()
   })
 
-  it('drops cross-tenant rows', async () => {
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'pr-1', tenantId: 'tenant-1', organizationId: 'org-1', currencyCode: 'EUR', kind: 'regular', minQuantity: 1 },
-      { id: 'pr-2', tenantId: 'tenant-2', organizationId: 'org-1', currencyCode: 'USD', kind: 'regular', minQuantity: 1 },
-    ])
+  it('declares a RBAC view feature that exists in acl.ts', () => {
+    expect(tool.requiredFeatures).toBeDefined()
+    for (const feature of tool.requiredFeatures!) {
+      expect(knownFeatureIds.has(feature)).toBe(true)
+    }
+    expect(tool.isMutation).toBeFalsy()
+  })
+
+  it('caps limit at 100 via input schema', () => {
+    expect(tool.inputSchema.safeParse({ limit: 150 }).success).toBe(false)
+  })
+
+  it('delegates to the API runner with default page/pageSize and maps the response', async () => {
+    runMock.mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: {
+        items: [
+          {
+            id: 'pr-1',
+            tenant_id: 'tenant-1',
+            organization_id: 'org-1',
+            currency_code: 'EUR',
+            kind: 'regular',
+            min_quantity: 1,
+            unit_price_net: '9.99',
+            channel_id: null,
+            starts_at: '2024-01-01T00:00:00.000Z',
+            created_at: '2024-01-02T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    })
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(2)
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
-    const ids = (result.items as any[]).map((r) => r.id)
-    expect(ids).toEqual(['pr-1'])
-    const whereArg = findWithDecryptionMock.mock.calls[0][2]
-    expect(whereArg.tenantId).toBe('tenant-1')
-    expect(whereArg.organizationId).toBe('org-1')
+    const items = result.items as Array<Record<string, unknown>>
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('pr-1')
+    expect(items[0].currencyCode).toBe('EUR')
+    expect(items[0].kind).toBe('regular')
+    expect(items[0].minQuantity).toBe(1)
+    expect(items[0].unitPriceNet).toBe('9.99')
+    expect(items[0].tenantId).toBe('tenant-1')
+    expect(result.total).toBe(1)
+    expect(result.limit).toBe(50)
+    expect(result.offset).toBe(0)
+
+    expect(runMock).toHaveBeenCalledTimes(1)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.method).toBe('GET')
+    expect(operation.path).toBe('/catalog/prices')
+    expect(operation.query).toMatchObject({ page: 1, pageSize: 50 })
   })
 
-  it('passes productId / variantId / priceKindId filters through to where', async () => {
-    findWithDecryptionMock.mockResolvedValue([])
+  it('passes productId / variantId / priceKindId filters through to the query', async () => {
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { items: [], total: 0 } })
     const ctx = makeCtx()
-    ctx.em.count.mockResolvedValue(0)
     await tool.handler(
       {
         productId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -55,10 +116,31 @@ describe('catalog.list_prices', () => {
       },
       ctx as any,
     )
-    const whereArg = findWithDecryptionMock.mock.calls[0][2]
-    expect(whereArg.product).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
-    expect(whereArg.variant).toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
-    expect(whereArg.priceKind).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.query.productId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    expect(operation.query.variantId).toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+    expect(operation.query.priceKindId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+  })
+
+  it('translates limit/offset into page/pageSize', async () => {
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { items: [], total: 0 } })
+    const ctx = makeCtx()
+    await tool.handler({ limit: 10, offset: 30 }, ctx as any)
+    const operation = runMock.mock.calls[0][0]
+    expect(operation.query.pageSize).toBe(10)
+    // offset 30 with limit 10 → page 4
+    expect(operation.query.page).toBe(4)
+  })
+
+  it('rejects calls without a tenant context', async () => {
+    const ctx = makeCtx({ tenantId: null })
+    await expect(tool.handler({}, ctx as any)).rejects.toThrow(/Tenant context is required/)
+  })
+
+  it('bubbles a clean Error when the runner reports failure', async () => {
+    runMock.mockResolvedValue({ success: false, statusCode: 403, error: 'forbidden by route policy' })
+    const ctx = makeCtx()
+    await expect(tool.handler({}, ctx as any)).rejects.toThrow('forbidden by route policy')
   })
 })
 

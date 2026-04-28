@@ -10,19 +10,29 @@
  * 3.11 (D18) will own `catalog.list_price_kinds` verbatim; we keep both
  * names available so the D18 tool can layer merchandising-specific shape
  * over the base enumerator.
+ *
+ * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * `catalog.list_prices` is now an API-backed wrapper over
+ * `GET /api/catalog/prices`. Tool name, schema, requiredFeatures, and output
+ * shape are unchanged.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
+import type {
+  AiApiOperationRequest,
+  AiToolExecutionContext,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogOffer, CatalogProductPrice } from '../data/entities'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
 import { listPriceKindsCore } from './_shared'
 
-function resolveEm(ctx: CatalogToolContext): EntityManager {
+function resolveEm(ctx: CatalogToolContext | AiToolExecutionContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
 }
 
-function buildScope(ctx: CatalogToolContext, tenantId: string) {
+function buildScope(ctx: CatalogToolContext | AiToolExecutionContext, tenantId: string) {
   return { tenantId, organizationId: ctx.organizationId }
 }
 
@@ -36,76 +46,144 @@ const listPricesInput = z
   })
   .passthrough()
 
-const listPricesTool: CatalogAiToolDefinition = {
+type ListPricesInput = z.infer<typeof listPricesInput>
+
+type ListPricesApiItem = {
+  id?: string
+  product_id?: string | null
+  productId?: string | null
+  variant_id?: string | null
+  variantId?: string | null
+  offer_id?: string | null
+  offerId?: string | null
+  price_kind_id?: string | null
+  priceKindId?: string | null
+  currency_code?: string | null
+  currencyCode?: string | null
+  kind?: string | null
+  min_quantity?: number | null
+  minQuantity?: number | null
+  max_quantity?: number | null
+  maxQuantity?: number | null
+  unit_price_net?: string | number | null
+  unitPriceNet?: string | number | null
+  unit_price_gross?: string | number | null
+  unitPriceGross?: string | number | null
+  tax_rate?: string | number | null
+  taxRate?: string | number | null
+  tax_amount?: string | number | null
+  taxAmount?: string | number | null
+  channel_id?: string | null
+  channelId?: string | null
+  user_id?: string | null
+  userId?: string | null
+  user_group_id?: string | null
+  userGroupId?: string | null
+  customer_id?: string | null
+  customerId?: string | null
+  customer_group_id?: string | null
+  customerGroupId?: string | null
+  starts_at?: string | null
+  startsAt?: string | null
+  ends_at?: string | null
+  endsAt?: string | null
+  organization_id?: string | null
+  organizationId?: string | null
+  tenant_id?: string | null
+  tenantId?: string | null
+  created_at?: string | null
+  createdAt?: string | null
+}
+
+type ListPricesApiResponse = {
+  items?: ListPricesApiItem[]
+  total?: number
+}
+
+type ListPricesOutput = {
+  items: Array<Record<string, unknown>>
+  total: number
+  limit: number
+  offset: number
+}
+
+const listPricesTool = defineApiBackedAiTool<
+  ListPricesInput,
+  ListPricesApiResponse,
+  ListPricesOutput
+>({
   name: 'catalog.list_prices',
   displayName: 'List prices',
   description:
     'List catalog prices (base + offer-scoped) for the caller tenant + organization. Filters: product, variant, or price kind.',
   inputSchema: listPricesInput,
   requiredFeatures: ['catalog.products.view'],
-  tags: ['read', 'catalog'],
-  handler: async (rawInput, ctx) => {
-    const { tenantId } = assertTenantScope(ctx)
-    const input = listPricesInput.parse(rawInput)
-    const em = resolveEm(ctx)
+  toOperation: (input, ctx) => {
+    assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = { tenantId }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    if (input.productId) where.product = input.productId
-    if (input.variantId) where.variant = input.variantId
-    if (input.priceKindId) where.priceKind = input.priceKindId
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CatalogProductPrice>(
-        em,
-        CatalogProductPrice,
-        where as any,
-        { limit, offset, orderBy: { createdAt: 'asc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CatalogProductPrice, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    const page = Math.floor(offset / limit) + 1
+
+    const query: Record<string, string | number | boolean | null | undefined> = {
+      page,
+      pageSize: limit,
+    }
+    if (input.productId) query.productId = input.productId
+    if (input.variantId) query.variantId = input.variantId
+    if (input.priceKindId) query.priceKindId = input.priceKindId
+
+    const operation: AiApiOperationRequest = {
+      method: 'GET',
+      path: '/catalog/prices',
+      query,
+    }
+    return operation
+  },
+  mapResponse: (response, input) => {
+    const limit = input.limit ?? 50
+    const offset = input.offset ?? 0
+    const data = (response.data ?? {}) as ListPricesApiResponse
+    const rawItems: ListPricesApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: filtered.map((row) => ({
-        id: row.id,
-        priceKindId: (row as any).priceKind && typeof (row as any).priceKind === 'object'
-          ? (row as any).priceKind.id
-          : (row as any).priceKind ?? null,
-        productId: (row as any).product && typeof (row as any).product === 'object'
-          ? (row as any).product.id
-          : (row as any).product ?? null,
-        variantId: (row as any).variant && typeof (row as any).variant === 'object'
-          ? (row as any).variant.id
-          : (row as any).variant ?? null,
-        offerId: (row as any).offer && typeof (row as any).offer === 'object'
-          ? (row as any).offer.id
-          : (row as any).offer ?? null,
-        currencyCode: row.currencyCode,
-        kind: row.kind,
-        minQuantity: row.minQuantity,
-        maxQuantity: row.maxQuantity ?? null,
-        unitPriceNet: row.unitPriceNet ?? null,
-        unitPriceGross: row.unitPriceGross ?? null,
-        taxRate: row.taxRate ?? null,
-        taxAmount: row.taxAmount ?? null,
-        channelId: row.channelId ?? null,
-        userId: row.userId ?? null,
-        userGroupId: row.userGroupId ?? null,
-        customerId: row.customerId ?? null,
-        customerGroupId: row.customerGroupId ?? null,
-        startsAt: row.startsAt ? new Date(row.startsAt).toISOString() : null,
-        endsAt: row.endsAt ? new Date(row.endsAt).toISOString() : null,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-      })),
-      total,
+      items: rawItems.map((row) => {
+        const startsAtRaw = row.starts_at ?? row.startsAt ?? null
+        const startsAt = startsAtRaw ? new Date(String(startsAtRaw)).toISOString() : null
+        const endsAtRaw = row.ends_at ?? row.endsAt ?? null
+        const endsAt = endsAtRaw ? new Date(String(endsAtRaw)).toISOString() : null
+        const createdAtRaw = row.created_at ?? row.createdAt ?? null
+        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
+        return {
+          id: row.id,
+          priceKindId: row.price_kind_id ?? row.priceKindId ?? null,
+          productId: row.product_id ?? row.productId ?? null,
+          variantId: row.variant_id ?? row.variantId ?? null,
+          offerId: row.offer_id ?? row.offerId ?? null,
+          currencyCode: row.currency_code ?? row.currencyCode ?? null,
+          kind: row.kind ?? null,
+          minQuantity: row.min_quantity ?? row.minQuantity ?? null,
+          maxQuantity: row.max_quantity ?? row.maxQuantity ?? null,
+          unitPriceNet: row.unit_price_net ?? row.unitPriceNet ?? null,
+          unitPriceGross: row.unit_price_gross ?? row.unitPriceGross ?? null,
+          taxRate: row.tax_rate ?? row.taxRate ?? null,
+          taxAmount: row.tax_amount ?? row.taxAmount ?? null,
+          channelId: row.channel_id ?? row.channelId ?? null,
+          userId: row.user_id ?? row.userId ?? null,
+          userGroupId: row.user_group_id ?? row.userGroupId ?? null,
+          customerId: row.customer_id ?? row.customerId ?? null,
+          customerGroupId: row.customer_group_id ?? row.customerGroupId ?? null,
+          startsAt,
+          endsAt,
+          organizationId: row.organization_id ?? row.organizationId ?? null,
+          tenantId: row.tenant_id ?? row.tenantId ?? null,
+          createdAt,
+        }
+      }),
+      total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
     }
   },
-}
+}) as unknown as CatalogAiToolDefinition
 
 const listPriceKindsInput = z
   .object({
