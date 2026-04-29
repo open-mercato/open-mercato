@@ -599,10 +599,11 @@ export async function loadCustomFieldValues(opts: {
   const result: Record<string, Record<string, unknown>> = {}
   for (const [compoundKey, bucket] of buckets.entries()) {
     const [recordId, fieldKey] = compoundKey.split('::')
+    const def = bucket.def ?? pickDefinition(fieldKey, bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null), bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null))
+    if (!def) continue
     if (!result[recordId]) result[recordId] = {}
     const prefixed = `cf_${fieldKey}`
-    const def = bucket.def ?? pickDefinition(fieldKey, bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null), bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null))
-    if (def && def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
+    if (def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
       const cleaned = bucket.values.filter((v) => v !== undefined && v !== null)
       result[recordId][prefixed] = cleaned
     } else if (bucket.values.length > 1) {

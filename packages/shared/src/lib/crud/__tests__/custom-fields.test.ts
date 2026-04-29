@@ -170,6 +170,39 @@ describe('loadCustomFieldValues (encryption)', () => {
     })
     expect(values['rec-1'].cf_note).toBe('secret-note')
   })
+
+  it('omits values whose definitions are no longer active', async () => {
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            {
+              recordId: 'rec-1',
+              fieldKey: 'deleted_field',
+              organizationId: null,
+              tenantId: 'tenant-1',
+              valueText: 'stale-value',
+              valueMultiline: null,
+              valueInt: null,
+              valueFloat: null,
+              valueBool: null,
+              deletedAt: null,
+            },
+          ])
+        }
+        return Promise.resolve([])
+      }),
+    }
+
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+    })
+
+    expect(values).toEqual({})
+  })
 })
 
 describe('loadCustomFieldDefinitionIndex', () => {
