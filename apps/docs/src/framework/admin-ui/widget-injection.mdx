@@ -61,7 +61,9 @@ export const injectionTable: ModuleInjectionTable = {
 ## Available slots
 
 - **CrudForm** – whichever spot id you pass to `CrudForm` (`injectionSpotId`). If omitted, it auto-derives `crud-form:<entityId>` (colon → dot) from the first `entityId`, so most forms pick up widgets by entity. Widgets with `kind: 'group'` render as new groups; others stack above the form. Field injection uses `crud-form:<entityId>:fields`. Helpers: `generateCrudFormInjectionSpotId()` and `CrudFormInjectionSpots` from `@open-mercato/ui/backend/injection/helpers`.
-- **DataTable** – `data-table:<tableId>:header` and `data-table:<tableId>:footer` (auto when `perspective.tableId` is set; or pass `injectionSpotId`). Deep extension surfaces: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`.
+- **DataTable** – `data-table:<tableId>:header` and `data-table:<tableId>:footer` (auto when `perspective.tableId` is set; or pass `injectionSpotId`). Deep extension surfaces: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`, `:search-trailing`.
+  - `:toolbar` renders inside the right-side actions row alongside Refresh / Filters / Columns / Export. Use it for full-sized toolbar buttons.
+  - `:search-trailing` renders inside `FilterBar`, immediately to the right of the search input on the same row. **Reserve it for compact, icon-sized triggers** (AI assistants, saved-view shortcuts, focus-mode toggles) — full-width or multi-action toolbars belong in `:toolbar` or `:header`. The slot is automatically suppressed when the host DataTable does not render a search input. Use `IconButton` (`size="lg"` + `fullRadius`) so the trigger matches the search input's `h-9` row height. Resolve the spot id with `DataTableInjectionSpots.searchTrailing(tableId)` from `@open-mercato/ui/backend/injection/spotIds`.
 - **Component overrides** – define `widgets/components.ts` in any module and export `componentOverrides`. `yarn generate` collects them into `.mercato/generated/component-overrides.generated.ts`.
 
 ### Replacement handles (Phase H)

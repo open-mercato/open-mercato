@@ -145,6 +145,7 @@ function formatToolResult(result: unknown): string {
 function buildToolHandlerContext(
   ctx: AiChatRequestContext,
   container?: AwilixContainer,
+  tool?: AiToolDefinition,
 ): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -153,6 +154,7 @@ function buildToolHandlerContext(
     container: (container ?? undefined) as unknown as McpToolContext['container'],
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
+    ...(tool ? { tool } : {}),
   }
 }
 
@@ -189,7 +191,7 @@ function adaptToolToAiSdk(
   container?: AwilixContainer,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
-  const handlerContext = buildToolHandlerContext(ctx, container)
+  const handlerContext = buildToolHandlerContext(ctx, container, tool)
   return dynamicTool({
     description: tool.description,
     inputSchema: safeSchema,

@@ -174,7 +174,10 @@ function mergeFailedRecords(
   return Array.from(seen.values())
 }
 
-function toToolHandlerContext(ctx: PendingActionExecuteContext): McpToolContext {
+function toToolHandlerContext(
+  ctx: PendingActionExecuteContext,
+  tool: AiToolDefinition,
+): McpToolContext {
   return {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
@@ -182,6 +185,7 @@ function toToolHandlerContext(ctx: PendingActionExecuteContext): McpToolContext 
     container: ctx.container,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
+    tool,
   }
 }
 
@@ -243,7 +247,7 @@ export async function executePendingActionConfirm(
 
   let handlerOutput: unknown
   try {
-    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx))
+    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const failureResult: AiPendingActionExecutionResult = {

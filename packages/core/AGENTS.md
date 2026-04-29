@@ -305,6 +305,8 @@ DataTable deep-extension surfaces:
 - `data-table:<tableId>:row-actions`
 - `data-table:<tableId>:bulk-actions`
 - `data-table:<tableId>:filters`
+- `data-table:<tableId>:toolbar` — right-side actions row (Refresh, Filters, Columns, Export). Renders on the same row as the title; full-sized buttons.
+- `data-table:<tableId>:search-trailing` — adjacent to the search input on the FilterBar row. Reserve for **compact icon-sized triggers** (AI assistants, saved-view shortcuts). Suppressed when the host DataTable has no search input. Use `IconButton` with `size="lg"` + `fullRadius` so the trigger matches the search input's `h-9` row height.
 
 CrudForm field-injection surface:
 - `crud-form:<entityId>:fields`

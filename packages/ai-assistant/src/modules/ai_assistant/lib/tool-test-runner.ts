@@ -23,6 +23,7 @@ import type { McpToolContext, AiToolDefinition } from './types'
 import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
 import { getFixture, type ToolFixture } from './tool-test-fixtures'
 import { prepareMutation } from './prepare-mutation'
+import { executePendingActionConfirm } from './pending-action-executor'
 
 export type ToolTestStatus = 'pass' | 'fail' | 'skip'
 
@@ -305,7 +306,7 @@ async function executeReadTool(
   // Mirror the dispatcher: resolve a fresh container per call so EM identity
   // map state is clean between tools.
   const fresh = await createRequestContainer()
-  const freshCtx: McpToolContext = { ...ctx, container: fresh }
+  const freshCtx: McpToolContext = { ...ctx, container: fresh, tool }
   void container // keep arg for future use
   return tool.handler(args as never, freshCtx)
 }
@@ -321,9 +322,11 @@ async function executeMutationTool(
   // policy so the runtime treats the call as a confirmation candidate and
   // creates a pending-action row.
   const fresh = await createRequestContainer()
+  const agent = dummyAgentForTool(tool)
+  const userId = ctx.userId ?? '00000000-0000-0000-0000-000000000000'
   const { uiPart, pendingAction } = await prepareMutation(
     {
-      agent: dummyAgentForTool(tool),
+      agent,
       tool,
       toolCallArgs: args,
       conversationId: null,
@@ -332,17 +335,45 @@ async function executeMutationTool(
     {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId: ctx.userId ?? '00000000-0000-0000-0000-000000000000',
+      userId,
       features: ctx.userFeatures,
       isSuperAdmin: ctx.isSuperAdmin,
       container: fresh,
     },
   )
+  // Exercise the actual handler via the same path the production confirm
+  // route uses. Without this, mutation tools whose handler crashes (e.g.
+  // missing `ctx.tool` for the API operation runner) would be reported as
+  // passing because `prepareMutation` never invokes the handler.
+  // `prepareMutation` already enforced `tenantId` is non-null above; cast
+  // here for the stricter `PendingActionExecuteContext` shape.
+  const confirmTenantId = ctx.tenantId as string
+  const confirmContainer = await createRequestContainer()
+  const confirmation = await executePendingActionConfirm({
+    action: pendingAction,
+    agent,
+    tool,
+    ctx: {
+      tenantId: confirmTenantId,
+      organizationId: ctx.organizationId,
+      userId,
+      container: confirmContainer,
+      userFeatures: ctx.userFeatures,
+      isSuperAdmin: ctx.isSuperAdmin,
+    },
+    emitEvent: async () => {},
+  })
+  if (!confirmation.ok) {
+    const error = (confirmation.executionResult as { error?: { message?: string } } | undefined)?.error
+    const message = error?.message ?? confirmation.cause?.message ?? 'handler invocation failed'
+    throw new Error(message)
+  }
   return {
     status: 'pending-confirmation',
     pendingActionId: pendingAction.id,
     expiresAt: pendingAction.expiresAt.toISOString(),
     uiPartType: (uiPart as { type?: string } | undefined)?.type ?? null,
+    handlerExecuted: true,
   }
 }
 

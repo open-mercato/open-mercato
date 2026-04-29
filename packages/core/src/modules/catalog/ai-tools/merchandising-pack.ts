@@ -93,14 +93,14 @@ function resolveSearchService(ctx: CatalogToolContext): SearchServiceLike | null
 
 const searchProductsInput = z
   .object({
-    q: z.string().trim().optional().describe('Optional fulltext query (title / subtitle / sku / handle). Omit or leave empty to list all products.'),
-    limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 50, max 100).'),
-    offset: z.number().int().min(0).optional().describe('Rows to skip (default 0).'),
-    categoryId: z.string().optional().describe('Restrict to products assigned to this catalog category UUID. Only use a category ID returned by a previous tool call — do NOT guess.'),
-    priceMin: z.number().optional().describe('Lower-bound (inclusive) on any gross price row.'),
-    priceMax: z.number().optional().describe('Upper-bound (inclusive) on any gross price row.'),
-    tags: z.array(z.string()).optional().describe('Tag labels or slugs (any-match) the product carries.'),
-    active: z.boolean().optional().describe('When true, only active products are returned.'),
+    q: z.string().trim().optional().describe('Optional fulltext query (title / subtitle / sku / handle). Omit or leave empty (or do NOT pass it at all) to list all products. NEVER use "*", "**", or "%" — they are not wildcards and will be discarded.'),
+    limit: z.number().int().min(1).max(100).optional().describe('Page size. Default 50, hard maximum 100. Results are paginated: when `total` exceeds `limit + offset`, call again with the next `offset` instead of asking for more than 100 rows.'),
+    offset: z.number().int().min(0).optional().describe('Rows to skip for pagination (default 0). Combine with `limit` to fetch subsequent pages — for example offset=100, limit=100 fetches rows 101..200.'),
+    categoryId: z.string().optional().describe('Restrict to products assigned to this catalog category UUID. Only use a category ID returned by a previous tool call — do NOT guess. Empty string is treated the same as omitting the field.'),
+    priceMin: z.number().optional().describe('Lower-bound (inclusive) on the gross unit price. OMIT this field when you do not want a lower bound — do NOT pass 0 as "no minimum", because 0 is a real bound that combined with priceMax=0 will return only free products.'),
+    priceMax: z.number().optional().describe('Upper-bound (inclusive) on the gross unit price. OMIT this field when you do not want an upper bound — do NOT pass 0 as "no maximum", because 0 is a real bound that will exclude every priced product.'),
+    tags: z.array(z.string()).optional().describe('Tag labels or slugs (any-match) the product carries. Omit or pass an empty array to skip the tag filter.'),
+    active: z.boolean().optional().describe('When true, only active products are returned. Omit to include inactive products as well.'),
   })
   .passthrough()
 
@@ -262,7 +262,10 @@ const searchProductsTool: CatalogAiToolDefinition = {
   name: 'catalog.search_products',
   displayName: 'Search products',
   description:
-    'Hybrid search + filter across tenant products. When `q` is non-empty, routes through the search service (tenant + organization scoped) then hydrates tenant-scoped product summaries; when `q` is empty, runs the catalog query engine with the supplied filters. `source` in the output indicates which path executed.',
+    'Hybrid search + filter across tenant products. When `q` is non-empty, routes through the search service (tenant + organization scoped) then hydrates tenant-scoped product summaries; when `q` is empty or omitted, runs the catalog query engine with the supplied filters and returns ALL products. ' +
+    'Pagination: response shape is `{ items, total, limit, offset, source }`. Hard cap is 100 rows per call (`limit` max=100, default=50); if `total` exceeds `limit + offset`, call again with the next `offset` rather than asking for >100. ' +
+    'Empty / sentinel inputs: pass an empty `q` (or omit it) to list all products. NEVER pass `0` for `priceMin`/`priceMax` to mean "no bound" — `0` is a real numeric bound (priceMin=0 + priceMax=0 returns only free products). To remove a bound, OMIT the field. Empty string `categoryId` and empty `tags` arrays are ignored. ' +
+    '`source` in the output indicates which path executed (`search_service` vs `query_engine`).',
   inputSchema: searchProductsInput,
   requiredFeatures: ['catalog.products.view'],
   tags: ['read', 'catalog', 'merchandising'],
@@ -277,6 +280,32 @@ const searchProductsTool: CatalogAiToolDefinition = {
     // Treat wildcard-style and empty queries as "list all".
     if (!input.q || input.q === '*' || input.q === '**' || input.q === '%') {
       input.q = undefined
+    }
+
+    // Empty-string sentinel for `categoryId` is the agent's way of saying
+    // "no category filter" — normalize before the UUID guard runs.
+    if (typeof input.categoryId === 'string' && input.categoryId.trim() === '') {
+      input.categoryId = undefined
+    }
+
+    // Empty `tags` array is meaningless as a filter; drop it so the price /
+    // category narrowing path doesn't execute a no-op tag join.
+    if (Array.isArray(input.tags) && input.tags.length === 0) {
+      input.tags = undefined
+    }
+
+    // Agents commonly pass `priceMin: 0` / `priceMax: 0` thinking 0 means
+    // "no bound". It does not — 0 is a real inclusive bound and the two
+    // together ask for free products only. Treat the (0, 0) pair as
+    // "unset" so the empty-bound default carries through. A standalone 0
+    // (e.g. priceMin=0 with priceMax=50) is left intact because it can be
+    // a meaningful "everything from free up to 50" filter.
+    if (
+      input.priceMin === 0 &&
+      input.priceMax === 0
+    ) {
+      input.priceMin = undefined
+      input.priceMax = undefined
     }
 
     // Guard against hallucinated or invalid category IDs.

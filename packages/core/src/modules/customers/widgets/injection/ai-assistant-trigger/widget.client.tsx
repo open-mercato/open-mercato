@@ -3,26 +3,23 @@
 /**
  * Step 4.10 — Backend AiChat injection widget (client).
  *
- * Renders a toolbar-style trigger button in the DataTable header
- * injection spot (`data-table:customers.people.list:header`). Clicking
- * the trigger opens a right-side sheet embedding `<AiChat>` wired to
- * the `customers.account_assistant` read-only agent.
+ * Renders a compact, round, icon-only trigger in the DataTable
+ * `:search-trailing` injection slot (right next to the list search input).
+ * Clicking the trigger opens a popover listing the AI agents this widget
+ * exposes — currently `customers.account_assistant`, but the popover is
+ * the agreed extension point for additional customers-domain agents
+ * (selection digesters, deal-shapers, etc.). Picking an agent opens a
+ * right-side sheet embedding `<AiChat>` for that agent.
  *
  * `pageContext` shape matches spec §10.1 (view / recordType / recordId
  * / extra). The host DataTable provides selection + total information
- * through the `context` prop injected by `<InjectionSpot>`; the widget
- * gracefully degrades to zeros when the host doesn't forward those
- * fields (e.g., legacy DataTable callers).
- *
- * The widget is intentionally self-contained: the page is NOT modified.
- * Third-party modules wanting the same pattern copy this widget + the
- * `injection-table.ts` mapping.
+ * through the `context` prop injected by `<InjectionSpot>`.
  */
 
 import * as React from 'react'
 import { Building2, Handshake, Search, Sparkles, Users } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -45,10 +43,6 @@ export interface CustomersAiInjectPageContext {
   }
 }
 
-/**
- * Exposed for unit tests so the `buildPageContext` derivation is
- * exercisable without mounting the widget.
- */
 export function computeCustomersAiInjectPageContext(
   context: HostInjectionContext | undefined,
 ): CustomersAiInjectPageContext {
@@ -172,41 +166,107 @@ function useCustomerContextItems(pageContext: CustomersAiInjectPageContext): AiC
   }, [pageContext, t])
 }
 
+interface CustomerAgentDescriptor {
+  id: string
+  label: string
+  description: string
+  icon: React.ReactNode
+}
+
+function useCustomerAgents(): CustomerAgentDescriptor[] {
+  const t = useT()
+  return React.useMemo(
+    () => [
+      {
+        id: CUSTOMERS_AI_INJECT_AGENT_ID,
+        label: t('customers.ai_assistant.agents.account.label', 'CRM Assistant'),
+        description: t(
+          'customers.ai_assistant.agents.account.description',
+          'Explore people, companies, deals, and activities.',
+        ),
+        icon: <Sparkles className="size-4" />,
+      },
+    ],
+    [t],
+  )
+}
+
 export default function AiAssistantTriggerWidget({ context }: AiAssistantTriggerProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+  const [activeAgent, setActiveAgent] = React.useState<string>(CUSTOMERS_AI_INJECT_AGENT_ID)
   const pageContext = React.useMemo(() => buildPageContext(context), [context])
+  const agents = useCustomerAgents()
 
   const selectedCount = pageContext.extra.selectedCount
   const hasSelection = selectedCount > 0
   const suggestions = useCustomerSuggestions(hasSelection, selectedCount)
   const contextItems = useCustomerContextItems(pageContext)
 
-  const handleClick = React.useCallback(() => {
+  const handleSelectAgent = React.useCallback((agentId: string) => {
+    setActiveAgent(agentId)
+    setPopoverOpen(false)
     setOpen(true)
   }, [])
 
+  const triggerLabel = t(
+    'customers.ai_assistant.trigger.ariaLabel',
+    'Open AI assistant for people',
+  )
+
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={handleClick}
-        data-ai-customers-inject-trigger=""
-        aria-label={t(
-          'customers.ai_assistant.trigger.ariaLabel',
-          'Open AI assistant for people',
-        )}
-      >
-        <Sparkles className="size-4" aria-hidden />
-        <span>{t('customers.ai_assistant.trigger.label', 'Ask AI')}</span>
-        {hasSelection ? (
-          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
-            {selectedCount}
-          </span>
-        ) : null}
-      </Button>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger asChild>
+          <IconButton
+            type="button"
+            variant="outline"
+            size="lg"
+            fullRadius
+            data-ai-customers-inject-trigger=""
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            className="relative"
+          >
+            <Sparkles className="size-4" aria-hidden />
+            {hasSelection ? (
+              <span
+                className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+                data-ai-customers-inject-selected-count={selectedCount}
+              >
+                {selectedCount}
+              </span>
+            ) : null}
+          </IconButton>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72 p-1">
+          <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('customers.ai_assistant.popover.heading', 'AI assistants')}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => handleSelectAgent(agent.id)}
+                data-ai-customers-inject-agent-option={agent.id}
+                className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+              >
+                <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                  {agent.icon}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-medium leading-tight">{agent.label}</span>
+                  <span className="block text-xs text-muted-foreground leading-snug">
+                    {agent.description}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(
@@ -248,7 +308,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
           </DialogHeader>
           <div className="min-h-0 flex-1" data-ai-customers-inject-chat-container="">
             <AiChat
-              agent={CUSTOMERS_AI_INJECT_AGENT_ID}
+              agent={activeAgent}
               pageContext={pageContext as unknown as Record<string, unknown>}
               className="h-full"
               placeholder={t(

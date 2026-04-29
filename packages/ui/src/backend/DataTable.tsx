@@ -1044,6 +1044,10 @@ export function DataTable<T>({
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
     [resolvedInjectionSpotId]
   )
+  const searchTrailingInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
+    [resolvedInjectionSpotId]
+  )
   const footerInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
     [resolvedInjectionSpotId]
@@ -2171,6 +2175,9 @@ export function DataTable<T>({
         }) : null}
       </div>
     ) : null
+    const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
+      <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
+    ) : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -2183,6 +2190,7 @@ export function DataTable<T>({
         onClear={onFiltersClear}
         leadingItems={leadingItems}
         trailingItems={trailingItems}
+        searchTrailing={searchTrailingNode}
         filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
@@ -2215,6 +2223,8 @@ export function DataTable<T>({
     selectedRows,
     runBulkAction,
     runPropBulkAction,
+    searchTrailingInjectionSpotId,
+    resolvedInjectionContext,
   ])
 
   const hasTitle = title != null

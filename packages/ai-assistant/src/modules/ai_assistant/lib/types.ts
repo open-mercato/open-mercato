@@ -16,6 +16,14 @@ export interface McpToolContext {
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
+  /**
+   * Back-reference to the tool definition the handler is executing. Populated
+   * by the runtime (`tool-executor`, `pending-action-executor`, the agent-tools
+   * dispatcher, and the test runner) so handlers can construct an
+   * `AiToolExecutionContext` for `createAiApiOperationRunner` without losing
+   * `requiredFeatures` coverage at the route gate.
+   */
+  tool?: AiToolDefinition
 }
 
 /**

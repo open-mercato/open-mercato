@@ -40,7 +40,12 @@ import {
   type AiChatMessageFile,
   type AiChatToolCallSnapshot,
 } from './useAiChat'
+import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
+
+function buildAttachmentPreviewUrl(attachmentId: string): string {
+  return `/api/attachments/image/${encodeURIComponent(attachmentId)}`
+}
 
 /**
  * Optional resolved-tool snapshot the host can feed into the debug panel.
@@ -659,9 +664,22 @@ export function AiChat({
   const transcriptRef = React.useRef<HTMLDivElement | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const [input, setInput] = React.useState('')
-  const [pendingFiles, setPendingFiles] = React.useState<File[]>([])
-  const [uploadedAttachmentIds, setUploadedAttachmentIds] = React.useState<string[]>([])
-  const [isUploading, setIsUploading] = React.useState(false)
+  type PendingAttachment = {
+    file: File
+    attachmentId?: string
+    error?: string
+  }
+  const [pendingFiles, setPendingFiles] = React.useState<PendingAttachment[]>([])
+  const upload = useAiChatUpload()
+  const isUploading = upload.busy
+
+  const uploadedAttachmentIds = React.useMemo(
+    () =>
+      pendingFiles
+        .map((entry) => entry.attachmentId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    [pendingFiles],
+  )
 
   const allAttachmentIds = React.useMemo(
     () => [...(attachmentIds ?? []), ...uploadedAttachmentIds],
@@ -683,6 +701,27 @@ export function AiChat({
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
 
+  // While we're awaiting the first stream chunk, the assistant message is
+  // already in the transcript but has no text, no tool calls, and no
+  // reasoning to render — surface a "Thinking..." placeholder so the chat
+  // does not look frozen between request submit and the first delta.
+  const lastAssistant = React.useMemo(() => {
+    for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+      const candidate = chat.messages[index]
+      if (candidate?.role === 'assistant') return candidate
+    }
+    return null
+  }, [chat.messages])
+  const lastAssistantHasContent = !!(
+    lastAssistant &&
+    (
+      lastAssistant.content?.trim() ||
+      (lastAssistant.toolCalls && lastAssistant.toolCalls.length > 0) ||
+      (lastAssistant.reasoning && lastAssistant.reasoning.length > 0)
+    )
+  )
+  const showThinkingIndicator = isSubmitting || (isStreaming && !lastAssistantHasContent)
+
   const activeRegistry = registry ?? defaultAiUiPartRegistry
 
   // Reserved UI parts. Phase 3 will populate this from the streamed response;
@@ -701,16 +740,20 @@ export function AiChat({
   const handleSendMessage = React.useCallback(
     (text: string) => {
       if (!text.trim() || isBusy) return
-      const filesToAttach = pendingFiles.map((file) => ({
-        name: file.name,
-        type: file.type,
-        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-      }))
+      const filesToAttach = pendingFiles.map((entry): AiChatMessageFile => {
+        const isImage = entry.file.type.startsWith('image/')
+        const durableUrl = entry.attachmentId ? buildAttachmentPreviewUrl(entry.attachmentId) : undefined
+        return {
+          name: entry.file.name,
+          type: entry.file.type,
+          previewUrl: isImage ? (durableUrl ?? URL.createObjectURL(entry.file)) : undefined,
+        }
+      })
       setInput('')
       setPendingFiles([])
       void chat.sendMessage(text, filesToAttach.length > 0 ? filesToAttach : undefined)
     },
-    [chat, isBusy],
+    [chat, isBusy, pendingFiles],
   )
 
   const handleSubmit = React.useCallback(() => {
@@ -729,37 +772,42 @@ export function AiChat({
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files ?? [])
       if (files.length === 0) return
-      setPendingFiles((prev) => [...prev, ...files])
-      // Upload files to the attachments API
-      setIsUploading(true)
-      try {
-        for (const file of files) {
-          const formData = new FormData()
-          formData.append('file', file)
-          const response = await fetch('/api/attachments', {
-            method: 'POST',
-            body: formData,
-          })
-          if (response.ok) {
-            const data = await response.json()
-            const id = data?.id ?? data?.attachment?.id
-            if (id) {
-              setUploadedAttachmentIds((prev) => [...prev, id])
-            }
+      const queued: PendingAttachment[] = files.map((file) => ({ file }))
+      setPendingFiles((prev) => [...prev, ...queued])
+      const result = await upload.upload(files)
+      const successByName = new Map<string, string>()
+      for (const item of result.items) {
+        if (!successByName.has(item.fileName)) successByName.set(item.fileName, item.attachmentId)
+      }
+      const failureByName = new Map<string, string>()
+      for (const failure of result.failed) {
+        if (!failureByName.has(failure.fileName)) failureByName.set(failure.fileName, failure.message)
+      }
+      setPendingFiles((prev) => {
+        const next = prev.slice()
+        for (let index = next.length - files.length; index < next.length; index += 1) {
+          if (index < 0) continue
+          const entry = next[index]
+          if (!entry || entry.attachmentId) continue
+          const id = successByName.get(entry.file.name)
+          if (id) {
+            next[index] = { ...entry, attachmentId: id, error: undefined }
+            continue
+          }
+          const error = failureByName.get(entry.file.name)
+          if (error) {
+            next[index] = { ...entry, error }
           }
         }
-      } finally {
-        setIsUploading(false)
-      }
-      // Reset the file input so the same file can be re-selected
+        return next
+      })
       if (fileInputRef.current) fileInputRef.current.value = ''
     },
-    [],
+    [upload],
   )
 
   const removePendingFile = React.useCallback((index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index))
-    setUploadedAttachmentIds((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
   const { handleKeyDown } = useAiShortcuts({
@@ -798,9 +846,9 @@ export function AiChat({
     chat.reset()
     setInput('')
     setPendingFiles([])
-    setUploadedAttachmentIds([])
+    upload.reset()
     setTimeout(() => textareaRef.current?.focus(), 0)
-  }, [chat])
+  }, [chat, upload])
 
   const resolvedPlaceholder =
     placeholder ?? t('ai_assistant.chat.composerPlaceholder', 'Message the AI agent...')
@@ -867,7 +915,7 @@ export function AiChat({
             onMutationRequested={onMutationRequested}
           />
         ))}
-        {isSubmitting ? (
+        {showThinkingIndicator ? (
           <div
             className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground"
             data-ai-chat-state="thinking"
@@ -907,13 +955,20 @@ export function AiChat({
         </Label>
         {pendingFiles.length > 0 ? (
           <div className="flex flex-wrap gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1.5" data-ai-chat-attachments="">
-            {pendingFiles.map((file, index) => (
+            {pendingFiles.map((entry, index) => (
               <span
                 key={index}
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs"
+                title={entry.error ? entry.error : undefined}
+                data-ai-chat-attachment-state={
+                  entry.error ? 'error' : entry.attachmentId ? 'ready' : 'uploading'
+                }
               >
                 <Paperclip className="size-3 text-muted-foreground" aria-hidden />
-                <span className="max-w-[120px] truncate">{file.name}</span>
+                <span className="max-w-[120px] truncate">{entry.file.name}</span>
+                {!entry.attachmentId && !entry.error ? (
+                  <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden />
+                ) : null}
                 <button
                   type="button"
                   className="ml-0.5 rounded-full p-0.5 hover:bg-muted"

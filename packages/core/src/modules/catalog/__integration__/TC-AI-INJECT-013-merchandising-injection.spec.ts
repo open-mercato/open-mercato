@@ -44,6 +44,15 @@ test.describe('TC-AI-INJECT-013: catalog merchandising via injection', () => {
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
 
+    // The merchandising trigger is an icon-only round button: the first
+    // click opens a popover that lists the available agents. Pick the
+    // merchandising agent to launch the chat sheet.
+    const merchandisingAgentOption = page.locator(
+      `[data-ai-merchandising-agent-option="${MERCHANDISING_AGENT_ID}"]`,
+    );
+    await expect(merchandisingAgentOption).toBeVisible();
+    await merchandisingAgentOption.click();
+
     const sheet = page.locator('[data-ai-merchandising-sheet]');
     await expect(sheet).toBeVisible();
 

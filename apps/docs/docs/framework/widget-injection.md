@@ -399,7 +399,9 @@ src/modules/<module>/
 ### Built-in Injection Spots
 
 - **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column. Field injection spot: `crud-form:<entityId>:fields`.
-- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`. Deep extension spots: `:columns`, `:row-actions`, `:bulk-actions`, `:filters`.
+- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`. Deep extension spots: `:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`, `:search-trailing`.
+  - `:toolbar` renders inside the right-side actions row alongside Refresh / Filters / Columns / Export. Suitable for full-sized toolbar buttons.
+  - `:search-trailing` renders inside the `FilterBar`, immediately to the right of the search input on the same row. **Reserve it for compact, icon-sized triggers** — AI assistants, saved-view shortcuts, focus toggles. Full-width or multi-action toolbars belong in `:toolbar` or `:header`. The slot is automatically suppressed when the host DataTable does not render a search input. Use `IconButton` with `size="lg"` and `fullRadius` so the trigger matches the search input's `h-9` row height. Resolve the spot id with `DataTableInjectionSpots.searchTrailing(tableId)` from `@open-mercato/ui/backend/injection/spotIds`.
 - **Backend record context**: `backend:record:current` (mounted once per backend page with `{ path, query }` context).
 - **Backend layout**: `backend:layout:top`, `backend:layout:footer` (top and bottom of the main backend content area).
 - **Backend sidebar**: `backend:sidebar:top`, `backend:sidebar:footer` (desktop sidebar top/bottom areas in `AppShell`).

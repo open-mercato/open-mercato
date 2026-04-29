@@ -33,7 +33,7 @@
 import * as React from 'react'
 import { FileText, Package, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -193,6 +194,34 @@ function useContextItems(pageContext: MerchandisingPageContext): AiChatContextIt
   }, [pageContext, t])
 }
 
+interface MerchandisingAgentDescriptor {
+  id: string
+  label: string
+  description: string
+  icon: React.ReactNode
+}
+
+function useMerchandisingAgents(): MerchandisingAgentDescriptor[] {
+  const t = useT()
+  return React.useMemo(
+    () => [
+      {
+        id: MERCHANDISING_AGENT_ID,
+        label: t(
+          'catalog.merchandising_assistant.agents.merchandising.label',
+          'Merchandising Assistant',
+        ),
+        description: t(
+          'catalog.merchandising_assistant.agents.merchandising.description',
+          'Draft copy, normalize attributes, and propose price changes for the current selection.',
+        ),
+        icon: <Sparkles className="size-4" />,
+      },
+    ],
+    [t],
+  )
+}
+
 export function MerchandisingAssistantSheet({
   pageContext,
   enabled = true,
@@ -200,35 +229,79 @@ export function MerchandisingAssistantSheet({
 }: MerchandisingAssistantSheetProps): React.ReactElement | null {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+  const [activeAgent, setActiveAgent] = React.useState<string>(MERCHANDISING_AGENT_ID)
   if (!enabled) return null
 
   const selectedCount = pageContext.extra.selectedCount
   const hasSelection = selectedCount > 0
   const suggestions = useMerchandisingSuggestions(hasSelection, selectedCount)
   const contextItems = useContextItems(pageContext)
+  const agents = useMerchandisingAgents()
+
+  const handleSelectAgent = (agentId: string) => {
+    setActiveAgent(agentId)
+    setPopoverOpen(false)
+    setOpen(true)
+  }
+
+  const triggerLabel = t(
+    'catalog.merchandising_assistant.trigger.ariaLabel',
+    'Open AI merchandising assistant',
+  )
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen(true)}
-        data-ai-merchandising-trigger=""
-        aria-label={t(
-          'catalog.merchandising_assistant.trigger.ariaLabel',
-          'Open AI merchandising assistant',
-        )}
-        className={className}
-      >
-        <Sparkles className="size-4" aria-hidden />
-        <span>{t('catalog.merchandising_assistant.trigger.label', 'AI Merchandising')}</span>
-        {hasSelection ? (
-          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
-            {selectedCount}
-          </span>
-        ) : null}
-      </Button>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger asChild>
+          <IconButton
+            type="button"
+            variant="outline"
+            size="lg"
+            fullRadius
+            data-ai-merchandising-trigger=""
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            className={cn('relative', className)}
+          >
+            <Sparkles className="size-4" aria-hidden />
+            {hasSelection ? (
+              <span
+                className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+                data-ai-merchandising-selected-count={selectedCount}
+              >
+                {selectedCount}
+              </span>
+            ) : null}
+          </IconButton>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72 p-1">
+          <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('catalog.merchandising_assistant.popover.heading', 'AI assistants')}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => handleSelectAgent(agent.id)}
+                data-ai-merchandising-agent-option={agent.id}
+                className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+              >
+                <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                  {agent.icon}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-medium leading-tight">{agent.label}</span>
+                  <span className="block text-xs text-muted-foreground leading-snug">
+                    {agent.description}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(
@@ -270,7 +343,7 @@ export function MerchandisingAssistantSheet({
           </DialogHeader>
           <div className="min-h-0 flex-1" data-ai-merchandising-chat-container="">
             <AiChat
-              agent={MERCHANDISING_AGENT_ID}
+              agent={activeAgent}
               pageContext={pageContext as unknown as Record<string, unknown>}
               className="h-full"
               placeholder={t(

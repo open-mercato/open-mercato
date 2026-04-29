@@ -77,9 +77,12 @@ export async function executeTool(
     }
   }
 
-  // Execute tool
+  // Execute tool. Attach `tool` to the context so handlers that build an
+  // `AiToolExecutionContext` (e.g. via `createAiApiOperationRunner`) keep their
+  // route-gate coverage check working.
+  const handlerContext: McpToolContext = { ...context, tool }
   try {
-    const result = await tool.handler(parseResult.data, context)
+    const result = await tool.handler(parseResult.data, handlerContext)
     return { success: true, result }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
