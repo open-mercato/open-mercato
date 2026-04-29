@@ -329,7 +329,7 @@ export function VariantPricesSection({
           priceKinds.map((kind) => {
             const draft = values.prices?.[kind.id]
             return (
-              <div key={kind.id} className="rounded bg-muted/40 p-3">
+              <div key={kind.id} className="rounded bg-muted/50 p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">{kind.title}</p>

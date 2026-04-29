@@ -103,7 +103,7 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
       className={cn(
         isSelected
           ? 'bg-background text-foreground shadow'
-          : 'hover:bg-background/50 hover:text-foreground',
+          : 'hover:bg-background/80 hover:text-foreground',
         className,
       )}
     >

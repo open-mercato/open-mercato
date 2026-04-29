@@ -323,7 +323,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             ) : (
               <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
                 <div className="absolute inset-y-0 left-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
-                <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/40" />
+                <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/10" />
               </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
@@ -420,7 +420,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                           </td>
                         </tr>
                         {expandedLogId === log.id && log.payload ? (
-                          <tr className="border-b bg-muted/20 last:border-0">
+                          <tr className="border-b bg-muted/30 last:border-0">
                             <td colSpan={3} className="px-4 py-4">
                               <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
                                 {JSON.stringify(log.payload, null, 2)}

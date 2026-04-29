@@ -508,8 +508,8 @@ export default function WebhookDetailPage() {
           statusBadge={
             <Badge
               className={webhook.isActive
-                ? 'border-transparent bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                : 'border-transparent bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}
+                ? 'border-transparent bg-status-success-bg text-status-success-text'
+                : 'border-transparent bg-status-neutral-bg text-status-neutral-text'}
             >
               {webhook.isActive ? t('webhooks.list.status.active') : t('webhooks.list.status.inactive')}
             </Badge>
@@ -589,7 +589,7 @@ export default function WebhookDetailPage() {
             </div>
             <div className="col-span-2">
               <span className="text-muted-foreground">{t('webhooks.form.customHeaders')}:</span>
-              <pre className="mt-2 rounded border bg-muted/40 p-3 text-xs">
+              <pre className="mt-2 rounded border bg-muted/50 p-3 text-xs">
                 {webhook.customHeaders ? JSON.stringify(webhook.customHeaders, null, 2) : '—'}
               </pre>
             </div>
@@ -603,7 +603,7 @@ export default function WebhookDetailPage() {
               <div>{t('webhooks.deliveries.columns.status')}: {testDelivery.status}</div>
               <div>{t('webhooks.deliveries.columns.responseStatus')}: {testDelivery.responseStatus ?? '—'}</div>
               <div>{t('webhooks.deliveries.columns.duration')}: {testDelivery.durationMs != null ? `${testDelivery.durationMs}ms` : '—'}</div>
-              <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+              <pre className="overflow-auto rounded border bg-muted/50 p-3 text-xs">
                 {JSON.stringify(testDelivery.payload, null, 2)}
               </pre>
             </div>
@@ -677,19 +677,19 @@ export default function WebhookDetailPage() {
                 <div>{t('webhooks.deliveries.columns.duration')}: {selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '—'}</div>
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.requestBody')}</div>
-                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                  <pre className="overflow-auto rounded border bg-muted/50 p-3 text-xs">
                     {JSON.stringify(selectedDelivery.payload, null, 2)}
                   </pre>
                 </div>
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.responseBody')}</div>
-                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                  <pre className="overflow-auto rounded border bg-muted/50 p-3 text-xs">
                     {selectedDelivery.responseBody ?? '—'}
                   </pre>
                 </div>
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.responseHeaders')}</div>
-                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                  <pre className="overflow-auto rounded border bg-muted/50 p-3 text-xs">
                     {selectedDelivery.responseHeaders ? JSON.stringify(selectedDelivery.responseHeaders, null, 2) : '—'}
                   </pre>
                 </div>

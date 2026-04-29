@@ -69,7 +69,7 @@ function StatusDot({ color, className }: { color: string | null | undefined; cla
   if (!color) return <span className={cn('h-2.5 w-2.5 rounded-full bg-muted-foreground/40 border border-border inline-flex', className)} />
   return (
     <span
-      className={cn('h-2.5 w-2.5 rounded-full border border-border/60 inline-flex', className)}
+      className={cn('h-2.5 w-2.5 rounded-full border border-border/70 inline-flex', className)}
       style={{ backgroundColor: color }}
       aria-hidden
     />
@@ -228,7 +228,7 @@ function FilterDropdown({ filter, onChange }: { filter: FilterKind; onChange: (k
         <div
           role="listbox"
           aria-label={t('sales.documents.history.filter.label', 'Filters')}
-          className="absolute left-0 top-full mt-1 z-50 w-48 rounded-md border bg-background p-1 shadow-md"
+          className="absolute left-0 top-full mt-1 z-dropdown w-48 rounded-md border bg-background p-1 shadow-md"
         >
           {options.map(opt => (
             <button

@@ -51,7 +51,7 @@ export function MessageRecordObjectPreview({
     || t('messages.objectPreview.fallback.subtitle', '{type} • {id}', { type: typeLabel, id: entityId })
 
   return (
-    <div className="flex items-start gap-3 rounded bg-muted/20 p-3">
+    <div className="flex items-start gap-3 rounded bg-muted/30 p-3">
       <Link2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">

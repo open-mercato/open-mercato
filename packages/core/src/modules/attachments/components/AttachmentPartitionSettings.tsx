@@ -421,7 +421,7 @@ export function AttachmentPartitionSettings() {
               </div>
             )}
             {dialog ? (
-              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
                 <div>
                   {t('attachments.partitions.form.envKeyHelp', 'Set this env var to override storage path:')}
                 </div>

@@ -120,13 +120,13 @@ export function NotificationPanel({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-overlay bg-black/20"
         onClick={() => onOpenChange(false)}
         aria-hidden="true"
       />
 
       <div
-        className="fixed right-0 top-0 z-50 h-full w-full max-w-md border-l bg-background shadow-lg"
+        className="fixed right-0 top-0 z-modal h-full w-full max-w-md border-l bg-background shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label={t('notifications.title', 'Notifications')}
@@ -183,7 +183,7 @@ export function NotificationPanel({
           </Tabs>
 
           {dismissUndo && onUndoDismiss && (
-            <div className="border-b bg-muted/40 px-4 py-2 text-sm">
+            <div className="border-b bg-muted/50 px-4 py-2 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span>
                   {t('notifications.toast.dismissed', 'Notification dismissed')}

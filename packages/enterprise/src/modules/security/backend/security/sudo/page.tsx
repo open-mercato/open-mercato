@@ -224,7 +224,7 @@ function SecuritySudoPageInner() {
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="rounded-xl border bg-muted/20 p-4">
+        <div className="rounded-xl border bg-muted/30 p-4">
           <div className="flex items-start gap-3">
             <ShieldAlert className="mt-0.5 size-5 text-amber-600" />
             <div className="space-y-1">

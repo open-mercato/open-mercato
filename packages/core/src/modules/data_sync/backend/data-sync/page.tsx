@@ -143,7 +143,7 @@ function getSummaryBadgeStyle(kind: 'enabled' | 'disabled' | 'ready' | 'missing'
 
   return {
     variant: 'outline',
-    className: 'border-muted-foreground/20 bg-muted/40 text-muted-foreground',
+    className: 'border-muted-foreground/20 bg-muted/50 text-muted-foreground',
   }
 }
 
@@ -615,7 +615,7 @@ export default function SyncRunsDashboardPage() {
           <CardHeader className="space-y-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   <Repeat className="size-4" />
                   <span>{t('data_sync.dashboard.start.eyebrow', 'Run once or keep it recurring')}</span>
                 </div>
@@ -734,7 +734,7 @@ export default function SyncRunsDashboardPage() {
             ) : null}
 
             <div className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -790,7 +790,7 @@ export default function SyncRunsDashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">

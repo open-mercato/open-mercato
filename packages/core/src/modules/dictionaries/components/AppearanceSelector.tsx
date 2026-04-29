@@ -147,7 +147,7 @@ export function AppearanceSelector({
               value={normalizedIcon}
               onChange={(event) => onIconChange(event.target.value)}
               placeholder={labels.iconPlaceholder}
-              className="flex-1 rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex-1 rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               disabled={disabled}
             />
             <Button
@@ -164,7 +164,7 @@ export function AppearanceSelector({
             </Button>
           </div>
           {pickerOpen ? (
-            <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
+            <div className="absolute left-0 right-0 top-full z-dropdown mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
               <div className="space-y-3">
                 <input
                   ref={searchInputRef}
@@ -173,7 +173,7 @@ export function AppearanceSelector({
                   onChange={(event) => setIconSearch(event.target.value)}
                   placeholder={labels.iconSearchPlaceholder}
                   aria-label={labels.iconSearchPlaceholder}
-                  className="w-full rounded border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="w-full rounded border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   autoComplete="off"
                 />
                 <div className="max-h-64 overflow-y-auto pr-1">

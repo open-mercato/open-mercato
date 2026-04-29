@@ -165,7 +165,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
           </label>
           <select
             id="revenue-trend-granularity"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.granularity}
             onChange={(e) => onSettingsChange({ ...hydrated, granularity: e.target.value as DateGranularity })}
           >
@@ -182,7 +182,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
               type="checkbox"
               checked={hydrated.showArea}
               onChange={(e) => onSettingsChange({ ...hydrated, showArea: e.target.checked })}
-              className="h-4 w-4 rounded border focus:ring-primary"
+              className="h-4 w-4 rounded border focus-visible:ring-ring"
             />
             {t('dashboards.analytics.settings.showArea', 'Show area fill')}
           </label>

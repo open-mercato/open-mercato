@@ -143,7 +143,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={value.pageSize}
             onChange={(event) => onSettingsChange({ ...value, pageSize: Number(event.target.value) })}
           />
@@ -168,7 +168,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       <div className="flex gap-2">
         <input
           type="text"
-          className="flex-1 rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="flex-1 rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           placeholder={t('example.widgets.todo.input.placeholder')}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -187,14 +187,14 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       ) : (
         <ul className="space-y-2">
           {items.length === 0 ? (
-            <li className="rounded-md border bg-muted/40 px-3 py-6 text-sm text-muted-foreground text-center">
+            <li className="rounded-md border bg-muted/50 px-3 py-6 text-sm text-muted-foreground text-center">
               {value.showCompleted ? t('example.widgets.todo.state.empty') : t('example.widgets.todo.state.allCaughtUp')}
             </li>
           ) : null}
           {items.map((item) => (
             <li
               key={item.id}
-              className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm"
+              className="flex items-center justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm"
             >
               <label className="flex flex-1 items-center gap-2">
                 <input

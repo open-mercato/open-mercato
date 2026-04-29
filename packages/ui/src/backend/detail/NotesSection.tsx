@@ -157,7 +157,7 @@ function TimelineItemHeader({
   return (
     <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
       {icon && renderIcon ? (
-        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/50', wrapperSize].join(' ')}>
           {renderIcon(icon, iconSizeClass)}
         </span>
       ) : null}
@@ -948,7 +948,7 @@ function NotesSectionImpl<C = unknown>({
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
-          composerOpen ? 'max-h-[1200px] bg-muted/10 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+          composerOpen ? 'max-h-[1200px] bg-muted/30 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
         ].join(' ')}
         aria-hidden={!composerOpen}
       >
@@ -1015,7 +1015,7 @@ function NotesSectionImpl<C = unknown>({
                     </label>
                     <select
                       id="note-entity-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={selectedEntityId}
                       onChange={(event) => setSelectedEntityId(event.target.value)}
                       disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
@@ -1038,7 +1038,7 @@ function NotesSectionImpl<C = unknown>({
                     </label>
                     <select
                       id="note-deal-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={selectedDealId}
                       onChange={(event) => setSelectedDealId(event.target.value)}
                       disabled={isSubmitting || isLoading}
@@ -1072,7 +1072,7 @@ function NotesSectionImpl<C = unknown>({
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   {draftIcon && renderIcon ? (
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/50">
                       {renderIcon(draftIcon, 'h-4 w-4')}
                     </span>
                   ) : null}
@@ -1231,7 +1231,7 @@ function NotesSectionImpl<C = unknown>({
                       rows={3}
                       textareaRef={contentTextareaRef}
                       onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
-                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
                       remarkPlugins={markdownPlugins}
                     />
