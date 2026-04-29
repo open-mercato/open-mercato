@@ -59,7 +59,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
-  const groups = React.useMemo(() => createPersonPersonalDataGroups(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -100,6 +99,16 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     data?.person?.displayName && data.person.displayName.trim().length
       ? data.person.displayName
       : t('customers.people.list.deleteFallbackName', 'this person')
+
+  const personDisplayNameForGroups =
+    typeof data?.person?.displayName === 'string' && data.person.displayName.trim().length
+      ? data.person.displayName.trim()
+      : null
+
+  const groups = React.useMemo(
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
+    [t, personDisplayNameForGroups],
+  )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
     { id: 'personalData', icon: User, label: t('customers.people.form.groups.personalData', 'Personal data') },

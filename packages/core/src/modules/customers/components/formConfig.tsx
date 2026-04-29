@@ -1687,47 +1687,56 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
  * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
  * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
  */
-export const createPersonPersonalDataGroups = (t: Translator): CrudFormGroup[] => [
-  {
-    id: 'personalDataDisplay',
-    title: t('customers.people.form.groups.displayName', 'Display name'),
-    column: 1,
-    bare: true,
-    component: createDisplayNameSection(t),
-  },
-  {
-    id: 'personalData',
-    title: t('customers.people.form.groups.personalData', 'Personal data'),
-    column: 1,
-    fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
-  },
-  {
-    id: 'companyRole',
-    title: t('customers.people.form.groups.companyRole', 'Company & role'),
-    column: 1,
-    fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
-  },
-  {
-    id: 'customFields',
-    title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
-    column: 1,
-    kind: 'customFields',
-  },
-  {
-    id: 'roles',
-    title: t('customers.people.form.groups.roles', 'My roles'),
-    column: 1,
-    component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? (
-        <RolesSection
-          entityType="person"
-          entityId={values.id as string}
-          entityName={typeof values.displayName === 'string' ? values.displayName : null}
-        />
-      ) : null
-    ),
-  },
-]
+export const createPersonPersonalDataGroups = (
+  t: Translator,
+  options?: { entityName?: string | null },
+): CrudFormGroup[] => {
+  const entityName = options?.entityName?.trim() || null
+  const rolesTitle = entityName
+    ? t('customers.roles.groupTitle.person', 'My roles with {{name}}', { name: entityName })
+    : t('customers.people.form.groups.roles', 'My roles')
+  return [
+    {
+      id: 'personalDataDisplay',
+      title: t('customers.people.form.groups.displayName', 'Display name'),
+      column: 1,
+      bare: true,
+      component: createDisplayNameSection(t),
+    },
+    {
+      id: 'personalData',
+      title: t('customers.people.form.groups.personalData', 'Personal data'),
+      column: 1,
+      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+    },
+    {
+      id: 'companyRole',
+      title: t('customers.people.form.groups.companyRole', 'Company & role'),
+      column: 1,
+      fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+    },
+    {
+      id: 'customFields',
+      title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
+      column: 1,
+      kind: 'customFields',
+    },
+    {
+      id: 'roles',
+      title: rolesTitle,
+      column: 1,
+      component: ({ values }: CrudFormGroupComponentProps) => (
+        values.id ? (
+          <RolesSection
+            entityType="person"
+            entityId={values.id as string}
+            entityName={typeof values.displayName === 'string' ? values.displayName : null}
+          />
+        ) : null
+      ),
+    },
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Edit-mode payload builders
