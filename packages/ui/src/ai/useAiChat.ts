@@ -139,11 +139,20 @@ function readPersistedSession(agent: string): PersistedAiChatSession | null {
 function writePersistedSession(agent: string, session: PersistedAiChatSession): void {
   if (typeof window === 'undefined') return
   try {
-    // Strip transient blob preview URLs before persisting — they would not
-    // survive a reload anyway and we don't want to leak object URLs.
+    // Strip transient blob/object preview URLs before persisting (they would
+    // not survive a reload). Durable HTTP(S) URLs — typically the attachment
+    // image route `/api/attachments/image/<id>` — are kept so the original
+    // image renders again the next time the chat is opened.
     const messages = session.messages.map((message) => {
       if (!message.files || message.files.length === 0) return message
-      const safeFiles = message.files.map(({ name, type }) => ({ name, type }))
+      const safeFiles = message.files.map(({ name, type, previewUrl }) => {
+        const durable =
+          typeof previewUrl === 'string' &&
+          (previewUrl.startsWith('/') || /^https?:\/\//i.test(previewUrl))
+            ? previewUrl
+            : undefined
+        return durable ? { name, type, previewUrl: durable } : { name, type }
+      })
       return { ...message, files: safeFiles }
     })
     window.localStorage.setItem(
