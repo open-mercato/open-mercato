@@ -259,13 +259,20 @@ const getDealTool: CustomersAiToolDefinition = {
             if (!id) return null
             const subtitle = typeof person.subtitle === 'string' ? person.subtitle : null
             const label = typeof person.label === 'string' ? person.label : ''
-            return {
+            const entry: {
+              id: string
+              displayName: string
+              primaryEmail: string | null
+              primaryPhone: string | null
+              participantRole: string | null
+            } = {
               id,
               displayName: label,
               primaryEmail: subtitle && subtitle.includes('@') ? subtitle : null,
               primaryPhone: subtitle && !subtitle.includes('@') ? subtitle : null,
               participantRole: null as string | null,
             }
+            return entry
           })
           .filter(
             (value): value is {
@@ -282,12 +289,18 @@ const getDealTool: CustomersAiToolDefinition = {
             const id = typeof company.id === 'string' ? company.id : null
             if (!id) return null
             const label = typeof company.label === 'string' ? company.label : ''
-            return {
+            const entry: {
+              id: string
+              displayName: string
+              primaryEmail: string | null
+              primaryPhone: string | null
+            } = {
               id,
               displayName: label,
               primaryEmail: null as string | null,
               primaryPhone: null as string | null,
             }
+            return entry
           })
           .filter(
             (value): value is {

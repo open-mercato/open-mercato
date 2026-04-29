@@ -96,9 +96,19 @@ const baseMessages = [
   { role: 'user' as const, id: 'm1', parts: [{ type: 'text' as const, text: 'hi' }] },
 ]
 
-function fakeStreamResult(): { toTextStreamResponse: jest.Mock } {
+function fakeStreamResult(): {
+  toTextStreamResponse: jest.Mock
+  toUIMessageStreamResponse: jest.Mock
+} {
   return {
     toTextStreamResponse: jest.fn(
+      () =>
+        new Response('streamed', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+    ),
+    toUIMessageStreamResponse: jest.fn(
       () =>
         new Response('streamed', {
           status: 200,

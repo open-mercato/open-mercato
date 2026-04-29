@@ -387,9 +387,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   }
 
   const result = streamText(streamArgs)
-  return result.toTextStreamResponse({
+  return result.toUIMessageStreamResponse({
+    sendReasoning: true,
     headers: {
-      'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
     },

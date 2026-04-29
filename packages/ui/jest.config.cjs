@@ -8,6 +8,8 @@ module.exports = {
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^react-markdown$': '<rootDir>/jest.markdown-mock.tsx',
+    '^remark-gfm$': '<rootDir>/jest.markdown-mock.tsx',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

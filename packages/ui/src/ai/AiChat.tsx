@@ -1,7 +1,24 @@
 "use client"
 
 import * as React from 'react'
-import { Bot, Loader2, Paperclip, Send, Square, User, X } from 'lucide-react'
+import {
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Lightbulb,
+  Loader2,
+  Paperclip,
+  Plus,
+  Send,
+  Square,
+  User,
+  Wrench,
+  X,
+} from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '../primitives/alert'
@@ -9,13 +26,20 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
+import { parseAiContentSegments } from './AiMessageContent'
+import { RecordCard } from './records/RecordCard'
 import {
   defaultAiUiPartRegistry,
   isReservedAiUiPartId,
   type AiUiPartComponentId,
   type AiUiPartRegistry,
 } from './ui-part-registry'
-import { useAiChat, type AiChatMessage, type AiChatMessageFile } from './useAiChat'
+import {
+  useAiChat,
+  type AiChatMessage,
+  type AiChatMessageFile,
+  type AiChatToolCallSnapshot,
+} from './useAiChat'
 import { useAiShortcuts } from './useAiShortcuts'
 
 /**
@@ -135,6 +159,216 @@ function mapErrorCodeToVariant(
   return warningCodes.has(code) ? 'warning' : 'destructive'
 }
 
+const MARKDOWN_TYPOGRAPHY_CLASS = cn(
+  '[&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0',
+  '[&_ul]:my-2 [&_ol]:my-2 [&_ul]:ml-4 [&_ol]:ml-4 [&_ul]:list-disc [&_ol]:list-decimal',
+  '[&_li]:my-0.5',
+  '[&_h1]:mt-3 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold',
+  '[&_h2]:mt-3 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold',
+  '[&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold',
+  '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2',
+  '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs',
+  '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-muted [&_pre]:p-3',
+  '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
+  '[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground',
+  '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs',
+  '[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium',
+  '[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1',
+)
+
+const MARKDOWN_COMPONENTS = {
+  a: ({ node, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => (
+    <a {...props} target="_blank" rel="noreferrer" />
+  ),
+}
+
+function MarkdownChunk({ text }: { text: string }) {
+  if (!text.trim()) return null
+  return (
+    <div className={cn('text-sm', MARKDOWN_TYPOGRAPHY_CLASS)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+function MessageContent({ content, isAssistant }: { content: string; isAssistant: boolean }) {
+  if (!isAssistant) {
+    return <div className="whitespace-pre-wrap text-sm">{content}</div>
+  }
+  if (!content) {
+    return null
+  }
+  const segments = parseAiContentSegments(content)
+  if (segments.length === 0) {
+    return null
+  }
+  return (
+    <div className="space-y-1" data-ai-message-content="">
+      {segments.map((segment, index) => {
+        if (segment.kind === 'record-card') {
+          return <RecordCard key={`card-${index}`} data={segment.payload} />
+        }
+        if (segment.kind === 'invalid-card') {
+          return (
+            <pre
+              key={`raw-${index}`}
+              className="my-2 max-h-60 overflow-auto rounded-md border border-dashed border-border bg-muted p-2 text-xs"
+              data-ai-record-card-invalid={segment.info}
+            >
+              {segment.raw}
+            </pre>
+          )
+        }
+        return <MarkdownChunk key={`md-${index}`} text={segment.text} />
+      })}
+    </div>
+  )
+}
+
+function safeStringify(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
+  const t = useT()
+  const [openId, setOpenId] = React.useState<string | null>(null)
+  if (!toolCalls || toolCalls.length === 0) return null
+  return (
+    <div className="space-y-1" data-ai-chat-tool-calls="">
+      {toolCalls.map((call) => {
+        const isOpen = openId === call.id
+        const isError = call.state === 'error'
+        const isPending = call.state === 'pending'
+        const isComplete = call.state === 'complete'
+        const statusLabel = isError
+          ? t('ai_assistant.chat.toolError', 'failed')
+          : isPending
+            ? t('ai_assistant.chat.toolRunning', 'running…')
+            : t('ai_assistant.chat.toolDone', 'done')
+        return (
+          <div
+            key={call.id}
+            className={cn(
+              'rounded-md border border-border bg-muted/30',
+              isError ? 'border-destructive/40 bg-destructive/5' : '',
+            )}
+            data-ai-chat-tool-call={call.toolName}
+            data-ai-chat-tool-state={call.state}
+          >
+            <button
+              type="button"
+              onClick={() => setOpenId(isOpen ? null : call.id)}
+              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs font-medium hover:bg-muted/60"
+            >
+              {isOpen ? (
+                <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden />
+              )}
+              {isPending ? (
+                <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden />
+              ) : (
+                <Wrench
+                  className={cn(
+                    'size-3.5',
+                    isError ? 'text-destructive' : 'text-muted-foreground',
+                  )}
+                  aria-hidden
+                />
+              )}
+              <span className="font-mono">{call.toolName}</span>
+              <span
+                className={cn(
+                  'ml-auto text-[10px] uppercase tracking-wide',
+                  isError
+                    ? 'text-destructive'
+                    : isComplete
+                      ? 'text-status-success-text'
+                      : 'text-muted-foreground',
+                )}
+              >
+                {statusLabel}
+              </span>
+            </button>
+            {isOpen ? (
+              <div className="space-y-1 border-t border-border/60 px-2 py-1.5 text-xs">
+                {call.input !== undefined ? (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {t('ai_assistant.chat.toolInput', 'Input')}
+                    </div>
+                    <pre className="mt-0.5 max-h-32 overflow-auto rounded bg-background p-1.5 font-mono text-[11px]">
+                      {safeStringify(call.input)}
+                    </pre>
+                  </div>
+                ) : null}
+                {call.output !== undefined && !isError ? (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {t('ai_assistant.chat.toolOutput', 'Output')}
+                    </div>
+                    <pre className="mt-0.5 max-h-32 overflow-auto rounded bg-background p-1.5 font-mono text-[11px]">
+                      {safeStringify(call.output)}
+                    </pre>
+                  </div>
+                ) : null}
+                {call.errorMessage ? (
+                  <div className="text-destructive">{call.errorMessage}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  if (!text) return null
+  return (
+    <div
+      className="rounded-md border border-border bg-muted/30"
+      data-ai-chat-reasoning={streaming ? 'streaming' : 'complete'}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs font-medium hover:bg-muted/60"
+      >
+        {open ? (
+          <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+        ) : (
+          <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden />
+        )}
+        <Lightbulb className="size-3.5 text-muted-foreground" aria-hidden />
+        <span>{t('ai_assistant.chat.reasoning', 'Reasoning')}</span>
+        {streaming ? (
+          <Loader2
+            className="ml-1 size-3 animate-spin text-muted-foreground"
+            aria-hidden
+          />
+        ) : null}
+      </button>
+      {open ? (
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap border-t border-border/60 px-2 py-1.5 text-xs text-muted-foreground">
+          {text}
+        </pre>
+      ) : null}
+    </div>
+  )
+}
+
 function MessageRow({ message }: { message: AiChatMessage }) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
@@ -142,10 +376,44 @@ function MessageRow({ message }: { message: AiChatMessage }) {
     ? t('ai_assistant.chat.assistantRoleLabel', 'Assistant')
     : t('ai_assistant.chat.userRoleLabel', 'You')
   const Icon = isAssistant ? Bot : User
+  const [copied, setCopied] = React.useState(false)
+  const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    }
+  }, [])
+
+  const handleCopy = React.useCallback(async () => {
+    const text = message.content
+    if (!text) return
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'absolute'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard API blocked (no permission, http context) — silently fail.
+    }
+  }, [message.content])
+
   return (
     <div
       className={cn(
-        'flex gap-3 px-3 py-2',
+        'group/message flex gap-3 px-3 py-2',
         isAssistant ? 'bg-muted/40 rounded-md' : '',
       )}
       data-role={message.role}
@@ -162,7 +430,30 @@ function MessageRow({ message }: { message: AiChatMessage }) {
         <Icon className="size-4" />
       </div>
       <div className="flex-1 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-muted-foreground">{label}</div>
+          {message.content ? (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              aria-label={
+                copied
+                  ? t('ai_assistant.chat.copied', 'Copied')
+                  : t('ai_assistant.chat.copyMessage', 'Copy message')
+              }
+              data-ai-chat-copy-button=""
+              className="opacity-0 transition-opacity group-hover/message:opacity-100 focus-visible:opacity-100"
+            >
+              {copied ? (
+                <Check className="size-3.5 text-status-success-icon" aria-hidden />
+              ) : (
+                <Copy className="size-3.5" aria-hidden />
+              )}
+            </IconButton>
+          ) : null}
+        </div>
         {message.files && message.files.length > 0 ? (
           <div className="flex flex-wrap gap-2 py-1">
             {message.files.map((file, i) =>
@@ -185,7 +476,16 @@ function MessageRow({ message }: { message: AiChatMessage }) {
             )}
           </div>
         ) : null}
-        <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+        {isAssistant && message.reasoning ? (
+          <ReasoningPanel
+            text={message.reasoning}
+            streaming={message.reasoningStreaming === true}
+          />
+        ) : null}
+        {isAssistant && message.toolCalls && message.toolCalls.length > 0 ? (
+          <ToolCallList toolCalls={message.toolCalls} />
+        ) : null}
+        <MessageContent content={message.content} isAssistant={isAssistant} />
       </div>
     </div>
   )
@@ -477,6 +777,31 @@ export function AiChat({
     node.scrollTop = node.scrollHeight
   }, [chat.messages])
 
+  // Mark the body so floating UI surfaces (e.g. the demo feedback FAB) can
+  // hide themselves while the chat is open and would otherwise overlay the
+  // composer's send button. CSS lives in `apps/mercato/src/app/globals.css`
+  // alongside the column-chooser precedent.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return
+    const previous = document.body.getAttribute('data-ai-chat-open')
+    document.body.setAttribute('data-ai-chat-open', 'true')
+    return () => {
+      if (previous === null) {
+        document.body.removeAttribute('data-ai-chat-open')
+      } else {
+        document.body.setAttribute('data-ai-chat-open', previous)
+      }
+    }
+  }, [])
+
+  const handleNewConversation = React.useCallback(() => {
+    chat.reset()
+    setInput('')
+    setPendingFiles([])
+    setUploadedAttachmentIds([])
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }, [chat])
+
   const resolvedPlaceholder =
     placeholder ?? t('ai_assistant.chat.composerPlaceholder', 'Message the AI agent...')
 
@@ -492,9 +817,29 @@ export function AiChat({
       data-ai-chat-agent={agent}
       data-ai-chat-conversation-id={chat.conversationId}
     >
-      {contextItems && contextItems.length > 0 ? (
-        <ContextItemsPill items={contextItems} />
-      ) : null}
+      <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+          {contextItems && contextItems.length > 0 ? (
+            <ContextItemsPill items={contextItems} />
+          ) : (
+            <span className="font-mono opacity-70" aria-hidden>
+              {chat.conversationId.slice(0, 8)}
+            </span>
+          )}
+        </div>
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleNewConversation}
+          disabled={isBusy}
+          aria-label={t('ai_assistant.chat.newConversation', 'Start new conversation')}
+          title={t('ai_assistant.chat.newConversation', 'Start new conversation')}
+          data-ai-chat-new-conversation=""
+        >
+          <Plus className="size-4" aria-hidden />
+        </IconButton>
+      </div>
       <div
         ref={transcriptRef}
         role="log"

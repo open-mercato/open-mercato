@@ -16,11 +16,23 @@ export interface AiChatMessageFile {
   previewUrl?: string
 }
 
+export interface AiChatToolCallSnapshot {
+  id: string
+  toolName: string
+  state: 'pending' | 'complete' | 'error'
+  input?: unknown
+  output?: unknown
+  errorMessage?: string
+}
+
 export interface AiChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   files?: AiChatMessageFile[]
+  reasoning?: string
+  reasoningStreaming?: boolean
+  toolCalls?: AiChatToolCallSnapshot[]
 }
 
 export interface UseAiChatInput {
@@ -87,6 +99,71 @@ function makeConversationId(): string {
   return `conv_${Date.now().toString(16)}_${rand()}${rand()}`
 }
 
+const SESSION_STORAGE_PREFIX = 'om-ai-chat:'
+const SESSION_STORAGE_VERSION = 1
+
+interface PersistedAiChatSession {
+  v: number
+  conversationId: string
+  messages: AiChatMessage[]
+}
+
+function getSessionStorageKey(agent: string): string {
+  return `${SESSION_STORAGE_PREFIX}${agent}`
+}
+
+function readPersistedSession(agent: string): PersistedAiChatSession | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(getSessionStorageKey(agent))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedAiChatSession | null
+    if (!parsed || parsed.v !== SESSION_STORAGE_VERSION) return null
+    if (typeof parsed.conversationId !== 'string') return null
+    if (!Array.isArray(parsed.messages)) return null
+    const messages = parsed.messages.filter((entry): entry is AiChatMessage => {
+      return (
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof (entry as AiChatMessage).id === 'string' &&
+        typeof (entry as AiChatMessage).content === 'string' &&
+        ((entry as AiChatMessage).role === 'user' || (entry as AiChatMessage).role === 'assistant')
+      )
+    })
+    return { v: SESSION_STORAGE_VERSION, conversationId: parsed.conversationId, messages }
+  } catch {
+    return null
+  }
+}
+
+function writePersistedSession(agent: string, session: PersistedAiChatSession): void {
+  if (typeof window === 'undefined') return
+  try {
+    // Strip transient blob preview URLs before persisting — they would not
+    // survive a reload anyway and we don't want to leak object URLs.
+    const messages = session.messages.map((message) => {
+      if (!message.files || message.files.length === 0) return message
+      const safeFiles = message.files.map(({ name, type }) => ({ name, type }))
+      return { ...message, files: safeFiles }
+    })
+    window.localStorage.setItem(
+      getSessionStorageKey(agent),
+      JSON.stringify({ ...session, messages }),
+    )
+  } catch {
+    // Quota exceeded / privacy mode — silently drop persistence.
+  }
+}
+
+function clearPersistedSession(agent: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(getSessionStorageKey(agent))
+  } catch {
+    // ignore
+  }
+}
+
 function getTransportEndpoint(agent: string, apiPath?: string): string {
   // Reuse the transport factory so UI consumers share the dispatcher URL
   // convention with server-side callers (e.g. runAiAgentText / Playwright
@@ -102,6 +179,144 @@ function getTransportEndpoint(agent: string, apiPath?: string): string {
   const base = apiPath && apiPath.length > 0 ? apiPath : '/api/ai_assistant/ai/chat'
   const separator = base.includes('?') ? '&' : '?'
   return `${base}${separator}agent=${encodeURIComponent(agent)}`
+}
+
+interface AssistantBuilderState {
+  text: string
+  reasoning: string
+  reasoningStreaming: boolean
+  toolCalls: AiChatToolCallSnapshot[]
+}
+
+function createBuilder(): AssistantBuilderState {
+  return { text: '', reasoning: '', reasoningStreaming: false, toolCalls: [] }
+}
+
+function updateToolCall(
+  state: AssistantBuilderState,
+  id: string,
+  patch: Partial<AiChatToolCallSnapshot> & { toolName?: string },
+): AssistantBuilderState {
+  if (!id) return state
+  const idx = state.toolCalls.findIndex((entry) => entry.id === id)
+  if (idx === -1) {
+    const next: AiChatToolCallSnapshot = {
+      id,
+      toolName: patch.toolName ?? 'tool',
+      state: patch.state ?? 'pending',
+      input: patch.input,
+      output: patch.output,
+      errorMessage: patch.errorMessage,
+    }
+    return { ...state, toolCalls: [...state.toolCalls, next] }
+  }
+  const current = state.toolCalls[idx]
+  const merged: AiChatToolCallSnapshot = {
+    ...current,
+    toolName: patch.toolName ?? current.toolName,
+    state: patch.state ?? current.state,
+    input: patch.input !== undefined ? patch.input : current.input,
+    output: patch.output !== undefined ? patch.output : current.output,
+    errorMessage: patch.errorMessage ?? current.errorMessage,
+  }
+  const nextCalls = state.toolCalls.slice()
+  nextCalls[idx] = merged
+  return { ...state, toolCalls: nextCalls }
+}
+
+function applyChunk(
+  state: AssistantBuilderState,
+  chunk: { type: string; [key: string]: unknown },
+): AssistantBuilderState {
+  switch (chunk.type) {
+    case 'text-delta':
+      return {
+        ...state,
+        text: state.text + (typeof chunk.delta === 'string' ? chunk.delta : ''),
+      }
+    case 'reasoning-start':
+      return { ...state, reasoningStreaming: true }
+    case 'reasoning-delta':
+      return {
+        ...state,
+        reasoning:
+          state.reasoning + (typeof chunk.delta === 'string' ? chunk.delta : ''),
+        reasoningStreaming: true,
+      }
+    case 'reasoning-end':
+      return { ...state, reasoningStreaming: false }
+    case 'tool-input-start':
+      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        state: 'pending',
+      })
+    case 'tool-input-available':
+      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        input: chunk.input,
+        state: 'pending',
+      })
+    case 'tool-output-available':
+      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+        output: chunk.output,
+        state: 'complete',
+      })
+    case 'tool-output-error':
+      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+        state: 'error',
+        errorMessage:
+          typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
+      })
+    case 'tool-input-error':
+      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        input: chunk.input,
+        state: 'error',
+        errorMessage:
+          typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
+      })
+    default:
+      return state
+  }
+}
+
+function mergeAssistantMessage(
+  current: AiChatMessage,
+  state: AssistantBuilderState,
+): AiChatMessage {
+  return {
+    ...current,
+    content: state.text,
+    reasoning: state.reasoning ? state.reasoning : undefined,
+    reasoningStreaming: state.reasoning ? state.reasoningStreaming : undefined,
+    toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
+  }
+}
+
+function parseSseLines(buffer: string): { events: string[]; rest: string } {
+  const events: string[] = []
+  let rest = buffer
+  for (;;) {
+    const idx = rest.indexOf('\n\n')
+    if (idx === -1) break
+    events.push(rest.slice(0, idx))
+    rest = rest.slice(idx + 2)
+  }
+  return { events, rest }
+}
+
+function extractDataPayload(eventBlock: string): string | null {
+  const lines = eventBlock.split('\n')
+  const dataLines: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      dataLines.push(line.slice(6))
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5))
+    }
+  }
+  if (dataLines.length === 0) return null
+  return dataLines.join('\n')
 }
 
 async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelope> {
@@ -135,24 +350,52 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
   // turn so the Phase 3 WS-C `prepareMutation` idempotency hash stays
-  // stable within the same chat.
+  // stable within the same chat. When the agent has a persisted session in
+  // localStorage we re-hydrate the conversationId from it so re-opening the
+  // chat continues the previous turn instead of starting fresh.
+  const persistedRef = React.useRef<PersistedAiChatSession | null | 'unread'>('unread')
+  if (persistedRef.current === 'unread') {
+    persistedRef.current = readPersistedSession(agent)
+  }
+  const persisted = persistedRef.current
+
   const mintedConversationIdRef = React.useRef<string | null>(null)
   if (mintedConversationIdRef.current === null) {
-    mintedConversationIdRef.current = makeConversationId()
+    mintedConversationIdRef.current = persisted?.conversationId ?? makeConversationId()
   }
   const effectiveConversationId =
     typeof conversationIdInput === 'string' && conversationIdInput.length > 0
       ? conversationIdInput
       : mintedConversationIdRef.current
 
-  const [messages, setMessages] = React.useState<AiChatMessage[]>(() =>
-    (initialMessages ?? []).map((entry) => ({
+  const [messages, setMessages] = React.useState<AiChatMessage[]>(() => {
+    if (persisted && persisted.messages.length > 0) {
+      return persisted.messages
+    }
+    return (initialMessages ?? []).map((entry) => ({
       id: makeMessageId(),
       role: entry.role,
       content: entry.content,
-    })),
-  )
-  const [status, setStatus] = React.useState<'idle' | 'submitting' | 'streaming'>('idle')
+    }))
+  })
+
+  // Persist messages + conversationId on every change. Skip during in-flight
+  // streaming so we do not write the same growing string on every chunk —
+  // the next idle tick captures the final assistant content.
+  const [status, setStatusInternal] = React.useState<'idle' | 'submitting' | 'streaming'>('idle')
+  React.useEffect(() => {
+    if (status !== 'idle') return
+    if (messages.length === 0) {
+      clearPersistedSession(agent)
+      return
+    }
+    writePersistedSession(agent, {
+      v: SESSION_STORAGE_VERSION,
+      conversationId: effectiveConversationId,
+      messages,
+    })
+  }, [agent, effectiveConversationId, messages, status])
+  const setStatus = setStatusInternal
   const [error, setError] = React.useState<AiChatErrorEnvelope | null>(null)
   const [lastRequestDebug, setLastRequestDebug] = React.useState<
     { url: string; body: unknown } | null
@@ -191,7 +434,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     setError(null)
     setLastRequestDebug(null)
     setLastResponseDebug(null)
-  }, [cancel])
+    clearPersistedSession(agent)
+    mintedConversationIdRef.current = makeConversationId()
+  }, [agent, cancel])
 
   const sendMessage = React.useCallback(
     async (textInput: string, files?: AiChatMessageFile[]) => {
@@ -281,41 +526,97 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         return
       }
 
+      const headerGet = (name: string): string | null => {
+        const headers = (response as { headers?: { get?: (k: string) => string | null } })
+          .headers
+        if (!headers || typeof headers.get !== 'function') return null
+        try {
+          return headers.get(name)
+        } catch {
+          return null
+        }
+      }
+      const isUiMessageStream =
+        headerGet('x-vercel-ai-ui-message-stream') !== null ||
+        (headerGet('content-type') ?? '').includes('event-stream')
+
       setStatus('streaming')
       const reader = bodyStream.getReader()
       const decoder = new TextDecoder()
-      let streamedText = ''
+      let streamedRaw = ''
+      let builder = createBuilder()
+      let sseBuffer = ''
+      const flushUiMessageBuffer = (extra?: string) => {
+        if (extra) sseBuffer += extra
+        const { events, rest } = parseSseLines(sseBuffer)
+        sseBuffer = rest
+        for (const block of events) {
+          const data = extractDataPayload(block)
+          if (!data) continue
+          if (data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data) as { type?: string }
+            if (parsed && typeof parsed.type === 'string') {
+              builder = applyChunk(builder, parsed as { type: string })
+            }
+          } catch {
+            // Tolerate malformed events / SSE comments.
+          }
+        }
+      }
       try {
-        // Plain text streaming: toTextStreamResponse sends raw text chunks.
-        // Each chunk is appended to the message content in real-time.
         while (true) {
           const { value, done } = await reader.read()
           if (done) break
           if (!value) continue
           const piece = decoder.decode(value, { stream: true })
           if (!piece) continue
-          streamedText += piece
-          const snapshot = streamedText
+          streamedRaw += piece
+
+          if (isUiMessageStream) {
+            flushUiMessageBuffer(piece)
+          } else {
+            // Plain text fallback (legacy `toTextStreamResponse`).
+            builder = { ...builder, text: streamedRaw }
+          }
+          const snapshotBuilder = builder
           setMessages((current) =>
             current.map((entry) =>
-              entry.id === assistantId ? { ...entry, content: snapshot } : entry,
+              entry.id === assistantId
+                ? mergeAssistantMessage(entry, snapshotBuilder)
+                : entry,
             ),
           )
         }
         const tail = decoder.decode()
         if (tail) {
-          streamedText += tail
-          setMessages((current) =>
-            current.map((entry) =>
-              entry.id === assistantId ? { ...entry, content: streamedText } : entry,
-            ),
-          )
+          streamedRaw += tail
+          if (isUiMessageStream) {
+            flushUiMessageBuffer(tail)
+          } else {
+            builder = { ...builder, text: streamedRaw }
+          }
         }
-        setLastResponseDebug({ status: response.status, text: streamedText })
-        if (!streamedText.trim()) {
+        if (isUiMessageStream && sseBuffer.length > 0) {
+          flushUiMessageBuffer('\n\n')
+        }
+        builder = { ...builder, reasoningStreaming: false }
+        const finalSnapshot = builder
+        setMessages((current) =>
+          current.map((entry) =>
+            entry.id === assistantId
+              ? mergeAssistantMessage(entry, finalSnapshot)
+              : entry,
+          ),
+        )
+        setLastResponseDebug({ status: response.status, text: streamedRaw })
+        const isEmpty =
+          !builder.text.trim() && builder.toolCalls.length === 0 && !builder.reasoning
+        if (isEmpty) {
           emitError({
             code: 'empty_response',
-            message: 'The AI agent returned an empty response. This usually means the LLM provider rejected the request (invalid API key, rate limit, or model error). Check your server logs for details.',
+            message:
+              'The AI agent returned an empty response. This usually means the LLM provider rejected the request (invalid API key, rate limit, or model error). Check your server logs for details.',
           })
           setMessages((current) => current.filter((entry) => entry.id !== assistantId))
         }

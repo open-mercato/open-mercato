@@ -103,6 +103,13 @@ function fakeStreamTextResult() {
           headers: { 'Content-Type': 'text/event-stream' },
         }),
     ),
+    toUIMessageStreamResponse: jest.fn(
+      () =>
+        new Response('ok', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+    ),
   }
 }
 
