@@ -1,11 +1,13 @@
 # AI Agents — First-Class Agentic Loop Controls
 
-**Date:** 2026-04-28
-**Status:** Draft
+**Date:** 2026-04-28 (last edited 2026-04-29)
+**Status:** Draft — remediated per `.ai/specs/analysis/ANALYSIS-2026-04-28-ai-agents-agentic-loop-controls.md`
 **Scope:** OSS, `@open-mercato/ai-assistant`
 **Extends:**
 - `.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md` (the wrapper runtime: `runAiAgentText` / `runAiAgentObject`, policy gate, mutation approvals, `<AiChat>` UI parts)
 - `.ai/specs/2026-04-27-ai-agents-provider-model-baseurl-overrides.md` (per-axis resolution chain reused for the loop knobs)
+
+**Hard prerequisite:** `2026-04-27-ai-agents-provider-model-baseurl-overrides.md` MUST land first. That spec creates the `ai_agent_runtime_overrides` table this spec extends, introduces `createModelFactory` resolution telemetry, and pins the `allowRuntimeOverride` flag name (originally `allowRuntimeModelOverride` — see the rename coordination note in **Migration & Backward Compatibility**). See **Extension Sequencing** at the bottom of this file for the full multi-spec plan.
 
 ## TLDR
 
@@ -202,9 +204,11 @@ const wrapperPrepareStep: PrepareStepFunction<ToolSet> = async (state) => {
 
 For object mode, the runtime accepts `loop.maxSteps`, `loop.budget`, and `loop.onStepFinish` (the SDK fires it for `generateObject` too as of `ai@6`). It **rejects** `loop.prepareStep`, `loop.repairToolCall`, `loop.stopWhen`, `loop.activeTools`, `loop.toolChoice` with `AgentPolicyError` code `loop_unsupported_in_object_mode`. The cast at `agent-runtime.ts:597` is removed.
 
-### Phase 2 — extend the native AI SDK callback signature
+### Phase 2 — implement and extend the native AI SDK callback
 
-Today (post 434bbc561):
+> **Implementation status correction (2026-04-29):** the `generateText` / `generateObject` callback contract is **documented** in `apps/docs/docs/framework/ai-assistant/agents.mdx` (commit `434bbc561`) but **not wired** in `runAiAgentText` / `runAiAgentObject` yet. There is no test exercising a callback path, no field on the input type, and no dispatch branch in `agent-runtime.ts`. Phase 2 is therefore two pieces of work: (a) **implement the documented contract** — add `generateText?` / `generateObject?` to the input types, branch in the runtime to invoke the callback when supplied, otherwise call `streamText` / `generateObject` directly; and (b) **extend the prepared-options bag** to include the loop primitives. Both ship together so no caller ever sees the smaller bag.
+
+Today (per `agents.mdx`, not yet wired):
 
 ```ts
 runAiAgentText({
@@ -308,7 +312,11 @@ Rename `AiAgentDefinition.allowRuntimeModelOverride` (introduced in the provider
 
 `ai@6` ships `Experimental_Agent` (alias `ToolLoopAgent`) — a reusable `Agent` class with its own `prepareCall` hook and a default `stopWhen: stepCountIs(20)`. It is closer to "an agent" semantically than `streamText` plus knobs, and several upcoming SDK features (multi-agent handoff, streaming approval responses) land there first.
 
-Add `executionEngine?: 'stream-text' | 'tool-loop-agent'` to `AiAgentDefinition` (default `'stream-text'`, the current behavior). When set to `'tool-loop-agent'`, the runtime constructs a `ToolLoopAgent` once per agent registry entry, hands it the resolved `model`, `tools`, `system`, `stopWhen`, `prepareStep` (still wrapper-composed), and dispatches via `agent.generate(...)` / `agent.stream(...)` per turn. The wrapper-owned `prepareStep` is threaded through `prepareCall` so policy + mutation-approval guarantees still hold.
+Add `executionEngine?: 'stream-text' | 'tool-loop-agent'` to `AiAgentDefinition` (default `'stream-text'`, the current behavior). When set to `'tool-loop-agent'`, the runtime constructs a `ToolLoopAgent` once per agent registry entry and dispatches via `agent.generate(...)` / `agent.stream(...)` per turn.
+
+> **Correction (2026-04-29):** the SDK's `ToolLoopAgentSettings.prepareCall` accepts a `Pick` of `{ model, tools, ..., stopWhen, ..., activeTools, providerOptions, ... }` — `prepareStep` is **not** in that pick list and **cannot** be threaded through `prepareCall`. The wrapper-owned `prepareStep` MUST be supplied via `settings.prepareStep` at agent construction (it is part of `ToolLoopAgentSettings`). The `prepareCall` hook is used only for narrowing `model`, `tools`, `stopWhen`, `activeTools`, and `providerOptions` per turn. **Integration test `TC-AI-AGENT-LOOP-006` MUST assert that a mutation tool still lands in `ai_pending_actions` for an agent on `executionEngine: 'tool-loop-agent'`** — without this proof, the policy + mutation-approval gate could silently bypass when the engine swap happens.
+
+`experimental_repairToolCall` reachability through `ToolLoopAgent` is not part of the published settings type today (only `prepareStep`, `stopWhen`, `prepareCall` are exposed). Document as a known engine-specific limitation: agents that need `repairToolCall` must use the default `stream-text` engine until the SDK exposes it on the agent class.
 
 The escape-hatch callback gains an `agent` field on the prepared options bag when this engine is selected, so callers can call `agent.generate(...)` with their own `providerOptions` directly.
 
@@ -520,6 +528,47 @@ Additive, all optional, all gated by `allowRuntimeOverride`:
 | `loop_budget_exceeded`                  | Budget abort short-circuited the turn. Surfaced as a *finish* condition, not a 5xx. |
 | `loop_disabled_by_tenant`               | Tenant kill switch active; runtime still completes the turn but as a single-step run. Logged at `info`, not raised. |
 
+### `loopBudget` preset values (Phase 4)
+
+The `?loopBudget=<preset>` query param resolves to a fixed `loop.budget` triple, pinned in code so meaning is stable across deployments:
+
+| Preset    | `maxSteps` | `maxWallClockMs` | `maxTokens`  | When to use                                                                  |
+|-----------|------------|------------------|--------------|------------------------------------------------------------------------------|
+| `tight`   | `3`        | `10_000`         | `50_000`     | Quick lookups, "what is X?" / "find the customer with Y" / single-step reads. |
+| `default` | (agent's resolved `loop` config) | (same)            | (same)        | Normal operation — the picker collapses to "no override" semantically.        |
+| `loose`   | `20`       | `120_000`        | `500_000`    | Complex multi-step reasoning (e.g., "summarize this account's last quarter"). |
+
+Operators may override per-tenant via the existing `ai_agent_runtime_overrides` columns; the preset is a per-turn UX shortcut, not a tenant policy. The `default` preset is a no-op marker so the picker always has a "back to default" option without sending an override.
+
+### API path syntax
+
+All new routes use Next.js dynamic-route syntax (`[sessionId]`), not Express-style colons (`:sessionId`). Concretely:
+
+- `api/get/ai_assistant/usage/daily.ts` → `GET /api/ai_assistant/usage/daily`
+- `api/get/ai_assistant/usage/sessions.ts` → `GET /api/ai_assistant/usage/sessions`
+- `api/get/ai_assistant/usage/sessions/[sessionId].ts` → `GET /api/ai_assistant/usage/sessions/<id>`
+
+Each route MUST export `openApi` and `metadata` per `packages/core/AGENTS.md` API conventions.
+
+### `recordTokenUsage` cadence
+
+The recorder runs **detached** from the loop:
+
+```ts
+onStepFinish: (step) => {
+  void recordTokenUsage({ /* ... */ }, container)  // never await
+  // ...other wrapper-owned aggregation
+}
+```
+
+The recorder MUST NOT block the SDK's transition to the next step. Combined with the recorder's own try/catch + warn-only error path, this guarantees that token tracking can never delay or fail the agent turn (R12).
+
+For object-mode, `streamObject` exposes `usage` as a `Promise<...>`. The wrapper attaches `result.usage.then(usage => recordTokenUsage(...))` after the stream is initiated, again detached. If the promise rejects or never resolves (provider error mid-stream), no row is written for that turn — there is no partial-row policy.
+
+### Resolution telemetry threading
+
+`resolveAgentModel(...)` in `agent-runtime.ts` is extended to return `{ model, modelId, providerId, baseUrl, source }` (the additional fields ride on the existing `AiModelResolution` type from the prerequisite provider/model spec). The recorder reads `modelId` and `providerId` from the per-turn stack — there is no `createModelFactory.lastResolved()` global accessor (which would create a thread-safety question we do not want). This keeps token attribution accurate even when a per-turn `?model=` override or a `prepareStep` mid-loop swap moves the model.
+
 ## Risks & Impact Review
 
 | # | Risk                                                                       | Severity | Affected area                                | Mitigation                                                                                                  | Residual                                  |
@@ -639,6 +688,7 @@ New persistence table. Append-only. One row per **step** (chat) or per **turn** 
 | `finish_reason`         | `text` nullable | `'stop'` / `'tool-calls'` / `'length'` / etc. — handy for filtering "length-aborted" rows. |
 | `loop_abort_reason`     | `text` nullable | from Phase 4 `LoopTrace.stopReason` when the step finished the loop.   |
 | `created_at`            | `timestamptz`   | step finish time.                                                     |
+| `updated_at`            | `timestamptz`   | required by the standard column contract (BC §8); same value as `created_at` for append-only rows but kept for cross-table consistency with `ai_pending_actions`. |
 
 Indexes:
 
@@ -714,9 +764,10 @@ Behavior:
 - Inserts one row in `ai_token_usage_events`.
 - Upserts the matching `ai_token_usage_daily` row.
 - Wrapped in a single transaction; on transaction failure the function logs at `warn` and does **not** throw — token tracking MUST NOT break the agent turn (operators have lost approvals to log-table failures before; never again).
-- Emits a typed event `ai.token_usage.recorded` (additive, payload `{ tenantId, agentId, sessionId, turnId, stepIndex, modelId, inputTokens, outputTokens }`) so downstream subscribers (real-time cost dashboards, metering integrations) can plug in without polling the table. Standard `createModuleEvents` registration.
+- Runs **detached** — the wrapper invokes it as `void recordTokenUsage(...)` and never awaits it (see "Recorder cadence" above).
+- Emits a typed event `ai.token_usage.recorded` declared with `clientBroadcast: false`, `portalBroadcast: false` (additive, payload `{ tenantId, agentId, sessionId, turnId, stepIndex, modelId, inputTokens, outputTokens }`) so downstream subscribers (real-time cost dashboards, metering integrations) can plug in without polling the table. Standard `createModuleEvents` registration.
 
-The wrapper resolves `providerId` + `modelId` from `createModelFactory.lastResolved()` (already exposed for the playground header per the provider/model spec) so the recorder does not duplicate model-resolution logic.
+The wrapper reads `providerId` + `modelId` from the per-turn `resolveAgentModel(...)` result (extended in this spec to return `{ model, modelId, providerId, baseUrl, source }`). No factory-state accessor is used — see "Resolution telemetry threading" above.
 
 For object-mode where `streamObject` returns `usage` as a `Promise<...>`, the wrapper awaits the promise after the response stream closes and writes one row with `step_index = 0`. For `generateObject` (single-shot) the row is written synchronously after the result resolves.
 
@@ -900,6 +951,17 @@ OpenAPI spec exported per route; CRUD `makeCrudRoute` is not appropriate here (t
 - `TC-AI-AGENT-USAGE-006` — retention worker deletes rows older than cutoff, reconciles `session_count` for trailing 7 days.
 - `TC-AI-AGENT-USAGE-007` — `recordTokenUsage` failure (simulated DB error) does NOT abort the agent turn; warning logged; SSE response still completes.
 
+### Test scenarios for Phase 0–5 (`TC-AI-AGENT-LOOP-001…006`)
+
+| ID                       | Trigger                                                                                       | Expected behavior                                                                                                                              | Observable signal                                                            |
+|--------------------------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `TC-AI-AGENT-LOOP-001`   | Tenant flips `loop_disabled = true` for `customers.account_assistant`. User sends a prompt that would normally trigger 5 steps. | Runtime forces `stopWhen: stepCountIs(1)`, single model call, no tool execution. SSE `done` event includes `loopDisabled: true` + `loopAbortReason: 'tenant-disabled'`. `<AiChat>` renders the kill-switch banner. | DB row in `ai_token_usage_events` has `step_index = 0` and `loop_abort_reason = 'tenant-disabled'`. |
+| `TC-AI-AGENT-LOOP-002`   | Caller passes `?loopBudget=tight` on a chat that would normally take 8 steps.                | Runtime applies the pinned `tight` preset (`maxSteps: 3`, `maxWallClockMs: 10_000`, `maxTokens: 50_000`). Loop terminates at step 3 or budget abort, whichever first. | SSE `done` echoes `loopAbortReason: 'step-count'` or `'budget-tokens'` etc. |
+| `TC-AI-AGENT-LOOP-003`   | Agent declares `loop.stopWhen: { kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }`. User asks "set the deal to closed-won then summarize." | Loop halts immediately after the mutation tool is invoked. Mutation lands in `ai_pending_actions` with status `pending`. The model never sees the post-mutation step. | Single row in `ai_pending_actions`; SSE `done` `loopAbortReason: 'has-tool-call'`. |
+| `TC-AI-AGENT-LOOP-004`   | User-supplied `prepareStep` returns a `tools` map with a raw mutation handler (no `prepareMutation` wrapper). | `mergeStepOverrides` rejects with `AgentPolicyError` code `loop_violates_mutation_policy`. Turn fails closed. No mutation executed. | 4xx response (or SSE `error` event); zero rows in `ai_pending_actions`.     |
+| `TC-AI-AGENT-LOOP-005`   | Agent declares `loop.prepareStep` that swaps the model from Sonnet (step 1) to Haiku (step 2+). | Step 1 runs against Sonnet; step 2+ runs against Haiku. Token usage events record the correct `model_id` per step. | `ai_token_usage_events` has two distinct `model_id` values across steps of one turn. |
+| `TC-AI-AGENT-LOOP-006`   | Agent declares `executionEngine: 'tool-loop-agent'` AND has a mutation tool in `allowedTools`. | `ToolLoopAgent` is constructed with `settings.prepareStep` set to the wrapper-composed guard. A mutation tool call still routes through `prepareMutation`. | Mutation lands in `ai_pending_actions` with status `pending` for the `tool-loop-agent`-engine agent — confirms the engine swap does not bypass the policy gate. |
+
 ### Out of Scope
 
 - **Pricing / cost in dollars.** Token counts only. A follow-up spec may add a tenant-configurable `provider_pricing` table with `(provider_id, model_id, input_per_million, output_per_million, effective_from)` and computed `usd_cost` columns on the rollup. Out of scope here because pricing changes weekly and policy decisions ("when does a price change apply retroactively?") are their own debate.
@@ -924,10 +986,12 @@ Phase 1 — Per-call loop override (~1 day):
 - [ ] Resolution chain validates per-axis precedence; honor `allowRuntimeOverride`.
 - [ ] Unit tests: caller override beats agent default; `allowRuntimeOverride: false` rejects caller `loop`.
 
-Phase 2 — Native callback signature (~1 day):
-- [ ] Extend `PreparedAiSdkOptions` / `PreparedAiSdkObjectOptions` with the new fields.
-- [ ] Update `agents.mdx` Option B examples to show `prepareStep` / `repairToolCall` forwarding.
+Phase 2 — Implement and extend the native callback (~1.5 days):
+- [ ] **Wire callback dispatch** — add `generateText?` field to `RunAiAgentTextInput`, `generateObject?` field to `RunAiAgentObjectInput`. The runtime branches on the callback presence and either invokes it with the prepared bag or calls `streamText` / `generateObject` directly.
+- [ ] Define `PreparedAiSdkOptions` / `PreparedAiSdkObjectOptions` with the loop primitives included from day one (no smaller bag is ever shipped).
+- [ ] Update `agents.mdx` Option B examples to show `prepareStep` / `repairToolCall` forwarding and to describe the previously-undocumented dispatch behavior.
 - [ ] Add a "what you still lose" callout for callbacks that drop the new fields.
+- [ ] Unit tests: callback IS invoked when supplied with the full bag; callback IS NOT invoked when absent (default streamText path); dropped `prepareStep` in the callback observably bypasses mutation guards (documented contract).
 
 Phase 3 — Operator overrides (~3 days):
 - [ ] Migration `Migration<...>_ai_agent_loop_overrides` adds 7 nullable columns. Reversible.
@@ -947,23 +1011,31 @@ Phase 4 — Debug surfaces (~2 days):
 
 Phase 5 — `ToolLoopAgent` engine (~2 days, opt-in):
 - [ ] `executionEngine: 'tool-loop-agent'` constructs `Experimental_Agent` per registry entry.
-- [ ] Threads wrapper `prepareStep` through `prepareCall`.
+- [ ] Wrapper `prepareStep` is supplied via `settings.prepareStep` at agent construction (NOT through `prepareCall`, which the SDK type does not allow).
+- [ ] `prepareCall` narrows `model` / `tools` / `stopWhen` / `activeTools` / `providerOptions` per turn — the per-turn loop overrides from Phase 1 thread through here.
+- [ ] Document in `agents.mdx` that `repairToolCall` is not reachable through `ToolLoopAgent` (engine-specific limitation) — agents that need it must use the default `stream-text` engine.
 - [ ] Adds `agent` to `PreparedAiSdkOptions` for the escape hatch.
-- [ ] Integration test `TC-AI-AGENT-LOOP-006`: an agent declared with `executionEngine: 'tool-loop-agent'` round-trips through the same policy + approval contract as the default engine.
+- [ ] Re-export `Experimental_Agent` / `ToolLoopAgent` / `PrepareStepFunction` / `hasToolCall` from `lib/ai-sdk.ts` for consistency with the existing `streamText` / `stepCountIs` re-exports.
+- [ ] Integration test `TC-AI-AGENT-LOOP-006`: an agent declared with `executionEngine: 'tool-loop-agent'` AND a mutation tool in `allowedTools` MUST land that mutation in `ai_pending_actions` exactly like the default engine. This test is the proof that the policy + mutation-approval gate survives the engine swap.
 
 Phase 6 — Token usage tracking & stats page (~3 days):
-- [ ] Migration `Migration<...>_ai_token_usage` adds `ai_token_usage_events` and `ai_token_usage_daily` with the four indexes. Reversible.
-- [ ] MikroORM entities + zod validators + repository helpers (`insertEvent`, `upsertDailyRollup`, `findDailyRollup`, `findSessions`, `findSessionTrace`, `pruneOlderThan`, `reconcileSessionCount`).
-- [ ] `lib/token-usage-recorder.ts` with `recordTokenUsage(input, container)` — try/catch wrapped, never throws, emits `ai.token_usage.recorded`.
-- [ ] Wire `recordTokenUsage` into the wrapper-owned `onStepFinish` from Phase 4. Object-mode path awaits the `usage` promise after the stream closes.
+- [ ] Migration `Migration<...>_ai_token_usage` adds `ai_token_usage_events` and `ai_token_usage_daily` with the four indexes. Both tables include `created_at` AND `updated_at` per the standard column contract; no `deleted_at` (append-only). Reversible.
+- [ ] MikroORM entities + zod validators (`data/validators.ts`) + repository helpers (`insertEvent`, `upsertDailyRollup`, `findDailyRollup`, `findSessions`, `findSessionTrace`, `pruneOlderThan`, `reconcileSessionCount`).
+- [ ] `lib/token-usage-recorder.ts` with `recordTokenUsage(input, container)` — try/catch wrapped, never throws, emits `ai.token_usage.recorded` (declared `clientBroadcast: false`, `portalBroadcast: false`).
+- [ ] Wire `recordTokenUsage` into the wrapper-owned `onStepFinish` from Phase 4 — invoked as `void recordTokenUsage(...)` so it never blocks the next step. Object-mode path attaches a `result.usage.then(...)` continuation, also detached.
+- [ ] Extend `resolveAgentModel(...)` to return `{ model, modelId, providerId, baseUrl, source }` so the recorder reads provider/model from the per-turn stack (no factory-state accessor).
 - [ ] Rename `RunAiAgentTextInput.conversationId` → `sessionId` (additive alias). Generate `turnId` per call. Echo both on the SSE `done` event.
-- [ ] Read APIs: `GET /api/ai_assistant/usage/daily`, `/usage/sessions`, `/usage/sessions/:sessionId` with OpenAPI spec. CSV export via `Accept: text/csv`.
-- [ ] Settings page tabbed shell + new `usage/AiUsageStatsPageClient` (per-agent / per-model / recent-sessions views). Side-sheet drilldown. Date-range, agent, model filters. Empty state + pre-migration banner.
+- [ ] Read APIs: `api/get/ai_assistant/usage/daily.ts`, `.../sessions.ts`, `.../sessions/[sessionId].ts` — Next.js dynamic routes, `openApi` + `metadata` exported per route, every read filters by `tenant_id`. CSV export via `Accept: text/csv` content negotiation on the `daily` route.
+- [ ] Settings page tabbed shell preserves existing deep links (`/backend/config/ai-assistant/agents` and `/backend/config/ai-assistant/playground` still work). New `usage/AiUsageStatsPageClient` (per-agent / per-model / recent-sessions views). Side-sheet drilldown. Date-range, agent, model filters. Empty state + pre-migration banner. Every dialog/sheet honors `Cmd+Enter` submit / `Escape` cancel.
+- [ ] All Usage-tab strings live in `<module>.usage.*` translation keys; client uses `useT()`, server uses `resolveTranslations()` — never hardcoded English.
+- [ ] All client→server calls in the Usage UI use `apiCall` / `apiCallOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never raw `fetch`.
 - [ ] Playground "Tokens this turn" line wired from `LoopTrace`.
-- [ ] Worker `workers/ai-token-usage-prune` (daily, system-scope). Manual CLI invocation `yarn mercato ai_assistant run-token-usage-prune`.
+- [ ] Worker `workers/ai-token-usage-prune` (daily, system-scope, concurrency `1`). Manual CLI invocation `yarn mercato ai_assistant run-token-usage-prune`. Reconciles `session_count` for trailing 7 days.
 - [ ] Env: `AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS` (default `90`).
+- [ ] After deploy: run `yarn mercato configs cache structural --all-tenants` to register the prune worker on existing tenants (matches `ai-pending-action-cleanup` precedent).
+- [ ] Run `yarn generate` after the new `events.ts` entry, the new `ai-agents.ts` shape, and any new module file.
 - [ ] Integration tests `TC-AI-AGENT-USAGE-001…007`.
-- [ ] Update `packages/ai-assistant/AGENTS.md` with the new event id, worker, CLI, env var, and route group.
+- [ ] Update `packages/ai-assistant/AGENTS.md` with the new event id (`ai.token_usage.recorded`), the new worker (`workers/ai-token-usage-prune`), the new CLI (`run-token-usage-prune`), the new env var (`AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`), and the new route group (`/api/ai_assistant/usage/*`).
 
 ## Changelog
 

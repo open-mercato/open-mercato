@@ -1,6 +1,12 @@
 ---
 name: auto-sec-report-pr
-description: Run a deep OWASP-oriented security review for one unit of work: a PR, a spec file, or a branch diff. Checks both obvious and non-obvious attack paths, writes markdown and HTML findings under `.ai/analysis/`, and surfaces concrete follow-up scopes for similar patterns elsewhere in the codebase. Can run standalone or as the sub-unit used by `auto-sec-report`, and reuses the claim, worktree, and review discipline from `auto-review-pr`.
+description: >-
+  Run a deep OWASP-oriented security review for one unit of work: a PR, a
+  spec file, or a branch diff. Checks both obvious and non-obvious attack
+  paths, writes markdown and HTML findings under `.ai/analysis/`, and surfaces
+  concrete follow-up scopes for similar patterns elsewhere in the codebase. Can
+  run standalone or as the sub-unit used by `auto-sec-report`, and reuses the
+  claim, worktree, and review discipline from `auto-review-pr`.
 ---
 
 # Auto Security Report — Single Unit
