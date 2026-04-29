@@ -10,7 +10,8 @@ export const metadata = {
 
 interface ProposalCreatedPayload {
   proposalId: string
-  emailId: string
+  emailId: string | null
+  sourceSubmissionId?: string | null
   tenantId: string
   organizationId: string | null
   actionCount: number

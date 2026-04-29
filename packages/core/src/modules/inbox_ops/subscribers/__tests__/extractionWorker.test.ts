@@ -490,6 +490,16 @@ describe('extractionWorker', () => {
         actionCount: 2,
       }),
     )
+    // Dual-emit: legacy `inbox_ops.email.processed` fires alongside the source event
+    // when the submission is backed by a legacy InboxEmail row.
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.email.processed',
+      expect.objectContaining({
+        emailId: EMAIL_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+      }),
+    )
   })
 
   it('marks the submission and legacy email as failed when extraction crashes', async () => {
@@ -509,6 +519,17 @@ describe('extractionWorker', () => {
       'inbox_ops.source_submission.failed',
       expect.objectContaining({
         sourceSubmissionId: SUBMISSION_ID,
+        error: expect.stringContaining('API rate limit exceeded'),
+      }),
+    )
+    // Dual-emit: legacy `inbox_ops.email.failed` fires alongside the source failure
+    // event when the submission is backed by a legacy InboxEmail row.
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.email.failed',
+      expect.objectContaining({
+        emailId: EMAIL_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
         error: expect.stringContaining('API rate limit exceeded'),
       }),
     )
@@ -600,9 +621,13 @@ describe('extractionWorker', () => {
       'inbox_ops.proposal.created',
       expect.objectContaining({
         sourceSubmissionId: SUBMISSION_ID,
-        emailId: SUBMISSION_ID,
+        emailId: null,
       }),
     )
+    // Non-email submissions must NOT emit the deprecated legacy events.
+    const emittedIds = mockEmitInboxOpsEvent.mock.calls.map((call) => call[0])
+    expect(emittedIds).not.toContain('inbox_ops.email.processed')
+    expect(emittedIds).not.toContain('inbox_ops.email.failed')
   })
 
   it('passes the tenant working language into prompt construction and proposals', async () => {

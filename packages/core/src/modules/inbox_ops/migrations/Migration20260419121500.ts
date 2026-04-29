@@ -29,7 +29,16 @@ function buildLegacySourceDedupKey(row: OrphanPendingEmailRow): string {
 }
 
 export class Migration20260419121500 extends Migration {
+  /**
+   * BLAST RADIUS: This migration force-fails any in-flight `inbox_source_submissions`
+   * and `inbox_emails` in 'received' or 'processing' status for legacy email sources
+   * at deploy time. Extractions currently mid-flight will be marked 'failed' and must
+   * be resumed via the reprocess endpoint. Operators should drain the extraction queue
+   * before deploying or plan for a post-deploy reprocess sweep. See RELEASE_NOTES v0.4.4.
+   */
   override async up(): Promise<void> {
+    const knex = this.getKnex();
+
     await this.execute(`
       update "inbox_source_submissions"
       set "legacy_inbox_email_id" = "source_entity_id"
@@ -38,24 +47,26 @@ export class Migration20260419121500 extends Migration {
         and "legacy_inbox_email_id" is null;
     `);
 
-    await this.execute(`
-      update "inbox_source_submissions"
-      set
-        "status" = 'failed',
-        "processing_error" = coalesce(
-          "processing_error",
-          '${LEGACY_PENDING_EMAIL_ERROR}'
-        ),
-        "metadata" = coalesce("metadata", '{}'::jsonb) || jsonb_build_object(
-          'migratedFromLegacyEmailFlow', true,
-          'migrationOrigin', 'updated_existing_submission',
-          'legacyStatusBeforeMigration', "status"
-        ),
-        "updated_at" = now()
-      where "deleted_at" is null
-        and "source_entity_type" = 'inbox_ops:inbox_email'
-        and "status" in ('received', 'processing');
-    `);
+    await this.execute(
+      knex.raw(
+        `
+        update "inbox_source_submissions"
+        set
+          "status" = 'failed',
+          "processing_error" = coalesce("processing_error", ?),
+          "metadata" = coalesce("metadata", '{}'::jsonb) || jsonb_build_object(
+            'migratedFromLegacyEmailFlow', true,
+            'migrationOrigin', 'updated_existing_submission',
+            'legacyStatusBeforeMigration', "status"
+          ),
+          "updated_at" = now()
+        where "deleted_at" is null
+          and "source_entity_type" = 'inbox_ops:inbox_email'
+          and "status" in ('received', 'processing');
+        `,
+        [LEGACY_PENDING_EMAIL_ERROR],
+      ),
+    );
 
     const orphanPendingEmails = (await this.execute(`
       select
@@ -124,53 +135,67 @@ export class Migration20260419121500 extends Migration {
       );
     }
 
-    await this.execute(`
-      update "inbox_emails"
-      set
-        "status" = 'failed',
-        "processing_error" = coalesce(
-          "processing_error",
-          '${LEGACY_PENDING_EMAIL_ERROR}'
-        ),
-        "updated_at" = now()
-      where "deleted_at" is null
-        and "status" in ('received', 'processing');
-    `);
+    await this.execute(
+      knex.raw(
+        `
+        update "inbox_emails"
+        set
+          "status" = 'failed',
+          "processing_error" = coalesce("processing_error", ?),
+          "updated_at" = now()
+        where "deleted_at" is null
+          and "status" in ('received', 'processing');
+        `,
+        [LEGACY_PENDING_EMAIL_ERROR],
+      ),
+    );
   }
 
   override async down(): Promise<void> {
+    const knex = this.getKnex();
+
     this.addSql(`
       delete from "inbox_source_submissions"
       where "metadata"->>'migrationOrigin' = 'inserted_orphan_email';
     `);
 
-    this.addSql(`
-      update "inbox_source_submissions"
-      set
-        "status" = case
-          when coalesce("metadata"->>'legacyStatusBeforeMigration', '') in ('received', 'processing')
-            then ("metadata"->>'legacyStatusBeforeMigration')
-          else 'received'
-        end,
-        "processing_error" = case
-          when "processing_error" = '${LEGACY_PENDING_EMAIL_ERROR}'
-            then null
-          else "processing_error"
-        end,
-        "metadata" = coalesce("metadata", '{}'::jsonb)
-          - 'migratedFromLegacyEmailFlow'
-          - 'migrationOrigin'
-          - 'legacyStatusBeforeMigration'
-      where "metadata"->>'migrationOrigin' = 'updated_existing_submission';
-    `);
+    this.addSql(
+      knex.raw(
+        `
+        update "inbox_source_submissions"
+        set
+          "status" = case
+            when coalesce("metadata"->>'legacyStatusBeforeMigration', '') in ('received', 'processing')
+              then ("metadata"->>'legacyStatusBeforeMigration')
+            else 'received'
+          end,
+          "processing_error" = case
+            when "processing_error" = ?
+              then null
+            else "processing_error"
+          end,
+          "metadata" = coalesce("metadata", '{}'::jsonb)
+            - 'migratedFromLegacyEmailFlow'
+            - 'migrationOrigin'
+            - 'legacyStatusBeforeMigration'
+        where "metadata"->>'migrationOrigin' = 'updated_existing_submission';
+        `,
+        [LEGACY_PENDING_EMAIL_ERROR],
+      ),
+    );
 
-    this.addSql(`
-      update "inbox_emails"
-      set
-        "status" = 'received',
-        "processing_error" = null
-      where "status" = 'failed'
-        and "processing_error" = '${LEGACY_PENDING_EMAIL_ERROR}';
-    `);
+    this.addSql(
+      knex.raw(
+        `
+        update "inbox_emails"
+        set
+          "status" = 'received',
+          "processing_error" = null
+        where "status" = 'failed'
+          and "processing_error" = ?;
+        `,
+        [LEGACY_PENDING_EMAIL_ERROR],
+      ),
+    );
   }
 }

@@ -422,12 +422,12 @@ describe('extractionOutputSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts open-vocabulary participant roles', () => {
+  it('rejects participant roles outside the canonical union', () => {
     const result = extractionOutputSchema.safeParse({
       ...validOutput,
       participants: [{ name: 'Test', email: 'test@test.com', role: 'procurement_coordinator' }],
     })
-    expect(result.success).toBe(true)
+    expect(result.success).toBe(false)
   })
 
   it('does not emit provider-incompatible regex patterns in the JSON schema', () => {

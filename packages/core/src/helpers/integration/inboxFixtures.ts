@@ -6,7 +6,7 @@ export async function submitTextExtraction(
   request: APIRequestContext,
   token: string,
   input?: { text?: string; title?: string; metadata?: Record<string, unknown> },
-): Promise<{ ok: boolean; emailId?: string; error?: string; status: number }> {
+): Promise<{ ok: boolean; emailId?: string; sourceSubmissionId?: string; error?: string; status: number }> {
   const text = input?.text ?? 'Test email from John Doe <john@example.com> requesting 10 widgets at $5 each.'
   const title = input?.title ?? `QA Fixture ${Date.now()}`
 
@@ -15,10 +15,11 @@ export async function submitTextExtraction(
     data: { text, title, metadata: input?.metadata },
   });
 
-  const body = await readJsonSafe<{ ok?: boolean; emailId?: string; error?: string }>(response);
+  const body = await readJsonSafe<{ ok?: boolean; emailId?: string; sourceSubmissionId?: string; error?: string }>(response);
   return {
     ok: response.ok(),
     emailId: body?.emailId ?? undefined,
+    sourceSubmissionId: body?.sourceSubmissionId ?? body?.emailId ?? undefined,
     error: body?.error ?? undefined,
     status: response.status(),
   };
@@ -51,6 +52,50 @@ export async function waitForEmailProcessed(
   }
 
   return null
+}
+
+export async function waitForSourceSubmissionProposal(
+  request: APIRequestContext,
+  token: string,
+  sourceSubmissionId: string,
+  timeoutMs = 30000,
+): Promise<{ id: string; sourceSubmissionId: string | null; sourceEntityType: string | null; legacyInboxEmailId: string | null } | null> {
+  const pollInterval = 1000
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const proposalsResponse = await apiRequest(request, 'GET', '/api/inbox_ops/proposals?pageSize=25', { token });
+    if (proposalsResponse.ok()) {
+      const proposalsBody = await readJsonSafe<{
+        items?: Array<{
+          id: string;
+          sourceSubmissionId?: string | null;
+          sourceEntityType?: string | null;
+          legacyInboxEmailId?: string | null;
+        }>;
+      }>(proposalsResponse);
+      const proposal = proposalsBody?.items?.find((p) => p.sourceSubmissionId === sourceSubmissionId);
+      if (proposal) {
+        return {
+          id: proposal.id,
+          sourceSubmissionId: proposal.sourceSubmissionId ?? null,
+          sourceEntityType: proposal.sourceEntityType ?? null,
+          legacyInboxEmailId: proposal.legacyInboxEmailId ?? null,
+        };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
+  }
+
+  return null
+}
+
+export async function deleteInboxProposal(
+  request: APIRequestContext,
+  token: string,
+  proposalId: string,
+): Promise<void> {
+  await apiRequest(request, 'DELETE', `/api/inbox_ops/proposals/${proposalId}`, { token }).catch(() => {})
 }
 
 export async function deleteInboxEmail(

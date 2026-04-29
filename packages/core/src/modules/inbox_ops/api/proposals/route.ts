@@ -9,6 +9,7 @@ import { proposalListQuerySchema } from '../../data/validators'
 import { getInboxOpsSourceAdapter } from '../../lib/source-registry'
 import { buildProposalSourceDisplay } from '../../lib/sourceDisplay'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { proposalListResponseSchema } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -154,8 +155,9 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List proposals',
       description: 'List inbox proposals with optional status filter and pagination',
+      query: proposalListQuerySchema,
       responses: [
-        { status: 200, description: 'Paginated list of proposals' },
+        { status: 200, description: 'Paginated list of proposals', schema: proposalListResponseSchema },
         { status: 401, description: 'Unauthorized' },
       ],
     },

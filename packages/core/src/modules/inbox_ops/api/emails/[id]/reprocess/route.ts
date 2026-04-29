@@ -4,6 +4,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
 import { emitSourceSubmissionRequested } from '../../../../lib/source-submission-request'
+import { emitInboxOpsEvent } from '../../../../events'
 import {
   resolveRequestContext,
   extractPathSegment,
@@ -76,6 +77,25 @@ export async function POST(req: Request) {
       email.processingError = SOURCE_SUBMISSION_ENQUEUE_ERROR
       await ctx.em.flush()
       return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
+    }
+
+    try {
+      // Deprecated bridge: re-emit legacy events during the deprecation window.
+      // These legacy IDs sunset in the next minor release.
+      await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
+        emailId: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+      })
+      await emitInboxOpsEvent('inbox_ops.email.received', {
+        emailId: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+        forwardedByAddress: email.forwardedByAddress,
+        subject: email.subject,
+      })
+    } catch (eventError) {
+      console.error('[inbox_ops:email:reprocess] Failed to emit deprecated events:', eventError)
     }
 
     return NextResponse.json({ ok: true, ...retiredCounts })

@@ -1,7 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { ExtractedParticipant } from '../data/entities'
 
 export interface MatchedContact {
   contactId: string
@@ -10,8 +9,17 @@ export interface MatchedContact {
   confidence: number
 }
 
+export interface ContactMatchParticipant {
+  name: string
+  email: string
+  role: string
+  matchedContactId?: string | null
+  matchedContactType?: 'person' | 'company' | null
+  matchConfidence?: number
+}
+
 export interface ContactMatchResult {
-  participant: ExtractedParticipant & { email: string }
+  participant: ContactMatchParticipant
   match: MatchedContact | null
 }
 
@@ -45,7 +53,7 @@ export async function matchContacts(
     participant: {
       name: p.name,
       email: p.email,
-      role: p.role as ExtractedParticipant['role'],
+      role: p.role,
       matchedContactId: null,
       matchedContactType: null,
     },
@@ -58,7 +66,7 @@ export async function matchContacts(
       participant: {
         name: participant.name,
         email: participant.email,
-        role: participant.role as ExtractedParticipant['role'],
+        role: participant.role,
         matchedContactId: match?.contactId || null,
         matchedContactType: match?.contactType || null,
         matchConfidence: match?.confidence,

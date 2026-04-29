@@ -17,7 +17,8 @@
 - Define source-oriented shared contracts, generated registries, and internal intake orchestration for `inbox_ops`.
 - Add a new `InboxSourceSubmission` entity and source-link fields on proposals.
 - Preserve legacy email ingress and current proposal pages/APIs while moving extraction to a source-native path.
-- Do **not** connect real non-email source modules yet; future specs will register concrete adapters and emit the public InboxOps request event from `communication_channels`, `phone_calls`, and others.
+- Ship the `messages` module source adapter (`packages/core/src/modules/messages/inbox-ops-sources.ts`) and the example demo subscriber (`apps/mercato/src/modules/example/subscribers/messages-sent-inbox-ops-demo.ts`) so non-email intake can be exercised end-to-end immediately.
+- Do **not** connect remaining non-email source modules yet; future specs will register concrete adapters and emit the public InboxOps request event from `communication_channels`, `phone_calls`, and others.
 
 **Concerns:**
 - The current `inbox_ops` extraction pipeline is explicitly email-shaped, so the first step must avoid breaking existing email tenants.
@@ -714,15 +715,29 @@ A follow-up compatibility migration covers only legacy records that could get st
 ### Backward Compatibility Strategy
 
 - `InboxEmail` routes remain intact
-- `inbox_ops.email.*` event IDs are removed from the active InboxOps event registry; consumers must use `inbox_ops.source_submission.*`
+- `inbox_ops.email.*` event IDs are deprecated and bridged for one minor version via dual-emit; scheduled for removal in 0.5.0
 - proposal read APIs are additive-only
 - `POST /api/inbox_ops/extract` keeps its URL and retains deprecated `emailId` in the response for one minor version
 - new optional module file `inbox-ops-sources.ts` is additive and does not affect existing modules
 
 Event migration note:
 
-- webhook ingress, manual extract, and email reprocess publish only `inbox_ops.source_submission.requested`
+- webhook ingress, manual extract, and email reprocess publish `inbox_ops.source_submission.requested` as the canonical ingress event; the legacy `inbox_ops.email.*` events continue to fire alongside the new source-submission lifecycle for one minor version
 - the registry cleanup is an intentional contract simplification for the single-ingress model and must be documented with the spec/update that removes the old IDs
+
+### Backward-Compatible Deviations
+
+The following items were initially planned as removals but are shipping as bridged deprecations to honor `BACKWARD_COMPATIBILITY.md` §5 (Event IDs are FROZEN) and §2 (Type Definitions are STABLE). Each has a planned removal target.
+
+| Surface | Status | Bridge | Removal Target |
+|---------|--------|--------|----------------|
+| `inbox_ops.email.received` | Deprecated, dual-emit | Fires alongside `inbox_ops.source_submission.requested` from webhook + reprocess flows | 0.5.0 |
+| `inbox_ops.email.deduplicated` | Deprecated, dual-emit | Fires alongside `inbox_ops.source_submission.deduplicated` on duplicate webhooks | 0.5.0 |
+| `inbox_ops.email.processed` | Deprecated, dual-emit | Fires alongside `inbox_ops.source_submission.processed` from extraction worker when submission has `legacyInboxEmailId` | 0.5.0 |
+| `inbox_ops.email.failed` | Deprecated, dual-emit | Fires alongside `inbox_ops.source_submission.failed` from extraction worker when submission has `legacyInboxEmailId` | 0.5.0 |
+| `inbox_ops.email.reprocessed` | Deprecated, dual-emit | Fires alongside the new source-submission re-enqueue flow | 0.5.0 |
+| `ProposalCreatedPayload.emailId` | Type widened to `string \| null` | Notification subscribers must accept `null` for non-email proposals | Permanent (subscribers updated) |
+| `Migration20260419121500` blast radius | Accepted | Touches every existing `inbox_proposals` row to add nullable source-link columns; documented in `CHANGELOG.md` with deploy-time runbook guidance | n/a (operational note) |
 
 ### Generator Compatibility
 
@@ -879,8 +894,9 @@ Existing modules without `inbox-ops-sources.ts` remain unaffected.
 | root `AGENTS.md` | No direct ORM relationships between modules | Compliant | Source links use IDs and adapters; no cross-module ORM relations are introduced |
 | root `AGENTS.md` | Always filter by `organization_id` for tenant-scoped entities | Compliant | Descriptor, submission, and adapter flows all require trusted tenant/org scope |
 | root `AGENTS.md` | Use DI to inject services; avoid direct `new` | Compliant | Registries and services are resolved through generated registries and DI |
-| root `AGENTS.md` | Event IDs use `module.entity.action` | Compliant | New events use `inbox_ops.source_submission.*` |
+| root `AGENTS.md` | Event IDs use `module.entity.action` | Bridged Deviation | New events use `inbox_ops.source_submission.*`; legacy `inbox_ops.email.*` IDs are bridged via dual-emit for one minor version (see "Backward-Compatible Deviations") |
 | root `AGENTS.md` | API route URLs stable; response fields additive-only | Compliant | Existing routes stay; proposal APIs add fields only; extract route keeps deprecated alias |
+| root `AGENTS.md` | Type definitions are STABLE; required fields cannot be removed/narrowed | Bridged Deviation | `ProposalCreatedPayload.emailId` widened from `string` to `string \| null` to accommodate non-email proposals (see "Backward-Compatible Deviations") |
 | `packages/core/AGENTS.md` | API routes MUST export `openApi` | Compliant | Spec keeps this requirement for touched routes |
 | `packages/core/AGENTS.md` | Subscribers export `metadata` and stay focused | Compliant | Wildcard dispatcher and source worker are separate focused subscribers |
 | `packages/core/AGENTS.md` | Run `yarn generate` after generator-discovered changes | Compliant | Required for new `inbox-ops-sources.ts` exports and event changes |
@@ -909,6 +925,15 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+### 2026-04-24
+- Reframed legacy `inbox_ops.email.*` events from "removed" to "deprecated and bridged" (target removal: 0.5.0) and added a "Backward-Compatible Deviations" subsection.
+- Restored `ExtractedParticipant.role` to the closed canonical union and `email` to required `string`; widening was reverted per BC §2.
+- Switched `POST /api/inbox_ops/extract` `sourceVersion` to a content-addressed SHA-256 of the truncated body for stable accidental-retry dedup.
+- Added webhook duplicate short-circuit that emits `inbox_ops.source_submission.deduplicated` directly (skipping the legacy enqueue) plus the bridged `inbox_ops.email.deduplicated`.
+- Documented OpenAPI response schemas for `extract`, `proposals`, and `proposals/[id]` with the new source block.
+- Added integration test `TC-INBOX-P3-001` covering manual extract + source block API exposure (messages-sent demo path is best-effort and skipped when the demo subscriber is not enabled).
+- Updated scope to explicitly include the `messages` source adapter and the `messages-sent` example demo subscriber.
+
 ### 2026-04-22
 - Removed legacy `inbox_ops.email.*` webhook test expectations and aligned ingress coverage around `inbox_ops.source_submission.requested`.
 - Dropped `inbox_ops.email.*` from the active InboxOps event registry so the module exposes one extraction-ingress contract.

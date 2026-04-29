@@ -8,6 +8,7 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../routeHelpers'
+import { proposalDetailResponseSchema } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -80,7 +81,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Get proposal detail',
       description: 'Returns proposal with actions, discrepancies, and source email',
       responses: [
-        { status: 200, description: 'Full proposal detail' },
+        { status: 200, description: 'Full proposal detail', schema: proposalDetailResponseSchema },
         { status: 404, description: 'Proposal not found' },
       ],
     },

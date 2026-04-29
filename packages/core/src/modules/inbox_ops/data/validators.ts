@@ -180,10 +180,10 @@ export const categorizeProposalSchema = z.object({
 
 export const extractedParticipantSchema = z.object({
   name: z.string().trim().min(1).max(300),
+  email: z.string().trim().max(320),
+  role: z.enum(['buyer', 'seller', 'logistics', 'finance', 'other']),
   identifier: z.string().trim().min(1).max(320).optional(),
-  email: z.string().trim().max(320).optional(),
   phoneNumber: z.string().trim().min(1).max(50).optional(),
-  role: z.string().trim().min(1).max(200).optional(),
 })
 
 export const extractedActionSchema = z.object({

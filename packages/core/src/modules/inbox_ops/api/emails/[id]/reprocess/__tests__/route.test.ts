@@ -42,6 +42,11 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-submission-request', 
   emitSourceSubmissionRequested: (...args: unknown[]) => mockEmitSourceSubmissionRequested(...args),
 }))
 
+const mockEmitInboxOpsEvent = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
+  emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
+}))
+
 function makeRequest() {
   return new Request('http://localhost/api/inbox_ops/emails/email-1/reprocess', {
     method: 'POST',
@@ -54,6 +59,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
     mockEmitSourceSubmissionRequested.mockResolvedValue(undefined)
+    mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockGetAuth.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -189,6 +195,23 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
           organizationId: 'org-1',
         }),
         legacyInboxEmailId: 'email-1',
+      }),
+    )
+    // Dual-emit: deprecated legacy events still fire alongside the new flow.
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.email.reprocessed',
+      expect.objectContaining({
+        emailId: 'email-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      }),
+    )
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.email.received',
+      expect.objectContaining({
+        emailId: 'email-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
       }),
     )
   })

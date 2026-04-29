@@ -8,10 +8,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { InboxSettings, InboxEmail } from '../../data/entities'
+import { InboxSettings, InboxEmail, InboxSourceSubmission } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitSourceSubmissionRequested } from '../../lib/source-submission-request'
+import { emitInboxOpsEvent } from '../../events'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -294,17 +295,38 @@ export async function POST(req: Request) {
 
   const duplicateEmail = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
   if (duplicateEmail) {
+    // Short-circuit: avoid re-entering the source-submission service for an
+    // already-known duplicate. Dual-emit the source-submission and legacy
+    // deduplicated events directly so subscribers on either path observe it.
+    const existingSubmission = await em.findOne(InboxSourceSubmission, {
+      legacyInboxEmailId: duplicateEmail.id,
+      deletedAt: null,
+    })
+
     try {
-      await enqueueLegacyEmailSourceSubmission({
-        email: duplicateEmail,
-        fallbackScope: {
-          tenantId: settings.tenantId,
-          organizationId: settings.organizationId,
-        },
+      await emitInboxOpsEvent('inbox_ops.source_submission.deduplicated', {
+        sourceSubmissionId: existingSubmission?.id ?? duplicateEmail.id,
+        tenantId: settings.tenantId,
+        organizationId: settings.organizationId,
+        sourceEntityType: existingSubmission?.sourceEntityType ?? 'inbox_ops:inbox_email',
+        sourceEntityId: existingSubmission?.sourceEntityId ?? duplicateEmail.id,
+        sourceVersion: existingSubmission?.sourceVersion ?? null,
+        legacyInboxEmailId: duplicateEmail.id,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:webhook] Failed to enqueue duplicate source submission:', eventError)
-      return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
+      console.error('[inbox_ops:webhook] Failed to emit source_submission.deduplicated event:', eventError)
+    }
+
+    try {
+      // Deprecated bridge: re-emit legacy event during the deprecation window.
+      // `inbox_ops.email.deduplicated` sunsets in the next minor release.
+      await emitInboxOpsEvent('inbox_ops.email.deduplicated', {
+        tenantId: settings.tenantId,
+        organizationId: settings.organizationId,
+        toAddress,
+      })
+    } catch (eventError) {
+      console.error('[inbox_ops:webhook] Failed to emit deprecated deduplicated event:', eventError)
     }
 
     return NextResponse.json({ ok: true })
@@ -351,6 +373,20 @@ export async function POST(req: Request) {
     email.processingError = SOURCE_SUBMISSION_ENQUEUE_ERROR
     await em.flush()
     return NextResponse.json({ error: SOURCE_SUBMISSION_ENQUEUE_ERROR }, { status: 500 })
+  }
+
+  try {
+    // Deprecated bridge: re-emit legacy event during the deprecation window.
+    // `inbox_ops.email.received` sunsets in the next minor release.
+    await emitInboxOpsEvent('inbox_ops.email.received', {
+      emailId: email.id,
+      tenantId: settings.tenantId,
+      organizationId: settings.organizationId,
+      forwardedByAddress: parsed.from.email,
+      subject: parsed.subject,
+    })
+  } catch (eventError) {
+    console.error('[inbox_ops:webhook] Failed to emit deprecated received event:', eventError)
   }
 
   return NextResponse.json({ ok: true })

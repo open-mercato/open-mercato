@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { emitSourceSubmissionRequested } from '../../lib/source-submission-request'
 import { resolveRequestContext, handleRouteError } from '../routeHelpers'
+import { extractResponseSchema } from '../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -38,12 +39,13 @@ export async function POST(req: Request) {
     const truncatedText = text.slice(0, maxTextSize)
 
     const sourceSubmissionId = randomUUID()
+    const sourceVersion = createHash('sha256').update(truncatedText).digest('hex').slice(0, 32)
     await emitSourceSubmissionRequested({
       submissionId: sourceSubmissionId,
       descriptor: {
         sourceEntityType: 'inbox_ops:source_submission',
         sourceEntityId: sourceSubmissionId,
-        sourceVersion: sourceSubmissionId,
+        sourceVersion,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         requestedByUserId: ctx.userId,
@@ -56,7 +58,7 @@ export async function POST(req: Request) {
       initialNormalizedInput: {
         sourceEntityType: 'inbox_ops:source_submission',
         sourceEntityId: sourceSubmissionId,
-        sourceVersion: sourceSubmissionId,
+        sourceVersion,
         title: title || undefined,
         body: truncatedText,
         bodyFormat: 'text',
@@ -79,6 +81,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       sourceSubmissionId,
+      /** @deprecated Use `sourceSubmissionId` instead. Removed in next minor version. */
       emailId: sourceSubmissionId,
     })
   } catch (err) {
@@ -92,9 +95,10 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Submit raw text for LLM extraction',
-      description: 'Creates an internal source submission from raw text and triggers the extraction pipeline. The extraction runs asynchronously.',
+      description: 'Creates an internal source submission from raw text and triggers the extraction pipeline. The extraction runs asynchronously. Response includes a deprecated `emailId` alias duplicating `sourceSubmissionId`; it will be removed in the next minor version — consumers should migrate to `sourceSubmissionId`.',
+      requestBody: { schema: extractRequestSchema },
       responses: [
-        { status: 200, description: 'Extraction queued successfully' },
+        { status: 200, description: 'Extraction queued successfully', schema: extractResponseSchema },
         { status: 400, description: 'Invalid request body' },
         { status: 401, description: 'Unauthorized' },
       ],

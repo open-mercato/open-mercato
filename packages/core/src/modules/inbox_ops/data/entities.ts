@@ -37,12 +37,27 @@ export interface ProposalTranslationEntry {
 
 export type ProposalTranslations = Record<string, ProposalTranslationEntry>
 
+export type ExtractedParticipantRole =
+  | 'buyer'
+  | 'seller'
+  | 'logistics'
+  | 'finance'
+  | 'other'
+
+export const EXTRACTED_PARTICIPANT_ROLES: readonly ExtractedParticipantRole[] = [
+  'buyer',
+  'seller',
+  'logistics',
+  'finance',
+  'other',
+] as const
+
 export interface ExtractedParticipant {
   name: string
+  email: string
+  role: ExtractedParticipantRole
   identifier?: string | null
-  email?: string | null
   phoneNumber?: string | null
-  role?: string | null
   matchedContactId?: string | null
   matchedContactType?: 'person' | 'company' | null
   matchConfidence?: number
