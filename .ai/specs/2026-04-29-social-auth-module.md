@@ -26,6 +26,8 @@ This spec generalizes the proprietary integration we built for an internal app s
 - Replacing better-auth — the port enables it; the swap itself is a future spec.
 - Provider revocation hooks (Apple revocation, FB deauth callback).
 - Admin UI for editing per-tenant provider config (CLI/setup-only in v1).
+- Apple private-key rotation tooling (manual swap on `extra.privateKey` is acceptable for v1).
+- Facebook iOS-17+ Limited Login JWT auth-token support (v1.1 — v1 ships classic access tokens only).
 
 ---
 
@@ -122,6 +124,7 @@ The module is **opt-in**: a deployment includes it in `apps/<app>/src/modules.ts
 
 ```ts
 // lib/social-auth-port.ts
+// Closed enum is intentional for v1; widening to `string` later is non-breaking.
 export type SocialProvider = 'google' | 'apple' | 'facebook' | 'github'
 export type SocialAudience = 'staff' | 'customer'
 
@@ -173,7 +176,7 @@ The port deliberately **does not** issue JWTs, manage sessions, or persist users
   - `authCode` → token exchange, then signInSocial.
 - For GitHub, adds an explicit branch that calls `/user` + `/user/emails` after token exchange (GitHub OAuth2 has no OIDC profile on github.com).
 
-The adapter is the **only** file that imports from `better-auth`. All other module code consumes the port via DI.
+The adapter is the **only** file that imports from `better-auth`. All other module code consumes the port via DI. better-auth is pinned to an exact version in `package.json`; upgrades are a deliberate, reviewed action.
 
 ### S4 — Account linking
 
@@ -196,6 +199,8 @@ Resolution order:
 1. Find a `SocialIdentity` row matching `(tenantId, audience, provider, providerUserId)` → return existing link.
 2. If `email` is present and `emailVerified === true`, find an existing `User`/`CustomerUser` by `email_hash` and link.
 3. Otherwise, create a new `User`/`CustomerUser` with a random unusable password marker, default role assigned, then create the `SocialIdentity` row.
+
+A user MAY accumulate multiple identities of the same provider over time (e.g., personal + work GitHub). The linker always resolves via step 1 first (exact `(audience, provider, providerUserId)` match), then falls back to the verified-email merge in step 2; it never deduplicates across same-provider identities.
 
 The linker emits one of two events:
 
@@ -403,7 +408,9 @@ Customer roles do not get any `social_auth.*` features by default — these are 
 | Per-tenant config + better-auth singleton internals | Medium | Multi-tenant correctness | LRU cache of per-tenant instances; provider config update event invalidates cache entry. | Low |
 | Account-linker hijacks an existing customer/staff account via unverified provider email | High | Security | Linker only auto-merges when `emailVerified === true`. For unverified emails, always create a new identity with no merge. Document explicitly. | Low |
 | Audience confusion (staff token issued for a customer flow) | High | Security | `audience` is a required input and is also baked into web `state`. Linker dispatches by audience and verifies the resulting user lives in the matching table. Integration test asserts cross-audience rejection. | Low |
-| FB Limited Login (iOS 17+) returns auth-token JWT, not classic access token | Medium | RN | RN contract states v1 supports classic accessToken only; auth-token branch is a v1.x followup. | Open until mobile teams confirm |
+| FB Limited Login (iOS 17+) returns auth-token JWT, not classic access token | Low | RN | RN contract states v1 supports classic accessToken only; auth-token branch is a v1.1 followup. | Accepted |
+| better-auth API churn between minor releases | Medium | Verification path | Exact-version pin in `package.json` contains blast radius; quarterly review documented in module README. | Low |
+| Apple private-key rotation requires manual swap on `extra.privateKey` | Low | Tenant ops | Acceptable given typical key cadence; rotation tooling deferred. | Accepted |
 | Apple revocation webhook not wired | Low | Compliance (Apple guideline 5.1.1(v)) | Out of scope. Tracked separately. | Accepted |
 | Replacing better-auth still requires migrating any persisted ba_* tables | Low | Future swap | We deliberately do not persist better-auth tables. Port owns runtime; persistent state is `social_identities` only. | Accepted |
 | Module disabled in apps that don't use social auth | Low | Decoupling | `module-decoupling.test.ts` covers this; staff/customer auth keep working. | Low |
@@ -475,14 +482,6 @@ Customer roles do not get any `social_auth.*` features by default — these are 
 14. **Tests** — implement the integration test manifest above; unit-test the adapter against better-auth's mock provider.
 15. **Docs** — `social_auth/README.md` (operator-facing), `social_auth/AGENTS.md` (agent-facing), and a section in `apps/docs/` covering the RN contract.
 16. **Verify** — `yarn generate && yarn build && yarn test && yarn test:integration`.
-
-### Open Questions
-
-1. **Facebook Limited Login** — should v1 accept the JWT-shaped authentication token as a separate `credential.kind`? Or defer to v1.1? Need mobile team input from at least one downstream consumer.
-2. **Account-merge UI** — out of scope here, but should the data model anticipate "user has two identities of the same provider" (e.g., a personal and a work GitHub)? Current unique constraint allows it; the open question is whether the linker should ever auto-merge across provider records.
-3. **Apple JWT key rotation** — `extra.privateKey` rotation path: should we keep a `previous_private_key` column to overlap-rotate? Defer to a v1.1 spec unless ops feedback says otherwise.
-4. **Better-auth pinning** — pin to a specific minor or accept range? Recommend minor pin + a quarterly review, given API churn.
-5. **Custom providers** — out of scope for v1, but the port shape should not preclude tenant-defined OIDC providers later. Current `SocialProvider` is a closed enum; opening it to `string` post-v1 is a non-breaking widening.
 
 ### Changelog
 
