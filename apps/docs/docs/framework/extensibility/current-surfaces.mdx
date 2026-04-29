@@ -82,6 +82,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Reactive notification handlers | Add `notifications.handlers.ts` and export `notificationHandlers`; react via `useNotificationEffect` | [Notifications](/framework/modules/notifications), [Widget injection](/framework/widget-injection) |
 | Message types | Add `message-types.ts` in your module | [Messages system](/framework/modules/messages) |
 | Message object types | Add `message-objects.ts` for attachable domain objects | [Messages system](/framework/modules/messages) |
+| InboxOps source adapters | Add `inbox-ops-sources.ts`, export `inboxOpsSourceAdapters`, and emit `inbox_ops.source_submission.requested` when the source is ready | [Inbox Ops](/framework/modules/inbox-ops), [Events overview](/framework/events/overview) |
 | Payment/shipping providers | Register `registerPaymentProvider` / `registerShippingProvider` | [Shipping & payment providers](/framework/modules/sales-providers), [Sales calculations](/framework/modules/sales-calculations) |
 | Currency providers | Add custom rate provider implementations | [Currencies module](/framework/modules/currencies) |
 | Workflow integrations | Add custom workflow activities/signals/subscribers | [Workflows extending](/framework/workflows/extending) |

@@ -332,6 +332,42 @@ from `0.4.10` to `0.5.0`.
 - @dominikpalatynski
 
 ---
+
+# 0.4.11 (2026-04-23)
+
+## Highlights
+This release refactors **InboxOps intake** 📥 to be source-oriented (SPEC-2026-04-19). Email-specific intake is generalized to an `InboxSourceSubmission` pipeline that supports non-email channels. Legacy `inbox_ops.email.*` events are **deprecated** but remain bridged for one minor version.
+
+## ⚠️ Deprecations
+
+### 📥 InboxOps Event IDs — One Minor Release Bridge
+- `inbox_ops.email.received`, `inbox_ops.email.processed`, `inbox_ops.email.failed`, `inbox_ops.email.reprocessed`, `inbox_ops.email.deduplicated` are deprecated. Dual-emit alongside the new `inbox_ops.source_submission.*` events until next minor. Subscribers MUST migrate before the legacy IDs are removed. (#1647) *(@dominikpalatynski)*
+
+#### Replacement map
+| Deprecated ID | Replacement |
+|---|---|
+| `inbox_ops.email.received` | `inbox_ops.source_submission.received` |
+| `inbox_ops.email.processed` | `inbox_ops.source_submission.processed` + `inbox_ops.proposal.created` |
+| `inbox_ops.email.failed` | `inbox_ops.source_submission.failed` |
+| `inbox_ops.email.reprocessed` | `inbox_ops.source_submission.requested` |
+| `inbox_ops.email.deduplicated` | `inbox_ops.source_submission.deduplicated` |
+
+#### Payload and API changes
+- `inbox_ops.proposal.created.emailId` now resolves to `legacyEmail?.id ?? null`. For non-email source types this field is `null`; integrations should use `sourceSubmissionId` as the generic identifier.
+- `ExtractedParticipant.role` widens from `'buyer' | 'seller' | 'logistics' | 'finance' | 'other'` to `string | null` so future non-email channels can preserve source-specific roles.
+- `POST /api/inbox_ops/extract` still returns `emailId` for backward compatibility, but that field is deprecated and duplicates `sourceSubmissionId`.
+
+## ✨ Features
+
+### 📥 InboxOps Source-Oriented Input
+- New `InboxSourceSubmission` intake replaces email-centric pipeline; introduces `inbox_ops.source_submission.requested` event and additive proposal schema (`sourceSubmissionId`, `sourceEntityType`, `sourceEntityId`, `legacyInboxEmailId`). Email source adapter continues to process legacy flows via a bridge. (#1647) *(@dominikpalatynski)*
+
+## 🛠️ Migration Notes
+
+### In-flight Submission Flush
+- `Migration20260419121500` force-fails any `received`/`processing` `inbox_source_submissions` and `inbox_emails` at deploy time. Drain extraction queues or plan to reprocess affected emails after deployment.
+
+---
 # 0.4.10 (2026-04-01)
 
 ## Highlights

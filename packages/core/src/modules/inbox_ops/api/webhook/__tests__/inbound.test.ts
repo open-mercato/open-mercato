@@ -2,7 +2,7 @@
 
 import { createHmac } from 'node:crypto'
 import { POST } from '../inbound'
-import { InboxSettings, InboxEmail } from '../../../data/entities'
+import { InboxSettings, InboxEmail, InboxSourceSubmission } from '../../../data/entities'
 
 interface MockEntityManager {
   fork: jest.Mock<MockEntityManager, []>
@@ -35,6 +35,11 @@ const mockContainer = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+const mockEmitSourceSubmissionRequested = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/source-submission-request', () => ({
+  emitSourceSubmissionRequested: (...args: unknown[]) => mockEmitSourceSubmissionRequested(...args),
 }))
 
 const mockEmitInboxOpsEvent = jest.fn()
@@ -95,6 +100,8 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     process.env.INBOX_OPS_WEBHOOK_SECRET = WEBHOOK_SECRET
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
+    mockEm.findOne.mockResolvedValue(null)
+    mockEmitSourceSubmissionRequested.mockResolvedValue(undefined)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockEm.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({
       id: 'email-1',
@@ -194,7 +201,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(mockEm.create).not.toHaveBeenCalled()
   })
 
-  it('creates email and emits event for valid payload', async () => {
+  it('creates email and enqueues a source submission for valid payload', async () => {
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings) // InboxSettings found
       .mockResolvedValueOnce(null)         // no duplicate by messageId
@@ -217,6 +224,18 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     )
     expect(mockEm.persist).toHaveBeenCalled()
     expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockEmitSourceSubmissionRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptor: expect.objectContaining({
+          sourceEntityType: 'inbox_ops:inbox_email',
+          sourceEntityId: 'email-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+        legacyInboxEmailId: 'email-1',
+      }),
+    )
+    // Dual-emit: deprecated legacy event also fires for new inbound emails.
     expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
       'inbox_ops.email.received',
       expect.objectContaining({
@@ -227,11 +246,18 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     )
   })
 
-  it('deduplicates by messageId and returns OK without creating', async () => {
+  it('short-circuits duplicate by messageId with dual-emit deduplicated events', async () => {
     const existingEmail = { id: 'existing-1', messageId: '<msg-001@example.com>' }
+    const existingSubmission = {
+      id: 'submission-1',
+      sourceEntityType: 'inbox_ops:inbox_email',
+      sourceEntityId: 'existing-1',
+      sourceVersion: 'v-existing',
+    }
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings)   // settings
       .mockResolvedValueOnce(existingEmail)  // duplicate by messageId
+    mockEm.findOne.mockResolvedValueOnce(existingSubmission)
 
     const response = await POST(makeSignedRequest(validPayload))
     const result = await response.json()
@@ -239,21 +265,39 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.status).toBe(200)
     expect(result.ok).toBe(true)
     expect(mockEm.create).not.toHaveBeenCalled()
+    // Short-circuit: do NOT re-enter the source-submission service for known duplicates.
+    expect(mockEmitSourceSubmissionRequested).not.toHaveBeenCalled()
+    // Dual-emit: source_submission.deduplicated mirrors the existing submission shape.
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.source_submission.deduplicated',
+      expect.objectContaining({
+        sourceSubmissionId: 'submission-1',
+        sourceEntityType: 'inbox_ops:inbox_email',
+        sourceEntityId: 'existing-1',
+        legacyInboxEmailId: 'existing-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      }),
+    )
+    // Dual-emit: deprecated legacy event also fires.
     expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
       'inbox_ops.email.deduplicated',
       expect.objectContaining({
         tenantId: 'tenant-1',
         organizationId: 'org-1',
+        toAddress: 'ops-123@inbox.mercato.local',
       }),
     )
   })
 
-  it('deduplicates by contentHash when messageId is new', async () => {
+  it('short-circuits duplicate by contentHash with dual-emit deduplicated events', async () => {
     const existingByHash = { id: 'existing-2', contentHash: 'abc123' }
     mockFindOneWithDecryption
       .mockResolvedValueOnce(mockSettings)   // settings
       .mockResolvedValueOnce(null)           // no messageId match
       .mockResolvedValueOnce(existingByHash) // duplicate by contentHash
+    // No matching submission exists yet — service falls back to email identifiers.
+    mockEm.findOne.mockResolvedValueOnce(null)
 
     const response = await POST(makeSignedRequest(validPayload))
     const result = await response.json()
@@ -261,6 +305,27 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.status).toBe(200)
     expect(result.ok).toBe(true)
     expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEmitSourceSubmissionRequested).not.toHaveBeenCalled()
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.source_submission.deduplicated',
+      expect.objectContaining({
+        sourceSubmissionId: 'existing-2',
+        sourceEntityType: 'inbox_ops:inbox_email',
+        sourceEntityId: 'existing-2',
+        legacyInboxEmailId: 'existing-2',
+      }),
+    )
+    expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+      'inbox_ops.email.deduplicated',
+      expect.any(Object),
+    )
+    expect(mockEm.findOne).toHaveBeenCalledWith(
+      InboxSourceSubmission,
+      expect.objectContaining({
+        legacyInboxEmailId: 'existing-2',
+        deletedAt: null,
+      }),
+    )
   })
 
   it('handles missing signature header', async () => {

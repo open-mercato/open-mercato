@@ -8,6 +8,7 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../routeHelpers'
+import { proposalDetailResponseSchema } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -34,24 +35,34 @@ export async function GET(req: Request) {
         { orderBy: { createdAt: 'ASC' } },
         ctx.scope,
       ),
-      findOneWithDecryption(
-        ctx.em,
-        InboxEmail,
-        {
-          id: proposal.inboxEmailId,
-          organizationId: ctx.organizationId,
-          tenantId: ctx.tenantId,
-          deletedAt: null,
-        },
-        undefined,
-        ctx.scope,
-      ),
+      proposal.inboxEmailId
+        ? findOneWithDecryption(
+            ctx.em,
+            InboxEmail,
+            {
+              id: proposal.inboxEmailId,
+              organizationId: ctx.organizationId,
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+            },
+            undefined,
+            ctx.scope,
+          )
+        : Promise.resolve(null),
     ])
 
     return NextResponse.json({
       proposal: {
         ...proposal,
-        actions,
+        source: {
+          sourceSubmissionId: proposal.sourceSubmissionId ?? null,
+          sourceEntityType: proposal.sourceEntityType ?? null,
+          sourceEntityId: proposal.sourceEntityId ?? null,
+          sourceArtifactId: proposal.sourceArtifactId ?? null,
+          sourceVersion: proposal.sourceVersion ?? null,
+          sourceSnapshot: proposal.sourceSnapshot ?? null,
+        },
+        legacyInboxEmailId: proposal.inboxEmailId ?? null,
       },
       actions,
       discrepancies,
@@ -70,7 +81,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Get proposal detail',
       description: 'Returns proposal with actions, discrepancies, and source email',
       responses: [
-        { status: 200, description: 'Full proposal detail' },
+        { status: 200, description: 'Full proposal detail', schema: proposalDetailResponseSchema },
         { status: 404, description: 'Proposal not found' },
       ],
     },

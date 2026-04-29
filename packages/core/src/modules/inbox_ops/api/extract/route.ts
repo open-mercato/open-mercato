@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { InboxEmail } from '../../data/entities'
-import { emitInboxOpsEvent } from '../../events'
+import { emitSourceSubmissionRequested } from '../../lib/source-submission-request'
 import { resolveRequestContext, handleRouteError } from '../routeHelpers'
+import { extractResponseSchema } from '../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -37,42 +38,52 @@ export async function POST(req: Request) {
     const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
     const truncatedText = text.slice(0, maxTextSize)
 
-    const submitterEmail = ctx.auth?.email || ctx.userId
-    const email = ctx.em.create(InboxEmail, {
-      forwardedByAddress: submitterEmail,
-      forwardedByName: null,
-      toAddress: 'text-extract',
-      subject: title || 'Text extraction',
-      cleanedText: truncatedText,
-      rawText: truncatedText,
-      receivedAt: new Date(),
-      status: 'received' as const,
-      isActive: true,
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
+    const sourceSubmissionId = randomUUID()
+    const sourceVersion = createHash('sha256').update(truncatedText).digest('hex').slice(0, 32)
+    await emitSourceSubmissionRequested({
+      submissionId: sourceSubmissionId,
+      descriptor: {
+        sourceEntityType: 'inbox_ops:source_submission',
+        sourceEntityId: sourceSubmissionId,
+        sourceVersion,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        requestedByUserId: ctx.userId,
+      },
       metadata: {
         ...inputMetadata,
         source: 'text_extract',
         submittedByUserId: ctx.userId,
       },
+      initialNormalizedInput: {
+        sourceEntityType: 'inbox_ops:source_submission',
+        sourceEntityId: sourceSubmissionId,
+        sourceVersion,
+        title: title || undefined,
+        body: truncatedText,
+        bodyFormat: 'text',
+        participants: [],
+        capabilities: {
+          canDraftReply: false,
+          canUseTimelineContext: false,
+        },
+        sourceMetadata: {
+          source: 'text_extract',
+          submittedByUserId: ctx.userId,
+        },
+      },
+      initialSourceSnapshot: {
+        sourceKind: 'manual text',
+        title: title || null,
+      },
     })
 
-    ctx.em.persist(email)
-    await ctx.em.flush()
-
-    try {
-      await emitInboxOpsEvent('inbox_ops.email.received', {
-        emailId: email.id,
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        forwardedByAddress: submitterEmail,
-        subject: title || 'Text extraction',
-      })
-    } catch (eventError) {
-      console.error('[inbox_ops:extract] Failed to emit email.received event:', eventError)
-    }
-
-    return NextResponse.json({ ok: true, emailId: email.id })
+    return NextResponse.json({
+      ok: true,
+      sourceSubmissionId,
+      /** @deprecated Use `sourceSubmissionId` instead. Removed in next minor version. */
+      emailId: sourceSubmissionId,
+    })
   } catch (err) {
     return handleRouteError(err, 'extract text')
   }
@@ -84,9 +95,10 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Submit raw text for LLM extraction',
-      description: 'Creates an InboxEmail record from raw text and triggers the extraction pipeline. The extraction runs asynchronously.',
+      description: 'Creates an internal source submission from raw text and triggers the extraction pipeline. The extraction runs asynchronously. Response includes a deprecated `emailId` alias duplicating `sourceSubmissionId`; it will be removed in the next minor version — consumers should migrate to `sourceSubmissionId`.',
+      requestBody: { schema: extractRequestSchema },
       responses: [
-        { status: 200, description: 'Extraction queued successfully' },
+        { status: 200, description: 'Extraction queued successfully', schema: extractResponseSchema },
         { status: 400, description: 'Invalid request body' },
         { status: 401, description: 'Unauthorized' },
       ],

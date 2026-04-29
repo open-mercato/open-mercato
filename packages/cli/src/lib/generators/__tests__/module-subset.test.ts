@@ -1383,6 +1383,7 @@ describe('all generated files are valid with varying subsets', () => {
       'search.generated.ts',
       'notifications.generated.ts',
       'ai-tools.generated.ts',
+      'inbox-ops-sources.generated.ts',
       'events.generated.ts',
       'analytics.generated.ts',
       'translations-fields.generated.ts',
@@ -1439,6 +1440,18 @@ describe('all generated files are valid with varying subsets', () => {
     const aiTools = readGenerated(tmpDir, 'ai-tools.generated.ts')!
     expect(aiTools).toContain('export const aiToolConfigEntries')
     expect(aiTools).not.toContain('no_ai')
+  })
+
+  it('inbox-ops-sources.generated.ts is empty when no module provides inbox-ops-sources.ts', async () => {
+    scaffoldModule(tmpDir, 'no_sources', 'pkg', ['setup.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_sources', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const sourceRegistry = readGenerated(tmpDir, 'inbox-ops-sources.generated.ts')!
+    expect(sourceRegistry).toContain('export const inboxOpsSourceConfigEntries')
+    expect(sourceRegistry).not.toContain('no_sources')
   })
 
   it('security generated registries are empty when no module provides security convention files', async () => {

@@ -15,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Settings, Inbox, Copy } from 'lucide-react'
 import { CategoryBadge, useCategoryLabels } from '../../components/proposals/CategoryBadge'
@@ -25,7 +26,15 @@ type ProposalRow = {
   confidence: string
   status: string
   category?: string | null
-  inboxEmailId: string
+  inboxEmailId?: string | null
+  legacyInboxEmailId?: string | null
+  sourceSubmissionId?: string | null
+  sourceEntityType?: string | null
+  sourceEntityId?: string | null
+  sourceKind?: string | null
+  sourceLabel?: string | null
+  sourceIcon?: string | null
+  sourceHint?: string | null
   createdAt: string
   participants?: { name: string; email: string }[]
   actionCount?: number
@@ -59,6 +68,16 @@ const STATUS_COLORS: Record<string, string> = {
   processing: 'bg-purple-100 text-purple-800',
 }
 
+function humanizeSourceLabel(value?: string | null): string {
+  const normalized = value?.trim()
+  if (!normalized) return 'Source'
+  return normalized
+    .split(/[\s:_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 function ConfidenceBadge({ value }: { value: string }) {
   const num = parseFloat(value)
   const pct = Math.round(num * 100)
@@ -77,6 +96,25 @@ function StatusBadge({ status }: { status: string }) {
   }
   const color = STATUS_COLORS[status] || 'bg-gray-100 text-gray-800'
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>{statusLabels[status] || status}</span>
+}
+
+function SourceBadge({
+  kind,
+  label,
+  icon,
+}: {
+  kind?: string | null
+  label?: string | null
+  icon?: string | null
+}) {
+  const displayLabel = humanizeSourceLabel(label ?? kind)
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      {resolveInjectedIcon(icon ?? undefined, 'size-3.5')}
+      {displayLabel}
+    </span>
+  )
 }
 
 export default function InboxOpsProposalsPage() {
@@ -238,9 +276,22 @@ export default function InboxOpsProposalsPage() {
           >
             {row.original.emailSubject || row.original.summary?.slice(0, 80) || t('inbox_ops.untitled_proposal', 'Untitled proposal')}
           </Link>
-          {row.original.emailFrom && (
-            <span className="text-xs text-muted-foreground truncate block">{row.original.emailFrom}</span>
-          )}
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+            <SourceBadge
+              kind={row.original.sourceKind}
+              label={row.original.sourceLabel}
+              icon={row.original.sourceIcon}
+            />
+            {(row.original.sourceKind === 'email'
+              ? row.original.emailFrom
+              : row.original.sourceHint || row.original.emailFrom) && (
+              <span className="max-w-[220px] truncate text-xs text-muted-foreground">
+                {row.original.sourceKind === 'email'
+                  ? row.original.emailFrom
+                  : row.original.sourceHint || row.original.emailFrom}
+              </span>
+            )}
+          </div>
         </div>
       ),
     },

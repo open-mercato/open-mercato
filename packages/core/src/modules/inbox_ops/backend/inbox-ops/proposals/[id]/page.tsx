@@ -249,7 +249,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
         proposal: ProposalDetail
         actions: ActionDetail[]
         discrepancies: DiscrepancyDetail[]
-        email: EmailDetail
+        email: EmailDetail | null
       }>(`/api/inbox_ops/proposals/${proposalId}`)
       if (result?.ok && result.result) {
         setProposal(result.result.proposal)

@@ -6,7 +6,10 @@ import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/sh
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
+import { getInboxOpsSourceAdapter } from '../../lib/source-registry'
+import { buildProposalSourceDisplay } from '../../lib/sourceDisplay'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { proposalListResponseSchema } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -63,9 +66,18 @@ export async function GET(req: Request) {
 
     // Enrich proposals with email, action, and discrepancy data
     const proposalIds = items.map((p) => p.id)
-    const emailIds = [...new Set(items.map((p) => p.inboxEmailId).filter(Boolean))]
+    const emailIds = [...new Set(
+      items
+        .map((p) => p.inboxEmailId)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    )]
+    const sourceEntityTypes = [...new Set(
+      items
+        .map((proposal) => proposal.sourceEntityType)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    )]
 
-    const [emails, allActions, allDiscrepancies] = await Promise.all([
+    const [emails, allActions, allDiscrepancies, sourceAdapterEntries] = await Promise.all([
       emailIds.length > 0
         ? findWithDecryption(ctx.em, InboxEmail, { id: { $in: emailIds }, organizationId: ctx.organizationId, tenantId: ctx.tenantId }, {}, ctx.scope)
         : Promise.resolve([] as InboxEmail[]),
@@ -75,14 +87,31 @@ export async function GET(req: Request) {
       proposalIds.length > 0
         ? findWithDecryption(ctx.em, InboxDiscrepancy, { proposalId: { $in: proposalIds }, organizationId: ctx.organizationId, tenantId: ctx.tenantId, resolved: false }, {}, ctx.scope)
         : Promise.resolve([] as InboxDiscrepancy[]),
+      Promise.all(
+        sourceEntityTypes.map(async (sourceEntityType) => (
+          [sourceEntityType, await getInboxOpsSourceAdapter(sourceEntityType)] as const
+        )),
+      ),
     ])
 
     const emailMap = new Map(emails.map((e) => [e.id, e]))
+    const sourceAdapterMap = new Map(sourceAdapterEntries)
 
     const enrichedItems = items.map((proposal) => {
-      const email = emailMap.get(proposal.inboxEmailId)
+      const email = proposal.inboxEmailId ? emailMap.get(proposal.inboxEmailId) : undefined
       const proposalActions = allActions.filter((a) => a.proposalId === proposal.id)
       const proposalDiscrepancies = allDiscrepancies.filter((d) => d.proposalId === proposal.id)
+      const sourceAdapter = proposal.sourceEntityType
+        ? sourceAdapterMap.get(proposal.sourceEntityType)
+        : undefined
+      const sourceDisplay = buildProposalSourceDisplay({
+        sourceKind: sourceAdapter?.displayKind ?? null,
+        sourceIcon: sourceAdapter?.displayIcon ?? null,
+        sourceEntityType: proposal.sourceEntityType,
+        sourceSnapshot: proposal.sourceSnapshot,
+        inboxEmailId: proposal.inboxEmailId,
+        legacyInboxEmailId: proposal.inboxEmailId ?? null,
+      })
 
       return {
         ...proposal,
@@ -92,6 +121,11 @@ export async function GET(req: Request) {
         emailSubject: email?.subject || null,
         emailFrom: email?.forwardedByName || email?.forwardedByAddress || null,
         receivedAt: email?.receivedAt || proposal.createdAt,
+        legacyInboxEmailId: proposal.inboxEmailId ?? null,
+        sourceKind: sourceDisplay.sourceKind,
+        sourceLabel: sourceDisplay.sourceLabel,
+        sourceHint: sourceDisplay.sourceHint,
+        sourceIcon: sourceDisplay.sourceIcon,
       }
     })
 
@@ -121,8 +155,9 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List proposals',
       description: 'List inbox proposals with optional status filter and pagination',
+      query: proposalListQuerySchema,
       responses: [
-        { status: 200, description: 'Paginated list of proposals' },
+        { status: 200, description: 'Paginated list of proposals', schema: proposalListResponseSchema },
         { status: 401, description: 'Unauthorized' },
       ],
     },

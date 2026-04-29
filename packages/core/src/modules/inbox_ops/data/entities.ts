@@ -1,5 +1,17 @@
-import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import {
+  Entity,
+  PrimaryKey,
+  Property,
+  Index,
+  Unique,
+  OptionalProps,
+} from '@mikro-orm/core'
+import type {
+  NormalizedInboxOpsAttachment,
+  NormalizedInboxOpsCapabilities,
+  NormalizedInboxOpsParticipant,
+  NormalizedInboxOpsTimelineEntry,
+} from '@open-mercato/shared/modules/inbox-ops-sources'
 
 // ---------------------------------------------------------------------------
 // Shared Types
@@ -25,16 +37,34 @@ export interface ProposalTranslationEntry {
 
 export type ProposalTranslations = Record<string, ProposalTranslationEntry>
 
+export type ExtractedParticipantRole =
+  | 'buyer'
+  | 'seller'
+  | 'logistics'
+  | 'finance'
+  | 'other'
+
+export const EXTRACTED_PARTICIPANT_ROLES: readonly ExtractedParticipantRole[] = [
+  'buyer',
+  'seller',
+  'logistics',
+  'finance',
+  'other',
+] as const
+
 export interface ExtractedParticipant {
   name: string
   email: string
-  role: 'buyer' | 'seller' | 'logistics' | 'finance' | 'other'
+  role: ExtractedParticipantRole
+  identifier?: string | null
+  phoneNumber?: string | null
   matchedContactId?: string | null
   matchedContactType?: 'person' | 'company' | null
   matchConfidence?: number
 }
 
 export type InboxEmailStatus = 'received' | 'processing' | 'processed' | 'needs_review' | 'failed'
+export type InboxSourceSubmissionStatus = 'received' | 'processing' | 'processed' | 'failed' | 'deferred'
 export type InboxProposalStatus = 'pending' | 'partial' | 'accepted' | 'rejected'
 export type InboxProposalCategory =
   | 'rfq'
@@ -203,6 +233,107 @@ export class InboxEmail {
 }
 
 // ---------------------------------------------------------------------------
+// InboxSourceSubmission
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'inbox_source_submissions' })
+@Index({ properties: ['organizationId', 'tenantId', 'status', 'createdAt'] })
+@Index({ properties: ['organizationId', 'tenantId', 'sourceEntityType', 'sourceEntityId'] })
+@Index({ properties: ['proposalId'] })
+@Index({ properties: ['legacyInboxEmailId'] })
+@Unique({ properties: ['sourceDedupKey'] })
+export class InboxSourceSubmission {
+  [OptionalProps]?: 'sourceArtifactId' | 'sourceVersion' | 'triggerEventId' | 'legacyInboxEmailId' | 'normalizedTitle' | 'normalizedBody' | 'normalizedBodyFormat' | 'normalizedParticipants' | 'normalizedTimeline' | 'normalizedAttachments' | 'normalizedCapabilities' | 'facts' | 'normalizedSourceMetadata' | 'sourceSnapshot' | 'processingError' | 'proposalId' | 'requestedByUserId' | 'status' | 'metadata' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source_entity_type', type: 'text' })
+  sourceEntityType!: string
+
+  @Property({ name: 'source_entity_id', type: 'uuid' })
+  sourceEntityId!: string
+
+  @Property({ name: 'source_artifact_id', type: 'uuid', nullable: true })
+  sourceArtifactId?: string | null
+
+  @Property({ name: 'source_version', type: 'text', nullable: true })
+  sourceVersion?: string | null
+
+  @Property({ name: 'source_dedup_key', type: 'text' })
+  sourceDedupKey!: string
+
+  @Property({ name: 'trigger_event_id', type: 'text', nullable: true })
+  triggerEventId?: string | null
+
+  @Property({ name: 'status', type: 'text' })
+  status: InboxSourceSubmissionStatus = 'received'
+
+  @Property({ name: 'legacy_inbox_email_id', type: 'uuid', nullable: true })
+  legacyInboxEmailId?: string | null
+
+  @Property({ name: 'normalized_title', type: 'text', nullable: true })
+  normalizedTitle?: string | null
+
+  @Property({ name: 'normalized_body', type: 'text', nullable: true })
+  normalizedBody?: string | null
+
+  @Property({ name: 'normalized_body_format', type: 'text', nullable: true })
+  normalizedBodyFormat?: string | null
+
+  @Property({ name: 'normalized_participants', type: 'json', nullable: true })
+  normalizedParticipants?: NormalizedInboxOpsParticipant[] | null
+
+  @Property({ name: 'normalized_timeline', type: 'json', nullable: true })
+  normalizedTimeline?: NormalizedInboxOpsTimelineEntry[] | null
+
+  @Property({ name: 'normalized_attachments', type: 'json', nullable: true })
+  normalizedAttachments?: NormalizedInboxOpsAttachment[] | null
+
+  @Property({ name: 'normalized_capabilities', type: 'json', nullable: true })
+  normalizedCapabilities?: NormalizedInboxOpsCapabilities | null
+
+  @Property({ name: 'facts', type: 'json', nullable: true })
+  facts?: Record<string, string | number | boolean | null> | null
+
+  @Property({ name: 'normalized_source_metadata', type: 'json', nullable: true })
+  normalizedSourceMetadata?: Record<string, unknown> | null
+
+  @Property({ name: 'source_snapshot', type: 'json', nullable: true })
+  sourceSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'processing_error', type: 'text', nullable: true })
+  processingError?: string | null
+
+  @Property({ name: 'proposal_id', type: 'uuid', nullable: true })
+  proposalId?: string | null
+
+  @Property({ name: 'requested_by_user_id', type: 'uuid', nullable: true })
+  requestedByUserId?: string | null
+
+  @Property({ name: 'metadata', type: 'json', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// ---------------------------------------------------------------------------
 // InboxProposal
 // ---------------------------------------------------------------------------
 
@@ -211,14 +342,34 @@ export class InboxEmail {
 @Index({ properties: ['organizationId', 'tenantId', 'status'] })
 @Index({ properties: ['organizationId', 'tenantId', 'category'] })
 @Index({ properties: ['inboxEmailId'] })
+@Index({ properties: ['sourceSubmissionId'] })
+@Index({ properties: ['organizationId', 'tenantId', 'sourceEntityType', 'sourceEntityId'] })
 export class InboxProposal {
-  [OptionalProps]?: 'status' | 'category' | 'possiblyIncomplete' | 'workingLanguage' | 'translations' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'inboxEmailId' | 'sourceSubmissionId' | 'sourceEntityType' | 'sourceEntityId' | 'sourceArtifactId' | 'sourceVersion' | 'sourceSnapshot' | 'status' | 'category' | 'possiblyIncomplete' | 'workingLanguage' | 'translations' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ name: 'inbox_email_id', type: 'uuid' })
-  inboxEmailId!: string
+  @Property({ name: 'inbox_email_id', type: 'uuid', nullable: true })
+  inboxEmailId?: string | null
+
+  @Property({ name: 'source_submission_id', type: 'uuid', nullable: true })
+  sourceSubmissionId?: string | null
+
+  @Property({ name: 'source_entity_type', type: 'text', nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
+
+  @Property({ name: 'source_artifact_id', type: 'uuid', nullable: true })
+  sourceArtifactId?: string | null
+
+  @Property({ name: 'source_version', type: 'text', nullable: true })
+  sourceVersion?: string | null
+
+  @Property({ name: 'source_snapshot', type: 'json', nullable: true })
+  sourceSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'summary', type: 'text' })
   summary!: string

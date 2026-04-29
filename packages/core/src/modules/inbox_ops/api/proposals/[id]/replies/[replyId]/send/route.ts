@@ -58,13 +58,15 @@ export async function POST(req: Request) {
       )
     }
 
-    const email = await findOneWithDecryption(
-      ctx.em,
-      InboxEmail,
-      { id: proposal.inboxEmailId, deletedAt: null },
-      undefined,
-      ctx.scope,
-    )
+    const email = proposal.inboxEmailId
+      ? await findOneWithDecryption(
+          ctx.em,
+          InboxEmail,
+          { id: proposal.inboxEmailId, deletedAt: null },
+          undefined,
+          ctx.scope,
+        )
+      : null
 
     const payloadResult = draftReplyPayloadSchema.safeParse(action.payload)
     if (!payloadResult.success) {
@@ -117,18 +119,20 @@ export async function POST(req: Request) {
     }
 
     const sentMessageId = sendData?.id || null
-    const messagesResult = await createMessageRecordForReply(
-      { to: toAddress, toName, subject, body },
-      proposal.inboxEmailId,
-      {
-        container: ctx.container,
-        scope: {
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          userId: ctx.userId,
-        },
-      },
-    )
+    const messagesResult = proposal.inboxEmailId
+      ? await createMessageRecordForReply(
+          { to: toAddress, toName, subject, body },
+          proposal.inboxEmailId,
+          {
+            container: ctx.container,
+            scope: {
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId,
+              userId: ctx.userId,
+            },
+          },
+        )
+      : null
 
     action.metadata = {
       ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
