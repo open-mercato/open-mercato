@@ -264,7 +264,7 @@ const getDealTool: CustomersAiToolDefinition = {
               displayName: label,
               primaryEmail: subtitle && subtitle.includes('@') ? subtitle : null,
               primaryPhone: subtitle && !subtitle.includes('@') ? subtitle : null,
-              participantRole: null,
+              participantRole: null as string | null,
             }
           })
           .filter(
@@ -285,8 +285,8 @@ const getDealTool: CustomersAiToolDefinition = {
             return {
               id,
               displayName: label,
-              primaryEmail: null,
-              primaryPhone: null,
+              primaryEmail: null as string | null,
+              primaryPhone: null as string | null,
             }
           })
           .filter(
