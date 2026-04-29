@@ -126,13 +126,13 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 function getStrategyColorClass(strategy: string): string {
   switch (strategy) {
     case 'fulltext':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+      return 'bg-status-info-bg text-status-info-text'
     case 'vector':
       return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
     case 'tokens':
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      return 'bg-status-success-bg text-status-success-text'
     default:
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+      return 'bg-status-neutral-bg text-status-neutral-text'
   }
 }
 

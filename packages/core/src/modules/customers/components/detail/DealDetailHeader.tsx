@@ -6,7 +6,9 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
@@ -73,6 +75,8 @@ const headerChipDotVariantClasses: Record<HeaderChipVariant, string> = {
   error: 'bg-status-error-icon',
   neutral: 'bg-status-neutral-icon',
 }
+
+const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
 function HeaderChip({
   children,
@@ -227,6 +231,9 @@ export function DealDetailHeader({
   const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
   const pipelineBadgeLabel = pipelineName ?? null
   const canMoveStage = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function'
+  const messageSubtitle = React.useMemo(() => (
+    [companyLabel, amountLabel].filter(Boolean).join(' · ') || statusLabel || undefined
+  ), [amountLabel, companyLabel, statusLabel])
 
   return (
     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -307,6 +314,28 @@ export function DealDetailHeader({
             isSaving={isStageSaving}
           />
         ) : null}
+        <SendObjectMessageDialog
+          object={{
+            entityModule: 'customers',
+            entityType: 'deal',
+            entityId: deal.id,
+            previewData: {
+              title: deal.title || t('customers.deals.detail.untitled', 'Untitled deal'),
+              subtitle: messageSubtitle,
+            },
+          }}
+          viewHref={`/backend/customers/deals/${deal.id}`}
+          buttonVariant="outline"
+          buttonSize="icon"
+          buttonClassName={HEADER_ICON_BUTTON_CLASS}
+          buttonLabel={t('customers.deals.detail.actions.sendMessage', 'Send message')}
+        />
+        <ObjectHistoryButton
+          resourceKind="customers.deal"
+          resourceId={deal.id}
+          organizationId={deal.organizationId ?? undefined}
+          includeRelated
+        />
         <IconButton
           variant="outline"
           size="sm"

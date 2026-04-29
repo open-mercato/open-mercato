@@ -77,30 +77,82 @@ function originFromHost(protocol: string, rawHost: string | null): string | null
   return normalizeOrigin(`${protocol}//${host}`)
 }
 
-function requestOrigins(input: RequestInput): Set<string> {
-  const origins = new Set<string>()
-  if (!input) return origins
+type RequestOriginCandidates = {
+  urlOrigin: string | null
+  headerOrigins: Set<string>
+}
+
+function readRequestOriginCandidates(input: RequestInput): RequestOriginCandidates {
+  const candidates: RequestOriginCandidates = {
+    urlOrigin: null,
+    headerOrigins: new Set<string>(),
+  }
+  if (!input) return candidates
 
   const requestUrl = typeof input === 'string' ? input : input.url
   let parsedUrl: URL
   try {
     parsedUrl = new URL(requestUrl)
   } catch {
-    return origins
+    return candidates
   }
 
-  const urlOrigin = normalizeOrigin(parsedUrl.origin)
-  if (urlOrigin) origins.add(urlOrigin)
-
-  if (typeof input === 'string') return origins
+  candidates.urlOrigin = normalizeOrigin(parsedUrl.origin)
+  if (typeof input === 'string') return candidates
 
   const forwardedProto = readFirstHeaderValue(input.headers.get('x-forwarded-proto')) ?? parsedUrl.protocol.replace(/:$/, '')
   const protocol = forwardedProto.endsWith(':') ? forwardedProto : `${forwardedProto}:`
   const hostOrigin = originFromHost(protocol, input.headers.get('host'))
   const forwardedHostOrigin = originFromHost(protocol, input.headers.get('x-forwarded-host'))
-  if (hostOrigin) origins.add(hostOrigin)
-  if (forwardedHostOrigin) origins.add(forwardedHostOrigin)
+  if (hostOrigin) candidates.headerOrigins.add(hostOrigin)
+  if (forwardedHostOrigin) candidates.headerOrigins.add(forwardedHostOrigin)
+  return candidates
+}
+
+function requestOrigins(input: RequestInput): Set<string> {
+  const origins = new Set<string>()
+  const { urlOrigin, headerOrigins } = readRequestOriginCandidates(input)
+  if (urlOrigin) origins.add(urlOrigin)
+  for (const origin of headerOrigins) origins.add(origin)
   return origins
+}
+
+function logOriginDebugContext(
+  input: RequestInput,
+  allowedOrigins: Set<string>,
+  rejectedOrigin?: string,
+  level: 'error' | 'warn' = 'error',
+  nodeEnv?: string,
+): void {
+  if (level === 'warn' && nodeEnv === 'test') return
+  const log = level === 'warn' ? console.warn : console.error
+
+  if (typeof input === 'string') {
+    log('[origin-check] rejected string input', {
+      requestUrl: input,
+      rejectedOrigin: rejectedOrigin ?? null,
+      allowedOrigins: Array.from(allowedOrigins),
+    })
+    return
+  }
+
+  if (!input) {
+    log('[origin-check] rejected empty input', {
+      rejectedOrigin: rejectedOrigin ?? null,
+      allowedOrigins: Array.from(allowedOrigins),
+    })
+    return
+  }
+
+  log('[origin-check] rejected request', {
+    requestUrl: input.url,
+    host: input.headers.get('host'),
+    forwardedHost: input.headers.get('x-forwarded-host'),
+    forwardedProto: input.headers.get('x-forwarded-proto'),
+    derivedOrigins: Array.from(requestOrigins(input)),
+    rejectedOrigin: rejectedOrigin ?? null,
+    allowedOrigins: Array.from(allowedOrigins),
+  })
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -149,19 +201,28 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   const allowedOrigins = readAllowedOrigins(env)
   if (allowedOrigins.size === 0) {
     if (env.NODE_ENV === 'production') {
+      logOriginDebugContext(input, allowedOrigins)
       throw new AppOriginConfigurationError('APP_URL must be configured in production')
     }
     return
   }
-  const origins = requestOrigins(input)
-  if (origins.size === 0) return
+  const { urlOrigin, headerOrigins } = readRequestOriginCandidates(input)
+  const hasAllowedHeaderOrigin = Array.from(headerOrigins).some((origin) => allowedOrigins.has(origin))
 
-  for (const origin of origins) {
-    if (!allowedOrigins.has(origin)) {
-      if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
-      throw new AppOriginRejectedError('Request origin is not allowed')
-    }
+  for (const origin of headerOrigins) {
+    if (allowedOrigins.has(origin)) continue
+    if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
+    logOriginDebugContext(input, allowedOrigins, origin, 'warn', env.NODE_ENV)
+    throw new AppOriginRejectedError('Request origin is not allowed')
   }
+
+  if (!urlOrigin) return
+  if (allowedOrigins.has(urlOrigin)) return
+  if (shouldAllowLoopbackOrigin(urlOrigin, allowedOrigins, env)) return
+  if (isLoopbackOrigin(urlOrigin) && hasAllowedHeaderOrigin) return
+
+  logOriginDebugContext(input, allowedOrigins, urlOrigin, 'warn', env.NODE_ENV)
+  throw new AppOriginRejectedError('Request origin is not allowed')
 }
 
 export function resolveRequestOrigin(req: Request): string {

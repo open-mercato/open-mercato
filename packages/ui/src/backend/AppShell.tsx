@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
@@ -41,8 +42,14 @@ import {
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
+export type ShellLogo = {
+  src: string
+  alt?: string
+}
+
 export type AppShellProps = {
   productName?: string
+  logo?: ShellLogo
   email?: string
   groups: {
     id?: string
@@ -398,7 +405,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -747,7 +754,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
   const asideWidth = effectiveCollapsed ? '72px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh`;
+  const asideClassesBase = `border-r bg-background/80 py-4 min-h-svh`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
@@ -808,7 +815,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
             <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={32} height={32} className="rounded m-4" />
               {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
             </Link>
           </div>
@@ -919,25 +926,25 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           {!hideHeader ? (
             <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
               <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={32} height={32} className="rounded m-4" />
                 {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
               </Link>
             </div>
           ) : null}
           <div className="flex flex-1 flex-col gap-3 pr-1">
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
                 <div className="h-8 rounded bg-muted/50" />
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
           </div>
@@ -1009,11 +1016,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           >
             <span className="text-xs font-medium text-muted-foreground">{placeholder}</span>
             <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-foreground"
+              <Checkbox
                 checked={!hidden}
-                onChange={(event) => setItemHidden(itemKey, !event.target.checked)}
+                onCheckedChange={(next) => setItemHidden(itemKey, next !== true)}
                 disabled={savingPreferences}
                 aria-label={t('appShell.sidebarCustomizationShowItem')}
                 title={t('appShell.sidebarCustomizationShowItem')}
@@ -1023,7 +1028,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                 onChange={(event) => setItemLabel(itemKey, event.target.value)}
                 placeholder={placeholder}
                 disabled={savingPreferences}
-                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               />
             </div>
             {baseItem.children && baseItem.children.length > 0 ? (
@@ -1038,7 +1043,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
     const customizationEditor = customizing ? (
       customDraft ? (
-        <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/20 p-3">
+        <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/30 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold">{t('appShell.sidebarCustomizationHeading')}</div>
             <div className="flex items-center gap-2">
@@ -1070,7 +1075,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           </div>
           <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
           {canApplyToRoles ? (
-            <div className="flex flex-col gap-2 rounded border bg-background/70 p-3 shadow-sm">
+            <div className="flex flex-col gap-2 rounded border bg-background/80 p-3 shadow-sm">
               <div>
                 <div className="text-sm font-semibold">{t('appShell.sidebarApplyToRolesTitle')}</div>
                 <p className="text-xs text-muted-foreground">{t('appShell.sidebarApplyToRolesDescription')}</p>
@@ -1081,12 +1086,10 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                     const checked = selectedRoleIds.includes(role.id)
                     const willClear = role.hasPreference && !checked
                     return (
-                      <label key={role.id} className="flex items-center gap-2 rounded border bg-background px-2 py-1 text-sm shadow-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-foreground"
+                      <label key={role.id} className="flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm shadow-sm cursor-pointer">
+                        <Checkbox
                           checked={checked}
-                          onChange={() => toggleRoleSelection(role.id)}
+                          onCheckedChange={() => toggleRoleSelection(role.id)}
                           disabled={savingPreferences}
                         />
                         <span className="flex-1 truncate">{role.name}</span>
@@ -1122,7 +1125,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                         onChange={(event) => setGroupLabel(groupId, event.target.value)}
                         placeholder={placeholder}
                         disabled={savingPreferences}
-                        className="mt-1 h-8 w-full rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                        className="mt-1 h-8 w-full rounded border bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       />
                     </div>
                     <div className="flex items-center gap-1 self-start">
@@ -1157,7 +1160,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           </div>
         </div>
       ) : (
-        <div className="rounded border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
+        <div className="rounded border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
           {t('appShell.sidebarCustomizationLoading')}
         </div>
       )
@@ -1168,7 +1171,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
             <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={32} height={32} className="rounded m-4" />
               {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
             </Link>
           </div>
@@ -1314,7 +1317,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             })()
           )}
         </div>
-        <div className="sticky bottom-0 pt-4 border-t bg-background/60 backdrop-blur-sm pb-1">
+        <div className="sticky bottom-0 pt-4 border-t bg-background/80 backdrop-blur-sm pb-1">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1434,7 +1437,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1512,8 +1515,8 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-10" />
-        <main className="flex-1 p-4 lg:p-6">
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
@@ -1528,7 +1531,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           {children}
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
@@ -1547,12 +1550,12 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+        <div className="lg:hidden fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setMobileOpen(false)} aria-hidden="true" />
           <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
             <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
+                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
               <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>

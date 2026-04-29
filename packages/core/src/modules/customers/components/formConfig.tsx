@@ -596,7 +596,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
               <div className="space-y-1">
                 <label className="text-sm font-medium">{labels.inputLabel}</label>
                 <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   placeholder={labels.inputPlaceholder}
                   value={newCompany}
                   onChange={(event) => {
@@ -761,7 +761,7 @@ export const createDisplayNameSection = (t: Translator) =>
             {editing ? (
               <div className="mt-2 space-y-2">
                 <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={currentValue}
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}
@@ -1556,7 +1556,13 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="company" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="company"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {
@@ -1648,7 +1654,13 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="person" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="person"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {

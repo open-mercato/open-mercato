@@ -451,7 +451,7 @@ export function TasksSection({
               const checkboxId = `person-task-${task.id}`
               const isPendingToggle = pendingTaskId === task.todoId
               return (
-                <article key={task.id} className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80">
+                <article key={task.id} className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/70">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <TimelineItemHeader
                       title={

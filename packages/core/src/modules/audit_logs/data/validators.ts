@@ -26,6 +26,8 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
   commandPayload: z.unknown().optional(),
   snapshotBefore: z.unknown().optional(),
   snapshotAfter: z.unknown().optional(),
+  relatedResourceKind: z.string().min(1).optional().nullable(),
+  relatedResourceId: z.string().min(1).optional().nullable(),
   changes: recordLike,
   context: recordLike,
 })

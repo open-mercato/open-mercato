@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { ListFilter, Search } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { FilterDef, FilterOverlay, FilterValues } from './FilterOverlay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -72,22 +73,22 @@ export function FilterBar({
 
   const containerClass = `flex flex-col ${layout === 'inline' ? 'gap-1 sm:gap-2' : 'gap-2'} w-full`
   const searchInput = onSearchChange ? (
-    <div className={`relative w-full sm:w-auto sm:min-w-[180px] sm:max-w-[240px] ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
+    <div className={`relative w-full sm:w-72 lg:w-80 ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
       <input
         value={searchDraft}
         onChange={(e) => setSearchDraft(e.target.value)}
         placeholder={resolvedSearchPlaceholder}
-        className="h-9 w-full rounded border pl-8 pr-2 text-sm"
+        className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
         suppressHydrationWarning
       />
-      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
+      <Search aria-hidden="true" className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
     </div>
   ) : null
   const controls = (
     <div className={`flex flex-wrap items-center gap-2 ${searchAlign === 'left' && searchInput ? 'sm:ml-auto' : ''}`}>
       {filters.length > 0 && (
-        <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
+        <Button variant="outline" onClick={() => setOpen(true)}>
+          <ListFilter aria-hidden="true" className="size-4 opacity-80" />
           {activeCount
             ? t('ui.filterBar.filtersWithCount', 'Filters {count}', { count: activeCount })
             : t('ui.filterBar.filters', 'Filters')

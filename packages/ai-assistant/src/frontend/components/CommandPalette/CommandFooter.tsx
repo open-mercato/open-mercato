@@ -39,7 +39,7 @@ function KeyboardShortcut({ keys }: { keys: string[] }) {
           key={i}
           className={cn(
             'inline-flex h-5 min-w-[20px] items-center justify-center rounded',
-            'bg-muted px-1.5 text-[10px] font-medium text-muted-foreground'
+            'bg-muted px-1.5 text-overline font-medium text-muted-foreground'
           )}
         >
           {key}
@@ -69,7 +69,7 @@ export function CommandFooter({
   const shortcuts = phase === 'idle' ? idleShortcuts : chatShortcuts
 
   return (
-    <div className="relative flex items-center justify-between px-3 py-2 border-t bg-muted/20 text-xs">
+    <div className="relative flex items-center justify-between px-3 py-2 border-t bg-muted/30 text-xs">
       <div className="flex items-center gap-3">
         <ConnectionIndicator status={connectionStatus} />
 

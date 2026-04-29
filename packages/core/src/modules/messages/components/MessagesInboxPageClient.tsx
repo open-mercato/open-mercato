@@ -422,7 +422,7 @@ export function MessagesInboxPageClient() {
               </Button>
               {folderMenuOpen ? (
                 <div
-                  className="absolute right-0 z-20 mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
+                  className="absolute right-0 z-dropdown mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
                   role="menu"
                 >
                   {folderOptions.map((option) => {

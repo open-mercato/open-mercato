@@ -216,8 +216,8 @@ export function AddressEditor<C = unknown>({
 
   const inputClass = (field: AddressEditorField) =>
     [
-      'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-      errors[field] ? 'border-red-500 focus:ring-red-500' : 'border-input bg-background',
+      'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      errors[field] ? 'border-red-500 aria-invalid:ring-destructive' : 'border-input bg-background',
     ].join(' ')
 
   return (
@@ -430,7 +430,7 @@ export function AddressEditor<C = unknown>({
                 value={countryQuery}
                 onChange={(evt) => setCountryQuery(evt.target.value)}
               />
-              <div className="max-h-64 overflow-auto rounded-md border border-border/60">
+              <div className="max-h-64 overflow-auto rounded-md border border-border/70">
                 <ul className="divide-y divide-border/50">
                   {filteredCountryOptions.map((option) => (
                     <li key={option.code}>

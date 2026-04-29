@@ -210,7 +210,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
         color: '#1B1B1B',
@@ -268,7 +268,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={submitState === 'sending'}
                   aria-invalid={Boolean(fieldErrors.email)}
-                  className={fieldErrors.email ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                  className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.email && <p className="text-xs text-red-600">{fieldErrors.email}</p>}
               </div>

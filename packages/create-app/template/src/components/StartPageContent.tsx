@@ -125,7 +125,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             </div>
           </div>
           <div className="md:ml-auto">
-            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-600 px-6 py-5 text-base font-semibold text-white shadow-md">
+            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-ring px-6 py-5 text-base font-semibold text-white shadow-md">
               <Link href="/onboarding">
                 {t('startPage.onboarding.cta', 'Start onboarding')}
                 <ArrowRight className="size-4" aria-hidden />
@@ -135,16 +135,16 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </section>
       ) : null}
 
-      <section className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 p-4">
+      <section className="rounded-lg border bg-status-info-bg border-status-info-border p-4">
         <div className="flex items-start gap-3">
-          <Info className="size-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <Info className="size-5 text-status-info-icon shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
-            <p className="text-sm text-blue-800 dark:text-blue-200">
+            <h3 className="text-sm font-semibold text-status-info-text mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
+            <p className="text-sm text-status-info-text">
               {t('startPage.defaultPassword.description1', 'The default password for all demo accounts is')}{' '}
-              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">secret</code>.
+              <code className="px-1.5 py-0.5 rounded bg-status-info-bg font-mono text-xs">secret</code>.
               {' '}{t('startPage.defaultPassword.description2', 'To change passwords, use the CLI command:')}{' '}
-              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
+              <code className="px-1.5 py-0.5 rounded bg-status-info-bg font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
               <span className="mt-2 block">{t('startPage.defaultPassword.description3', 'Demo account emails are printed in the terminal output during yarn initialize.')}</span>
             </p>
           </div>
@@ -248,7 +248,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </div>
         <p className="text-xs text-muted-foreground">
           {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
-          <code className="rounded bg-muted px-2 py-0.5 text-[10px] text-foreground">{baseUrl}</code>
+          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{baseUrl}</code>
         </p>
       </section>
 
@@ -260,7 +260,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         />
         <label
           htmlFor="show-start-page"
-          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 cursor-pointer"
         >
           {t('startPage.showNextTime', 'Display this start page next time')}
         </label>

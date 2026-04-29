@@ -187,7 +187,7 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
         </Button>
       </div>
 
-      <div className="rounded-lg border bg-muted/10 p-4">
+      <div className="rounded-lg border bg-muted/30 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <h4 className="text-sm font-semibold">
@@ -259,7 +259,7 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
             {items.map((item) => (
               <div
                 key={item.id}
-                className="flex flex-col gap-3 rounded-lg border bg-muted/20 px-3 py-3 lg:flex-row lg:items-center lg:justify-between"
+                className="flex flex-col gap-3 rounded-lg border bg-muted/30 px-3 py-3 lg:flex-row lg:items-center lg:justify-between"
               >
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">

@@ -101,7 +101,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
   }, [attachmentId, deleteAttachment, logoUrl, onChange])
 
   return (
-    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4">
+    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium">

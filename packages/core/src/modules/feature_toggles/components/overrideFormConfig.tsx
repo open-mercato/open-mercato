@@ -10,7 +10,7 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
 
     if (!isOverride) {
         return (
-            <div className="text-sm text-muted-foreground p-4 text-center bg-muted/20 rounded border border-dashed">
+            <div className="text-sm text-muted-foreground p-4 text-center bg-muted/30 rounded border border-dashed">
                 {t('feature_toggles.override.disabled', 'Override is disabled. Values will be inherited from the default configuration.')}
             </div>
         );
@@ -78,7 +78,7 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
 
         default:
             return (
-                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/20 rounded border border-dashed">
+                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/30 rounded border border-dashed">
                     {t('feature_toggles.override.unknownType', 'Unknown toggle type. Cannot configure override value.')}
                 </div>
             );

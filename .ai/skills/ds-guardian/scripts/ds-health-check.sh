@@ -105,6 +105,41 @@ ST=$(count_matches 'status-error-|status-success-|status-warning-|status-info-|s
 report "  Semantic token usages: $ST"
 
 report ""
+report "--- Raw HTML Form Controls (use DS primitives) ---"
+RAW_TEXT_INPUT=$(count_matches '<input[^>]*type=["'\''](text|email|password|number|tel|url|search)["'\'']')
+report "  Raw <input type='text|email|password|number|tel|url|search'>: $RAW_TEXT_INPUT (target: 0)"
+RAW_CHECKBOX=$(count_matches '<input[^>]*type=["'\'']checkbox["'\'']')
+report "  Raw <input type='checkbox'>: $RAW_CHECKBOX (target: 0)"
+RAW_RADIO=$(count_matches '<input[^>]*type=["'\'']radio["'\'']')
+report "  Raw <input type='radio'>: $RAW_RADIO (target: 0)"
+RAW_SELECT=$(count_matches '<select[ >]')
+report "  Raw <select>: $RAW_SELECT (target: 0)"
+RAW_TEXTAREA=$(count_matches '<textarea[ >]')
+report "  Raw <textarea>: $RAW_TEXTAREA (target: 0)"
+CUSTOM_SWITCH=$(count_matches 'role=["'\'']switch["'\'']')
+report "  Custom role='switch': $CUSTOM_SWITCH (target: 0)"
+
+report ""
+report "--- Disabled state (use --bg-disabled / --text-disabled tokens) ---"
+OPACITY_DISABLED=$(count_matches 'disabled:opacity-50')
+report "  disabled:opacity-50: $OPACITY_DISABLED (target: 0)"
+
+report ""
+report "--- Selection control color contract (use --accent-indigo) ---"
+WRONG_SELECTION_COLOR=$(count_matches 'data-\[state=checked\]:bg-primary')
+report "  data-[state=checked]:bg-primary on selection controls: $WRONG_SELECTION_COLOR (target: 0)"
+
+report ""
+report "--- Brand colors hardcoded (use --brand-* tokens / SocialButton) ---"
+BRAND_HEX=$(count_matches '#1877F2|#0A66C2|#0061FF|#181717|#BC9AFF|#D4F372')
+report "  Hardcoded brand hex: $BRAND_HEX (target: 0)"
+
+report ""
+report "--- Old focus rings (use --shadow-focus token) ---"
+OLD_FOCUS=$(count_matches 'focus.*ring-2.*ring-offset-2')
+report "  focus:ring-2 ring-offset-2: $OLD_FOCUS (target: 0)"
+
+report ""
 report "=== END REPORT ==="
 
 PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1 || true)

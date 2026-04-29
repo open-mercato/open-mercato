@@ -141,7 +141,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.pageSize}
             onChange={(event) => {
               const next = Number(event.target.value)

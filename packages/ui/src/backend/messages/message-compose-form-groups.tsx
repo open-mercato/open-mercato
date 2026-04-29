@@ -228,7 +228,7 @@ function ComposeModeFields({ compose }: ComposeProps) {
         placeholder={compose.t('messages.placeholders.body', 'Write your message...')}
         inputId="messages-compose-body"
         rows={8}
-        textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       <div className="space-y-2">
@@ -256,7 +256,7 @@ function ReplyModeFields({ compose }: ComposeProps) {
         placeholder={compose.t('messages.placeholders.replyBody', 'Write your reply...')}
         inputId="messages-compose-body"
         rows={8}
-        textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       <div className="space-y-2">
@@ -289,7 +289,7 @@ function ForwardModeFields({ compose }: ComposeProps) {
         placeholder={compose.t('messages.placeholders.forwardContent', 'Review and edit forwarded content...')}
         inputId="messages-forward-note"
         rows={6}
-        textareaClassName="min-h-[140px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        textareaClassName="min-h-[140px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
     </>
   )

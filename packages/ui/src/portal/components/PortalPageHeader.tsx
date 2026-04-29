@@ -18,7 +18,7 @@ export function PortalPageHeader({ title, description, label, action }: PortalPa
     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div>
         {label ? (
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/60">
+          <p className="mb-1 text-overline font-medium uppercase tracking-widest text-muted-foreground/60">
             {label}
           </p>
         ) : null}

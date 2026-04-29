@@ -125,7 +125,7 @@ export default function CreateApiKeyPage() {
                 </p>
               </div>
               <div className="space-y-4 p-6">
-                <div className="rounded-md border bg-muted/40 p-4 font-mono text-sm break-all">
+                <div className="rounded-md border bg-muted/50 p-4 font-mono text-sm break-all">
                   {createdSecret.secret}
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">

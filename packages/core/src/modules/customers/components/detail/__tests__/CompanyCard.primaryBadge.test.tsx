@@ -38,18 +38,21 @@ describe('CompanyCard primary badge', () => {
     const { container } = renderWithProviders(
       <CompanyCard data={makeCompanyData({ isPrimary: true })} personName="Lena Ortiz" />,
     )
-    const html = container.innerHTML
-    expect(html).not.toContain('bg-primary')
-    expect(html).toMatch(/bg-status-info-bg|status-info/)
-    const text = container.textContent ?? ''
-    expect(text.toLowerCase()).toContain('primary')
+    const badge = container.querySelector('.bg-status-info-bg')
+    expect(badge).not.toBeNull()
+    const badgeClasses = badge?.className?.toString?.() ?? ''
+    // The badge itself MUST NOT use bg-primary; tailwind variants like
+    // `aria-pressed:bg-primary` may appear on unrelated icon buttons elsewhere.
+    expect(badgeClasses.split(/\s+/)).not.toContain('bg-primary')
+    expect(badgeClasses).toMatch(/bg-status-info-bg|status-info/)
+    const text = (badge?.textContent ?? '').toLowerCase()
+    expect(text).toContain('primary')
   })
 
   it('does not render the primary marker when isPrimary is false', () => {
     const { container } = renderWithProviders(
       <CompanyCard data={makeCompanyData({ isPrimary: false })} personName="Lena Ortiz" />,
     )
-    const html = container.innerHTML
-    expect(html).not.toMatch(/bg-status-info-bg|status-info/)
+    expect(container.querySelector('.bg-status-info-bg')).toBeNull()
   })
 })

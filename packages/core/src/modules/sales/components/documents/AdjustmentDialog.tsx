@@ -389,7 +389,7 @@ export function AdjustmentDialog({
         component: ({ value, setValue }) => {
           const currentMode = value === 'rate' || value === 'amount' ? value : mode
           return (
-            <div className="inline-flex rounded-md border bg-muted/40 p-1 text-sm font-medium">
+            <div className="inline-flex rounded-md border bg-muted/50 p-1 text-sm font-medium">
               {(['rate', 'amount'] as const).map((option) => (
                 <button
                   key={option}
