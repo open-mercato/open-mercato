@@ -288,6 +288,75 @@ const runPendingActionCleanup: ModuleCli = {
   },
 }
 
+const testTools: ModuleCli = {
+  command: 'test-tools',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const json = args.json === true || args.json === 'true'
+    const moduleFilter =
+      typeof args.module === 'string' && args.module.length > 0 ? args.module : null
+    const includeMutations = args['no-mutations'] !== true && args['no-mutations'] !== 'true'
+    const tenantId =
+      typeof args.tenant === 'string' && args.tenant.length > 0 ? args.tenant : null
+    const organizationId =
+      typeof args.org === 'string' && args.org.length > 0 ? args.org : null
+
+    await ensureBootstrap()
+    const { runToolTests } = await import('./lib/tool-test-runner')
+    const report = await runToolTests({
+      tenantId,
+      organizationId,
+      moduleFilter,
+      includeMutations,
+    })
+
+    if (json) {
+      // Wrap in markers so a Playwright spec (or any caller) can extract the
+      // JSON payload without being thrown off by bootstrap log lines emitted
+      // to stdout by other modules during DI container creation.
+      console.log('---TOOL_TEST_REPORT_BEGIN---')
+      console.log(JSON.stringify(report))
+      console.log('---TOOL_TEST_REPORT_END---')
+    } else {
+      console.log('')
+      console.log(
+        `AI tool test report — tenant=${report.tenantId ?? '<none>'} org=${
+          report.organizationId ?? '<none>'
+        }`,
+      )
+      console.log(
+        `total=${report.total} pass=${report.passed} fail=${report.failed} skip=${report.skipped}`,
+      )
+      const byModule = new Map<string, typeof report.records>()
+      for (const record of report.records) {
+        const list = byModule.get(record.module) ?? []
+        list.push(record)
+        byModule.set(record.module, list)
+      }
+      const sortedModules = Array.from(byModule.keys()).sort()
+      for (const moduleId of sortedModules) {
+        const list = byModule.get(moduleId)!
+        console.log('')
+        console.log(`${moduleId} (${list.length}):`)
+        for (const record of list) {
+          const marker =
+            record.status === 'pass' ? '✓' : record.status === 'fail' ? '✗' : '·'
+          const reason = record.reason ? ` — ${record.reason}` : ''
+          const mutation = record.isMutation ? ' [mutation]' : ''
+          console.log(
+            `  ${marker} ${record.tool}${mutation} (${record.durationMs}ms)${reason}`,
+          )
+        }
+      }
+      console.log('')
+    }
+
+    if (report.failed > 0) {
+      process.exitCode = 1
+    }
+  },
+}
+
 export default [
   mcpServe,
   mcpServeHttp,
@@ -295,4 +364,5 @@ export default [
   listTools,
   entityGraph,
   runPendingActionCleanup,
+  testTools,
 ]

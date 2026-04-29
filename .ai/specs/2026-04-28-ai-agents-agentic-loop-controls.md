@@ -1037,7 +1037,79 @@ Phase 6 — Token usage tracking & stats page (~3 days):
 - [ ] Integration tests `TC-AI-AGENT-USAGE-001…007`.
 - [ ] Update `packages/ai-assistant/AGENTS.md` with the new event id (`ai.token_usage.recorded`), the new worker (`workers/ai-token-usage-prune`), the new CLI (`run-token-usage-prune`), the new env var (`AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`), and the new route group (`/api/ai_assistant/usage/*`).
 
+## Extension Sequencing
+
+The unified AI framework is being built incrementally across multiple specs that share the same wrapper runtime, the same `ai_agent_runtime_overrides` table, and the same `<AiChat>` UI surface. Out-of-order implementation creates either (a) blocked migrations, (b) field-rename churn, or (c) double-built feature-gate UI. This section pins the order.
+
+### Sequence — top-to-bottom = first-to-last
+
+| #  | Spec                                                                       | Status                  | Phase deliverables                                                                                                                                | Why this order                                                                                                                                                  |
+|----|----------------------------------------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1  | `.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`     | **Implemented**         | `runAiAgentText` / `runAiAgentObject`, policy gate, mutation approvals, `<AiChat>`, `ai_pending_actions`, `ai_agent_prompt_overrides`, `ai_agent_mutation_policy_overrides`. | Foundation. Everything else extends this.                                                                                                                       |
+| 2  | `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`                 | Draft — **independent** | API-backed AI tool runner; reuses existing CRUD route handlers in-process for read tools; mutation tools through `prepareMutation` then in-process API. | Independent — touches tool implementations only. Can ship in parallel with #3 / #4. **No DB or shared-runtime changes.**                                       |
+| 3  | `.ai/specs/2026-04-27-ai-agent-attachment-processing-and-context.md`       | Draft — **independent** | Attachment processing pipeline + agent page-context resolver extensions.                                                                          | Independent — additive on top of the foundation. Can ship in parallel with #2 / #4.                                                                            |
+| 4  | **`.ai/specs/2026-04-27-ai-agents-provider-model-baseurl-overrides.md`**   | **Draft — PREREQUISITE** for #5 | Per-axis resolution chain (provider/model/baseURL); `ai_agent_runtime_overrides` table; `<MODULE>_AI_PROVIDER` / `<MODULE>_AI_BASE_URL` envs; `allowRuntimeOverride` flag (NOT `allowRuntimeModelOverride` — see Migration §); resolution telemetry on `resolveAgentModel`. | Creates the override table that #5 extends. Pins `allowRuntimeOverride` flag name. Adds `{ modelId, providerId }` to the per-turn stack the recorder in #5 needs. |
+| 5  | **`.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md`** (this spec)  | Draft                   | Phases 0–6: declarative `loop` block, per-call overrides, native callback wiring, tenant overrides + kill switch, debug surfaces, `ToolLoopAgent` engine, token-usage tracking + stats page. | Builds on #4. Phase 3 extends `ai_agent_runtime_overrides`; Phase 6 reads the resolution telemetry from `resolveAgentModel`.                                  |
+
+### Cross-spec coordination required *before* any work starts
+
+1. **Amend spec #4 to use `allowRuntimeOverride` from day one.** Today it specs the field as `allowRuntimeModelOverride`. This spec (#5) depends on the broader name. Make a one-line edit to spec #4 before either ships.
+2. **Confirm spec #4's `resolveAgentModel(...)` extension surface.** Spec #4 already promises `createModelFactory` migration. Before this spec's Phase 6 starts, spec #4 MUST commit to the per-turn return shape `{ model, modelId, providerId, baseUrl, source }` so the recorder can read provider/model from the stack rather than via a factory accessor.
+3. **Reserve the `ai_agent_runtime_overrides` columns in spec #4's migration.** Spec #4 owns `Migration<...>_ai_agent_runtime_overrides`. Spec #5's Phase 3 adds 7 nullable loop columns to the *same* table. The cleanest sequencing is: spec #4's migration creates the table with both spec's columns, all nullable; spec #5's code lights up the loop columns when its phases ship. Alternative: two migrations (spec #4 creates, spec #5 alters). The single-migration path is cheaper to maintain.
+
+### Suggested implementation rollout
+
+> All effort estimates assume one engineer, follow-the-checklist execution, and clean validation gates. Add ~30% buffer for review + integration testing.
+
+| Wave | Spec(s)                                                | Effort | Why grouped                                                                                                          |
+|------|--------------------------------------------------------|--------|----------------------------------------------------------------------------------------------------------------------|
+| **W1** | Spec #4 Phases 0–2                                    | ~3 d   | Unblock everything else. Lands `AI_DEFAULT_PROVIDER` / `AI_DEFAULT_MODEL`, per-agent `defaultProvider`, `<provider>/<model>` shorthand, baseURL plumbing. No DB changes yet. |
+| **W2** | Spec #4 Phase 4 (settings + DB)                       | ~3 d   | Lands the override table (with the Phase 6 reservation), settings UI, dispatcher query params, `allowRuntimeOverride` flag. Now this spec's Phase 3 is unblocked. |
+| **W3** | This spec — Phases 0, 1, 2                            | ~4.5 d | Land declarative `loop`, per-call overrides, callback dispatch + extended bag. Module authors can start expressing real loop policies. |
+| **W4** | This spec — Phase 6 (token usage)                     | ~3 d   | Highest-value operator surface ships. Phase 6 only needs Phase 4's `LoopTrace` collector wired (compose during W3 or fold the trace bits into W4 cheaply). |
+| **W5** | This spec — Phase 3 (operator overrides)              | ~3 d   | Once spec #4 Phase 4 has shipped W2 settings UI, drop in the loop-policy panel + 7 nullable columns. |
+| **W6** | This spec — Phase 4 (debug surfaces)                  | ~2 d   | Renders `LoopTrace` and `ai_token_usage_*` data in the playground / `<AiChat>`. Pairs with the operator UX from W5. |
+| **W7** | Specs #2 + #3 in parallel                              | ~4 d   | Independent. Ship anytime after W3 has shipped Phase 0–2 of this spec (so they can use the new loop config if they want). |
+| **W8** | This spec — Phase 5 (`ToolLoopAgent`)                 | ~2 d   | Opt-in. Defer until everything else is stable so the engine swap is observable against a known baseline. |
+
+**Total ~24.5 engineering days** for the full wave plan, with the high-value subset (W1 → W4) shippable in ~13.5 days.
+
+### Sequencing gotchas
+
+- **Don't start spec #5 Phase 3 before spec #4 Phase 4 ships.** The override table must exist or Phase 3's migration is incoherent.
+- **Don't ship spec #4 Phase 5 (call-site cleanup) without first shipping spec #5 Phase 0.** Spec #4 Phase 5 migrates `agent-runtime.resolveAgentModel` to `createModelFactory`; if spec #5 Phase 0 has not yet introduced the `loop.maxSteps` alias, that migration loses the `agent.maxSteps` fallback and the `stepCountIs(10)` default. Order: spec #5 Phase 0 → spec #4 Phase 5.
+- **Don't ship the chat-UI provider/model picker (spec #4 Phase 4) without `allowRuntimeOverride` already pinned.** If the picker honors a flag named `allowRuntimeModelOverride` and we later rename, every embedded `<AiChat>` needs an audit.
+- **Don't ship spec #5 Phase 6 without W3.** The recorder is wired into the wrapper-owned `onStepFinish` introduced in Phase 4 of this spec, which itself is triggered by infrastructure laid down in W3. The dependency graph is W3 → (W4 or W5/W6) — not W4 standalone.
+
+### What this spec OWNs vs. what it ASSUMES
+
+| OWNed by this spec                                              | ASSUMEd to exist (from prerequisite)                                  |
+|-----------------------------------------------------------------|------------------------------------------------------------------------|
+| `AiAgentDefinition.loop`, `executionEngine`                     | `AiAgentDefinition.allowRuntimeOverride`, `defaultProvider`, `defaultBaseUrl` |
+| `LoopTrace` shape; wrapper-owned `prepareStep` + `mergeStepOverrides` | `resolveAgentModel(...)` returns `{ model, modelId, providerId, baseUrl, source }` |
+| `ai_agent_runtime_overrides.loop_*` columns                     | `ai_agent_runtime_overrides` base table (`provider_id`, `model_id`, `base_url` columns) |
+| `ai_token_usage_events`, `ai_token_usage_daily` tables          | —                                                                      |
+| `ai.token_usage.recorded` event id                              | `ai.action.{confirmed,cancelled,expired}` (already shipped)            |
+| `/api/ai_assistant/usage/*` routes                              | `POST /api/ai_assistant/ai/chat` dispatcher                            |
+| `recordTokenUsage` collector + `workers/ai-token-usage-prune` worker | `ai-pending-action-cleanup` worker pattern (precedent)                |
+| Settings page Usage tab                                         | Settings page Provider/Agent tabs (from prerequisite Phase 4)          |
+
 ## Changelog
+
+### 2026-04-29 — Remediation pass + extension sequencing
+
+- Marked the provider/model/baseURL override spec as a **hard prerequisite** at the top of this spec. Added an Extension Sequencing section pinning the multi-spec rollout (W1–W8, ~24.5 engineering days; W1→W4 high-value subset ~13.5 days).
+- Added **Migration & Backward Compatibility** section consolidating the renames (`maxSteps` → `loop.maxSteps`, `conversationId` → `sessionId`, `allowRuntimeModelOverride` → `allowRuntimeOverride`), the `:597` cast removal, and the schema posture (new tables include `updated_at`; loop columns added to `ai_agent_runtime_overrides` are nullable so the spec can land independently).
+- Promoted Phase 2 from "extend" to "implement and extend" — the `generateText` / `generateObject` callback contract is documented in `agents.mdx` but not yet wired in `agent-runtime.ts`. Phase 2 must add the dispatch branch + the extended bag in one pass.
+- Corrected Phase 5 wiring: `prepareStep` is supplied via `ToolLoopAgentSettings.prepareStep` at construction, NOT through `prepareCall` (which the SDK type does not accept). Added `TC-AI-AGENT-LOOP-006` as the proof that mutations still land in `ai_pending_actions` for `tool-loop-agent` agents. Documented `repairToolCall` reachability as an engine-specific limitation.
+- Pinned `loopBudget` preset values (`tight: 3 steps / 10s / 50k tokens`, `default: agent default`, `loose: 20 steps / 120s / 500k tokens`).
+- Replaced the assumed `createModelFactory.lastResolved()` accessor with per-turn stack threading: `resolveAgentModel(...)` returns `{ model, modelId, providerId, baseUrl, source }`. The recorder reads from the stack — no global factory state.
+- Marked `recordTokenUsage` as **detached** (`void recordTokenUsage(...)` — never awaited) so token tracking cannot block the SDK loop. Documented behavior when the object-mode `usage` promise rejects (no row written; no partial-row policy).
+- Added `clientBroadcast: false` / `portalBroadcast: false` flags to the new `ai.token_usage.recorded` event declaration.
+- Fixed API path syntax to use Next.js dynamic routes (`[sessionId]` not `:sessionId`). Added explicit `openApi` + `metadata` requirements to the route checklist.
+- Added `updated_at` column to both `ai_token_usage_events` and `ai_token_usage_daily` per the standard column contract. Documented the precedent (`ai_pending_actions`).
+- Added integration-test scenario tables for `TC-AI-AGENT-LOOP-001…006` (Phases 0–5) at parity with the existing Phase 6 `TC-AI-AGENT-USAGE-001…007` scenario list.
+- Added Phase 6 checklist items for: `yarn generate`, `yarn mercato configs cache structural --all-tenants` after deploy, i18n keys (`<module>.usage.*`), `apiCall` usage in the Usage UI, deep-link preservation for `agents/` and `playground/` sub-routes during the tabbed-shell refactor.
 
 ### 2026-04-28 — Phase 6 added (token usage tracking & stats page)
 
