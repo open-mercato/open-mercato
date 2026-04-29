@@ -84,7 +84,7 @@
   "portal.signup.password.placeholder": "Elige una contraseña segura",
   "portal.signup.submit": "Crear cuenta",
   "portal.signup.submitting": "Creando cuenta…",
-  "portal.signup.success.description": "Tu cuenta ha sido creada. Ya puedes iniciar sesión.",
+  "portal.signup.success.description": "Tu cuenta ha sido creada. Por favor, revisa tu correo electrónico y verifica tu dirección para iniciar sesión.",
   "portal.signup.success.loginLink": "Ir al inicio de sesión",
   "portal.signup.success.title": "Cuenta creada",
   "portal.signup.title": "Crear cuenta",

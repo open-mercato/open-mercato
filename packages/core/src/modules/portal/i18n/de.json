@@ -84,7 +84,7 @@
   "portal.signup.password.placeholder": "Wählen Sie ein sicheres Passwort",
   "portal.signup.submit": "Konto erstellen",
   "portal.signup.submitting": "Konto wird erstellt…",
-  "portal.signup.success.description": "Ihr Konto wurde erstellt. Sie können sich jetzt anmelden.",
+  "portal.signup.success.description": "Ihr Konto wurde erstellt. Bitte überprüfen Sie Ihre E-Mail und bestätigen Sie Ihre Adresse, um sich anmelden zu können.",
   "portal.signup.success.loginLink": "Zur Anmeldung",
   "portal.signup.success.title": "Konto erstellt",
   "portal.signup.title": "Konto erstellen",

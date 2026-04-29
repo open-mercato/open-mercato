@@ -84,7 +84,7 @@
   "portal.signup.password.placeholder": "Choose a strong password",
   "portal.signup.submit": "Create Account",
   "portal.signup.submitting": "Creating account…",
-  "portal.signup.success.description": "Your account has been created. You can now log in.",
+  "portal.signup.success.description": "Your account has been created. Please check your email and verify your address to log in.",
   "portal.signup.success.loginLink": "Go to login",
   "portal.signup.success.title": "Account Created",
   "portal.signup.title": "Create Account",
