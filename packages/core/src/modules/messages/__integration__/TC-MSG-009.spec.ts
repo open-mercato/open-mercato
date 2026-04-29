@@ -20,11 +20,13 @@ import {
 async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
   await expect(locator).toBeVisible({ timeout: 10_000 });
   await expect(locator).toBeEnabled({ timeout: 10_000 });
-  await locator.click({ force: true });
-  await locator.focus();
-  await locator.press('ControlOrMeta+a');
-  await locator.press('Delete');
-  await page.keyboard.type(value);
+  // CI shard 9 (TC-MSG-009 retry trace): keyboard.type races React state commit
+  // when the inline composer mounts and applies effects in parallel, so the
+  // typed value sometimes lands and is then dropped before submit. Use
+  // locator.fill — atomic native value set + dispatched input event —
+  // followed by a hard toHaveValue gate to ensure the controlled state has
+  // committed before the caller proceeds to click submit.
+  await locator.fill(value);
   await expect(locator).toHaveValue(value, { timeout: 60_000 });
 }
 
@@ -164,6 +166,11 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       // handler, so Ctrl+Enter just inserts a newline. The composer header
       // renders a "Reply" submit button via FormHeader; .last() picks it
       // (the dropdown menu item is gone after openReplyFromHeader).
+      // Re-assert the textarea still holds the body. CI shard 9 trace shows
+      // the inline composer occasionally drops controlled state between fill
+      // and click — refilling here makes the failure mode loud (assertion
+      // error pointing at the resync) instead of a silent empty-body POST.
+      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
       await page.getByRole('button', { name: /^Reply$/i }).last().click();
       const inlineReplyResponse = await inlineReplyResponsePromise;
 
