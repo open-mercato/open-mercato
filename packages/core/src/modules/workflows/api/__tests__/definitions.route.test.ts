@@ -728,10 +728,9 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
-    test('should ignore workflowId and version on update (immutable fields)', async () => {
+    test('should ignore workflowId on update but apply user-supplied version', async () => {
       mockEm.findOne.mockResolvedValue(mockDefinition)
       const originalWorkflowId = mockDefinition.workflowId
-      const originalVersion = mockDefinition.version
 
       const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
         method: 'PUT',
@@ -746,7 +745,7 @@ describe('Workflow Definitions API', () => {
 
       expect(response.status).toBe(200)
       expect(mockDefinition.workflowId).toBe(originalWorkflowId)
-      expect(mockDefinition.version).toBe(originalVersion)
+      expect(mockDefinition.version).toBe(999)
       expect(mockDefinition.enabled).toBe(false)
     })
 
