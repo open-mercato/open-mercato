@@ -30,6 +30,8 @@ type Partition = {
   isPublic: boolean
   requiresOcr: boolean
   ocrModel: string | null
+  storageDriver: string
+  configJson: Record<string, unknown> | null
   envKey: string
   createdAt: string | null
 }
@@ -45,7 +47,18 @@ const DEFAULT_FORM = {
   isPublic: false,
   requiresOcr: true,
   ocrModel: '',
+  storageDriver: 'local',
+  s3CredentialsEnvPrefix: '',
+  s3Bucket: '',
+  s3Region: '',
+  s3Endpoint: '',
+  s3ForcePathStyle: false,
 }
+
+const STORAGE_DRIVER_OPTIONS = [
+  { value: 'local', label: 'Local filesystem' },
+  { value: 's3', label: 'Amazon S3 / S3-compatible' },
+]
 
 const OCR_MODEL_OPTIONS = [
   { value: '', label: 'Default (from environment)' },
@@ -105,6 +118,7 @@ export function AttachmentPartitionSettings() {
 
   const openDialog = React.useCallback((state: DialogState) => {
     if (state.mode === 'edit') {
+      const cfg = state.entry.configJson ?? {}
       setForm({
         code: state.entry.code,
         title: state.entry.title,
@@ -112,6 +126,12 @@ export function AttachmentPartitionSettings() {
         isPublic: state.entry.isPublic,
         requiresOcr: state.entry.requiresOcr,
         ocrModel: state.entry.ocrModel ?? '',
+        storageDriver: state.entry.storageDriver ?? 'local',
+        s3CredentialsEnvPrefix: typeof cfg.credentialsEnvPrefix === 'string' ? cfg.credentialsEnvPrefix : '',
+        s3Bucket: typeof cfg.bucket === 'string' ? cfg.bucket : '',
+        s3Region: typeof cfg.region === 'string' ? cfg.region : '',
+        s3Endpoint: typeof cfg.endpoint === 'string' ? cfg.endpoint : '',
+        s3ForcePathStyle: cfg.forcePathStyle === true,
       })
     } else {
       setForm(DEFAULT_FORM)
@@ -138,6 +158,17 @@ export function AttachmentPartitionSettings() {
     setSubmitting(true)
     setError(null)
     try {
+      const s3ConfigJson =
+        form.storageDriver === 's3'
+          ? {
+              bucket: form.s3Bucket.trim() || undefined,
+              region: form.s3Region.trim() || undefined,
+              endpoint: form.s3Endpoint.trim() || undefined,
+              forcePathStyle: form.s3ForcePathStyle || undefined,
+              credentialsEnvPrefix: form.s3CredentialsEnvPrefix.trim() || undefined,
+            }
+          : null
+
       const payload = {
         code: trimmedCode,
         title: trimmedTitle,
@@ -145,6 +176,8 @@ export function AttachmentPartitionSettings() {
         isPublic: form.isPublic,
         requiresOcr: form.requiresOcr,
         ocrModel: form.ocrModel.trim() || null,
+        storageDriver: form.storageDriver,
+        configJson: s3ConfigJson,
       }
       const method = dialog.mode === 'create' ? 'POST' : 'PUT'
       const body =
@@ -249,6 +282,15 @@ export function AttachmentPartitionSettings() {
             {row.original.requiresOcr
               ? t('common.enabled', 'Enabled')
               : t('common.disabled', 'Disabled')}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.storageDriver', 'Storage'),
+        accessorKey: 'storageDriver',
+        cell: ({ row }) => (
+          <span className="text-sm capitalize">
+            {row.original.storageDriver === 's3' ? 'S3' : row.original.storageDriver ?? 'local'}
           </span>
         ),
       },
@@ -420,6 +462,93 @@ export function AttachmentPartitionSettings() {
                 </p>
               </div>
             )}
+            <div className="space-y-2">
+              <Label htmlFor="partition-storage-driver">
+                {t('attachments.partitions.form.storageDriverLabel', 'Storage Driver')}
+              </Label>
+              <select
+                id="partition-storage-driver"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={form.storageDriver}
+                onChange={(event) => setForm((prev) => ({ ...prev, storageDriver: event.target.value }))}
+              >
+                {STORAGE_DRIVER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {form.storageDriver === 's3' && (
+              <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('attachments.partitions.form.s3ConfigTitle', 'S3 Configuration')}
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-bucket">
+                    {t('attachments.partitions.form.s3BucketLabel', 'Bucket')}
+                  </Label>
+                  <Input
+                    id="partition-s3-bucket"
+                    value={form.s3Bucket}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Bucket: event.target.value }))}
+                    placeholder="my-company-attachments"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-region">
+                    {t('attachments.partitions.form.s3RegionLabel', 'Region')}
+                  </Label>
+                  <Input
+                    id="partition-s3-region"
+                    value={form.s3Region}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Region: event.target.value }))}
+                    placeholder="us-east-1"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-endpoint">
+                    {t('attachments.partitions.form.s3EndpointLabel', 'Custom Endpoint')}
+                  </Label>
+                  <Input
+                    id="partition-s3-endpoint"
+                    value={form.s3Endpoint}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Endpoint: event.target.value }))}
+                    placeholder="https://fra1.digitaloceanspaces.com"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('attachments.partitions.form.s3EndpointHelp', 'Leave empty for AWS S3. Required for MinIO, DigitalOcean Spaces, etc.')}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border"
+                    checked={form.s3ForcePathStyle}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3ForcePathStyle: event.target.checked }))}
+                  />
+                  {t('attachments.partitions.form.s3ForcePathStyleLabel', 'Force Path Style (required for MinIO)')}
+                </label>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-creds-prefix">
+                    {t('attachments.partitions.form.s3CredsPrefixLabel', 'Credentials Env Prefix')}
+                  </Label>
+                  <Input
+                    id="partition-s3-creds-prefix"
+                    value={form.s3CredentialsEnvPrefix}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3CredentialsEnvPrefix: event.target.value }))}
+                    placeholder="OM_INTEGRATION_STORAGE_S3"
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'attachments.partitions.form.s3CredsPrefixHelp',
+                      'Reads {PREFIX}_ACCESS_KEY_ID and {PREFIX}_SECRET_ACCESS_KEY from environment variables.',
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
             {dialog ? (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <div>
@@ -434,7 +563,7 @@ export function AttachmentPartitionSettings() {
                 </code>
               </div>
             ) : null}
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
           </form>
           <DialogFooter>
             <Button variant="ghost" onClick={closeDialog}>

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { S3StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers/s3Driver'
+import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
   path: '/storage-providers/s3/signed-url',
@@ -32,6 +32,10 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   return new S3StorageDriver(creds)
 }
 
+function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
+  return key.includes(`org_${orgId}/tenant_${tenantId}/`)
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -42,6 +46,10 @@ export async function POST(req: Request) {
   const parsed = requestSchema.safeParse(json)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+  }
+
+  if (!isKeyScoped(parsed.data.key, auth.orgId, auth.tenantId)) {
+    return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
@@ -70,6 +78,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload or S3 not configured', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Key not scoped to this tenant', schema: z.object({ error: z.string() }) },
       ],
     },
   },

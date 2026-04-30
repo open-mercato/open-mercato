@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { S3StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers/s3Driver'
+import { S3StorageDriver } from '../../../../lib/s3-driver'
 import { randomUUID } from 'crypto'
 
 export const metadata = {
@@ -20,6 +20,10 @@ const responseSchema = z.object({
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload'
+}
+
+function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
+  return key.includes(`org_${orgId}/tenant_${tenantId}/`)
 }
 
 async function resolveDriver(
@@ -55,6 +59,13 @@ export async function POST(req: Request) {
   const keyOverride = form.get('key') ? String(form.get('key')) : null
   const contentTypeHeader = form.get('contentType') ? String(form.get('contentType')) : file.type || undefined
 
+  if (keyOverride !== null && !isKeyScoped(keyOverride, auth.orgId, auth.tenantId)) {
+    return NextResponse.json(
+      { error: 'Access denied: key override is not scoped to this tenant.' },
+      { status: 403 },
+    )
+  }
+
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
     return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
@@ -89,7 +100,7 @@ export const openApi: OpenApiRouteDoc = {
         contentType: 'multipart/form-data',
         schema: z.object({
           file: z.any().describe('File to upload'),
-          key: z.string().optional().describe('Optional S3 key override'),
+          key: z.string().optional().describe('Optional S3 key override (must be scoped to org/tenant)'),
           contentType: z.string().optional().describe('Optional content-type override'),
         }),
       },
@@ -97,6 +108,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing file or S3 not configured', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Key override not scoped to this tenant', schema: z.object({ error: z.string() }) },
       ],
     },
   },

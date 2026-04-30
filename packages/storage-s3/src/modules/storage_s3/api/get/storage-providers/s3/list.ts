@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { S3StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers/s3Driver'
+import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
   path: '/storage-providers/s3/list',
@@ -50,13 +50,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
   }
 
+  // Always scope list operations to the tenant namespace to prevent cross-tenant enumeration.
+  const tenantPrefix = `org_${auth.orgId}/tenant_${auth.tenantId}/`
+  const userPrefix = parsed.data.prefix
+  const effectivePrefix = userPrefix.includes(`org_${auth.orgId}/tenant_${auth.tenantId}`)
+    ? userPrefix
+    : tenantPrefix + userPrefix.replace(/^\//, '')
+
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
     return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
   }
 
   const result = await driver.listObjects(
-    parsed.data.prefix,
+    effectivePrefix,
     parsed.data.maxKeys,
     parsed.data.continuationToken,
   )
@@ -80,7 +87,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List files in S3 by prefix',
-      description: 'Returns a paginated list of S3 objects matching the given prefix.',
+      description: 'Returns a paginated list of S3 objects scoped to the authenticated tenant namespace.',
       query: querySchema,
       responses: [{ status: 200, description: 'File listing', schema: responseSchema }],
       errors: [

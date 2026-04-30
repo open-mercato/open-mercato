@@ -14,6 +14,7 @@ export const integration: IntegrationDefinition = {
   company: 'Open Mercato',
   license: 'MIT',
   tags: ['s3', 'aws', 'storage', 'minio', 'digitalocean-spaces'],
+  healthCheck: { service: 's3HealthCheck' },
   credentials: {
     fields: [
       {

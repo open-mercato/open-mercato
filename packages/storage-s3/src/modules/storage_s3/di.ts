@@ -1,13 +1,26 @@
-import { asFunction } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { S3StorageDriver } from './lib/s3-driver'
 import { createStorageService } from './lib/storage-service'
+import { s3HealthCheck } from './lib/health'
 
 type IntegrationCredentialsService = {
   resolve(integrationId: string, scope: { tenantId: string; organizationId: string }): Promise<Record<string, unknown> | null>
 }
 
 export function register(container: AppContainer) {
+  // Register the S3 storage driver with the attachments driver factory (if present).
+  // This keeps the AWS SDK entirely inside @open-mercato/storage-s3 and out of core.
+  try {
+    const factory = container.resolve('storageDriverFactory') as StorageDriverFactory
+    factory.registerDriver('s3', (config) => new S3StorageDriver(config))
+  } catch {
+    // attachments module not enabled — S3 driver won't be available for attachment partitions.
+  }
+
   container.register({
+    s3HealthCheck: asValue(s3HealthCheck),
     storageService: asFunction(
       ({ integrationCredentialsService }: { integrationCredentialsService: IntegrationCredentialsService }) => {
         // StorageService factory — builds the service lazily using credentials

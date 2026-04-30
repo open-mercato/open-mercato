@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { S3StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers/s3Driver'
+import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
   path: '/storage-providers/s3/download',
@@ -20,6 +20,10 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   return new S3StorageDriver(creds)
 }
 
+function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
+  return key.includes(`org_${orgId}/tenant_${tenantId}/`)
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -29,6 +33,10 @@ export async function GET(req: Request) {
   const key = new URL(req.url).searchParams.get('key')
   if (!key) {
     return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
+  }
+
+  if (!isKeyScoped(key, auth.orgId, auth.tenantId)) {
+    return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
@@ -69,6 +77,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing key or S3 not configured', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Key not scoped to this tenant', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'File not found', schema: z.object({ error: z.string() }) },
       ],
     },

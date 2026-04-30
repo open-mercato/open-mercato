@@ -82,6 +82,8 @@ services:
     image: localstack/localstack:latest
     container_name: mercato-localstack
     restart: unless-stopped
+    profiles:
+      - storage-s3
     ports:
       - "${LOCALSTACK_PORT:-4566}:4566"
     environment:

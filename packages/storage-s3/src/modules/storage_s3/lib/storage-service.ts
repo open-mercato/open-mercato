@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { S3StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers/s3Driver'
+import { S3StorageDriver } from './s3-driver'
 
 type TenantScope = {
   tenantId: string | null | undefined
@@ -76,7 +76,6 @@ export function createStorageService(config: S3Config): StorageService {
 
   return {
     async upload({ namespace, fileName, buffer, contentType, scope }): Promise<StorageResult> {
-      const key = buildKey(namespace, scope, fileName)
       const stored = await driver.store({
         partitionCode: namespace,
         orgId: scope.organizationId,
@@ -111,25 +110,7 @@ export function createStorageService(config: S3Config): StorageService {
       truncated: boolean
       nextContinuationToken?: string
     }> {
-      const { ListObjectsV2Command } = await import('@aws-sdk/client-s3')
-      const s3 = (driver as any).client
-      const response = await s3.send(
-        new ListObjectsV2Command({
-          Bucket: (driver as any).bucket,
-          Prefix: prefix,
-          MaxKeys: maxKeys,
-          ContinuationToken: continuationToken,
-        }),
-      )
-      return {
-        files: (response.Contents ?? []).map((obj: { Key?: string; Size?: number; LastModified?: Date }) => ({
-          key: obj.Key ?? '',
-          size: obj.Size ?? 0,
-          lastModified: obj.LastModified ?? new Date(0),
-        })),
-        truncated: response.IsTruncated ?? false,
-        nextContinuationToken: response.NextContinuationToken,
-      }
+      return driver.listObjects(prefix, maxKeys, continuationToken)
     },
 
     async toLocalPath({ key }) {

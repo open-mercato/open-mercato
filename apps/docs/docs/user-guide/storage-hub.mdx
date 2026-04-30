@@ -1,0 +1,202 @@
+---
+title: Storage Hub — S3 Integration
+description: Connect Open Mercato to Amazon S3, DigitalOcean Spaces, MinIO, or any S3-compatible provider as the storage backend for attachments and direct file operations.
+sidebar_label: Storage Hub (S3)
+---
+
+The **Storage Hub** lets you route attachment storage to a cloud object store instead of the local filesystem. Once configured, all new file uploads for an attachment partition are transparently written to S3 (or any S3-compatible service). Existing local-filesystem attachments continue to work side-by-side with no data migration required.
+
+## How it works
+
+Open Mercato uses a pluggable **storage driver** architecture. Each **attachment partition** declares which driver to use (`local` by default). When you configure S3 credentials and switch a partition's driver, all new uploads for that partition go to S3 while reads from older local-filesystem files continue to work through the `local` driver.
+
+The integration also exposes standalone S3 API endpoints that let you upload, download, delete, and pre-sign URLs for files entirely outside the attachments module — useful for custom integrations or workflows that need direct S3 access.
+
+## Prerequisites
+
+- The `storage_s3` module must be enabled. Set `OM_ENABLE_STORAGE_S3=true` in your environment and restart the app.
+- An AWS account with an S3 bucket, **or** a compatible service such as DigitalOcean Spaces, MinIO, Cloudflare R2, or Backblaze B2.
+- The `storage_providers.manage` feature enabled for your role (granted to superadmin and admin by default).
+
+## Enable the module
+
+Add the environment variable to your deployment before starting the app:
+
+```env
+OM_ENABLE_STORAGE_S3=true
+```
+
+After the first start with this flag set, the S3 integration card appears in **External Systems → Integrations**.
+
+## Step 1 — Enter S3 credentials
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the **S3 Object Storage** card.
+2. Open the **Credentials** tab and fill in the connection details.
+
+![S3 integration credentials form showing bucket, region, and access key fields](/screenshots/open-mercato-storage-s3-credentials.png)
+
+| Field | Required | Description |
+| ----- | -------- | ----------- |
+| **Access Key ID** | Yes | AWS access key ID (or equivalent for your provider) |
+| **Secret Access Key** | Yes | AWS secret access key |
+| **Region** | Yes | e.g. `us-east-1`, `eu-west-1`, `nyc3` for DigitalOcean |
+| **Bucket** | Yes | Name of the pre-created bucket |
+| **Endpoint URL** | No | Custom endpoint for non-AWS providers (see table below) |
+| **Force Path Style** | No | Required for MinIO and some self-hosted S3 services |
+
+3. Click **Save Credentials**.
+
+### Provider endpoint reference
+
+| Provider | Endpoint URL | Force Path Style |
+| -------- | ------------ | ---------------- |
+| AWS S3 | _(leave blank)_ | No |
+| DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com` | No |
+| MinIO (self-hosted) | `http://<host>:<port>` | **Yes** |
+| Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | No |
+| Backblaze B2 | `https://s3.<region>.backblazeb2.com` | No |
+
+3. Click **Save Credentials**.
+
+## Step 2 — Verify the connection
+
+After saving, open the **Health** tab and click **Check Health** to confirm the credentials are valid and the bucket is reachable.
+
+![S3 integration health tab showing a passing health check](/screenshots/open-mercato-storage-s3-health.png)
+
+If the check fails, review the error message. Common causes: wrong region, bucket does not exist, or missing `s3:PutObject` / `s3:GetObject` permissions on the IAM policy.
+
+## Step 3 — Configure an attachment partition to use S3
+
+1. Open **Settings → Attachments → Partitions**.
+2. Click **Edit** on the partition you want to move to S3 (or create a new partition).
+3. In the **Storage Driver** dropdown, select **Amazon S3**.
+4. Click **Save**.
+
+![Attachment partition settings with Storage Driver dropdown set to S3](/screenshots/open-mercato-storage-s3-partition.png)
+
+All new files uploaded to this partition from this point forward are stored in S3. The key structure used inside the bucket is:
+
+```
+<partition-code>/org_<orgId>/tenant_<tenantId>/<timestamp>_<uuid>_<filename>
+```
+
+:::info
+Existing files already uploaded to the local filesystem remain accessible and are served through the local driver. You do not need to migrate them unless you want to.
+:::
+
+## Environment-based preconfiguration
+
+If your deployment already has S3 credentials at boot time, you can skip the UI form by setting env vars:
+
+```env
+OM_ENABLE_STORAGE_S3=true
+OM_INTEGRATION_STORAGE_S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+OM_INTEGRATION_STORAGE_S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+OM_INTEGRATION_STORAGE_S3_REGION=us-east-1
+OM_INTEGRATION_STORAGE_S3_BUCKET=my-mercato-bucket
+# Optional for MinIO / DO Spaces / R2:
+# OM_INTEGRATION_STORAGE_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+# OM_INTEGRATION_STORAGE_S3_FORCE_PATH_STYLE=true
+```
+
+On first startup the module reads these vars and pre-populates the Integration Marketplace credentials so no manual configuration step is needed.
+
+## Local development with LocalStack
+
+For local development and integration testing you can run a local S3 stub using **LocalStack**. Start it alongside the other infrastructure services by enabling the `storage-s3` compose profile:
+
+```bash
+docker compose --profile storage-s3 up -d
+```
+
+Then configure your local `.env`:
+
+```env
+OM_ENABLE_STORAGE_S3=true
+OM_INTEGRATION_STORAGE_S3_ACCESS_KEY_ID=test
+OM_INTEGRATION_STORAGE_S3_SECRET_ACCESS_KEY=test
+OM_INTEGRATION_STORAGE_S3_REGION=us-east-1
+OM_INTEGRATION_STORAGE_S3_BUCKET=mercato-dev
+OM_INTEGRATION_STORAGE_S3_ENDPOINT=http://localhost:4566
+OM_INTEGRATION_STORAGE_S3_FORCE_PATH_STYLE=true
+```
+
+Create the test bucket before the first run:
+
+```bash
+aws --endpoint-url=http://localhost:4566 s3api create-bucket --bucket mercato-dev
+```
+
+:::note
+LocalStack is **not** included in the default `docker compose up`. It only starts when the `storage-s3` profile is active to keep the default dev loop lightweight.
+:::
+
+## Standalone S3 API
+
+The `storage_s3` module also exposes API endpoints for direct S3 file operations without going through the attachments module. All routes require authentication and the `storage_providers.manage` feature.
+
+All keys passed to these endpoints must be scoped to the authenticated tenant's `org_<orgId>/tenant_<tenantId>/` namespace.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/storage-providers/s3/upload` | Upload a file (multipart/form-data) |
+| `GET` | `/api/storage-providers/s3/download?key=…` | Download a file by S3 key |
+| `POST` | `/api/storage-providers/s3/signed-url` | Generate a pre-signed upload or download URL |
+| `DELETE` | `/api/storage-providers/s3/delete` | Delete a file by S3 key |
+| `GET` | `/api/storage-providers/s3/list?prefix=…` | List files by prefix (auto-scoped to tenant) |
+
+### Upload example
+
+```bash
+curl -X POST https://your-app/api/storage-providers/s3/upload \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@/path/to/document.pdf"
+```
+
+Response:
+
+```json
+{
+  "key": "uploads/org_<orgId>/tenant_<tenantId>/1714300000000_abc123_document.pdf",
+  "bucket": "my-mercato-bucket",
+  "size": 104523,
+  "contentType": "application/pdf"
+}
+```
+
+### Pre-signed URL example
+
+```bash
+curl -X POST https://your-app/api/storage-providers/s3/signed-url \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"key":"uploads/org_x/tenant_y/file.pdf","operation":"download","expiresIn":3600}'
+```
+
+Response:
+
+```json
+{
+  "url": "https://my-bucket.s3.amazonaws.com/uploads/...?X-Amz-Signature=...",
+  "expiresAt": "2026-04-28T14:00:00.000Z"
+}
+```
+
+## Access control
+
+| Feature | Grants |
+| ------- | ------ |
+| `storage_providers.manage` | Configure integration credentials, use standalone S3 API |
+
+The `storage_providers.manage` feature is granted to **superadmin** and **admin** roles by default. No additional role configuration is needed for standard setups.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| ------- | ------------ | --- |
+| Upload fails with `NoSuchBucket` | Bucket does not exist in the specified region | Create the bucket or correct the region/endpoint |
+| Upload returns 403 from S3 | IAM policy missing `s3:PutObject` | Add `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` to the policy |
+| MinIO returns `InvalidAccessKeyId` | `forcePathStyle` not set | Enable **Force Path Style** in the credentials form |
+| Attachment served as 404 after switching partition driver | File was uploaded before driver switch | The file is still on local disk — switch the partition back to `local`, or re-upload |
+| `S3 integration is not configured` error | `OM_ENABLE_STORAGE_S3` not set or credentials not saved | Verify env var and re-save credentials via Integrations |

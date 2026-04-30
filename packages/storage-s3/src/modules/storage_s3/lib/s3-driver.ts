@@ -10,7 +10,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
+import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 
 export type S3DriverConfig = {
   bucket: string

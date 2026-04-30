@@ -1,6 +1,4 @@
 export type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
 export { LocalStorageDriver } from './localDriver'
 export { LegacyPublicStorageDriver } from './legacyPublicDriver'
-export { S3StorageDriver } from './s3Driver'
-export type { S3DriverConfig } from './s3Driver'
 export { StorageDriverFactory } from './driverFactory'

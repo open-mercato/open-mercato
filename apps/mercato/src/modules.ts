@@ -44,7 +44,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
-  { id: 'storage_s3', from: '@open-mercato/storage-s3' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
@@ -55,6 +54,10 @@ export const enabledModules: ModuleEntry[] = [
 
 if (enabledModules.some((entry) => entry.id === 'example')) {
   enabledModules.push({ id: 'example_customers_sync', from: '@app' })
+}
+
+if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
+  enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
 }
 
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
