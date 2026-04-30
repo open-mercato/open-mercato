@@ -7,6 +7,7 @@ import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   Dialog,
   DialogContent,
@@ -703,16 +704,18 @@ export const createDisplayNameSection = (t: Translator) =>
   function DisplayNameSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
     const [editing, setEditing] = React.useState(false)
     const [manualOverride, setManualOverride] = React.useState(() => {
-      const current = typeof values.displayName === 'string' ? values.displayName.trim() : ''
-      return current.length > 0
+      const current = typeof values.displayName === 'string' ? values.displayName : ''
+      const firstInit = typeof values.firstName === 'string' ? values.firstName : ''
+      const lastInit = typeof values.lastName === 'string' ? values.lastName : ''
+      // Sticky-manual: treat as user-customized only when the persisted display name
+      // doesn't match the first+last derivation (matches the server-side rule in
+      // updatePersonCommand). Empty values are considered derived.
+      return !isDerivedDisplayName(current, firstInit, lastInit)
     })
 
     const first = typeof values.firstName === 'string' ? values.firstName.trim() : ''
     const last = typeof values.lastName === 'string' ? values.lastName.trim() : ''
-    const derived = React.useMemo(() => {
-      const parts = [first, last].filter((part) => !!part)
-      return parts.join(' ').trim()
-    }, [first, last])
+    const derived = React.useMemo(() => deriveDisplayName(first, last), [first, last])
 
     React.useEffect(() => {
       if (!manualOverride) {
@@ -1684,40 +1687,56 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
  * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
  * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
  */
-export const createPersonPersonalDataGroups = (t: Translator): CrudFormGroup[] => [
-  {
-    id: 'personalData',
-    title: t('customers.people.form.groups.personalData', 'Personal data'),
-    column: 1,
-    fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
-  },
-  {
-    id: 'companyRole',
-    title: t('customers.people.form.groups.companyRole', 'Company & role'),
-    column: 1,
-    fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
-  },
-  {
-    id: 'customFields',
-    title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
-    column: 1,
-    kind: 'customFields',
-  },
-  {
-    id: 'roles',
-    title: t('customers.people.form.groups.roles', 'My roles'),
-    column: 1,
-    component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? (
-        <RolesSection
-          entityType="person"
-          entityId={values.id as string}
-          entityName={typeof values.displayName === 'string' ? values.displayName : null}
-        />
-      ) : null
-    ),
-  },
-]
+export const createPersonPersonalDataGroups = (
+  t: Translator,
+  options?: { entityName?: string | null },
+): CrudFormGroup[] => {
+  const entityName = options?.entityName?.trim() || null
+  const rolesTitle = entityName
+    ? t('customers.roles.groupTitle.person', 'My roles with {{name}}', { name: entityName })
+    : t('customers.people.form.groups.roles', 'My roles')
+  return [
+    {
+      id: 'personalDataDisplay',
+      title: t('customers.people.form.groups.displayName', 'Display name'),
+      column: 1,
+      bare: true,
+      component: createDisplayNameSection(t),
+    },
+    {
+      id: 'personalData',
+      title: t('customers.people.form.groups.personalData', 'Personal data'),
+      column: 1,
+      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+    },
+    {
+      id: 'companyRole',
+      title: t('customers.people.form.groups.companyRole', 'Company & role'),
+      column: 1,
+      fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+    },
+    {
+      id: 'customFields',
+      title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
+      column: 1,
+      kind: 'customFields',
+    },
+    {
+      id: 'roles',
+      title: rolesTitle,
+      column: 1,
+      component: ({ values }: CrudFormGroupComponentProps) => (
+        values.id ? (
+          <RolesSection
+            entityType="person"
+            entityId={values.id as string}
+            entityName={typeof values.displayName === 'string' ? values.displayName : null}
+          />
+        ) : null
+      ),
+    },
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Edit-mode payload builders
