@@ -347,7 +347,17 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run integration tests
-        run: OM_TEST_APP_ROOT=/tmp/standalone-app BASE_URL=http://localhost:3001 yarn test:integration
+        env:
+          OM_TEST_APP_ROOT: /tmp/standalone-app
+          BASE_URL: http://localhost:3001
+          DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL: http://localhost:3001
+          NEXT_PUBLIC_APP_URL: http://localhost:3001
+          JWT_SECRET: ci-standalone-test-jwt-secret
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
+          MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: yarn test:integration
 
       - name: Upload test artifacts
         if: always()
