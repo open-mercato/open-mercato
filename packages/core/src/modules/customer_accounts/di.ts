@@ -5,6 +5,7 @@ import { CustomerSessionService } from '@open-mercato/core/modules/customer_acco
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 export function register(container: AppContainer) {
   container.register({ customerUserService: asClass(CustomerUserService).scoped() })
@@ -12,4 +13,5 @@ export function register(container: AppContainer) {
   container.register({ customerTokenService: asClass(CustomerTokenService).scoped() })
   container.register({ customerRbacService: asClass(CustomerRbacService).scoped() })
   container.register({ customerInvitationService: asClass(CustomerInvitationService).scoped() })
+  container.register({ domainMappingService: asClass(DomainMappingService).scoped() })
 }

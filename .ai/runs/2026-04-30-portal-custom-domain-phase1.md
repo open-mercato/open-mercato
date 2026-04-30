@@ -33,10 +33,10 @@ Or, if no PR exists yet, just tell Claude:
 | Phase 1: Entity + enums | **Done** | DomainMapping appended to data/entities.ts; type aliases for DomainProvider / DomainStatus |
 | Phase 1: Validators | **Done** | hostnameSchema (with normalizeHostname transform), registerDomainSchema |
 | Phase 1: Events + ACL + setup | **Done** | 7 events appended; `customer_accounts.domain.manage` feature added; setup.ts already has `customer_accounts.*` wildcard so no setup change needed |
-| Phase 1: domainMappingService | Not Started | full service with all methods — start here next session |
-| Phase 1: DI registration | Not Started | one-line registration in di.ts (depends on service) |
-| Phase 1: Mutation guards | Not Started | hostname-format, hostname-unique, org-limit |
-| Phase 1: Response enrichers | Not Started | directory:organization enricher |
+| Phase 1: domainMappingService | **Done** | Full service: register, verify (CNAME→A→reverse-resolve), activate (with replace auto-removal), remove, healthCheck (3 retries with backoff), resolveByHostname/Active/All, findPendingVerification, findPendingTls. Cache-aware, DI-injectable DNS resolver + health check for testability. |
+| Phase 1: DI registration | **Done** | `domainMappingService` registered in `di.ts` |
+| Phase 1: Mutation guards | **Done** | hostname-format (priority 10, normalizes via modifiedPayload), hostname-unique (priority 20, cross-tenant check), org-limit (priority 30, max 2 per org) |
+| Phase 1: Response enrichers | **Done** | `customer_accounts.domain-status:directory:organization` added — picks the primary domain (active > verified > pending > tls_failed > dns_failed) per org via batch `$in` query |
 | Phase 1: Notifications | Not Started | 4 types + client renderers |
 | Phase 1: API routes | Not Started | 10 files |
 | Phase 1: Subscribers | Not Started | 5 subscribers |
@@ -86,38 +86,38 @@ Or, if no PR exists yet, just tell Claude:
 
 ### Phase 1: domainMappingService
 
-- [ ] Create `services/domainMappingService.ts` with:
-  - [ ] Constructor: takes EM, eventBus, cacheService via DI
-  - [ ] `register(hostname, orgId, tenantId, replacesId?)` — creates entity, runs guards, emits `created`
-  - [ ] `verify(id)` — DNS verification (CNAME → A → reverse-resolve fallback chain), updates status, emits `verified` or `dns_failed`
-  - [ ] `activate(id)` — `verified` → `active`, handles replaces_domain_id auto-removal
-  - [ ] `remove(id)` — emits `deleted`, invalidates cache
-  - [ ] `resolveByHostname(hostname)` — reads cache then DB
-  - [ ] `resolveActiveByOrg(orgId)` — used by `urlForCustomerOrg`
-  - [ ] `resolveAll()` — for middleware batch warm-up
-  - [ ] `healthCheck(id)` — HTTPS GET to verify TLS, retries with backoff, emits `activated` or `tls_failed`
-  - [ ] `findPendingVerification()` — for DNS worker
-  - [ ] `findPendingTls()` — for TLS retry worker
-- [ ] All write methods call `emitCrudSideEffects` for events + cache invalidation
+- [x] Create `services/domainMappingService.ts` with:
+  - [x] Constructor: takes `EntityManager` plus optional `cacheService`, `dnsResolver`, `healthCheck` (DI-injectable for testability)
+  - [x] `register(input)` — creates entity, emits `created`, invalidates cache
+  - [x] `verify(id)` — DNS verification with full CNAME → A → reverse-resolve fallback chain, transitions to `verified` or `dns_failed`, returns diagnostics on failure
+  - [x] `activate(id)` — `verified` → `active`, handles `replacesDomain` auto-removal (emits `replaced` + `deleted` for the old row)
+  - [x] `remove(id, scope?)` — emits `deleted`, invalidates cache
+  - [x] `resolveByHostname(input)` — normalizes input, reads `@open-mercato/cache` (300s TTL, tag-based) then falls back to DB
+  - [x] `resolveActiveByOrg(orgId)` — for `urlForCustomerOrg`; same caching pattern keyed by org
+  - [x] `resolveAll()` — for middleware batch warm-up; joins org slugs via single batch query
+  - [x] `healthCheck(id)` — HTTPS GET to `/api/customer-accounts/domain-check` with 3 retries (exponential backoff 1s/4s/16s), transitions to `active` or `tls_failed` (with `tlsRetryCount` increment)
+  - [x] `findPendingVerification({ olderThanMs? })` — for DNS worker
+  - [x] `findPendingTls({ maxRetries?, batchSize? })` — for TLS retry worker
+- [x] All write methods emit lifecycle events (created/verified/dns_failed/activated/tls_failed/deleted/replaced) and invalidate cache via `cacheService.deleteByTags`. **Note**: spec mentioned `emitCrudSideEffects`, but that helper only handles standard CRUD actions (`created`/`updated`/`deleted`) and would conflate the lifecycle events. Direct event emission via `emitCustomerAccountsEvent` is the right shape here. Cache invalidation is handled in-service for predictability + via the upcoming ephemeral subscriber as defense in depth.
 
 ### Phase 1: DI registration
 
-- [ ] Register `domainMappingService` in `di.ts`
+- [x] Register `domainMappingService` in `di.ts` (scoped, like other customer_accounts services)
 
 ### Phase 1: Mutation guards
 
-- [ ] Create `data/guards.ts`:
-  - [ ] `customer_accounts.domain_mapping.hostname-format` (priority 10)
-  - [ ] `customer_accounts.domain_mapping.hostname-unique` (priority 20)
-  - [ ] `customer_accounts.domain_mapping.org-limit` (priority 30)
+- [x] Create `data/guards.ts`:
+  - [x] `customer_accounts.domain_mapping.hostname-format` (priority 10) — runs `tryNormalizeHostname` and writes the canonical form back via `modifiedPayload`
+  - [x] `customer_accounts.domain_mapping.hostname-unique` (priority 20) — uses `domainMappingService.resolveByHostname` to detect cross-tenant collisions; returns 409
+  - [x] `customer_accounts.domain_mapping.org-limit` (priority 30) — enforces max 2 domains per org (1 active + 1 pending replacement); returns 409
 
 ### Phase 1: Response enrichers
 
-- [ ] Update `data/enrichers.ts` to add `customer_accounts.domain-status:directory:organization` enricher
-  - [ ] Uses `enrichMany()` with batch `$in` query
-  - [ ] Feature-gated by `customer_accounts.domain.manage`
-  - [ ] Returns `{ _customDomain: { hostname, status } | null }`
-  - [ ] Timeout: 1000ms, critical: false
+- [x] Update `data/enrichers.ts` to add `customer_accounts.domain-status:directory:organization` enricher
+  - [x] Uses `enrichMany()` with batch `$in` query, picks the primary domain per org by status priority (active > verified > pending > tls_failed > dns_failed) then most-recent createdAt
+  - [x] Feature-gated by `customer_accounts.domain.manage`
+  - [x] Returns `{ _customDomain: { hostname, status } | null }`
+  - [x] Timeout: 1000ms, critical: false, fallback: `{ _customDomain: null }`
 
 ### Phase 1: Notifications
 
@@ -241,3 +241,38 @@ All routes export `openApi`.
 5. Implement `services/domainMappingService.ts` per the spec's Service Methods table — start with the read paths (`resolveByHostname`, `resolveActiveByOrg`, `resolveAll`, `findByOrganization`) since they're simpler, then `register` / `verify` / `activate` / `remove`, then `healthCheck` (HTTPS GET with retries) and the worker query helpers (`findPendingVerification`, `findPendingTls`).
 6. Add DI registration in `di.ts` after the service exists.
 7. Continue per the Detailed Checklist.
+
+### 2026-04-30 — Session 2
+
+**Completed:**
+- Read remaining reference patterns: `customerUserService.ts` (service constructor + EM injection), `customers/commands/labels.ts` (emitCrudSideEffects shape), `customer_accounts/data/enrichers.ts` (existing enrichers in this file), `mutation-guard-store.ts` + `mutation-guard-registry.ts` (guard contract), `packages/cache/src/types.ts` (CacheService interface), example-template `guards.ts` (guard skeleton).
+- **Phase 1 — domainMappingService**: Implemented full service at `services/domainMappingService.ts` with all 11 spec methods. Service is DI-injectable: takes `EntityManager` plus optional `cacheService`/`dnsResolver`/`healthCheck` deps so unit tests can stub DNS and TLS without real network. DNS verification implements the full CNAME → A-record → reverse-resolve fallback chain from the spec, including proxy detection via `lib/proxyRanges.ts` and a per-call HTTPS probe to verify the request actually reaches our origin (via the `X-Open-Mercato-Origin` header). `healthCheck` retries 3× with exponential backoff (1s/4s/16s) before transitioning to `tls_failed`. Cache uses tag-based invalidation (`domain_routing`, `domain_routing:{hostname}`, `domain_routing:org:{orgId}`) for resolve-by-hostname and active-by-org keys. **Spec deviation noted**: did not use `emitCrudSideEffects` because that helper only fires standard CRUD events (`created`/`updated`/`deleted`) and would conflate the 7 lifecycle events the spec defines; emitting via `emitCustomerAccountsEvent` directly is cleaner. Search indexing is opted out anyway (per rev 5 design decision 27). Also dropped `tenantSlug` from the resolve response — the `Tenant` entity has no slug column today, only a `name`. Middleware only needs `orgSlug` for the URL rewrite. Updated the spec's API contracts for this in a follow-up edit (deferred to next session — see "Next session" below).
+- **Phase 1 — DI registration**: Registered `domainMappingService` in `customer_accounts/di.ts` as a scoped service (matches other customer_accounts services).
+- **Phase 1 — Mutation guards**: Created `data/guards.ts` with the 3 guards from the spec. `hostname-format` writes the normalized canonical form back via `modifiedPayload` so the service receives the canonical input even if the route handler skipped normalization. `hostname-unique` uses the service's `resolveByHostname` to detect cross-tenant collisions. `org-limit` uses `findByOrganization` to enforce the max 2 domains per org rule.
+- **Phase 1 — Response enrichers**: Extended `data/enrichers.ts` with `customer_accounts.domain-status:directory:organization`. Uses `enrichMany` with a batch `$in` query (no N+1) and a status-priority sort to pick the primary domain per org for display.
+
+**Verification at session end:**
+- `yarn workspace @open-mercato/core run -T tsc --noEmit` — no errors in any file I touched (pre-existing `sales_return` errors persist, unrelated).
+- `yarn jest customer_accounts/lib/__tests__/` — 26 tests still passing (no regressions).
+
+**Files created (2):**
+- `packages/core/src/modules/customer_accounts/services/domainMappingService.ts`
+- `packages/core/src/modules/customer_accounts/data/guards.ts`
+
+**Files modified (2):**
+- `packages/core/src/modules/customer_accounts/di.ts` (registered `domainMappingService`)
+- `packages/core/src/modules/customer_accounts/data/enrichers.ts` (added `organizationCustomDomainEnricher`)
+
+**Spec discrepancies discovered (not yet patched in spec):**
+1. The spec's `domain-resolve` API contract returns a `tenantSlug` field, but the `Tenant` entity in `directory/data/entities.ts` has no `slug` column. The middleware doesn't actually need it. **Recommend**: drop `tenantSlug` from the `domain-resolve` response in the spec when working on the API routes next session.
+2. The spec recommends `emitCrudSideEffects` for write methods, but that helper handles only standard CRUD actions. Direct `emitCustomerAccountsEvent` calls produce the spec's intended events without artificial mapping. Worth a one-line note in the spec when next touched.
+
+**Next session — start here:**
+1. Read `packages/core/src/modules/customer_accounts/notifications.ts` and `notifications.client.ts` (full file) plus an existing notification subscriber (e.g., `subscribers/notify-staff-on-signup.ts` — name approximate, search) for the persistent-subscriber pattern.
+2. Read at least one existing CRUD admin route using `makeCrudRoute` for the API route pattern. The customers module's `api/people/route.ts` is the canonical reference per `customers/AGENTS.md`.
+3. Add the 4 notification types to `notifications.ts` and renderers to `notifications.client.ts`.
+4. Build the 5 subscribers (`invalidate-domain-cache.ts` + 4 lifecycle notifications).
+5. Build the 6 API routes (CRUD via `makeCrudRoute`, `verify`, `health-check`, `domain-check`, `domain-resolve`, `domain-resolve/all`). Remember to **omit the `indexer` field** on the CRUD route (rev 5 fix).
+6. Add i18n keys to `i18n/en.json` (and stubs in pl/de/es).
+7. Run `yarn db:generate` (creates the migration) and `yarn generate` (refreshes generated registries).
+8. Hand off Phase 1.5 (`resolveTenantContext` + `getCustomerAuthFromCookies` host binding + signup email migration + login schema relaxation) to a fresh session if context is full.
