@@ -16,7 +16,6 @@
 import * as React from 'react'
 import { Clock, Pencil, Plus, X } from 'lucide-react'
 import { IconButton } from '../primitives/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '../primitives/popover'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
   defaultSessionLabel,
@@ -41,7 +40,12 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
 
   const startRename = (session: AiChatSession) => {
     setRenamingId(session.id)
-    setDraftName(session.name ?? defaultSessionLabel(session))
+    // Pre-fill with the current name only — never the date fallback. If
+    // we pre-filled with the formatted date, blurring without typing
+    // would persist that date string as the session name, and creating
+    // a new tab a minute later would "leak" the old tab's date label
+    // onto every other unnamed tab.
+    setDraftName(session.name ?? '')
   }
 
   const commitRename = () => {
@@ -56,15 +60,22 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
   }
 
   return (
+    // Outer wrapper does NOT scroll; only the inner tabs row does. The
+    // `+` button and the history dropdown live OUTSIDE that scroll area
+    // so the dropdown's absolute positioning isn't clipped by the
+    // strip's `overflow-x-auto` (which CSS resolves to `overflow-y:auto`
+    // too once one axis is non-`visible`, making any absolutely-
+    // positioned child get cut off at the strip's bottom edge).
     <div
-      className={cn(
-        'flex items-center gap-1 overflow-x-auto px-2 pt-2 text-sm',
-        className,
-      )}
+      className={cn('flex items-center gap-1 px-2 pt-2 text-sm', className)}
       data-ai-chat-tabs=""
       role="tablist"
       aria-label="Chat sessions"
     >
+      <div
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        data-ai-chat-tabs-scroll=""
+      >
       {open.length === 0 ? (
         <span className="px-2 py-1 text-xs text-muted-foreground" data-ai-chat-tabs-empty="">
           No sessions
@@ -138,9 +149,24 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
                 size="xs"
                 aria-label="Close session"
                 title="Close session"
-                className="opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-60 data-[active=true]:hover:opacity-100"
+                // Always rendered visible (a previous opacity-0 default
+                // hid the X on non-hover and made the active-tab close
+                // button look unreachable). Closing the very last open
+                // tab is fine — `ensureSession` in the chat body's
+                // effect immediately mints a fresh empty tab so the user
+                // never sees an empty pane.
+                className={cn(
+                  'transition-opacity',
+                  isActive ? 'opacity-60 hover:opacity-100' : 'opacity-50 hover:opacity-100',
+                )}
                 data-active={isActive ? 'true' : 'false'}
+                onMouseDown={(event) => {
+                  // Prevent the parent tab button's blur logic / focus
+                  // shift from racing the close click on the active tab.
+                  event.stopPropagation()
+                }}
                 onClick={(event) => {
+                  event.preventDefault()
                   event.stopPropagation()
                   sessions.closeSession(session.id)
                 }}
@@ -152,6 +178,7 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
           )
         })
       )}
+      </div>
       <IconButton
         type="button"
         variant="ghost"
@@ -164,21 +191,84 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
       >
         <Plus className="size-4" />
       </IconButton>
-      <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
-        <PopoverTrigger asChild>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="Recent sessions"
-            title="Recent sessions"
-            data-ai-chat-history-trigger=""
-            className="shrink-0"
-          >
-            <Clock className="size-4" />
-          </IconButton>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 p-1">
+      <HistoryDropdown
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        closed={closed}
+        onPick={(sessionId) => {
+          sessions.reopenSession(sessionId)
+          setHistoryOpen(false)
+        }}
+      />
+    </div>
+  )
+}
+
+interface HistoryDropdownProps {
+  open: boolean
+  onOpenChange: (next: boolean) => void
+  closed: AiChatSession[]
+  onPick: (sessionId: string) => void
+}
+
+/**
+ * Plain absolutely-positioned dropdown for the recent-sessions list.
+ * Bypasses the Radix Popover primitive on purpose — every chat surface
+ * (dock panel, customers/catalog/launcher dialog) creates its own stacking
+ * context, and the Radix Portal'd PopoverContent kept ending up either
+ * behind the dialog or pushed off the visible area on tall sheets. A
+ * direct `position: absolute` child of the trigger button anchors the
+ * dropdown to the icon, inherits the surface's stacking context, and is
+ * predictable across the dock + every dialog host without z-index hacks.
+ */
+function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdownProps) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent | TouchEvent) => {
+      const root = containerRef.current
+      if (!root) return
+      if (event.target instanceof Node && root.contains(event.target)) return
+      onOpenChange(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpenChange(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('touchstart', onDown, { passive: true })
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('touchstart', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onOpenChange])
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Recent sessions"
+        title="Recent sessions"
+        data-ai-chat-history-trigger=""
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <Clock className="size-4" />
+      </IconButton>
+      {open ? (
+        <div
+          className="absolute right-0 top-full mt-2 w-72 max-h-[60vh] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          // Inline z-index so the dropdown sits above any host surface
+          // (chat dialog at z-[70], dock panel, modal overlays). Inline
+          // beats Tailwind JIT for arbitrary high values.
+          style={{ zIndex: 2147483000 }}
+          data-ai-chat-history-panel=""
+          role="menu"
+        >
           <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Recent sessions
           </div>
@@ -192,10 +282,8 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
                 <button
                   key={session.id}
                   type="button"
-                  onClick={() => {
-                    sessions.reopenSession(session.id)
-                    setHistoryOpen(false)
-                  }}
+                  role="menuitem"
+                  onClick={() => onPick(session.id)}
                   className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
                   data-ai-chat-history-item={session.id}
                 >
@@ -212,8 +300,8 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
               ))}
             </div>
           )}
-        </PopoverContent>
-      </Popover>
+        </div>
+      ) : null}
     </div>
   )
 }

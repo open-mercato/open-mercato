@@ -315,8 +315,21 @@ export async function resolveAiAgentTools(
     }
 
     try {
+      // Decide whether this mutation tool needs the prepareMutation gate
+      // for the effective policy:
+      //   - `confirm-required`: every mutation gates.
+      //   - `destructive-confirm-required`: only tools flagged
+      //     `isDestructive: true` gate; non-destructive mutations
+      //     (creates, comments, idempotent updates) run directly.
+      //   - `read-only`: covered above by `canInterceptMutations`.
+      const requiresApproval =
+        record.isMutation === true &&
+        canInterceptMutations &&
+        (effectiveMutationPolicy === 'confirm-required' ||
+          (effectiveMutationPolicy === 'destructive-confirm-required' &&
+            record.isDestructive === true))
       const mutationOptions: MutationInterceptorOptions | null =
-        record.isMutation === true && canInterceptMutations && input.container
+        requiresApproval && input.container
           ? {
               agent,
               tool: record,

@@ -59,6 +59,7 @@ import configurationAiTools from './ai-tools/configuration-pack'
 import merchandisingAiTools from './ai-tools/merchandising-pack'
 import authoringAiTools from './ai-tools/authoring-pack'
 import mutationAiTools from './ai-tools/mutation-pack'
+import statsAiTools from './ai-tools/stats-pack'
 import type { CatalogAiToolDefinition } from './ai-tools/types'
 
 export const aiTools: CatalogAiToolDefinition[] = [
@@ -71,6 +72,7 @@ export const aiTools: CatalogAiToolDefinition[] = [
   ...merchandisingAiTools,
   ...authoringAiTools,
   ...mutationAiTools,
+  ...statsAiTools,
 ]
 
 export default aiTools

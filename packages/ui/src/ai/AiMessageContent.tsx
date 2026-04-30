@@ -288,56 +288,186 @@ function tryParseRecordCard(
 }
 
 /**
+ * Recognise an `open-mercato:<kind> { ... }` token the model emitted
+ * WITHOUT triple backticks and pull the JSON object out by counting
+ * matching braces. Returns the parsed payload + the slice that should be
+ * removed from the surrounding text.
+ *
+ * Models routinely drop the fence on this pattern (especially when the
+ * card is one of many in a list) and the fallback renders the line as
+ * plain prose, which is the user-visible bug we are guarding against.
+ */
+function tryParseFencelessRecordCard(
+  text: string,
+  startInfoIndex: number,
+): { payload: RecordCardPayload; rawStart: number; rawEnd: number } | null {
+  const infoPrefix = text.slice(startInfoIndex)
+  if (!infoPrefix.startsWith(RECORD_CARD_FENCE_INFO_PREFIX)) return null
+  // Read the kind up to the first whitespace, brace, or end-of-line.
+  const afterPrefix = startInfoIndex + RECORD_CARD_FENCE_INFO_PREFIX.length
+  let kindEnd = afterPrefix
+  while (kindEnd < text.length) {
+    const ch = text[kindEnd]
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '{') break
+    kindEnd += 1
+  }
+  const kind = coerceKind(text.slice(afterPrefix, kindEnd))
+  if (!kind) return null
+  // Skip whitespace/newlines until we find the opening brace.
+  let braceStart = kindEnd
+  while (braceStart < text.length) {
+    const ch = text[braceStart]
+    if (ch === '{') break
+    if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') return null
+    braceStart += 1
+  }
+  if (braceStart >= text.length || text[braceStart] !== '{') return null
+  // Walk forward counting brace depth, respecting strings.
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let braceEnd = -1
+  for (let i = braceStart; i < text.length; i += 1) {
+    const ch = text[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') { escaped = true; continue }
+      if (ch === '"') { inString = false; continue }
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) { braceEnd = i + 1; break }
+    }
+  }
+  if (braceEnd < 0) return null
+  const jsonSlice = text.slice(braceStart, braceEnd)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonSlice)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const payload = normalizeRecordPayload(kind, parsed as Record<string, unknown>)
+  if (!payload) return null
+  return { payload, rawStart: startInfoIndex, rawEnd: braceEnd }
+}
+
+/**
+ * Walk through a markdown segment and pull every `open-mercato:<kind>
+ * { ... }` token (whether or not the model wrapped it in backticks) into
+ * a record-card segment. Trailing/leading whitespace around the lifted
+ * card is normalised so the surrounding prose stays clean.
+ */
+function liftFencelessCards(text: string): AiMessageContentSegment[] {
+  const out: AiMessageContentSegment[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    const next = text.indexOf(RECORD_CARD_FENCE_INFO_PREFIX, cursor)
+    if (next < 0) break
+    const recovered = tryParseFencelessRecordCard(text, next)
+    if (!recovered) {
+      // Skip this occurrence to avoid an infinite loop.
+      cursor = next + RECORD_CARD_FENCE_INFO_PREFIX.length
+      continue
+    }
+    if (recovered.rawStart > cursor) {
+      const head = text.slice(cursor, recovered.rawStart)
+      if (head.trim().length > 0 || head.length > 0) {
+        // Keep whitespace so list separators between cards survive.
+        out.push({ kind: 'markdown', text: head })
+      }
+    }
+    out.push({
+      kind: 'record-card',
+      payload: recovered.payload,
+      raw: text.slice(recovered.rawStart, recovered.rawEnd),
+    })
+    cursor = recovered.rawEnd
+  }
+  if (cursor < text.length) {
+    out.push({ kind: 'markdown', text: text.slice(cursor) })
+  }
+  return out.length > 0 ? out : [{ kind: 'markdown', text }]
+}
+
+/**
  * Split assistant text into ordered segments: markdown chunks interleaved
  * with parsed record-card payloads. Open / closing fences are matched
  * greedily — an unterminated fence is treated as still-in-flight markdown
- * (so partial streaming output never renders a half-built card).
+ * (so partial streaming output never renders a half-built card). After
+ * the fence pass, any remaining markdown segment is scanned for
+ * `open-mercato:<kind> { ... }` tokens the model emitted without
+ * backticks (a common LLM drift) and those are lifted into card segments
+ * as well.
  */
 export function parseAiContentSegments(content: string): AiMessageContentSegment[] {
   if (!content) return []
   const fences = findFences(content)
+  const fenceSegments: AiMessageContentSegment[] = []
   if (fences.length === 0) {
-    return [{ kind: 'markdown', text: content }]
+    fenceSegments.push({ kind: 'markdown', text: content })
+  } else {
+    let cursor = 0
+    for (const fence of fences) {
+      if (!fence.info.startsWith(RECORD_CARD_FENCE_INFO_PREFIX)) {
+        // Plain code fence — leave it for the markdown renderer.
+        continue
+      }
+      if (!fence.closed) {
+        // Streaming a card body: keep the leading text rendered, swallow the
+        // half-arrived block until it closes.
+        if (fence.start > cursor) {
+          fenceSegments.push({ kind: 'markdown', text: content.slice(cursor, fence.start) })
+        }
+        cursor = content.length
+        break
+      }
+      if (fence.start > cursor) {
+        fenceSegments.push({ kind: 'markdown', text: content.slice(cursor, fence.start) })
+      }
+      const payload = tryParseRecordCard(fence.info, fence.body)
+      if (payload) {
+        fenceSegments.push({
+          kind: 'record-card',
+          payload,
+          raw: content.slice(fence.start, fence.end),
+        })
+      } else {
+        fenceSegments.push({
+          kind: 'invalid-card',
+          info: fence.info,
+          raw: content.slice(fence.start, fence.end),
+        })
+      }
+      cursor = fence.end
+    }
+    if (cursor < content.length) {
+      fenceSegments.push({ kind: 'markdown', text: content.slice(cursor) })
+    }
   }
-  const segments: AiMessageContentSegment[] = []
-  let cursor = 0
-  for (const fence of fences) {
-    if (!fence.info.startsWith(RECORD_CARD_FENCE_INFO_PREFIX)) {
-      // Plain code fence — leave it for the markdown renderer.
+  // Recovery pass: lift fenceless `open-mercato:<kind> { ... }` tokens out
+  // of any remaining markdown segments. The model often forgets the
+  // triple-backtick wrapper, especially when emitting many cards in a row.
+  const out: AiMessageContentSegment[] = []
+  for (const segment of fenceSegments) {
+    if (segment.kind !== 'markdown') {
+      out.push(segment)
       continue
     }
-    if (!fence.closed) {
-      // Streaming a card body: keep the leading text rendered, swallow the
-      // half-arrived block until it closes.
-      if (fence.start > cursor) {
-        segments.push({ kind: 'markdown', text: content.slice(cursor, fence.start) })
-      }
-      cursor = content.length
-      break
+    if (!segment.text.includes(RECORD_CARD_FENCE_INFO_PREFIX)) {
+      out.push(segment)
+      continue
     }
-    if (fence.start > cursor) {
-      segments.push({ kind: 'markdown', text: content.slice(cursor, fence.start) })
-    }
-    const payload = tryParseRecordCard(fence.info, fence.body)
-    if (payload) {
-      segments.push({
-        kind: 'record-card',
-        payload,
-        raw: content.slice(fence.start, fence.end),
-      })
-    } else {
-      segments.push({
-        kind: 'invalid-card',
-        info: fence.info,
-        raw: content.slice(fence.start, fence.end),
-      })
-    }
-    cursor = fence.end
+    out.push(...liftFencelessCards(segment.text))
   }
-  if (cursor < content.length) {
-    segments.push({ kind: 'markdown', text: content.slice(cursor) })
-  }
-  return segments
+  return out
 }
 
 export interface AiMessageContentProps {

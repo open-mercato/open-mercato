@@ -20,6 +20,8 @@ import type {
   AiResolvedAttachmentPart,
 } from './attachment-bridge-types'
 import { resolveAiAgentTools, AgentPolicyError } from './agent-tools'
+import { resolveEffectiveMutationPolicy } from './agent-policy'
+import { toolRegistry } from './tool-registry'
 import {
   attachmentPartsToUiFileParts,
   resolveAttachmentPartsForAgent,
@@ -319,6 +321,113 @@ function appendAttachmentSummary(
 }
 
 /**
+ * Builds a runtime "MUTATION POLICY (RUNTIME)" block describing the
+ * EFFECTIVE policy for this turn — what the model should expect when it
+ * calls each whitelisted mutation tool. Generated dynamically because:
+ *
+ *   - the agent's static prompt cannot know which per-tenant override is
+ *     in force (`destructive-confirm-required` flips most writes to
+ *     run-direct) and would otherwise mislead the operator with stale
+ *     "this requires approval" copy;
+ *   - the per-tool `isDestructive` flag determines whether each
+ *     whitelisted write goes through the approval card or runs inline.
+ *
+ * Without this block, the model parrots its hardcoded "always route
+ * through the approval card" prompt language and tells the user "your
+ * change is awaiting approval" when in fact the dispatcher already
+ * applied the change directly. The injected block flips the model to
+ * report results accurately ("applied", "pending your approval", or
+ * "blocked because read-only") tool-by-tool.
+ */
+function buildRuntimeMutationPolicySection(
+  agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
+  mutationPolicyOverride: string | null,
+): string | null {
+  const effective = resolveEffectiveMutationPolicy(
+    (agent.mutationPolicy ?? null) as never,
+    (mutationPolicyOverride ?? null) as never,
+    agent.id,
+  )
+  const lines: string[] = []
+  lines.push('MUTATION POLICY (RUNTIME)')
+  lines.push(`Declared agent policy: ${agent.mutationPolicy ?? 'read-only'}.`)
+  if (mutationPolicyOverride && mutationPolicyOverride !== agent.mutationPolicy) {
+    lines.push(`Tenant override active: ${mutationPolicyOverride}.`)
+  }
+  lines.push(`Effective policy: ${effective}.`)
+
+  // Bucket the agent's allowlisted tools into "gated" / "direct" / "blocked"
+  // so the model can phrase outcomes correctly per tool.
+  const direct: string[] = []
+  const gated: string[] = []
+  const blocked: string[] = []
+  for (const toolName of agent.allowedTools) {
+    const tool = toolRegistry.getTool(toolName) as
+      | { isMutation?: boolean; isDestructive?: boolean }
+      | undefined
+    if (!tool || tool.isMutation !== true) continue
+    if (effective === 'read-only') {
+      blocked.push(toolName)
+      continue
+    }
+    if (effective === 'confirm-required') {
+      gated.push(toolName)
+      continue
+    }
+    // destructive-confirm-required
+    if (tool.isDestructive === true) gated.push(toolName)
+    else direct.push(toolName)
+  }
+
+  if (direct.length === 0 && gated.length === 0 && blocked.length === 0) {
+    // Read-only agent with no mutation tools — no runtime policy block needed.
+    return null
+  }
+  if (direct.length > 0) {
+    lines.push('')
+    lines.push(
+      `Tools that WILL RUN DIRECTLY (no approval card, no pending action) under the effective policy: ${direct.join(', ')}.`,
+    )
+    lines.push(
+      'When you call any of these and the call returns successfully, the change has ALREADY BEEN APPLIED. Report it in the past tense ("Updated …", "Added …", "Created …"). Do NOT tell the operator the action is "pending your approval" or "awaiting confirmation" — that would be a false statement under the current policy.',
+    )
+  }
+  if (gated.length > 0) {
+    lines.push('')
+    lines.push(
+      `Tools that REQUIRE APPROVAL under the effective policy: ${gated.join(', ')}.`,
+    )
+    lines.push(
+      'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.',
+    )
+  }
+  if (blocked.length > 0) {
+    lines.push('')
+    lines.push(
+      `Tools that are BLOCKED under the effective policy (read-only): ${blocked.join(', ')}.`,
+    )
+    lines.push(
+      'Calls to these tools are refused before the handler runs. Do not attempt them; instead direct the operator to the matching backoffice page or to switch the tenant policy if they have permission.',
+    )
+  }
+  lines.push('')
+  lines.push(
+    'This RUNTIME policy block always wins over any conflicting "approval card" language earlier in the prompt — the static prompt is written for the most restrictive case but real behavior depends on the per-call policy described here.',
+  )
+  return lines.join('\n')
+}
+
+function appendRuntimeMutationPolicy(
+  systemPrompt: string,
+  agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
+  mutationPolicyOverride: string | null,
+): string {
+  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride)
+  if (!block) return systemPrompt
+  return `${systemPrompt}\n\n${block}`
+}
+
+/**
  * Server-side helper that runs an Open Mercato agent in chat mode via the
  * Vercel AI SDK and returns a streaming `Response` ready to be emitted from a
  * route handler. Shares the same policy gate and tool resolution path as the
@@ -364,7 +473,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.authContext.tenantId,
     input.authContext.organizationId,
   )
-  const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
+  const systemPrompt = appendRuntimeMutationPolicy(
+    appendAttachmentSummary(baseSystemPrompt, resolvedAttachments),
+    agent,
+    mutationPolicyOverride,
+  )
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
   const normalizedMessages = ensureUiMessageShape(input.messages)
@@ -543,7 +656,11 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.authContext.tenantId,
     input.authContext.organizationId,
   )
-  const systemPrompt = appendAttachmentSummary(baseSystemPrompt, resolvedAttachments)
+  const systemPrompt = appendRuntimeMutationPolicy(
+    appendAttachmentSummary(baseSystemPrompt, resolvedAttachments),
+    agent,
+    mutationPolicyOverride,
+  )
 
   const { model } = resolveAgentModel(agent, input.modelOverride)
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))

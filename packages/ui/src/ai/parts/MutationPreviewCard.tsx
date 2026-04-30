@@ -78,7 +78,33 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       endpoint: props.endpoint,
     })
     if (!result.ok) {
+      // Network / timeout / 4xx / 5xx — surface the envelope and rewind the
+      // card to the preview phase so the operator can read the error,
+      // edit the proposal upstream, or retry.
       setConfirmError(result.error)
+      setPhase('preview')
+      await refresh()
+      return
+    }
+    // HTTP 200 path. The dispatcher returns `ok: false` AND a populated
+    // `mutationResult.error` when the wrapped tool handler failed inside
+    // the confirm route — the row is already in a terminal state but the
+    // overall HTTP call succeeded. Treat that as a confirm error too so
+    // the alert renders inline instead of leaving the card on the
+    // generic "applying…" spinner forever.
+    const handlerError = result.data?.mutationResult?.error
+    if (result.data?.ok === false || handlerError) {
+      const mappedCode =
+        typeof handlerError?.code === 'string' && handlerError.code.length > 0
+          ? handlerError.code
+          : 'execution_failed'
+      setConfirmError({
+        status: 200,
+        code: mappedCode,
+        message:
+          handlerError?.message ??
+          'The mutation handler reported an error. Review the details and re-propose if needed.',
+      })
     }
     await refresh()
   }, [pendingActionId, phase, props.endpoint, refresh])

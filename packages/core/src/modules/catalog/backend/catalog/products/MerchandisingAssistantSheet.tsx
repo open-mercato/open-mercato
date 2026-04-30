@@ -31,11 +31,17 @@
  */
 
 import * as React from 'react'
-import { ChevronDown, FileText, Package, PanelRightOpen, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
+import { Boxes, ChevronDown, FileText, Package, PanelRightOpen, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
+// Side-effect import: registers the `catalog.stats-card` UI part on the
+// global registry the first time this client bundle loads. Tools that
+// emit `{ uiPart: { componentId: 'catalog.stats-card' } }` envelopes
+// (catalog.show_stats today; user-defined tools tomorrow) automatically
+// resolve to the card without dispatcher changes.
+import '../../../components/CatalogStatsCard'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -121,6 +127,17 @@ function useMerchandisingSuggestions(
       ]
     }
     return [
+      {
+        label: t(
+          'catalog.merchandising_assistant.suggestions.showStats',
+          'Show catalog overview',
+        ),
+        // Triggers the `catalog.show_stats` tool, which returns the inline
+        // catalog-stats UI part (live counts of products, active products,
+        // categories, tags). Demo entry-point for the dynamic UI-part path.
+        prompt: 'Show me a quick catalog overview using the stats card.',
+        icon: <Boxes className="size-4" />,
+      },
       {
         label: t(
           'catalog.merchandising_assistant.suggestions.browseProducts',

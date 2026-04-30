@@ -24,6 +24,7 @@
 import * as React from 'react'
 import {
   Bot,
+  Boxes,
   HelpCircle,
   Lightbulb,
   Loader2,
@@ -360,29 +361,56 @@ export function AiAssistantLauncher({
   const writesBadge = t('ai_assistant.launcher.writesBadge', 'Can write')
 
   const launcherSuggestions = React.useMemo<AiChatSuggestion[]>(
-    () => [
-      {
-        label: t('ai_assistant.launcher.welcome.suggestion1', 'What can you help me with?'),
-        prompt: 'What can you help me with on this tenant?',
-        icon: <Sparkles className="size-4" />,
-      },
-      {
-        label: t('ai_assistant.launcher.welcome.suggestion2', 'Show what data you can access'),
-        prompt: 'Describe the data you can read for this tenant — entities, fields, and limits.',
-        icon: <Bot className="size-4" />,
-      },
-      {
-        label: t('ai_assistant.launcher.welcome.suggestion3', 'Suggest things to try'),
-        prompt: 'Suggest five concrete questions I could ask you that would surface useful insights for this tenant.',
-        icon: <Lightbulb className="size-4" />,
-      },
-      {
-        label: t('ai_assistant.launcher.welcome.suggestion4', 'How do I use this assistant?'),
-        prompt: 'Walk me through how to use this assistant: when to ask, what tools you call, and how confirmations work.',
-        icon: <HelpCircle className="size-4" />,
-      },
-    ],
-    [t],
+    () => {
+      const generic: AiChatSuggestion[] = [
+        {
+          label: t('ai_assistant.launcher.welcome.suggestion1', 'What can you help me with?'),
+          prompt: 'What can you help me with on this tenant?',
+          icon: <Sparkles className="size-4" />,
+        },
+        {
+          label: t('ai_assistant.launcher.welcome.suggestion2', 'Show what data you can access'),
+          prompt: 'Describe the data you can read for this tenant — entities, fields, and limits.',
+          icon: <Bot className="size-4" />,
+        },
+        {
+          label: t('ai_assistant.launcher.welcome.suggestion3', 'Suggest things to try'),
+          prompt:
+            'Suggest five concrete questions I could ask you that would surface useful insights for this tenant.',
+          icon: <Lightbulb className="size-4" />,
+        },
+        {
+          label: t('ai_assistant.launcher.welcome.suggestion4', 'How do I use this assistant?'),
+          prompt:
+            'Walk me through how to use this assistant: when to ask, what tools you call, and how confirmations work.',
+          icon: <HelpCircle className="size-4" />,
+        },
+      ]
+      // Agent-specific entry-points. The launcher is the only chat surface
+      // that's page-agnostic, so we tailor suggestions per active agent
+      // here instead of embedding hard-coded prompts in every per-page
+      // widget. Catalog agents get the dynamic-UI-part demo prompt that
+      // surfaces the inline `catalog.stats-card`.
+      const isCatalog =
+        activeAgent?.id === 'catalog.catalog_assistant' ||
+        activeAgent?.id === 'catalog.merchandising_assistant' ||
+        activeAgent?.moduleId === 'catalog'
+      if (isCatalog) {
+        return [
+          {
+            label: t(
+              'ai_assistant.launcher.welcome.catalogStats',
+              'Show catalog overview',
+            ),
+            prompt: 'Show me a quick catalog overview using the stats card.',
+            icon: <Boxes className="size-4" />,
+          },
+          ...generic,
+        ]
+      }
+      return generic
+    },
+    [t, activeAgent],
   )
 
   // The launcher is page-agnostic — it has no record-level context to pin.

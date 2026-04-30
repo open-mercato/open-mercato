@@ -38,6 +38,7 @@ import {
   useAiChat,
   type AiChatMessage,
   type AiChatMessageFile,
+  type AiChatMessageUiPart,
   type AiChatToolCallSnapshot,
 } from './useAiChat'
 import { useAiChatUpload } from './useAiChatUpload'
@@ -391,7 +392,15 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
   )
 }
 
-function MessageRow({ message }: { message: AiChatMessage }) {
+function MessageRow({
+  message,
+  registry,
+  onMutationRequested,
+}: {
+  message: AiChatMessage
+  registry?: AiUiPartRegistry
+  onMutationRequested?: (pendingActionId: string) => void
+}) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
   const label = isAssistant
@@ -508,7 +517,41 @@ function MessageRow({ message }: { message: AiChatMessage }) {
           <ToolCallList toolCalls={message.toolCalls} />
         ) : null}
         <MessageContent content={message.content} isAssistant={isAssistant} />
+        {isAssistant && registry && message.uiParts && message.uiParts.length > 0 ? (
+          <MessageUiParts
+            parts={message.uiParts}
+            registry={registry}
+            onMutationRequested={onMutationRequested}
+          />
+        ) : null}
       </div>
+    </div>
+  )
+}
+
+function MessageUiParts({
+  parts,
+  registry,
+  onMutationRequested,
+}: {
+  parts: AiChatMessageUiPart[]
+  registry: AiUiPartRegistry
+  onMutationRequested?: (pendingActionId: string) => void
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2" data-ai-message-ui-parts="">
+      {parts.map((part) => (
+        <AiUiPartRenderer
+          key={part.key}
+          part={{
+            componentId: part.componentId as AiUiPartComponentId,
+            payload: part.payload,
+            pendingActionId: part.pendingActionId,
+          }}
+          registry={registry}
+          onMutationRequested={onMutationRequested}
+        />
+      ))}
     </div>
   )
 }
@@ -965,7 +1008,12 @@ export function AiChat({
           />
         ) : (
           chat.messages.map((message) => (
-            <MessageRow key={message.id} message={message} />
+            <MessageRow
+              key={message.id}
+              message={message}
+              registry={activeRegistry}
+              onMutationRequested={onMutationRequested}
+            />
           ))
         )}
         {uiParts.map((part, index) => (

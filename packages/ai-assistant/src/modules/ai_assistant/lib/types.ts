@@ -102,6 +102,22 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
    */
   isBulk?: boolean
   /**
+   * Marks a mutation as destructive. Honored by the agent's
+   * `mutationPolicy` gate:
+   *
+   *   - `read-only`               → tool blocked (regardless of this flag).
+   *   - `confirm-required`        → every mutation requires approval (this
+   *                                 flag is ignored — every write gates).
+   *   - `destructive-confirm-required` → ONLY tools with `isDestructive: true`
+   *                                 require approval. Non-destructive
+   *                                 mutations (creates, idempotent updates,
+   *                                 comments, etc.) execute directly.
+   *
+   * Default `false`. Tool authors that delete data, change ownership, or
+   * trigger irreversible side-effects MUST set this to `true`.
+   */
+  isDestructive?: boolean
+  /**
    * Optional single-record before-snapshot resolver used by `prepareMutation`
    * to compute a `fieldDiff[]` against the proposed patch in `toolCallArgs`.
    * When absent, the preview card ships with `fieldDiff: []` and a

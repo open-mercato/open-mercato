@@ -25,6 +25,14 @@ export interface AiChatToolCallSnapshot {
   errorMessage?: string
 }
 
+export interface AiChatMessageUiPart {
+  componentId: string
+  payload?: unknown
+  pendingActionId?: string
+  /** Stable id used as React key when rendering. */
+  key: string
+}
+
 export interface AiChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -33,6 +41,16 @@ export interface AiChatMessage {
   reasoning?: string
   reasoningStreaming?: boolean
   toolCalls?: AiChatToolCallSnapshot[]
+  /**
+   * UI parts emitted by the agent during this message's lifecycle. Today
+   * the only producer is `prepareMutation` (mutation approval flow):
+   * the dispatcher's mutation tool returns an `awaiting-confirmation`
+   * envelope, useAiChat parses it and attaches a `mutation-preview-card`
+   * part here so AiChat can render the approval card inline. Phase 3
+   * WS-C wiring — without this, the `MutationPreviewCard` registered in
+   * the UI-part registry never surfaces.
+   */
+  uiParts?: AiChatMessageUiPart[]
 }
 
 export interface UseAiChatInput {
@@ -211,10 +229,120 @@ interface AssistantBuilderState {
   reasoning: string
   reasoningStreaming: boolean
   toolCalls: AiChatToolCallSnapshot[]
+  uiParts: AiChatMessageUiPart[]
 }
 
 function createBuilder(): AssistantBuilderState {
-  return { text: '', reasoning: '', reasoningStreaming: false, toolCalls: [] }
+  return { text: '', reasoning: '', reasoningStreaming: false, toolCalls: [], uiParts: [] }
+}
+
+/**
+ * Generic extractor for UI parts emitted by tool outputs. A tool can
+ * surface inline UI to the chat by returning JSON in any of these
+ * shapes — each tool call produces zero or more UI parts:
+ *
+ *   1. The dispatcher's mutation envelope:
+ *        `{ status: 'awaiting-confirmation', pendingActionId, expiresAt,
+ *           agent, toolName, message }`
+ *      → synthesizes a `mutation-preview-card` part (the registered
+ *        card fetches the live diff via `useAiPendingActionPolling`).
+ *
+ *   2. A single explicit UI part:
+ *        `{ uiPart: { componentId, payload?, pendingActionId? } }`
+ *
+ *   3. Multiple explicit UI parts:
+ *        `{ uiParts: [{ componentId, payload? }, ...] }`
+ *
+ * Tool authors only need to JSON-encode an object whose `uiPart` /
+ * `uiParts` reference component ids that the host has registered on
+ * `defaultAiUiPartRegistry` (or a scoped registry passed through
+ * `<AiChat registry={...}/>`). Unknown component ids fall back to the
+ * `UnknownUiPartPlaceholder` so an unregistered id never blows up the
+ * transcript.
+ */
+function extractUiPartsFromOutput(
+  output: unknown,
+  toolCallId: string,
+): AiChatMessageUiPart[] {
+  let parsed: unknown = output
+  if (typeof output === 'string') {
+    const trimmed = output.trim()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return []
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch {
+      return []
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return []
+  const value = parsed as Record<string, unknown>
+  const parts: AiChatMessageUiPart[] = []
+
+  // (1) Mutation approval envelope. The dispatcher's `prepareMutation`
+  // interceptor in `agent-tools.ts` formats the result via
+  // `formatPendingActionToolResult` as
+  //   { status: 'pending-confirmation', agentId, toolName, pendingActionId,
+  //     expiresAt, message }
+  // (NOTE: status is `pending-confirmation` and the field is `agentId`,
+  // not `agent`). We also accept `awaiting-confirmation` / `agent` for
+  // forward compat with older / alternative dispatchers.
+  if (value.status === 'pending-confirmation' || value.status === 'awaiting-confirmation') {
+    const pendingActionId =
+      typeof value.pendingActionId === 'string' && value.pendingActionId.length > 0
+        ? value.pendingActionId
+        : null
+    if (pendingActionId) {
+      const agentId =
+        typeof value.agentId === 'string'
+          ? value.agentId
+          : typeof value.agent === 'string'
+            ? value.agent
+            : undefined
+      parts.push({
+        componentId: 'mutation-preview-card',
+        pendingActionId,
+        payload: {
+          pendingActionId,
+          expiresAt: typeof value.expiresAt === 'string' ? value.expiresAt : undefined,
+          agentId,
+          toolName: typeof value.toolName === 'string' ? value.toolName : undefined,
+        },
+        key: `${toolCallId}:mutation-preview-card`,
+      })
+    }
+  }
+
+  // (2) Explicit single UI part.
+  if (value.uiPart && typeof value.uiPart === 'object') {
+    const part = value.uiPart as Record<string, unknown>
+    if (typeof part.componentId === 'string' && part.componentId.length > 0) {
+      parts.push({
+        componentId: part.componentId,
+        payload: part.payload,
+        pendingActionId:
+          typeof part.pendingActionId === 'string' ? part.pendingActionId : undefined,
+        key: `${toolCallId}:${part.componentId}`,
+      })
+    }
+  }
+
+  // (3) Explicit list of UI parts.
+  if (Array.isArray(value.uiParts)) {
+    value.uiParts.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return
+      const part = entry as Record<string, unknown>
+      if (typeof part.componentId !== 'string' || part.componentId.length === 0) return
+      parts.push({
+        componentId: part.componentId,
+        payload: part.payload,
+        pendingActionId:
+          typeof part.pendingActionId === 'string' ? part.pendingActionId : undefined,
+        key: `${toolCallId}:${index}:${part.componentId}`,
+      })
+    })
+  }
+
+  return parts
 }
 
 function updateToolCall(
@@ -281,11 +409,30 @@ function applyChunk(
         input: chunk.input,
         state: 'pending',
       })
-    case 'tool-output-available':
-      return updateToolCall(state, String(chunk.toolCallId ?? ''), {
+    case 'tool-output-available': {
+      const toolCallId = String(chunk.toolCallId ?? '')
+      const next = updateToolCall(state, toolCallId, {
         output: chunk.output,
         state: 'complete',
       })
+      // Phase 3 WS-C — surface ANY UI parts the tool output advertises:
+      // the legacy `awaiting-confirmation` mutation envelope plus the
+      // generic `{ uiPart }` / `{ uiParts: [...] }` shapes. This lets
+      // module authors define their own dynamic cards (stats panels,
+      // record summaries, charts…) without touching the dispatcher or
+      // the chat client.
+      const newParts = extractUiPartsFromOutput(chunk.output, toolCallId)
+      if (newParts.length === 0) return next
+      const seen = new Set(next.uiParts.map((entry) => entry.key))
+      const merged = [...next.uiParts]
+      for (const part of newParts) {
+        if (seen.has(part.key)) continue
+        seen.add(part.key)
+        merged.push(part)
+      }
+      if (merged.length === next.uiParts.length) return next
+      return { ...next, uiParts: merged }
+    }
     case 'tool-output-error':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         state: 'error',
@@ -315,6 +462,7 @@ function mergeAssistantMessage(
     reasoning: state.reasoning ? state.reasoning : undefined,
     reasoningStreaming: state.reasoning ? state.reasoningStreaming : undefined,
     toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
+    uiParts: state.uiParts.length > 0 ? state.uiParts : undefined,
   }
 }
 
@@ -380,15 +528,17 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // chat continues the previous turn instead of starting fresh.
   const persistedRef = React.useRef<PersistedAiChatSession | null | 'unread'>('unread')
   if (persistedRef.current === 'unread') {
-    // Read first by the caller-pinned (agent, conversationId) tuple so each
-    // tab/session gets its own slot. Fall back to the legacy agent-only key
-    // when the caller-pinned slot is empty so existing single-session data
-    // survives the upgrade.
-    const pinned =
+    // When the caller pins a `conversationId` (multi-tab session mode) we
+    // read ONLY from that per-conversation slot. Falling back to the
+    // legacy agent-only slot here would make every brand-new tab inherit
+    // the previous tab's messages — the "+ shows the same chat" bug — so
+    // unknown conversationIds always start clean. Without a pinned id we
+    // keep the legacy single-session-per-agent layout for backward
+    // compatibility.
+    persistedRef.current =
       typeof conversationIdInput === 'string' && conversationIdInput.length > 0
         ? readPersistedSession(agent, conversationIdInput)
-        : null
-    persistedRef.current = pinned ?? readPersistedSession(agent)
+        : readPersistedSession(agent)
   }
   const persisted = persistedRef.current
 

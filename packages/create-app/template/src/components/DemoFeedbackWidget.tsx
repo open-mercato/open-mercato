@@ -188,7 +188,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
         color: '#1B1B1B',

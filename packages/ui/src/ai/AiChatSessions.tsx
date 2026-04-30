@@ -136,20 +136,20 @@ function writePersisted(state: AiChatSessionsState): void {
 }
 
 export function AiChatSessionsProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = React.useState<AiChatSessionsState>({
-    sessions: [],
-    activeByAgent: {},
-  })
-  const hydratedRef = React.useRef(false)
+  // Hydrate synchronously via a lazy initializer. The previous "empty
+  // state + post-mount load effect" pattern had a window where the
+  // persistence effect ran with the empty closure value (because the
+  // hydrate effect's queued setState had not committed yet) and clobbered
+  // localStorage with `[]` before the loaded state's re-render wrote it
+  // back. The lazy initializer puts the loaded state into the very first
+  // render, so the persistence effect always sees the real data.
+  // `readPersisted` already short-circuits to an empty object on the
+  // server (no `window`), so SSR stays consistent with the bare-bones
+  // shell — actual session-dependent UI only renders after a user
+  // interaction opens a chat surface.
+  const [state, setState] = React.useState<AiChatSessionsState>(() => readPersisted())
 
   React.useEffect(() => {
-    if (hydratedRef.current) return
-    hydratedRef.current = true
-    setState(readPersisted())
-  }, [])
-
-  React.useEffect(() => {
-    if (!hydratedRef.current) return
     writePersisted(state)
   }, [state])
 
@@ -343,7 +343,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
       })
       // `setState` returns synchronously after invoking the updater (twice
       // in Strict Mode dev), so `resolved` is guaranteed to be set here.
-      return resolved as AiChatSession
+      return resolved as unknown as AiChatSession
     },
     [],
   )
