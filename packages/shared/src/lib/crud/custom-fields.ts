@@ -523,8 +523,6 @@ export async function loadCustomFieldValues(opts: {
     ? await em.find(CustomFieldDef, {
         entityId: entityId as any,
         key: { $in: allKeys as any },
-        deletedAt: null,
-        isActive: true,
         ...(tenantList.length ? { tenantId: tenantFilter.tenantId } : {}),
         organizationId: { $in: orgList as any },
       })
@@ -537,25 +535,56 @@ export async function loadCustomFieldValues(opts: {
     defsByKey.set(def.key, list)
   }
 
+  const definitionTimestamp = (def: CustomFieldDef) => {
+    if (def.updatedAt instanceof Date) return def.updatedAt.getTime()
+    if (def.updatedAt) {
+      const parsed = new Date(def.updatedAt).getTime()
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    if (def.createdAt instanceof Date) return def.createdAt.getTime()
+    if (def.createdAt) {
+      const parsed = new Date(def.createdAt).getTime()
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    return 0
+  }
+
+  const definitionScopeRank = (def: CustomFieldDef, organizationId: string | null, tenantId: string | null) => {
+    const organizationState =
+      organizationId === null
+        ? def.organizationId == null ? 'match' : 'mismatch'
+        : def.organizationId === organizationId ? 'exact' : def.organizationId == null ? 'global' : 'mismatch'
+    const tenantState =
+      tenantId === null
+        ? def.tenantId == null ? 'match' : 'mismatch'
+        : def.tenantId === tenantId ? 'exact' : def.tenantId == null ? 'global' : 'mismatch'
+
+    if (organizationState === 'mismatch' || tenantState === 'mismatch') return -1
+    if (organizationState === 'exact' && tenantState === 'exact') return 4
+    if (organizationState === 'exact') return 3
+    if (tenantState === 'exact') return 2
+    return 1
+  }
+
   const pickDefinition = (fieldKey: string, organizationId: string | null, tenantId: string | null) => {
     const candidates = defsByKey.get(fieldKey)
     if (!candidates || candidates.length === 0) return null
-    const active = candidates.filter((opt) => opt.isActive !== false && !opt.deletedAt)
-    const list = active.length ? active : candidates
-    if (organizationId && tenantId) {
-      const exact = list.find((opt) => opt.organizationId === organizationId && opt.tenantId === tenantId)
-      if (exact) return exact
+    let winner: CustomFieldDef | null = null
+    let winnerRank = -1
+    let winnerTimestamp = -1
+
+    for (const candidate of candidates) {
+      const rank = definitionScopeRank(candidate, organizationId, tenantId)
+      if (rank < 0) continue
+      const timestamp = definitionTimestamp(candidate)
+      if (rank > winnerRank || (rank === winnerRank && timestamp >= winnerTimestamp)) {
+        winner = candidate
+        winnerRank = rank
+        winnerTimestamp = timestamp
+      }
     }
-    if (organizationId) {
-      const orgMatch = list.find((opt) => opt.organizationId === organizationId && (!tenantId || opt.tenantId == null || opt.tenantId === tenantId))
-      if (orgMatch) return orgMatch
-    }
-    if (tenantId) {
-      const tenantMatch = list.find((opt) => opt.organizationId == null && opt.tenantId === tenantId)
-      if (tenantMatch) return tenantMatch
-    }
-    const global = list.find((opt) => opt.organizationId == null && opt.tenantId == null)
-    return global ?? list[0]
+
+    return winner
   }
 
   const valueFromRow = (row: CustomFieldValue): unknown => {
@@ -567,7 +596,14 @@ export async function loadCustomFieldValues(opts: {
     return null
   }
 
-  type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[]; def?: CustomFieldDef | null; encrypted?: boolean }
+  type Bucket = {
+    orgId: string | null
+    tenantId: string | null
+    values: unknown[]
+    winner?: CustomFieldDef | null
+    def?: CustomFieldDef | null
+    encrypted?: boolean
+  }
   const buckets = new Map<string, Bucket>()
 
   for (const row of cfRows) {
@@ -578,7 +614,8 @@ export async function loadCustomFieldValues(opts: {
     const tenantId = row.tenantId ? String(row.tenantId) : null
     const resolvedOrgId = orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null)
     const resolvedTenantId = tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? fallbackTenant)
-    const def = pickDefinition(key, resolvedOrgId, resolvedTenantId)
+    const winner = pickDefinition(key, resolvedOrgId, resolvedTenantId)
+    const def = winner && winner.isActive !== false && !winner.deletedAt ? winner : null
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
     const decrypted = encrypted
@@ -588,22 +625,35 @@ export async function loadCustomFieldValues(opts: {
     if (existing) {
       if (existing.orgId == null && resolvedOrgId) existing.orgId = resolvedOrgId
       if (existing.tenantId == null && resolvedTenantId) existing.tenantId = resolvedTenantId
+      if (existing.winner == null && winner) existing.winner = winner
       if (existing.def == null && def) existing.def = def
       existing.encrypted = existing.encrypted || encrypted
       existing.values.push(decrypted)
     } else {
-      buckets.set(bucketKey, { orgId: resolvedOrgId, tenantId: resolvedTenantId, values: [decrypted], def: def ?? null, encrypted })
+      buckets.set(bucketKey, {
+        orgId: resolvedOrgId,
+        tenantId: resolvedTenantId,
+        values: [decrypted],
+        winner: winner ?? null,
+        def: def ?? null,
+        encrypted,
+      })
     }
   }
 
   const result: Record<string, Record<string, unknown>> = {}
   for (const [compoundKey, bucket] of buckets.entries()) {
     const [recordId, fieldKey] = compoundKey.split('::')
-    const def = bucket.def ?? pickDefinition(fieldKey, bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null), bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null))
-    if (!def) continue
+    const winner = bucket.winner ?? pickDefinition(
+      fieldKey,
+      bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null),
+      bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null),
+    )
+    if (winner && (winner.isActive === false || winner.deletedAt)) continue
+    const def = bucket.def ?? (winner && winner.isActive !== false && !winner.deletedAt ? winner : null)
     if (!result[recordId]) result[recordId] = {}
     const prefixed = `cf_${fieldKey}`
-    if (def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
+    if (def?.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
       const cleaned = bucket.values.filter((v) => v !== undefined && v !== null)
       result[recordId][prefixed] = cleaned
     } else if (bucket.values.length > 1) {

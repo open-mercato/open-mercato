@@ -819,3 +819,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: API route handlers must not contain raw SQL. Extract DB reads/writes into a named helper in the module's `lib/` (for simple lookups) or a service in `services/` (for stateful or multi-step logic), and import the helper from the route. The helper is the single place where the predicate is defined, audited, and regression-tested. MikroORM entity calls (`findOneWithDecryption`, repository methods) are acceptable in routes when they are single-liner lookups by stable primary keys; anything with a custom `WHERE`, `JOIN`, or raw `execute(...)` belongs in a helper.
 
 **Applies to**: All API route files under `packages/**/api/**` and `apps/**/api/**`. When moving existing inline SQL out of a route, keep the regression test pointed at the helper source so the predicate stays pinned even after the relocation.
+
+## Deleted custom-field cleanup must distinguish tombstones from legacy undeclared keys
+
+**Context**: The shared `loadCustomFieldValues()` loader was tightened to hide values without active definitions so deleted entity-editor fields stopped leaking into API responses. That regressed CRM task sync because `customers:customer_interaction` still carries legacy compatibility keys like `severity` in `customValues` without shipping active field definitions for them.
+
+**Problem**: Treating every no-definition custom-field value as an orphan is too broad in this codebase. Some modules intentionally persist undeclared compatibility keys, while actual deleted fields leave scoped tombstones (`isActive=false`, `deletedAt!=null`) that should shadow lower-scope active definitions and hide the value.
+
+**Rule**: When cleaning up custom-field reads, suppress values only when the winning scoped definition is inactive/deleted. If no definition exists at all for that scoped key, preserve the value as legacy compatibility data unless the owning module explicitly migrates it away.
+
+**Applies to**: `packages/shared/src/lib/crud/custom-fields.ts`, snapshot loaders built on top of it, compatibility layers like customers tasks/example sync, and any future response-normalization change around custom fields.

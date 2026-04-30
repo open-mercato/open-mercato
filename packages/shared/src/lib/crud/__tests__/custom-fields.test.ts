@@ -171,7 +171,7 @@ describe('loadCustomFieldValues (encryption)', () => {
     expect(values['rec-1'].cf_note).toBe('secret-note')
   })
 
-  it('omits values whose definitions are no longer active', async () => {
+  it('omits values whose winning scoped definitions are tombstoned', async () => {
     const em = {
       find: jest.fn().mockImplementation((_, where) => {
         if ((where as any).recordId) {
@@ -190,6 +190,52 @@ describe('loadCustomFieldValues (encryption)', () => {
             },
           ])
         }
+        return Promise.resolve([
+          {
+            key: 'deleted_field',
+            entityId: 'demo:entity',
+            organizationId: null,
+            tenantId: 'tenant-1',
+            kind: 'text',
+            configJson: {},
+            isActive: false,
+            deletedAt: new Date('2026-04-30T12:00:00.000Z'),
+            updatedAt: new Date('2026-04-30T12:00:00.000Z'),
+            createdAt: new Date('2026-04-30T11:00:00.000Z'),
+          },
+        ])
+      }),
+    }
+
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+    })
+
+    expect(values).toEqual({})
+  })
+
+  it('retains values for legacy keys that never had definitions', async () => {
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            {
+              recordId: 'rec-1',
+              fieldKey: 'legacy_field',
+              organizationId: null,
+              tenantId: 'tenant-1',
+              valueText: 'legacy-value',
+              valueMultiline: null,
+              valueInt: null,
+              valueFloat: null,
+              valueBool: null,
+              deletedAt: null,
+            },
+          ])
+        }
         return Promise.resolve([])
       }),
     }
@@ -199,6 +245,69 @@ describe('loadCustomFieldValues (encryption)', () => {
       entityId: 'demo:entity',
       recordIds: ['rec-1'],
       tenantIdByRecord: { 'rec-1': 'tenant-1' },
+    })
+
+    expect(values).toEqual({
+      'rec-1': {
+        cf_legacy_field: 'legacy-value',
+      },
+    })
+  })
+
+  it('lets scoped tombstones shadow lower-scope active definitions', async () => {
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            {
+              recordId: 'rec-1',
+              fieldKey: 'shadowed_field',
+              organizationId: 'org-1',
+              tenantId: 'tenant-1',
+              valueText: 'stale-value',
+              valueMultiline: null,
+              valueInt: null,
+              valueFloat: null,
+              valueBool: null,
+              deletedAt: null,
+            },
+          ])
+        }
+        return Promise.resolve([
+          {
+            key: 'shadowed_field',
+            entityId: 'demo:entity',
+            organizationId: null,
+            tenantId: 'tenant-1',
+            kind: 'text',
+            configJson: {},
+            isActive: true,
+            deletedAt: null,
+            updatedAt: new Date('2026-04-30T11:00:00.000Z'),
+            createdAt: new Date('2026-04-30T10:00:00.000Z'),
+          },
+          {
+            key: 'shadowed_field',
+            entityId: 'demo:entity',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            kind: 'text',
+            configJson: {},
+            isActive: false,
+            deletedAt: new Date('2026-04-30T12:00:00.000Z'),
+            updatedAt: new Date('2026-04-30T12:00:00.000Z'),
+            createdAt: new Date('2026-04-30T11:30:00.000Z'),
+          },
+        ])
+      }),
+    }
+
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      organizationIdByRecord: { 'rec-1': 'org-1' },
     })
 
     expect(values).toEqual({})
