@@ -79,7 +79,7 @@
   "customers.ai_assistant.suggestions.summarizeSelected": "Summarize selected contacts",
   "customers.ai_assistant.suggestions.topCompanies": "List top companies",
   "customers.ai_assistant.trigger.ariaLabel": "KI-Assistent für Personen öffnen",
-  "customers.ai_assistant.trigger.label": "KI fragen",
+  "customers.ai_assistant.trigger.label": "AI",
   "customers.assignableStaff.loadError": "Teammitglieder konnten nicht geladen werden. Prüfen Sie Ihre Berechtigungen und versuchen Sie es erneut.",
   "customers.audit.activities.create": "Aktivität erstellen",
   "customers.audit.activities.delete": "Aktivität löschen",

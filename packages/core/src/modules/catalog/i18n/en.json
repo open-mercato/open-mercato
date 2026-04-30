@@ -92,7 +92,7 @@
   "catalog.merchandising_assistant.sheet.selectionPill": "Acting on {count} products",
   "catalog.merchandising_assistant.sheet.title": "Catalog merchandising assistant",
   "catalog.merchandising_assistant.trigger.ariaLabel": "Open AI merchandising assistant",
-  "catalog.merchandising_assistant.trigger.label": "AI Merchandising",
+  "catalog.merchandising_assistant.trigger.label": "AI",
   "catalog.module.description": "Manage reusable products, variants, and pricing for sales documents.",
   "catalog.module.title": "Product Catalog",
   "catalog.nav.group": "Catalog",

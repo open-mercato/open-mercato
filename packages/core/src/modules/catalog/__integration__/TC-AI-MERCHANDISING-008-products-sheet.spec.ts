@@ -84,14 +84,7 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
 
     await trigger.click();
 
-    // Round icon-only trigger opens an agent-picker popover; click the
-    // merchandising agent option to launch the chat sheet.
-    const merchandisingAgentOption = page.locator(
-      `[data-ai-merchandising-agent-option="${MERCHANDISING_AGENT_ID}"]`,
-    );
-    await expect(merchandisingAgentOption).toBeVisible();
-    await merchandisingAgentOption.click();
-
+    // Single-agent module → main click opens the sheet directly.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
     await expect(sheet).toBeVisible();
 
@@ -109,12 +102,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
-
-    const merchandisingAgentOption = page.locator(
-      `[data-ai-merchandising-agent-option="${MERCHANDISING_AGENT_ID}"]`,
-    );
-    await expect(merchandisingAgentOption).toBeVisible();
-    await merchandisingAgentOption.click();
 
     const sheet = page.locator('[data-ai-merchandising-sheet]');
     await expect(sheet).toBeVisible();
@@ -158,12 +145,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
-
-    const merchandisingAgentOption = page.locator(
-      `[data-ai-merchandising-agent-option="${MERCHANDISING_AGENT_ID}"]`,
-    );
-    await expect(merchandisingAgentOption).toBeVisible();
-    await merchandisingAgentOption.click();
 
     const sheet = page.locator('[data-ai-merchandising-sheet]');
     await expect(sheet).toBeVisible();

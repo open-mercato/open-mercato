@@ -38,15 +38,9 @@ test.describe('TC-AI-INJECT-009: backend AiChat injection', () => {
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
 
-    // The trigger is now an icon-only round button that opens a popover
-    // listing the available agents — pick the customers account assistant
-    // entry to launch the chat sheet.
-    const accountAssistantOption = page.locator(
-      '[data-ai-customers-inject-agent-option="customers.account_assistant"]',
-    );
-    await expect(accountAssistantOption).toBeVisible();
-    await accountAssistantOption.click();
-
+    // With a single agent the trigger opens the sheet directly; the
+    // agent-picker popover is reserved for modules that expose more than
+    // one assistant (split-button caret).
     const sheet = page.locator('[data-ai-customers-inject-sheet]');
     await expect(sheet).toBeVisible();
 
@@ -73,12 +67,6 @@ test.describe('TC-AI-INJECT-009: backend AiChat injection', () => {
     const trigger = page.locator('[data-ai-customers-inject-trigger]').first();
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     await trigger.click();
-
-    const accountAssistantOption = page.locator(
-      '[data-ai-customers-inject-agent-option="customers.account_assistant"]',
-    );
-    await expect(accountAssistantOption).toBeVisible();
-    await accountAssistantOption.click();
 
     const sheet = page.locator('[data-ai-customers-inject-sheet]');
     await expect(sheet).toBeVisible();

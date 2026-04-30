@@ -1,5 +1,15 @@
 export { AiChat, type AiChatProps, type AiChatDebugTool, type AiChatDebugPromptSection } from './AiChat'
 export {
+  AiAssistantLauncher,
+  type AiAssistantLauncherAgent,
+  type AiAssistantLauncherProps,
+} from './AiAssistantLauncher'
+export {
+  AiDockProvider,
+  useAiDock,
+  type AiDockedAssistant,
+} from './AiDock'
+export {
   useAiChat,
   type AiChatMessage,
   type AiChatToolCallSnapshot,

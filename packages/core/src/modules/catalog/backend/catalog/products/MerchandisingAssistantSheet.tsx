@@ -31,8 +31,10 @@
  */
 
 import * as React from 'react'
-import { FileText, Package, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
+import { ChevronDown, FileText, Package, PanelRightOpen, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
+import { useAiDock } from '@open-mercato/ui/ai/AiDock'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
@@ -228,9 +230,11 @@ export function MerchandisingAssistantSheet({
   className,
 }: MerchandisingAssistantSheetProps): React.ReactElement | null {
   const t = useT()
+  const dock = useAiDock()
   const [open, setOpen] = React.useState(false)
   const [popoverOpen, setPopoverOpen] = React.useState(false)
   const [activeAgent, setActiveAgent] = React.useState<string>(MERCHANDISING_AGENT_ID)
+  const [lastAgent, setLastAgent] = React.useState<string | null>(null)
   if (!enabled) return null
 
   const selectedCount = pageContext.extra.selectedCount
@@ -239,86 +243,180 @@ export function MerchandisingAssistantSheet({
   const contextItems = useContextItems(pageContext)
   const agents = useMerchandisingAgents()
 
-  const handleSelectAgent = (agentId: string) => {
+  const openAgent = (agentId: string) => {
     setActiveAgent(agentId)
+    setLastAgent(agentId)
     setPopoverOpen(false)
     setOpen(true)
+  }
+
+  const handleSelectAgent = (agentId: string) => {
+    openAgent(agentId)
+  }
+
+  const handleMainTriggerClick = () => {
+    if (agents.length === 1) {
+      openAgent(agents[0].id)
+      return
+    }
+    if (lastAgent && agents.some((a) => a.id === lastAgent)) {
+      openAgent(lastAgent)
+      return
+    }
+    setPopoverOpen(true)
+  }
+
+  const handleDock = () => {
+    const agent = agents.find((a) => a.id === activeAgent) ?? agents[0]
+    if (!agent) return
+    dock.dock({
+      agent: agent.id,
+      label: agent.label,
+      description: t('catalog.merchandising_assistant.dock.subtitle', 'Catalog'),
+      pageContext: pageContext as unknown as Record<string, unknown>,
+      placeholder: t(
+        'catalog.merchandising_assistant.sheet.composerPlaceholder',
+        'Ask for descriptions, attributes, titles, or price ideas...',
+      ),
+      suggestions,
+      contextItems,
+      welcomeTitle: t(
+        'catalog.merchandising_assistant.sheet.welcomeTitle',
+        'Merchandising Assistant',
+      ),
+      welcomeDescription: hasSelection
+        ? t(
+            'catalog.merchandising_assistant.sheet.welcomeDescriptionSelection',
+            'Ready to work with your {count} selected products. Try one of these:',
+          ).replace('{count}', String(selectedCount))
+        : t(
+            'catalog.merchandising_assistant.sheet.welcomeDescriptionAll',
+            'Select products for targeted actions, or explore your catalog:',
+          ),
+    })
+    setOpen(false)
   }
 
   const triggerLabel = t(
     'catalog.merchandising_assistant.trigger.ariaLabel',
     'Open AI merchandising assistant',
   )
+  const labelText = t('catalog.merchandising_assistant.trigger.label', 'AI')
+  const moreAgentsLabel = t(
+    'catalog.merchandising_assistant.trigger.moreAgentsAriaLabel',
+    'Choose an AI assistant',
+  )
 
   return (
     <>
-      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-        <PopoverTrigger asChild>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="lg"
-            fullRadius
-            data-ai-merchandising-trigger=""
-            aria-label={triggerLabel}
-            title={triggerLabel}
-            className={cn('relative', className)}
-          >
-            <Sparkles className="size-4" aria-hidden />
-            {hasSelection ? (
-              <span
-                className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
-                data-ai-merchandising-selected-count={selectedCount}
-              >
-                {selectedCount}
-              </span>
-            ) : null}
-          </IconButton>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 p-1">
-          <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('catalog.merchandising_assistant.popover.heading', 'AI assistants')}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {agents.map((agent) => (
-              <button
-                key={agent.id}
+      <div className={cn('inline-flex items-center', className)}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleMainTriggerClick}
+          data-ai-merchandising-trigger=""
+          aria-label={triggerLabel}
+          title={triggerLabel}
+          className={cn(
+            'relative',
+            agents.length > 1 && 'rounded-r-none border-r-0',
+          )}
+        >
+          <Sparkles className="size-4" aria-hidden />
+          <span>{labelText}</span>
+          {hasSelection ? (
+            <span
+              className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+              data-ai-merchandising-selected-count={selectedCount}
+            >
+              {selectedCount}
+            </span>
+          ) : null}
+        </Button>
+        {agents.length > 1 ? (
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <PopoverTrigger asChild>
+              <IconButton
                 type="button"
-                onClick={() => handleSelectAgent(agent.id)}
-                data-ai-merchandising-agent-option={agent.id}
-                className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                variant="outline"
+                size="lg"
+                aria-label={moreAgentsLabel}
+                title={moreAgentsLabel}
+                className="rounded-l-none"
+                data-ai-merchandising-picker=""
               >
-                <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-                  {agent.icon}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block font-medium leading-tight">{agent.label}</span>
-                  <span className="block text-xs text-muted-foreground leading-snug">
-                    {agent.description}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
+                <ChevronDown className="size-4" aria-hidden />
+              </IconButton>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 p-1">
+              <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('catalog.merchandising_assistant.popover.heading', 'AI assistants')}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => handleSelectAgent(agent.id)}
+                    data-ai-merchandising-agent-option={agent.id}
+                    className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                      {agent.icon}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium leading-tight">{agent.label}</span>
+                      <span className="block text-xs text-muted-foreground leading-snug">
+                        {agent.description}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(
-            'sm:max-w-xl sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
-            'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-l-2xl',
+            // Mobile: full-screen sheet. Desktop (≥sm): right-anchored side sheet.
+            // The Dialog primitive applies a centering transform at the
+            // sm breakpoint; each piece (`top`, `left`, transform, inset)
+            // must be overridden at the same breakpoint or the panel
+            // renders half off the viewport.
+            'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
+            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:inset-x-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
             'flex flex-col gap-3 p-4 z-[70]',
           )}
           data-ai-merchandising-sheet=""
         >
           <DialogHeader>
-            <div className="flex items-center justify-between gap-3">
-              <DialogTitle>
+            <div className="flex items-center gap-3 pr-8">
+              {/* Dock button lives on the LEFT — the Dialog primitive
+                  auto-renders an X close button absolutely positioned in
+                  the top-right corner, so anything we drop in the header's
+                  right side visually collides with it. Mobile hides the
+                  dock entirely (the side panel is desktop-only). */}
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={t('catalog.merchandising_assistant.sheet.dock', 'Dock to side')}
+                title={t('catalog.merchandising_assistant.sheet.dock', 'Dock to side')}
+                onClick={handleDock}
+                data-ai-merchandising-dock=""
+                className="hidden lg:inline-flex shrink-0"
+              >
+                <PanelRightOpen className="size-4" aria-hidden />
+              </IconButton>
+              <DialogTitle className="flex-1 min-w-0 truncate">
                 {t('catalog.merchandising_assistant.sheet.title', 'Catalog merchandising assistant')}
               </DialogTitle>
               {hasSelection ? (
                 <span
-                  className="inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+                  className="shrink-0 inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
                   data-ai-merchandising-selection-pill=""
                   data-ai-merchandising-selected-count={selectedCount}
                 >

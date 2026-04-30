@@ -79,7 +79,7 @@
   "customers.ai_assistant.suggestions.summarizeSelected": "Summarize selected contacts",
   "customers.ai_assistant.suggestions.topCompanies": "List top companies",
   "customers.ai_assistant.trigger.ariaLabel": "Open AI assistant for people",
-  "customers.ai_assistant.trigger.label": "Ask AI",
+  "customers.ai_assistant.trigger.label": "AI",
   "customers.assignableStaff.loadError": "Unable to load team members. Check your permissions and try again.",
   "customers.audit.activities.create": "Create activity",
   "customers.audit.activities.delete": "Delete activity",

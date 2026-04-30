@@ -274,14 +274,17 @@ const agent: AiAgentDefinition = {
   moduleId: MODULE_ID,
   label: 'Customers Account Assistant',
   description:
-    'Read-only assistant for exploring customers: people, companies, deals, activities, tasks, addresses, tags, and settings.',
+    'Assistant for exploring customers: people, companies, deals, activities, tasks, addresses, tags, and settings. Can move deals between stages — every write goes through the approval card.',
   systemPrompt: compilePromptTemplate(promptTemplate),
   allowedTools: [...ALLOWED_TOOLS],
   executionMode: 'chat',
   acceptedMediaTypes: ['image', 'pdf', 'file'],
   requiredFeatures: [...REQUIRED_FEATURES],
-  readOnly: true,
-  mutationPolicy: 'read-only',
+  readOnly: false,
+  // Default for write-capable agents: every mutation must be confirmed by
+  // the operator. Per-tenant override can downgrade to `read-only` to lock
+  // writes back down without redeploying.
+  mutationPolicy: 'confirm-required',
   keywords: ['customers', 'crm', 'accounts', 'people', 'companies', 'deals'],
   domain: 'customers',
   dataCapabilities: {

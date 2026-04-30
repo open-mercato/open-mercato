@@ -79,7 +79,7 @@
   "customers.ai_assistant.suggestions.summarizeSelected": "Summarize selected contacts",
   "customers.ai_assistant.suggestions.topCompanies": "List top companies",
   "customers.ai_assistant.trigger.ariaLabel": "Otwórz asystenta AI dla osób",
-  "customers.ai_assistant.trigger.label": "Zapytaj AI",
+  "customers.ai_assistant.trigger.label": "AI",
   "customers.assignableStaff.loadError": "Nie udało się załadować pracowników. Sprawdź uprawnienia i spróbuj ponownie.",
   "customers.audit.activities.create": "Utwórz aktywność",
   "customers.audit.activities.delete": "Usuń aktywność",

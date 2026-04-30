@@ -63,19 +63,17 @@ const contextWhoamiTool: McpToolDefinition = {
  *
  * @param moduleId - The module identifier (e.g., 'search', 'customers')
  * @param tools - Array of tool definitions from the module
+ *
+ * IMPORTANT: We register the full typed tool (spread) — never reconstruct a
+ * minimal `{ name, description, inputSchema, requiredFeatures, handler }`
+ * payload. Stripping fields like `isMutation`, `displayName`, `isBulk`,
+ * `loadBeforeRecord(s)` makes the agent settings UI report mutation tools
+ * as read-only and prevents the chat dispatcher's mutation interceptor
+ * from firing.
  */
 export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
   for (const tool of tools) {
-    registerMcpTool(
-      {
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-        requiredFeatures: tool.requiredFeatures,
-        handler: tool.handler,
-      } as McpToolDefinition,
-      { moduleId }
-    )
+    registerMcpTool(tool as McpToolDefinition, { moduleId })
   }
 }
 
@@ -99,16 +97,8 @@ export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): nu
         )
         continue
       }
-      registerMcpTool(
-        {
-          name: candidate.name,
-          description: candidate.description,
-          inputSchema: candidate.inputSchema,
-          requiredFeatures: candidate.requiredFeatures,
-          handler: candidate.handler,
-        } as McpToolDefinition,
-        { moduleId: entry.moduleId }
-      )
+      // Register the full typed tool — see comment on `loadModuleTools`.
+      registerMcpTool(candidate as McpToolDefinition, { moduleId: entry.moduleId })
       registered += 1
     }
   }

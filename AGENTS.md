@@ -44,6 +44,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
 | Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
 | Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`<MODULE>_AI_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
+| Sending file/image/PDF attachments through `<AiChat>` and the chat dispatcher API (`attachmentIds`, base64 inline encoding, the 4 MB ceiling) | `apps/docs/docs/framework/ai-assistant/attachments.mdx` + `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` + `packages/ui/src/ai/upload-adapter.ts` |
 | **Specific Modules** | |
 | Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
 | Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |

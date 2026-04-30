@@ -28,6 +28,8 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
+import { AiDockProvider } from '../ai/AiDock'
+import { AiAssistantLauncher } from '../ai/AiAssistantLauncher'
 import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
@@ -399,7 +401,9 @@ export function AppShell(props: AppShellProps) {
   return (
     <QueryProvider>
       <BackendChromeProvider adminNavApi={props.adminNavApi}>
-        <AppShellBody {...props} />
+        <AiDockProvider>
+          <AppShellBody {...props} />
+        </AiDockProvider>
       </BackendChromeProvider>
     </QueryProvider>
   )
@@ -1508,6 +1512,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               context={injectionContext}
             />
             {renderedTopbarInjectedActions}
+            <AiAssistantLauncher variant="topbar" />
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (

@@ -92,7 +92,7 @@
   "catalog.merchandising_assistant.sheet.selectionPill": "Actuando sobre {count} productos",
   "catalog.merchandising_assistant.sheet.title": "Asistente de merchandising del catálogo",
   "catalog.merchandising_assistant.trigger.ariaLabel": "Abrir el asistente de merchandising IA",
-  "catalog.merchandising_assistant.trigger.label": "Merchandising IA",
+  "catalog.merchandising_assistant.trigger.label": "AI",
   "catalog.module.description": "Administra productos reutilizables, variantes y precios para los documentos de ventas.",
   "catalog.module.title": "Catálogo de productos",
   "catalog.nav.group": "Catálogo",

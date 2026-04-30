@@ -148,6 +148,13 @@ export type ProductSummary = {
   primaryCurrencyCode: string | null
   defaultMediaId: string | null
   defaultMediaUrl: string | null
+  /**
+   * Alias of `defaultMediaUrl`. Surfaced under the same key the
+   * `open-mercato:product` record card consumes so the model can pass it
+   * straight through without renaming. Null when the product has no
+   * default media.
+   */
+  imageUrl: string | null
   isActive: boolean
   isConfigurable: boolean
   organizationId: string | null
@@ -169,6 +176,7 @@ export function toProductSummary(row: CatalogProduct): ProductSummary {
     primaryCurrencyCode: row.primaryCurrencyCode ?? null,
     defaultMediaId: row.defaultMediaId ?? null,
     defaultMediaUrl: row.defaultMediaUrl ?? null,
+    imageUrl: row.defaultMediaUrl ?? null,
     isActive: !!row.isActive,
     isConfigurable: !!row.isConfigurable,
     organizationId: row.organizationId ?? null,

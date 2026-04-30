@@ -43,8 +43,25 @@ import {
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 
-function buildAttachmentPreviewUrl(attachmentId: string): string {
-  return `/api/attachments/image/${encodeURIComponent(attachmentId)}`
+// Cap inline previews so we do not blow past localStorage quota (~5MB on most
+// browsers). Images larger than this still upload + send to the LLM as inline
+// base64 server-side; only the in-chat preview is dropped on reload.
+const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
+
+async function readFileAsDataUrl(file: File): Promise<string | undefined> {
+  if (!file.type.startsWith('image/')) return undefined
+  if (file.size > PREVIEW_DATA_URL_MAX_BYTES) return undefined
+  return new Promise<string | undefined>((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () =>
+      resolve(typeof reader.result === 'string' ? reader.result : undefined)
+    reader.onerror = () => resolve(undefined)
+    try {
+      reader.readAsDataURL(file)
+    } catch {
+      resolve(undefined)
+    }
+  })
 }
 
 /**
@@ -667,6 +684,14 @@ export function AiChat({
   type PendingAttachment = {
     file: File
     attachmentId?: string
+    /**
+     * Base64 data URL of the image (capped by PREVIEW_DATA_URL_MAX_BYTES).
+     * Stored on the message so the preview survives a reload — durable
+     * server URLs were intentionally avoided because the LLM provider can
+     * never reach a localhost dev URL anyway, and HTTP fetches add latency
+     * the chat doesn't need.
+     */
+    previewDataUrl?: string
     error?: string
   }
   const [pendingFiles, setPendingFiles] = React.useState<PendingAttachment[]>([])
@@ -742,11 +767,11 @@ export function AiChat({
       if (!text.trim() || isBusy) return
       const filesToAttach = pendingFiles.map((entry): AiChatMessageFile => {
         const isImage = entry.file.type.startsWith('image/')
-        const durableUrl = entry.attachmentId ? buildAttachmentPreviewUrl(entry.attachmentId) : undefined
+        const fallback = isImage ? URL.createObjectURL(entry.file) : undefined
         return {
           name: entry.file.name,
           type: entry.file.type,
-          previewUrl: isImage ? (durableUrl ?? URL.createObjectURL(entry.file)) : undefined,
+          previewUrl: isImage ? (entry.previewDataUrl ?? fallback) : undefined,
         }
       })
       setInput('')
@@ -774,7 +799,10 @@ export function AiChat({
       if (files.length === 0) return
       const queued: PendingAttachment[] = files.map((file) => ({ file }))
       setPendingFiles((prev) => [...prev, ...queued])
-      const result = await upload.upload(files)
+      const [previewResults, result] = await Promise.all([
+        Promise.all(files.map((file) => readFileAsDataUrl(file))),
+        upload.upload(files),
+      ])
       const successByName = new Map<string, string>()
       for (const item of result.items) {
         if (!successByName.has(item.fileName)) successByName.set(item.fileName, item.attachmentId)
@@ -785,19 +813,28 @@ export function AiChat({
       }
       setPendingFiles((prev) => {
         const next = prev.slice()
-        for (let index = next.length - files.length; index < next.length; index += 1) {
+        const baseIndex = next.length - files.length
+        for (let offset = 0; offset < files.length; offset += 1) {
+          const index = baseIndex + offset
           if (index < 0) continue
           const entry = next[index]
-          if (!entry || entry.attachmentId) continue
-          const id = successByName.get(entry.file.name)
-          if (id) {
-            next[index] = { ...entry, attachmentId: id, error: undefined }
-            continue
+          if (!entry) continue
+          const dataUrl = previewResults[offset]
+          const patch: PendingAttachment = {
+            ...entry,
+            previewDataUrl: dataUrl ?? entry.previewDataUrl,
           }
-          const error = failureByName.get(entry.file.name)
-          if (error) {
-            next[index] = { ...entry, error }
+          if (!patch.attachmentId) {
+            const id = successByName.get(entry.file.name)
+            if (id) {
+              patch.attachmentId = id
+              patch.error = undefined
+            } else {
+              const error = failureByName.get(entry.file.name)
+              if (error) patch.error = error
+            }
           }
+          next[index] = patch
         }
         return next
       })

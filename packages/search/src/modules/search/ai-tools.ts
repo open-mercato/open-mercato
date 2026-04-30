@@ -383,6 +383,9 @@ const searchReindexTool: AiToolDefinition = {
       .describe('Whether to recreate the index from scratch (default: false)'),
   }),
   requiredFeatures: ['search.reindex'],
+  // Reindex changes server-side index state — must surface as a write so
+  // any agent that whitelists it routes through the approval card.
+  isMutation: true,
   handler: async (input, ctx) => {
     if (!ctx.tenantId) {
       throw new Error('Tenant context is required for reindex')

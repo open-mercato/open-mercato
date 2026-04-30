@@ -371,6 +371,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/ai-assistant/overview",
             "framework/ai-assistant/agents",
+            "framework/ai-assistant/attachments",
             "framework/ai-assistant/mutation-approvals",
             "framework/ai-assistant/settings",
             "framework/ai-assistant/playground",
