@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { magicLinkRequestSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import {
+  resolveTenantContext,
+  TenantResolutionError,
+} from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
@@ -37,9 +41,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  const { email, tenantId } = parsed.data
-  if (!tenantId) {
-    return NextResponse.json({ ok: true })
+  const { email } = parsed.data
+  let tenantId: string
+  try {
+    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    tenantId = context.tenantId
+  } catch (err) {
+    if (err instanceof TenantResolutionError) {
+      return NextResponse.json({ ok: true })
+    }
+    throw err
   }
 
   const container = await createRequestContainer()

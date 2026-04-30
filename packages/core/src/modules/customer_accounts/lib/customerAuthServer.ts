@@ -43,7 +43,9 @@ async function assertSessionStillActive(sessionId: string): Promise<boolean> {
  * if (!customerAuth) redirect('/login')
  * ```
  */
-export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext | null> {
+export async function getCustomerAuthFromCookies(
+  options?: { expectedTenantId?: string },
+): Promise<CustomerAuthContext | null> {
   const cookieStore = await cookies()
   const token = cookieStore.get('customer_auth_token')?.value
   if (!token) return null
@@ -54,12 +56,19 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
     if (payload.type !== 'customer') return null
     const sid = typeof payload.sid === 'string' ? payload.sid : ''
     if (!sid) return null
+    const tenantId = String(payload.tenantId)
+    if (options?.expectedTenantId && options.expectedTenantId !== tenantId) {
+      // Cross-host JWT replay defense. See spec rev 5 Customer Authentication
+      // section: the host-resolved tenant is the authoritative scope; mismatched
+      // JWTs are rejected as if unauthenticated.
+      return null
+    }
     const stillActive = await assertSessionStillActive(sid)
     if (!stillActive) return null
 
     const userState = await validateUserState(
       String(payload.sub),
-      String(payload.tenantId),
+      tenantId,
       String(payload.orgId),
       payload.iat,
     )
@@ -69,7 +78,7 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
       sub: String(payload.sub),
       sid,
       type: 'customer',
-      tenantId: String(payload.tenantId),
+      tenantId,
       orgId: String(payload.orgId),
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
@@ -80,5 +89,42 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
   } catch {
     // Invalid or expired JWT — treat as unauthenticated
     return null
+  }
+}
+
+/**
+ * Convenience wrapper for custom-domain pages: resolves the host, calls
+ * getCustomerAuthFromCookies with the host-resolved tenant as expectedTenantId.
+ *
+ * Use from server components rendered under custom domains.
+ */
+export async function getCustomerAuthForHost(
+  host: string | null | undefined,
+): Promise<CustomerAuthContext | null> {
+  if (!host) return getCustomerAuthFromCookies()
+
+  try {
+    const [{ tryNormalizeHostname }, { createRequestContainer }] = await Promise.all([
+      import('@open-mercato/core/modules/customer_accounts/lib/hostname'),
+      import('@open-mercato/shared/lib/di/container'),
+    ])
+    const hostname = tryNormalizeHostname(host)
+    if (!hostname) return getCustomerAuthFromCookies()
+    const platformDomains = (process.env.PLATFORM_DOMAINS ?? 'localhost,openmercato.com')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+    if (platformDomains.includes(hostname)) return getCustomerAuthFromCookies()
+
+    const container = await createRequestContainer()
+    const { DomainMappingService } = await import(
+      '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+    )
+    const service = container.resolve('domainMappingService') as InstanceType<typeof DomainMappingService>
+    const resolved = await service.resolveByHostname(hostname)
+    if (!resolved || resolved.status !== 'active') return null
+    return getCustomerAuthFromCookies({ expectedTenantId: resolved.tenantId })
+  } catch {
+    return getCustomerAuthFromCookies()
   }
 }

@@ -21,6 +21,11 @@ import {
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
+import {
+  resolveTenantContext,
+  TenantResolutionError,
+} from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
+import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/lib/customerUrl'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -63,9 +68,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
-  const { email, password, displayName, tenantId, organizationId } = parsed.data
-  if (!tenantId || !organizationId) {
-    return NextResponse.json({ ok: false, error: 'tenantId and organizationId are required' }, { status: 400 })
+  const { email, password, displayName } = parsed.data
+  let tenantId: string
+  let organizationId: string | null
+  try {
+    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    tenantId = context.tenantId
+    organizationId = context.organizationId ?? parsed.data.organizationId ?? null
+  } catch (err) {
+    if (err instanceof TenantResolutionError) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: err.status })
+    }
+    throw err
+  }
+  if (!organizationId) {
+    return NextResponse.json({ ok: false, error: 'organizationId is required' }, { status: 400 })
   }
 
   let baseUrl: string
@@ -95,7 +112,14 @@ export async function POST(req: Request) {
   if (existing) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
     const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
-    const loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
+    // Prefer the org's active custom domain when available; fall back to the
+    // platform login URL preserved by `resolvePortalLoginUrl`.
+    let loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
+    try {
+      loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container })
+    } catch {
+      // Fall back to platform URL on any resolution issue.
+    }
     const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
     const copy = {
       preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),
@@ -141,7 +165,14 @@ export async function POST(req: Request) {
   await em.persist(user).flush()
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
-  const verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
+  let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
+  try {
+    verifyUrl = await urlForCustomerOrg(organizationId, `/verify?token=${encodeURIComponent(verificationToken)}`, {
+      container,
+    })
+  } catch {
+    // Fall back to the platform-derived URL on any resolution issue.
+  }
   const subject = translate('customer_accounts.signup.created.subject', 'Verify your portal account')
   const copy = {
     preview: translate('customer_accounts.signup.created.preview', 'Verify your portal account to finish sign-up.'),
