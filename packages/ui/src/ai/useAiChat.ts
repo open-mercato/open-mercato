@@ -108,14 +108,25 @@ interface PersistedAiChatSession {
   messages: AiChatMessage[]
 }
 
-function getSessionStorageKey(agent: string): string {
+function getSessionStorageKey(agent: string, conversationId?: string | null): string {
+  // When the caller pins a `conversationId` (e.g. via the AiChatSessions
+  // provider's tabs), namespace the persisted slot per session so multiple
+  // open conversations for the same agent don't overwrite each other. The
+  // legacy single-session-per-agent layout (no externally-supplied id) is
+  // kept for backward compatibility with code that still relies on it.
+  if (typeof conversationId === 'string' && conversationId.length > 0) {
+    return `${SESSION_STORAGE_PREFIX}${agent}:${conversationId}`
+  }
   return `${SESSION_STORAGE_PREFIX}${agent}`
 }
 
-function readPersistedSession(agent: string): PersistedAiChatSession | null {
+function readPersistedSession(
+  agent: string,
+  conversationId?: string | null,
+): PersistedAiChatSession | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.localStorage.getItem(getSessionStorageKey(agent))
+    const raw = window.localStorage.getItem(getSessionStorageKey(agent, conversationId))
     if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedAiChatSession | null
     if (!parsed || parsed.v !== SESSION_STORAGE_VERSION) return null
@@ -136,7 +147,11 @@ function readPersistedSession(agent: string): PersistedAiChatSession | null {
   }
 }
 
-function writePersistedSession(agent: string, session: PersistedAiChatSession): void {
+function writePersistedSession(
+  agent: string,
+  session: PersistedAiChatSession,
+  conversationId?: string | null,
+): void {
   if (typeof window === 'undefined') return
   try {
     // Strip transient blob/object preview URLs before persisting (they would
@@ -157,7 +172,7 @@ function writePersistedSession(agent: string, session: PersistedAiChatSession): 
       return { ...message, files: safeFiles }
     })
     window.localStorage.setItem(
-      getSessionStorageKey(agent),
+      getSessionStorageKey(agent, conversationId),
       JSON.stringify({ ...session, messages }),
     )
   } catch {
@@ -165,10 +180,10 @@ function writePersistedSession(agent: string, session: PersistedAiChatSession): 
   }
 }
 
-function clearPersistedSession(agent: string): void {
+function clearPersistedSession(agent: string, conversationId?: string | null): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.removeItem(getSessionStorageKey(agent))
+    window.localStorage.removeItem(getSessionStorageKey(agent, conversationId))
   } catch {
     // ignore
   }
@@ -365,7 +380,15 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // chat continues the previous turn instead of starting fresh.
   const persistedRef = React.useRef<PersistedAiChatSession | null | 'unread'>('unread')
   if (persistedRef.current === 'unread') {
-    persistedRef.current = readPersistedSession(agent)
+    // Read first by the caller-pinned (agent, conversationId) tuple so each
+    // tab/session gets its own slot. Fall back to the legacy agent-only key
+    // when the caller-pinned slot is empty so existing single-session data
+    // survives the upgrade.
+    const pinned =
+      typeof conversationIdInput === 'string' && conversationIdInput.length > 0
+        ? readPersistedSession(agent, conversationIdInput)
+        : null
+    persistedRef.current = pinned ?? readPersistedSession(agent)
   }
   const persisted = persistedRef.current
 
@@ -395,16 +418,24 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   const [status, setStatusInternal] = React.useState<'idle' | 'submitting' | 'streaming'>('idle')
   React.useEffect(() => {
     if (status !== 'idle') return
+    const persistKey =
+      typeof conversationIdInput === 'string' && conversationIdInput.length > 0
+        ? conversationIdInput
+        : null
     if (messages.length === 0) {
-      clearPersistedSession(agent)
+      clearPersistedSession(agent, persistKey)
       return
     }
-    writePersistedSession(agent, {
-      v: SESSION_STORAGE_VERSION,
-      conversationId: effectiveConversationId,
-      messages,
-    })
-  }, [agent, effectiveConversationId, messages, status])
+    writePersistedSession(
+      agent,
+      {
+        v: SESSION_STORAGE_VERSION,
+        conversationId: effectiveConversationId,
+        messages,
+      },
+      persistKey,
+    )
+  }, [agent, conversationIdInput, effectiveConversationId, messages, status])
   const setStatus = setStatusInternal
   const [error, setError] = React.useState<AiChatErrorEnvelope | null>(null)
   const [lastRequestDebug, setLastRequestDebug] = React.useState<

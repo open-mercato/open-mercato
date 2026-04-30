@@ -34,6 +34,8 @@ import * as React from 'react'
 import { ChevronDown, FileText, Package, PanelRightOpen, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
+import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
+import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -439,36 +441,80 @@ export function MerchandisingAssistantSheet({
                   )}
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1" data-ai-merchandising-chat-container="">
-            <AiChat
-              agent={activeAgent}
-              pageContext={pageContext as unknown as Record<string, unknown>}
-              className="h-full"
-              placeholder={t(
-                'catalog.merchandising_assistant.sheet.composerPlaceholder',
-                'Ask for descriptions, attributes, titles, or price ideas...',
-              )}
-              suggestions={suggestions}
-              contextItems={contextItems}
-              welcomeTitle={t(
-                'catalog.merchandising_assistant.sheet.welcomeTitle',
-                'Merchandising Assistant',
-              )}
-              welcomeDescription={
-                hasSelection
-                  ? t(
-                      'catalog.merchandising_assistant.sheet.welcomeDescriptionSelection',
-                      'Ready to work with your {count} selected products. Try one of these:',
-                    ).replace('{count}', String(selectedCount))
-                  : t(
-                      'catalog.merchandising_assistant.sheet.welcomeDescriptionAll',
-                      'Select products for targeted actions, or explore your catalog:',
-                    )
-              }
-            />
-          </div>
+          <MerchandisingChatBody
+            activeAgent={activeAgent}
+            pageContext={pageContext}
+            suggestions={suggestions}
+            contextItems={contextItems}
+            hasSelection={hasSelection}
+            selectedCount={selectedCount}
+          />
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+interface MerchandisingChatBodyProps {
+  activeAgent: string
+  pageContext: MerchandisingPageContext
+  suggestions: AiChatSuggestion[]
+  contextItems: AiChatContextItem[]
+  hasSelection: boolean
+  selectedCount: number
+}
+
+function MerchandisingChatBody({
+  activeAgent,
+  pageContext,
+  suggestions,
+  contextItems,
+  hasSelection,
+  selectedCount,
+}: MerchandisingChatBodyProps) {
+  const t = useT()
+  const sessions = useAiChatSessions()
+  const session = sessions.getActiveSession(activeAgent)
+
+  React.useEffect(() => {
+    if (!session) sessions.ensureSession(activeAgent)
+  }, [activeAgent, session, sessions])
+
+  return (
+    <>
+      <ChatPaneTabs agentId={activeAgent} className="border-b" />
+      <div className="min-h-0 flex-1" data-ai-merchandising-chat-container="">
+        {session ? (
+          <AiChat
+            key={session.id}
+            agent={activeAgent}
+            conversationId={session.conversationId}
+            pageContext={pageContext as unknown as Record<string, unknown>}
+            className="h-full"
+            placeholder={t(
+              'catalog.merchandising_assistant.sheet.composerPlaceholder',
+              'Ask for descriptions, attributes, titles, or price ideas...',
+            )}
+            suggestions={suggestions}
+            contextItems={contextItems}
+            welcomeTitle={t(
+              'catalog.merchandising_assistant.sheet.welcomeTitle',
+              'Merchandising Assistant',
+            )}
+            welcomeDescription={
+              hasSelection
+                ? t(
+                    'catalog.merchandising_assistant.sheet.welcomeDescriptionSelection',
+                    'Ready to work with your {count} selected products. Try one of these:',
+                  ).replace('{count}', String(selectedCount))
+                : t(
+                    'catalog.merchandising_assistant.sheet.welcomeDescriptionAll',
+                    'Select products for targeted actions, or explore your catalog:',
+                  )
+            }
+          />
+        ) : null}
+      </div>
     </>
   )
 }

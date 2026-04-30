@@ -10,6 +10,13 @@ export {
   type AiDockedAssistant,
 } from './AiDock'
 export {
+  AiChatSessionsProvider,
+  useAiChatSessions,
+  defaultSessionLabel,
+  type AiChatSession,
+} from './AiChatSessions'
+export { ChatPaneTabs } from './ChatPaneTabs'
+export {
   useAiChat,
   type AiChatMessage,
   type AiChatToolCallSnapshot,

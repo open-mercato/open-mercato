@@ -44,6 +44,8 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Kbd, KbdShortcut } from '../primitives/kbd'
 import { useAiDock } from './AiDock'
+import { useAiChatSessions } from './AiChatSessions'
+import { ChatPaneTabs } from './ChatPaneTabs'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 
 // Lazy-load the chat surface so AppShell tests (and any other importers that
@@ -625,33 +627,70 @@ export function AiAssistantLauncher({
               <DialogDescription>{activeAgent.description}</DialogDescription>
             ) : null}
           </DialogHeader>
-          <div className="min-h-0 flex-1" data-ai-launcher-chat-container="">
-            {activeAgent ? (
-              <React.Suspense fallback={null}>
-                <LazyAiChat
-                  agent={activeAgent.id}
-                  pageContext={{}}
-                  className="h-full"
-                  placeholder={t(
-                    'ai_assistant.launcher.composerPlaceholder',
-                    'Ask anything…',
-                  )}
-                  suggestions={launcherSuggestions}
-                  contextItems={launcherContextItems}
-                  welcomeTitle={activeAgent.label}
-                  welcomeDescription={
-                    activeAgent.description ??
-                    t(
-                      'ai_assistant.launcher.welcome.fallback',
-                      'How can I help?',
-                    )
-                  }
-                />
-              </React.Suspense>
-            ) : null}
-          </div>
+          {activeAgent ? (
+            <LauncherChatBody
+              activeAgent={activeAgent}
+              suggestions={launcherSuggestions}
+              contextItems={launcherContextItems}
+              welcomeFallback={t(
+                'ai_assistant.launcher.welcome.fallback',
+                'How can I help?',
+              )}
+              placeholder={t(
+                'ai_assistant.launcher.composerPlaceholder',
+                'Ask anything…',
+              )}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+interface LauncherChatBodyProps {
+  activeAgent: AiAssistantLauncherAgent
+  suggestions: AiChatSuggestion[]
+  contextItems: AiChatContextItem[]
+  welcomeFallback: string
+  placeholder: string
+}
+
+function LauncherChatBody({
+  activeAgent,
+  suggestions,
+  contextItems,
+  welcomeFallback,
+  placeholder,
+}: LauncherChatBodyProps) {
+  const sessions = useAiChatSessions()
+  const session = sessions.getActiveSession(activeAgent.id)
+
+  React.useEffect(() => {
+    if (!session) sessions.ensureSession(activeAgent.id)
+  }, [activeAgent.id, session, sessions])
+
+  return (
+    <>
+      <ChatPaneTabs agentId={activeAgent.id} className="border-b" />
+      <div className="min-h-0 flex-1" data-ai-launcher-chat-container="">
+        {session ? (
+          <React.Suspense fallback={null}>
+            <LazyAiChat
+              key={session.id}
+              agent={activeAgent.id}
+              conversationId={session.conversationId}
+              pageContext={{}}
+              className="h-full"
+              placeholder={placeholder}
+              suggestions={suggestions}
+              contextItems={contextItems}
+              welcomeTitle={activeAgent.label}
+              welcomeDescription={activeAgent.description ?? welcomeFallback}
+            />
+          </React.Suspense>
+        ) : null}
+      </div>
     </>
   )
 }

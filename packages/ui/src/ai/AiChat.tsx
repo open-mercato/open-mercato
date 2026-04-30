@@ -762,9 +762,21 @@ export function AiChat({
     [uiPartsProp],
   )
 
+  const hasUploadingFiles = React.useMemo(
+    () => pendingFiles.some((entry) => !entry.attachmentId && !entry.error),
+    [pendingFiles],
+  )
+
   const handleSendMessage = React.useCallback(
     (text: string) => {
       if (!text.trim() || isBusy) return
+      // Block send while any attachment is still uploading. Without this guard
+      // the message would ship with an empty attachmentIds list (the chip is
+      // visible but the server hasn't returned an id yet), the model would
+      // never see the file, and `setPendingFiles([])` below would erase the
+      // chip — so the upload finishes into the void. Surface the wait via the
+      // disabled Send button + composer hint instead.
+      if (hasUploadingFiles || isUploading) return
       const filesToAttach = pendingFiles.map((entry): AiChatMessageFile => {
         const isImage = entry.file.type.startsWith('image/')
         const fallback = isImage ? URL.createObjectURL(entry.file) : undefined
@@ -778,7 +790,7 @@ export function AiChat({
       setPendingFiles([])
       void chat.sendMessage(text, filesToAttach.length > 0 ? filesToAttach : undefined)
     },
-    [chat, isBusy, pendingFiles],
+    [chat, hasUploadingFiles, isBusy, isUploading, pendingFiles],
   )
 
   const handleSubmit = React.useCallback(() => {
@@ -1052,10 +1064,15 @@ export function AiChat({
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
             <p className="text-xs text-muted-foreground">
-              {t(
-                'ai_assistant.chat.shortcutHint',
-                'Press Enter to send, Shift+Enter for new line.',
-              )}
+              {hasUploadingFiles || isUploading
+                ? t(
+                    'ai_assistant.chat.uploadingHint',
+                    'Uploading attachments… Send is disabled until they finish.',
+                  )
+                : t(
+                    'ai_assistant.chat.shortcutHint',
+                    'Press Enter to send, Shift+Enter for new line.',
+                  )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1073,8 +1090,22 @@ export function AiChat({
             <Button
               type="submit"
               size="sm"
-              disabled={isBusy || input.trim().length === 0}
-              aria-label={t('ai_assistant.chat.send', 'Send message')}
+              disabled={
+                isBusy ||
+                isUploading ||
+                hasUploadingFiles ||
+                input.trim().length === 0
+              }
+              aria-label={
+                hasUploadingFiles || isUploading
+                  ? t('ai_assistant.chat.sendWaitingForUpload', 'Waiting for upload to finish…')
+                  : t('ai_assistant.chat.send', 'Send message')
+              }
+              title={
+                hasUploadingFiles || isUploading
+                  ? t('ai_assistant.chat.sendWaitingForUpload', 'Waiting for upload to finish…')
+                  : undefined
+              }
             >
               <Send className="size-4" aria-hidden />
               <span>{t('ai_assistant.chat.send', 'Send message')}</span>

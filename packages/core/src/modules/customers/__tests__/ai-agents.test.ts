@@ -73,11 +73,16 @@ describe('customers.account_assistant agent definition', () => {
   })
 
   it('whitelists only the explicitly approved mutation tool(s) from the customers pack', () => {
-    // Step 5.13 — the agent exposes exactly one mutation tool at the
-    // code-declaration layer: `customers.update_deal_stage`. Any other
-    // mutation tool that lands in the customers pack MUST stay behind an
-    // explicit whitelist review.
-    const APPROVED_MUTATION_TOOLS = new Set<string>(['customers.update_deal_stage'])
+    // The agent exposes the explicitly-approved mutation tools at the
+    // code-declaration layer. Any other mutation tool that lands in the
+    // customers pack MUST stay behind an explicit whitelist review.
+    const APPROVED_MUTATION_TOOLS = new Set<string>([
+      'customers.update_deal_stage',
+      'customers.manage_deal_comment',
+      'customers.manage_deal_activity',
+      'customers.manage_record_comment',
+      'customers.manage_record_activity',
+    ])
     for (const tool of customersAiTools) {
       if (!tool.isMutation) continue
       if (APPROVED_MUTATION_TOOLS.has(tool.name)) {

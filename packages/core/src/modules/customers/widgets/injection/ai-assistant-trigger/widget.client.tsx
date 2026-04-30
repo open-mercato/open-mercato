@@ -20,6 +20,8 @@ import * as React from 'react'
 import { Building2, ChevronDown, Handshake, PanelRightOpen, Search, Sparkles, Users } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
+import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
+import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -490,33 +492,84 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
                   )}
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1" data-ai-customers-inject-chat-container="">
-            <AiChat
-              agent={activeAgent}
-              pageContext={pageContext as unknown as Record<string, unknown>}
-              className="h-full"
-              placeholder={t(
-                'customers.ai_assistant.sheet.composerPlaceholder',
-                'Ask about people, companies, deals...',
-              )}
-              suggestions={suggestions}
-              contextItems={contextItems}
-              welcomeTitle={t('customers.ai_assistant.sheet.welcomeTitle', 'CRM Assistant')}
-              welcomeDescription={
-                hasSelection
-                  ? t(
-                      'customers.ai_assistant.sheet.welcomeDescriptionSelection',
-                      'Ready to explore your {count} selected contacts:',
-                    ).replace('{count}', String(selectedCount))
-                  : t(
-                      'customers.ai_assistant.sheet.welcomeDescriptionAll',
-                      'Ask me anything about your customers, companies, and deals:',
-                    )
-              }
-            />
-          </div>
+          <CustomersChatBody
+            activeAgent={activeAgent}
+            pageContext={pageContext}
+            suggestions={suggestions}
+            contextItems={contextItems}
+            hasSelection={hasSelection}
+            selectedCount={selectedCount}
+          />
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+interface CustomersChatBodyProps {
+  activeAgent: string
+  pageContext: CustomersAiInjectPageContext
+  suggestions: AiChatSuggestion[]
+  contextItems: AiChatContextItem[]
+  hasSelection: boolean
+  selectedCount: number
+}
+
+function CustomersChatBody({
+  activeAgent,
+  pageContext,
+  suggestions,
+  contextItems,
+  hasSelection,
+  selectedCount,
+}: CustomersChatBodyProps) {
+  const t = useT()
+  const sessions = useAiChatSessions()
+  const session = sessions.getActiveSession(activeAgent)
+
+  // Lazily ensure an open session exists. Running `ensureSession` inside an
+  // effect (not inline during render) keeps the provider's setState calls
+  // outside of the render phase. The first frame may render without a
+  // session — that's fine, we render the tab strip alone until the next
+  // tick when the new session is committed and `getActiveSession` returns it.
+  React.useEffect(() => {
+    if (!session) sessions.ensureSession(activeAgent)
+  }, [activeAgent, session, sessions])
+
+  return (
+    <>
+      <ChatPaneTabs agentId={activeAgent} className="border-b" />
+      <div className="min-h-0 flex-1" data-ai-customers-inject-chat-container="">
+        {session ? (
+          <AiChat
+            // `key` forces a fresh mount when the active tab changes so the
+            // AI SDK's status doesn't leak across sessions.
+            key={session.id}
+            agent={activeAgent}
+            conversationId={session.conversationId}
+            pageContext={pageContext as unknown as Record<string, unknown>}
+            className="h-full"
+            placeholder={t(
+              'customers.ai_assistant.sheet.composerPlaceholder',
+              'Ask about people, companies, deals...',
+            )}
+            suggestions={suggestions}
+            contextItems={contextItems}
+            welcomeTitle={t('customers.ai_assistant.sheet.welcomeTitle', 'CRM Assistant')}
+            welcomeDescription={
+              hasSelection
+                ? t(
+                    'customers.ai_assistant.sheet.welcomeDescriptionSelection',
+                    'Ready to explore your {count} selected contacts:',
+                  ).replace('{count}', String(selectedCount))
+                : t(
+                    'customers.ai_assistant.sheet.welcomeDescriptionAll',
+                    'Ask me anything about your customers, companies, and deals:',
+                  )
+            }
+          />
+        ) : null}
+      </div>
     </>
   )
 }

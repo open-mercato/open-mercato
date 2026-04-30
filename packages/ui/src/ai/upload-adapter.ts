@@ -15,6 +15,13 @@
 const DEFAULT_ATTACHMENTS_ENDPOINT = '/api/attachments'
 const DEFAULT_AI_CHAT_ENTITY_ID = 'ai-chat-draft'
 const DEFAULT_CONCURRENCY = 3
+// Hard cap on a single upload's wall-clock time. The previous implementation
+// had no timeout, so a stalled `/api/attachments` request would leave the
+// composer chip spinning forever (the server never returned, the client
+// never unblocked the Send button). 60s is generous for the documented
+// per-file size limits and matches the behaviour of the rest of the
+// backoffice's `apiCall` helpers.
+const DEFAULT_PER_FILE_TIMEOUT_MS = 60_000
 
 export type UploadFailureReason =
   | 'mime_rejected'
@@ -46,6 +53,13 @@ export interface UploadAttachmentsForChatOptions {
   signal?: AbortSignal
   /** Parallelism cap. Defaults to 3. */
   concurrency?: number
+  /**
+   * Hard timeout per upload, in milliseconds. Defaults to 60_000 (60s).
+   * When the upload exceeds the timeout the request is aborted and the
+   * file lands in `failed` with `reason: 'aborted'` instead of the chip
+   * spinning forever. Pass `0` to disable.
+   */
+  perFileTimeoutMs?: number
 }
 
 export interface UploadedAttachment {
@@ -147,6 +161,7 @@ interface UploadSingleArgs {
   partitionCode?: string
   fetchImpl: typeof fetch
   signal: AbortSignal
+  perFileTimeoutMs: number
   onProgress?: UploadAttachmentsForChatOptions['onProgress']
 }
 
@@ -164,6 +179,7 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
     partitionCode,
     fetchImpl,
     signal,
+    perFileTimeoutMs,
     onProgress,
   } = args
 
@@ -186,16 +202,51 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
     form.append('partitionCode', partitionCode.trim())
   }
 
+  // Per-file timeout — wired through a child AbortController that is also
+  // cancelled when the parent batch aborts. Without this guard a stalled
+  // server (slow OCR, dead connection) would leave the chip spinning
+  // forever and block the composer's Send button indefinitely.
+  const localController = new AbortController()
+  const onParentAbort = () => localController.abort()
+  signal.addEventListener('abort', onParentAbort, { once: true })
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  let timedOut = false
+  if (perFileTimeoutMs > 0) {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true
+      localController.abort()
+    }, perFileTimeoutMs)
+  }
+  const clearTimers = () => {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle)
+      timeoutHandle = null
+    }
+    signal.removeEventListener('abort', onParentAbort)
+  }
+
   let response: Response
   try {
     response = await fetchImpl(endpoint, {
       method: 'POST',
       body: form,
-      signal,
+      signal: localController.signal,
     })
   } catch (networkError) {
+    clearTimers()
+    if (timedOut) {
+      return {
+        ok: false,
+        failure: {
+          fileName: file.name,
+          reason: 'aborted',
+          message: `Upload timed out after ${Math.round(perFileTimeoutMs / 1000)}s. The server did not respond — try again, or attach the file to a record first and reference it in the chat.`,
+        },
+      }
+    }
     const aborted =
       signal.aborted ||
+      localController.signal.aborted ||
       (networkError as { name?: string } | undefined)?.name === 'AbortError'
     if (aborted) {
       return {
@@ -214,6 +265,7 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
       failure: { fileName: file.name, reason: 'network', message },
     }
   }
+  clearTimers()
 
   let payload: unknown = null
   try {
@@ -287,6 +339,12 @@ export async function uploadAttachmentsForChat(
     Math.min(files.length, Math.floor(rawConcurrency) || DEFAULT_CONCURRENCY),
   )
   const signal = options.signal ?? new AbortController().signal
+  const perFileTimeoutMs = (() => {
+    const raw = options.perFileTimeoutMs
+    if (raw === 0) return 0
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
+    return DEFAULT_PER_FILE_TIMEOUT_MS
+  })()
 
   const outcomes: Array<SingleOutcome | null> = new Array(files.length).fill(null)
   let nextIndex = 0
@@ -307,6 +365,7 @@ export async function uploadAttachmentsForChat(
         partitionCode: options.partitionCode,
         fetchImpl,
         signal,
+        perFileTimeoutMs,
         onProgress: options.onProgress,
       })
     }
@@ -342,5 +401,6 @@ export const __testables = {
   DEFAULT_ATTACHMENTS_ENDPOINT,
   DEFAULT_AI_CHAT_ENTITY_ID,
   DEFAULT_CONCURRENCY,
+  DEFAULT_PER_FILE_TIMEOUT_MS,
   mapStatusToReason,
 }

@@ -29,6 +29,7 @@ import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
 import { AiDockProvider } from '../ai/AiDock'
+import { AiChatSessionsProvider } from '../ai/AiChatSessions'
 import { AiAssistantLauncher } from '../ai/AiAssistantLauncher'
 import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
 import {
@@ -401,9 +402,11 @@ export function AppShell(props: AppShellProps) {
   return (
     <QueryProvider>
       <BackendChromeProvider adminNavApi={props.adminNavApi}>
-        <AiDockProvider>
-          <AppShellBody {...props} />
-        </AiDockProvider>
+        <AiChatSessionsProvider>
+          <AiDockProvider>
+            <AppShellBody {...props} />
+          </AiDockProvider>
+        </AiChatSessionsProvider>
       </BackendChromeProvider>
     </QueryProvider>
   )

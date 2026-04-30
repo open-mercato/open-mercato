@@ -351,20 +351,24 @@ const getDealTool: CustomersAiToolDefinition = {
  * all side effects (audit log, `customers.deal.updated` event, query index
  * refresh, notifications) stay identical to a direct API write.
  */
+// LLMs frequently emit `""` for "not provided" — coerce blanks (and surrounding
+// whitespace) to `undefined` BEFORE the per-field validators run so the
+// `.uuid()` check on `toPipelineStageId` does not blow up on an empty string
+// the caller actually meant as "skip this field".
+const blankToUndefined = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? undefined : trimmed
+}
+
 const updateDealStageInput = z
   .object({
     dealId: z.string().uuid().describe('Deal id (UUID) to update.'),
     toPipelineStageId: z
-      .string()
-      .uuid()
-      .optional()
+      .preprocess(blankToUndefined, z.string().uuid().optional())
       .describe('Target pipeline stage id (UUID). Preferred — tenant-scoped stage record.'),
     toStage: z
-      .string()
-      .trim()
-      .min(1)
-      .max(50)
-      .optional()
+      .preprocess(blankToUndefined, z.string().min(1).max(50).optional())
       .describe(
         'Target status slug (e.g. "open", "won", "lost"). Used when the deal does not belong to a managed pipeline.',
       ),

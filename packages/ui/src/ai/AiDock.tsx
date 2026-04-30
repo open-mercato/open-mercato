@@ -16,6 +16,8 @@
 import * as React from 'react'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
+import { ChatPaneTabs } from './ChatPaneTabs'
+import { useAiChatSessions } from './AiChatSessions'
 import { IconButton } from '../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -325,10 +327,40 @@ function AiDockPanel({
         )}
       </header>
       {!collapsed ? (
-        <div className="min-h-0 flex-1" data-ai-dock-chat-container="">
+        <DockedChatBody assistant={assistant} />
+      ) : null}
+    </aside>
+  )
+}
+
+function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
+  const sessions = useAiChatSessions()
+  const session = sessions.getActiveSession(assistant.agent)
+
+  // Lazily ensure an open session exists. Running `ensureSession` inside an
+  // effect (not inline during render) keeps the provider's setState calls
+  // outside of the render phase. The first frame may render without a
+  // session — that's fine, we render the tab strip alone until the next
+  // tick when the new session is committed and `getActiveSession` returns
+  // it.
+  React.useEffect(() => {
+    if (!session) sessions.ensureSession(assistant.agent)
+  }, [assistant.agent, session, sessions])
+
+  return (
+    <>
+      <ChatPaneTabs agentId={assistant.agent} className="border-b" />
+      <div className="min-h-0 flex-1" data-ai-dock-chat-container="">
+        {session ? (
           <React.Suspense fallback={null}>
             <LazyAiChat
+              // `key` forces a fresh `<AiChat>` mount whenever the active
+              // session changes — without it the AI SDK's internal status
+              // would carry across tabs and surface the previous tab's
+              // streaming indicator on a brand-new conversation.
+              key={session.id}
               agent={assistant.agent}
+              conversationId={session.conversationId}
               pageContext={assistant.pageContext}
               className="h-full"
               placeholder={assistant.placeholder}
@@ -338,8 +370,8 @@ function AiDockPanel({
               welcomeDescription={assistant.welcomeDescription}
             />
           </React.Suspense>
-        </div>
-      ) : null}
-    </aside>
+        ) : null}
+      </div>
+    </>
   )
 }
