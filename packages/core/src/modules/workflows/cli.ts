@@ -28,73 +28,28 @@ function parseArgs(args: string[]) {
 
 /**
  * Seed demo checkout workflow
+ *
+ * The 'workflows.checkout-demo' workflow is now code-defined
+ * (see packages/core/src/modules/workflows/workflows.ts) and available
+ * to every tenant without DB seeding. This command remains as a thin
+ * wrapper that informs operators of the new location.
  */
 const seedDemo: ModuleCli = {
   command: 'seed-demo',
-  async run(rest: string[]) {
-    const args = parseArgs(rest)
-    const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
-    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
-
-    if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-demo --tenant <tenantId> --org <organizationId>')
-      console.error('   or: mercato workflows seed-demo -t <tenantId> -o <organizationId>')
-      return
-    }
-
-    try {
-      const { resolve } = await createRequestContainer()
-      const em = resolve<EntityManager>('em')
-
-      // Read the demo workflow definition
-      const demoPath = path.join(__dirname, 'examples', 'checkout-demo-definition.json')
-      const demoData = JSON.parse(fs.readFileSync(demoPath, 'utf8'))
-
-      // Check if it already exists
-      const existing = await em.findOne(WorkflowDefinition, {
-        workflowId: demoData.workflowId,
-        tenantId,
-        organizationId,
-      })
-
-      if (existing) {
-        console.log(`ℹ️  Demo workflow '${demoData.workflowId}' already exists (ID: ${existing.id})`)
-        return
-      }
-
-      // Create the workflow definition
-      const workflow = em.create(WorkflowDefinition, {
-        ...demoData,
-        tenantId,
-        organizationId,
-      })
-
-      await em.persist(workflow).flush()
-
-      console.log(`✅ Seeded demo workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log('')
-      console.log('Demo workflow is ready! You can now:')
-      console.log('  1. View it in admin: /backend/definitions')
-      console.log('  2. Try the demo page: /checkout-demo')
-      console.log('  3. Start an instance via API: POST /api/workflows/instances')
-      console.log('')
-      console.log('Note: This workflow includes a USER_TASK step for customer information.')
-      console.log('When the workflow reaches this step, it will pause and require user input.')
-      console.log('Complete pending tasks at: /backend/tasks')
-    } catch (error) {
-      console.error('Error seeding demo workflow:', error)
-      throw error
-    }
+  async run() {
+    console.log('ℹ️  The "workflows.checkout-demo" workflow is now code-defined.')
+    console.log('   No seeding required — it is auto-registered by the workflows module')
+    console.log('   (see packages/core/src/modules/workflows/workflows.ts).')
+    console.log('')
+    console.log('   Visit /backend/definitions to view it as a Code-defined workflow.')
   },
 }
 
 /**
- * Seed demo checkout workflow with guard rules
+ * Seed demo checkout workflow guard rules
+ *
+ * The 'workflows.checkout-demo' workflow is code-defined; only the
+ * guard rules still need DB seeding.
  */
 const seedDemoWithRules: ModuleCli = {
   command: 'seed-demo-with-rules',
@@ -109,15 +64,9 @@ const seedDemoWithRules: ModuleCli = {
       return
     }
 
-      console.log('🧩 Seeding demo workflow with guard rules...\n')
+    console.log('🧩 Seeding checkout-demo guard rules (workflow itself is code-defined)...\n')
 
     try {
-      // Seed the workflow definition
-      console.log('1. 🧩 Seeding demo workflow...')
-      await seedDemo.run(rest)
-
-      // Seed the guard rules
-      console.log('\n2. 🧠 Seeding guard rules...')
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
 
@@ -155,12 +104,12 @@ const seedDemoWithRules: ModuleCli = {
         seededCount++
       }
 
-      console.log(`\n✅ Demo workflow with guard rules seeded successfully!`)
-      console.log(`  - Workflow: workflows.checkout-demo`)
+      console.log(`\n✅ Checkout-demo guard rules seeded successfully!`)
+      console.log(`  - Workflow: workflows.checkout-demo (code-defined)`)
       console.log(`  - Guard rules seeded: ${seededCount}`)
       console.log(`  - Guard rules skipped: ${skippedCount}`)
     } catch (error) {
-      console.error('Error seeding demo with rules:', error)
+      console.error('Error seeding demo guard rules:', error)
       throw error
     }
   },
@@ -228,60 +177,19 @@ const seedSalesPipeline: ModuleCli = {
 
 /**
  * Seed simple approval example
+ *
+ * The 'workflows.simple-approval' workflow is now code-defined
+ * (see packages/core/src/modules/workflows/workflows.ts). This command
+ * remains as a thin wrapper that informs operators of the new location.
  */
 const seedSimpleApproval: ModuleCli = {
   command: 'seed-simple-approval',
-  async run(rest: string[]) {
-    const args = parseArgs(rest)
-    const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
-    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
-
-    if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-simple-approval --tenant <tenantId> --org <organizationId>')
-      return
-    }
-
-    try {
-      const { resolve } = await createRequestContainer()
-      const em = resolve<EntityManager>('em')
-
-      // Read the simple approval workflow definition
-      const approvalPath = path.join(__dirname, 'examples', 'simple-approval-definition.json')
-      const approvalData = JSON.parse(fs.readFileSync(approvalPath, 'utf8'))
-
-      // Check if it already exists
-      const existing = await em.findOne(WorkflowDefinition, {
-        workflowId: approvalData.workflowId,
-        tenantId,
-        organizationId,
-      })
-
-      if (existing) {
-        console.log(`ℹ️  Simple approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
-        return
-      }
-
-      // Create the workflow definition
-      const workflow = em.create(WorkflowDefinition, {
-        ...approvalData,
-        tenantId,
-        organizationId,
-      })
-
-      await em.persist(workflow).flush()
-
-      console.log(`✅ Seeded simple approval workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log('')
-      console.log('Simple approval workflow is ready!')
-    } catch (error) {
-      console.error('Error seeding simple approval workflow:', error)
-      throw error
-    }
+  async run() {
+    console.log('ℹ️  The "workflows.simple-approval" workflow is now code-defined.')
+    console.log('   No seeding required — it is auto-registered by the workflows module')
+    console.log('   (see packages/core/src/modules/workflows/workflows.ts).')
+    console.log('')
+    console.log('   Visit /backend/definitions to view it as a Code-defined workflow.')
   },
 }
 

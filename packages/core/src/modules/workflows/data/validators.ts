@@ -323,7 +323,8 @@ export type UpdateWorkflowDefinitionInput = z.infer<typeof updateWorkflowDefinit
 // API update schema (omits tenant fields and allows partial updates)
 // Accepts the same shape as the create form so the edit page can submit a
 // full payload without triggering "Unrecognized keys" validation errors.
-// workflowId and version are accepted but ignored by the route handler.
+// workflowId is accepted but ignored by the route handler (it identifies the
+// row); version is applied when supplied so the form can bump it explicitly.
 export const updateWorkflowDefinitionInputSchema = z.object({
   workflowId: z.string().min(1).max(100).optional(),
   workflowName: z.string().min(1).max(255).optional(),

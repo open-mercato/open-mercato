@@ -231,13 +231,17 @@ export async function PUT(
       )
     }
 
-    // Update fields. workflowId and version are intentionally ignored —
-    // they identify the row and bumping versions is handled elsewhere.
+    // Update fields. workflowId is intentionally ignored — it identifies the
+    // row and renaming would break references. Version is user-managed and
+    // applied when supplied so the edit form can bump it explicitly.
     if (input.workflowName !== undefined) {
       definition.workflowName = input.workflowName
     }
     if (input.description !== undefined) {
       definition.description = input.description
+    }
+    if (input.version !== undefined) {
+      definition.version = input.version
     }
     if (input.definition !== undefined) {
       definition.definition = input.definition
