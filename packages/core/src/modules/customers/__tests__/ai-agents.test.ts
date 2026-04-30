@@ -46,12 +46,13 @@ describe('customers.account_assistant agent definition', () => {
     expect(agent.moduleId).toBe('customers')
   })
 
-  it('is strictly read-only at the definition level', () => {
-    // Step 5.13 — the agent's code-declared policy remains read-only. The
-    // per-tenant override table (Step 5.4) is the only lever that unlocks
-    // the whitelisted mutation tool(s) at runtime.
-    expect(agent.readOnly).toBe(true)
-    expect(agent.mutationPolicy).toBe('read-only')
+  it('declares write capability behind the confirm-required gate', () => {
+    // The customers account assistant whitelists `customers.update_deal_stage`,
+    // so the code-declared policy is `confirm-required` — every mutation must
+    // be confirmed by the operator via the pending-action approval card. A
+    // per-tenant override can downgrade the agent back to `read-only`.
+    expect(agent.readOnly).toBe(false)
+    expect(agent.mutationPolicy).toBe('confirm-required')
   })
 
   it('declares the expected execution metadata', () => {

@@ -17,11 +17,14 @@ describe('catalog injection table', () => {
     })
   })
 
-  it('registers the merchandising assistant trigger on the products list header (Step 5.15)', async () => {
+  it('registers the merchandising assistant trigger on the products list search-trailing slot', async () => {
     const mod = await import('../injection-table')
     const table = mod.injectionTable
 
-    expect(table['data-table:catalog.products:header']).toEqual([
+    // Step 5.15 originally targeted `:header`; the trigger now lives in
+    // `:search-trailing` so it renders as a compact icon-only button on
+    // the same row as the list search input.
+    expect(table['data-table:catalog.products:search-trailing']).toEqual([
       {
         widgetId: 'catalog.injection.merchandising-assistant-trigger',
         priority: 100,

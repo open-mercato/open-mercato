@@ -9,18 +9,17 @@
  *    `meta.describe_agent`). Read-only.
  *
  * 2. `catalog.merchandising_assistant` (Step 4.9 / Spec §10 D18) — the
- *    read-only Phase 2 exit demo agent that powers the `<AiChat>` sheet
+ *    write-capable Phase 2 demo agent that powers the `<AiChat>` sheet
  *    on `/backend/catalog/catalog/products`. Whitelists the seven D18
- *    merchandising read tools (Step 3.11) plus the five catalog
- *    authoring tools (Step 3.12 — still `isMutation: false`, they
- *    produce structured proposals only), plus the general-purpose pack.
- *    Excludes the base catalog list/get tools so this agent cannot
- *    shadow `catalog.catalog_assistant`. Step 5.14 lights up the four
- *    D18 mutation tools (update_product / bulk_update_products /
- *    apply_attribute_extraction / update_product_media_descriptions)
- *    — readOnly / mutationPolicy on the agent stay UNCHANGED; the
- *    per-tenant mutation-policy override (Step 5.4) is the only lever
- *    that unlocks writes.
+ *    merchandising read tools (Step 3.11), the five catalog authoring
+ *    tools (Step 3.12 — `isMutation: false`, they produce structured
+ *    proposals only), and the four D18 mutation tools (update_product /
+ *    bulk_update_products / apply_attribute_extraction /
+ *    update_product_media_descriptions). Excludes the base catalog
+ *    list/get tools so this agent cannot shadow `catalog.catalog_assistant`.
+ *    Default `mutationPolicy: 'confirm-required'` — every mutation routes
+ *    through the pending-action approval card; per-tenant override can
+ *    downgrade to `read-only` to lock writes back down without a redeploy.
  *
  * Both agents expose structured `PromptTemplate` shapes via the
  * `promptTemplate` / `merchandisingPromptTemplate` exports so Phase 5.3
@@ -396,7 +395,7 @@ const MERCHANDISING_PROMPT_SECTIONS: PromptSection[] = [
     order: 6,
     content: [
       'MUTATION POLICY',
-      'Never claim a change has been saved until you receive a mutation-result-card success outcome. For multi-record edits, always prefer the batch tool (catalog.bulk_update_products) so the user sees one approval card with per-record diffs instead of a stream of one-record approvals.',
+      'This agent is write-capable: `mutationPolicy: "confirm-required"` is the default, so every mutation tool call (catalog.update_product, catalog.bulk_update_products, catalog.apply_attribute_extraction, catalog.update_product_media_descriptions) is intercepted by the runtime and surfaced as an approval card before any change is persisted. Never claim a change has been saved until you receive a mutation-result-card success outcome. For multi-record edits, always prefer the batch tool (catalog.bulk_update_products) so the user sees one approval card with per-record diffs instead of a stream of one-record approvals. If a per-tenant override has downgraded this agent back to `read-only`, the mutation tools are filtered out before you see them — propose the change in prose and direct the operator to the matching backoffice page (for example `/backend/catalog/catalog/products/<id>`).',
     ].join('\n'),
   },
   {

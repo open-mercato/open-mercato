@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useAiDock } from '@open-mercato/ui/ai'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -40,6 +41,8 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error'
 
 export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
+  const aiDock = useAiDock()
+  const aiDockActive = Boolean(aiDock.state.assistant)
   const [open, setOpen] = useState(false)
   const [captionIndex, setCaptionIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
@@ -68,9 +71,13 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     return () => clearInterval(interval)
   }, [])
 
-  // Auto-popup after 30s inactivity (once per day, unless suppressed)
+  // Auto-popup after 30s inactivity (once per day, unless suppressed).
+  // Skip the inactivity prompt entirely while the AI dock is open — the
+  // operator is mid-conversation with an assistant and a popup would be
+  // disruptive on top of (or competing with) the dock surface.
   useEffect(() => {
     if (!demoModeEnabled || !mounted) return
+    if (aiDockActive) return
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
 
@@ -93,7 +100,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       events.forEach((ev) => window.removeEventListener(ev, resetTimer))
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
-  }, [demoModeEnabled, mounted])
+  }, [demoModeEnabled, mounted, aiDockActive])
 
   const handleSubmit = useCallback(async () => {
     setFieldErrors({})
@@ -172,7 +179,12 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)
 
-  const floatingButton = (
+  // Hide the floating button while the AI dock is mounted — the dock panel
+  // anchors to `top-0 right-0 h-svh` on the right side, and the bottom-right
+  // feedback FAB would sit ON TOP of the chat surface (covering input,
+  // suggestions, etc). Hiding is preferable to nudging the FAB left because
+  // the dock width is user-resizable and the FAB has no good fallback slot.
+  const floatingButton = aiDockActive ? null : (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
@@ -195,7 +207,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   return (
     <>
-      {createPortal(floatingButton, document.body)}
+      {floatingButton ? createPortal(floatingButton, document.body) : null}
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
           <DialogHeader className="items-center gap-3">

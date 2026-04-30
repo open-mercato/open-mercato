@@ -220,9 +220,15 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
     expect(ids).toEqual(['catalog.catalog_assistant', 'catalog.merchandising_assistant'])
   })
 
-  it('is strictly read-only for Phase 2 exit', () => {
-    expect(merchandisingAgent.readOnly).toBe(true)
-    expect(merchandisingAgent.mutationPolicy).toBe('read-only')
+  it('declares write capability behind the confirm-required gate', () => {
+    // The merchandising assistant whitelists the four D18 mutation tools
+    // (catalog.update_product, catalog.bulk_update_products,
+    // catalog.apply_attribute_extraction, catalog.update_product_media_descriptions),
+    // so the code-declared policy is `confirm-required` — every write must
+    // be confirmed by the operator via the pending-action approval card. A
+    // per-tenant override can downgrade the agent back to `read-only`.
+    expect(merchandisingAgent.readOnly).toBe(false)
+    expect(merchandisingAgent.mutationPolicy).toBe('confirm-required')
   })
 
   it('declares the expected execution metadata', () => {

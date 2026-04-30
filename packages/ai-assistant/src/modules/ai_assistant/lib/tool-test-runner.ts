@@ -365,7 +365,14 @@ async function executeMutationTool(
   })
   if (!confirmation.ok) {
     const error = (confirmation.executionResult as { error?: { message?: string } } | undefined)?.error
-    const message = error?.message ?? confirmation.cause?.message ?? 'handler invocation failed'
+    const cause = confirmation.cause
+    const causeMessage =
+      cause instanceof Error
+        ? cause.message
+        : typeof cause === 'string'
+          ? cause
+          : null
+    const message = error?.message ?? causeMessage ?? 'handler invocation failed'
     throw new Error(message)
   }
   return {

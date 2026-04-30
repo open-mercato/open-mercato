@@ -184,7 +184,15 @@ export function AiAssistantLauncher({
   const [query, setQuery] = React.useState('')
   const [highlight, setHighlight] = React.useState(0)
 
-  // Health check — gates whether the launcher renders at all.
+  // Health check — best-effort signal only. We do NOT gate the launcher
+  // behind it any more: a flaky / slow / transiently-401 health endpoint on
+  // page refresh used to leave the launcher permanently hidden because the
+  // agents effect short-circuited on `healthy !== true`. Now `healthy` is
+  // purely advisory; the launcher's visibility is driven by the agents
+  // endpoint, which is the authoritative source — it returns zero agents
+  // when AI is not configured anyway. Treat *any* non-explicit-false health
+  // response (including network errors and unreachable endpoints) as
+  // "probably healthy" so the agents fetch always runs.
   React.useEffect(() => {
     if (skipHealthCheck) return
     let cancelled = false
@@ -192,7 +200,9 @@ export function AiAssistantLauncher({
       .then(async (response) => {
         if (cancelled) return
         if (!response.ok) {
-          setHealthy(false)
+          // Don't hide the launcher on 4xx/5xx — fall back to "unknown"
+          // (treated as healthy below) and let the agents endpoint decide.
+          setHealthy(true)
           return
         }
         try {
@@ -209,18 +219,22 @@ export function AiAssistantLauncher({
       })
       .catch(() => {
         if (cancelled) return
-        setHealthy(false)
+        // Network errors are treated as "probably healthy" too — the
+        // agents endpoint is authoritative for visibility.
+        setHealthy(true)
       })
     return () => {
       cancelled = true
     }
   }, [healthEndpoint, skipHealthCheck])
 
-  // Agents — fetched once we know the runtime is healthy. The endpoint
-  // already filters by the caller's ACL features server-side, so an empty
-  // response is the right signal to hide the launcher.
+  // Agents — fetched on mount, independently of the health check. The
+  // endpoint already filters by the caller's ACL features server-side, so
+  // an empty response is the right signal to hide the launcher. Loading
+  // these here (instead of behind `healthy === true`) makes the launcher
+  // resilient to a flaky / slow / transiently-401 health endpoint that
+  // would otherwise leave it permanently hidden after a page refresh.
   React.useEffect(() => {
-    if (healthy !== true) return
     if (agentsLoaded) return
     let cancelled = false
     fetch(agentsEndpoint, { credentials: 'same-origin' })
@@ -253,7 +267,7 @@ export function AiAssistantLauncher({
     return () => {
       cancelled = true
     }
-  }, [agentsEndpoint, agentsLoaded, healthy])
+  }, [agentsEndpoint, agentsLoaded])
 
   const filteredAgents = React.useMemo(
     () => agents.filter((agent) => matchesQuery(agent, query)),
@@ -369,20 +383,23 @@ export function AiAssistantLauncher({
     [t],
   )
 
-  const launcherContextItems = React.useMemo<AiChatContextItem[]>(() => {
-    if (!activeAgent) return []
-    return [
-      {
-        label: activeAgent.label,
-        detail: activeAgent.id,
-      },
-    ]
-  }, [activeAgent])
+  // The launcher is page-agnostic — it has no record-level context to pin.
+  // Context chips render only when records are actually attached (selection,
+  // file uploads, etc.); a chip showing just the agent's name is redundant
+  // because the agent is already named in the dialog/dock header.
+  const launcherContextItems = React.useMemo<AiChatContextItem[]>(() => [], [])
 
-  // Hide the launcher entirely when the runtime is not available or no agents
-  // are accessible. We deliberately keep the SSR shell empty rather than
-  // rendering a disabled button — operators should not see a dead AI control.
-  const shouldRender = healthy === true && agentsLoaded && agents.length > 0
+  // Hide the launcher entirely when no agents are accessible. We deliberately
+  // keep the SSR shell empty rather than rendering a disabled button —
+  // operators should not see a dead AI control. Visibility is driven by the
+  // agents endpoint alone: an empty list is the authoritative "no AI here"
+  // signal, and the health check is purely advisory (a flaky health endpoint
+  // on refresh used to leave this trigger permanently hidden).
+  // Treat `healthy === false` (an explicit `{ healthy: false }` body) as a
+  // hard veto so we still hide when the runtime explicitly opts out, but
+  // unknown / pending health does NOT block the agents fetch result.
+  const shouldRender =
+    healthy !== false && agentsLoaded && agents.length > 0
 
   if (!shouldRender) return null
 
@@ -551,7 +568,7 @@ export function AiAssistantLauncher({
             // overridden at the same breakpoint or the panel renders half
             // off the viewport on the left.
             'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
-            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:inset-x-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
             'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
             'flex flex-col gap-3 p-4 z-[70]',
           )}

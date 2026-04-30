@@ -37,6 +37,13 @@ type AiToolDefinition = {
   description: string
   inputSchema: z.ZodType<any>
   requiredFeatures?: string[]
+  /**
+   * Optional flag — when true, the tool is treated as a write by the
+   * agent runtime and routed through the pending-action approval card.
+   * Mirrors the public `AiToolDefinition.isMutation` flag without taking
+   * a hard dependency on `@open-mercato/ai-assistant` here.
+   */
+  isMutation?: boolean
   handler: (input: any, ctx: ToolContext) => Promise<unknown>
 }
 

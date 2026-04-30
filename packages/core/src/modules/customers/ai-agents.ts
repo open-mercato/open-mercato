@@ -1,16 +1,17 @@
 /**
- * Module-root AI agent contribution for the customers module
- * (Phase 2 WS-C, Step 4.7 — first read-only production agent).
+ * Module-root AI agent contribution for the customers module.
  *
  * The generator walks every module root for a top-level `ai-agents.ts` and
  * takes the default/`aiAgents` export as the agent contribution. The
- * `customers.account_assistant` agent is intentionally read-only: it can
- * explore people / companies / deals / activities / tags / addresses /
- * settings through the existing customers tool pack (Step 3.9) and the
- * general-purpose `search.*`, `attachments.*`, `meta.*` tools (Step 3.8),
- * but it never attempts mutations. The Step 3.2 runtime policy gate
- * enforces `readOnly: true` — any tool with `isMutation: true` is filtered
- * out before the model sees it.
+ * `customers.account_assistant` agent explores people / companies / deals /
+ * activities / tags / addresses / settings through the customers tool pack
+ * and the general-purpose `search.*`, `attachments.*`, `meta.*` tools, and
+ * is also write-capable: it whitelists `customers.update_deal_stage` so the
+ * operator can move deals between pipeline stages. Every mutation is
+ * intercepted by the runtime and surfaced through the pending-action
+ * approval card before any change is persisted (`mutationPolicy:
+ * 'confirm-required'` is the default on this agent — a per-tenant override
+ * can downgrade it to `read-only` to lock writes without a redeploy).
  *
  * Prompt is declared as a structured `PromptTemplate` (not a flat string)
  * per spec §8 with the seven named sections: ROLE, SCOPE, DATA, TOOLS,
@@ -109,9 +110,11 @@ const ALLOWED_TOOLS: readonly string[] = [
   'customers.list_addresses',
   'customers.list_tags',
   'customers.get_settings',
-  // Step 5.13 — first mutation-capable tool for the customers account
-  // assistant. Remains gated behind the per-tenant mutation-policy override
-  // table (Step 5.4); the code-declared `readOnly: true` is NOT relaxed here.
+  // First mutation-capable tool exposed by the customers account assistant.
+  // The agent's default `mutationPolicy: 'confirm-required'` routes every
+  // call through the pending-action approval card. A per-tenant override
+  // can downgrade the agent back to `read-only`, in which case the runtime
+  // filters this tool out before the model sees it.
   'customers.update_deal_stage',
   'search.hybrid_search',
   'search.get_record_context',
@@ -197,18 +200,21 @@ const PROMPT_SECTIONS: PromptSection[] = [
     order: 6,
     content: [
       'MUTATION POLICY',
-      'This agent ships read-only by default. The tenant administrator may',
-      'raise the mutation policy through the settings override table; when',
-      'they do, ONE mutation tool is unlocked: `customers.update_deal_stage`.',
-      'When the operator asks to move a deal to a new stage (or flip status',
-      'between open / won / lost), call `customers.update_deal_stage`. The',
-      'runtime will short-circuit the call into a mutation-preview-card — do',
-      'NOT promise the change is saved until the mutation-result-card arrives.',
-      'If the override is still read-only the runtime will refuse the call;',
-      'tell the operator the write is blocked and suggest the matching',
-      'Open Mercato backoffice page (for example `/backend/customers/deals/<id>`).',
-      'For any other write (update person / create company / delete activity),',
-      'explain that you cannot perform that mutation and point to the backoffice.',
+      'This agent is write-capable and ships with `mutationPolicy:',
+      '"confirm-required"` — every mutation goes through the pending-action',
+      'approval card and only persists after the operator confirms it. The',
+      'currently exposed mutation tool is `customers.update_deal_stage`',
+      '(move a deal between pipeline stages or flip status between open /',
+      'won / lost). When the operator asks for that, call the tool; the',
+      'runtime will short-circuit the call into a mutation-preview-card —',
+      'do NOT claim the change is saved until the mutation-result-card',
+      'arrives. If a per-tenant override has downgraded this agent back to',
+      '`read-only`, the runtime will refuse the call: tell the operator',
+      'the write is locked for this tenant and point to the matching',
+      'Open Mercato backoffice page (for example',
+      '`/backend/customers/deals/<id>`). For any other kind of write',
+      '(update person / create company / delete activity), explain that',
+      'you cannot perform that mutation yet and point to the backoffice.',
     ].join('\n'),
   },
   {

@@ -437,7 +437,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             // at the same `sm:` breakpoint or the panel renders half off
             // the viewport.
             'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
-            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:inset-x-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
             'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
             'flex flex-col gap-3 p-4 z-[70]',
           )}

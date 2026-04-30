@@ -56,6 +56,7 @@ export interface AiDockedAssistant {
 interface AiDockState {
   assistant: AiDockedAssistant | null
   width: number
+  collapsed: boolean
 }
 
 interface AiDockApi {
@@ -68,21 +69,23 @@ interface AiDockApi {
   isDocked: (agentId: string) => boolean
 }
 
+const COLLAPSED_WIDTH = 48
+
 const AiDockContext = React.createContext<AiDockApi | null>(null)
 
 function readPersisted(): AiDockState {
-  if (typeof window === 'undefined') return { assistant: null, width: DEFAULT_WIDTH }
+  if (typeof window === 'undefined') return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { assistant: null, width: DEFAULT_WIDTH }
+    if (!raw) return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
     const parsed = JSON.parse(raw) as Partial<AiDockState> | null
     const width = Math.min(
       MAX_WIDTH,
       Math.max(MIN_WIDTH, Number(parsed?.width) || DEFAULT_WIDTH),
     )
-    return { assistant: null, width }
+    return { assistant: null, width, collapsed: false }
   } catch {
-    return { assistant: null, width: DEFAULT_WIDTH }
+    return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
   }
 }
 
@@ -99,6 +102,7 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<AiDockState>(() => ({
     assistant: null,
     width: DEFAULT_WIDTH,
+    collapsed: false,
   }))
 
   React.useEffect(() => {
@@ -107,11 +111,16 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const dock = React.useCallback((assistant: AiDockedAssistant) => {
-    setState((prev) => ({ ...prev, assistant }))
+    // Always reset `collapsed` when (re)docking — the operator just clicked
+    // "dock to side" and expects the panel to be visible at full width.
+    setState((prev) => ({ ...prev, assistant, collapsed: false }))
   }, [])
 
   const undock = React.useCallback(() => {
-    setState((prev) => ({ ...prev, assistant: null }))
+    // Hard reset: drop the assistant AND the collapsed flag so the next
+    // dock call starts from a clean slate. The wrapper observes `assistant`
+    // turning null and clears its layout shift in the same render tick.
+    setState((prev) => ({ ...prev, assistant: null, collapsed: false }))
   }, [])
 
   const isDocked = React.useCallback(
@@ -124,20 +133,34 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
     persistWidth(width)
   }, [])
 
+  const setCollapsed = React.useCallback((collapsed: boolean) => {
+    setState((prev) => ({ ...prev, collapsed }))
+  }, [])
+
   const api = React.useMemo<AiDockApi>(
     () => ({ state, dock, undock, isDocked }),
     [state, dock, undock, isDocked],
   )
+
+  // The right-side padding the page must reserve for the dock panel. Stays
+  // null while nothing is docked so the wrapper renders no className/style
+  // and the underlying layout (DataTable, sidebar grid) reclaims its full
+  // width on undock.
+  const reservedWidth = state.assistant
+    ? state.collapsed
+      ? COLLAPSED_WIDTH
+      : state.width
+    : null
 
   return (
     <AiDockContext.Provider value={api}>
       <div
         // The dock is desktop-only (`lg+`); reserve right-side padding only
         // at that breakpoint so mobile layout stays full-width.
-        className={state.assistant ? 'lg:pr-[var(--om-ai-dock-width)]' : undefined}
+        className={reservedWidth != null ? 'lg:pr-[var(--om-ai-dock-width)]' : undefined}
         style={
-          state.assistant
-            ? ({ ['--om-ai-dock-width' as string]: `${state.width}px` } as React.CSSProperties)
+          reservedWidth != null
+            ? ({ ['--om-ai-dock-width' as string]: `${reservedWidth}px` } as React.CSSProperties)
             : undefined
         }
       >
@@ -147,6 +170,8 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
         <AiDockPanel
           assistant={state.assistant}
           width={state.width}
+          collapsed={state.collapsed}
+          onCollapsedChange={setCollapsed}
           onWidthChange={setWidth}
           onClose={undock}
         />
@@ -161,7 +186,7 @@ export function useAiDock(): AiDockApi {
   // Fallback no-op API — keeps consumers safe when the provider is absent
   // (e.g. unit tests rendering a widget in isolation).
   return {
-    state: { assistant: null, width: DEFAULT_WIDTH },
+    state: { assistant: null, width: DEFAULT_WIDTH, collapsed: false },
     dock: () => {},
     undock: () => {},
     isDocked: () => false,
@@ -171,12 +196,20 @@ export function useAiDock(): AiDockApi {
 interface AiDockPanelProps {
   assistant: AiDockedAssistant
   width: number
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
   onWidthChange: (width: number) => void
   onClose: () => void
 }
 
-function AiDockPanel({ assistant, width, onWidthChange, onClose }: AiDockPanelProps) {
-  const [collapsed, setCollapsed] = React.useState(false)
+function AiDockPanel({
+  assistant,
+  width,
+  collapsed,
+  onCollapsedChange,
+  onWidthChange,
+  onClose,
+}: AiDockPanelProps) {
   const dragStateRef = React.useRef<{ startX: number; startWidth: number } | null>(null)
 
   const handlePointerDown = React.useCallback(
@@ -243,7 +276,7 @@ function AiDockPanel({ assistant, width, onWidthChange, onClose }: AiDockPanelPr
           data-ai-dock-resize-handle=""
         />
       ) : null}
-      <header className="flex items-center gap-2 border-b px-3 py-2">
+      <header className="flex items-center gap-2 px-3 py-2">
         {collapsed ? (
           <IconButton
             type="button"
@@ -251,7 +284,7 @@ function AiDockPanel({ assistant, width, onWidthChange, onClose }: AiDockPanelPr
             size="sm"
             aria-label="Expand AI dock"
             title="Expand AI dock"
-            onClick={() => setCollapsed(false)}
+            onClick={() => onCollapsedChange(false)}
           >
             <Maximize2 className="size-4" />
           </IconButton>
@@ -273,7 +306,7 @@ function AiDockPanel({ assistant, width, onWidthChange, onClose }: AiDockPanelPr
               size="sm"
               aria-label="Collapse AI dock"
               title="Collapse AI dock"
-              onClick={() => setCollapsed(true)}
+              onClick={() => onCollapsedChange(true)}
             >
               <Minimize2 className="size-4" />
             </IconButton>
