@@ -29,10 +29,17 @@ function findRepoRoot(startDir: string): string {
   }
 }
 
-const repoRoot = findRepoRoot(__dirname)
-const mercatoCwd = process.env.OM_TEST_APP_ROOT?.trim()
-  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
-  : repoRoot
+function resolveMercatoCwd(): string {
+  const appRoot = process.env.OM_TEST_APP_ROOT?.trim()
+  if (appRoot) return path.resolve(appRoot)
+  try {
+    return findRepoRoot(__dirname)
+  } catch {
+    return process.cwd()
+  }
+}
+
+const mercatoCwd = resolveMercatoCwd()
 
 function runMercato(args: string[]): string {
   return execFileSync('yarn', ['mercato', ...args], {

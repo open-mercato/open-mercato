@@ -287,6 +287,7 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
+          NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
           OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
@@ -346,7 +347,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run integration tests
-        run: BASE_URL=http://localhost:3001 yarn test:integration
+        run: OM_TEST_APP_ROOT=/tmp/standalone-app BASE_URL=http://localhost:3001 yarn test:integration
 
       - name: Upload test artifacts
         if: always()
