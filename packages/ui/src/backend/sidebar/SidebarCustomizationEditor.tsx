@@ -26,6 +26,7 @@ import { flash } from '../FlashMessages'
 import { Page, PageBody } from '../Page'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { useConfirmDialog } from '../confirm-dialog'
+import { useGuardedMutation } from '../injection/useGuardedMutation'
 import {
   applyCustomizationDraft,
   applyItemOrder,
@@ -230,6 +231,26 @@ export function SidebarCustomizationEditor({
   const baseSnapshotRef = React.useRef<SidebarGroup[] | null>(null)
   const hasInitializedRef = React.useRef(false)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    variantId?: string | null
+    operation: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: 'sidebar-customization',
+    blockedMessage: t('appShell.sidebarCustomizationSaveError'),
+  })
+
+  const buildMutationContext = React.useCallback(
+    (operation: string, variantId?: string | null) => ({
+      formId: 'sidebar-customization',
+      variantId: variantId ?? null,
+      operation,
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
   const isNewVariant = selectedVariantId === null
   const selectedVariant = React.useMemo(
     () => (selectedVariantId ? variants.find((v) => v.id === selectedVariantId) ?? null : null),
@@ -364,15 +385,20 @@ export function SidebarCustomizationEditor({
       baseSnapshotRef.current = baseSnapshot
       const groupOrder = baseSnapshot.map((g) => resolveGroupKey(g))
       const trimmed = (proposedName ?? '').trim()
-      const call = await apiCall<VariantSingleResponse>(variantsApiPath, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          // If name is omitted, server auto-names ("My preferences", "My preferences 2", …).
-          name: trimmed.length > 0 ? trimmed : undefined,
-          settings: { groupOrder, groupLabels: {}, itemLabels: {}, hiddenItems: [], itemOrder: {} },
-          isActive: true,
-        }),
+      const call = await runMutation({
+        operation: () =>
+          apiCall<VariantSingleResponse>(variantsApiPath, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              // If name is omitted, server auto-names ("My preferences", "My preferences 2", …).
+              name: trimmed.length > 0 ? trimmed : undefined,
+              settings: { groupOrder, groupLabels: {}, itemLabels: {}, hiddenItems: [], itemOrder: {} },
+              isActive: true,
+            }),
+          }),
+        context: buildMutationContext('createVariant'),
+        mutationPayload: { name: trimmed.length > 0 ? trimmed : null },
       })
       if (!call.ok) {
         setError(formatVariantApiError(call, t))
@@ -406,7 +432,7 @@ export function SidebarCustomizationEditor({
     } finally {
       setSaving(false)
     }
-  }, [saving, deleting, dirty, selectedVariantId, confirmDialog, t, buildBaseSnapshot, variantsApiPath, loadVariantsList, selectVariantInternal, variants])
+  }, [saving, deleting, dirty, selectedVariantId, confirmDialog, t, buildBaseSnapshot, variantsApiPath, loadVariantsList, selectVariantInternal, variants, runMutation, buildMutationContext])
 
   const handleVariantSwitch = React.useCallback(async (key: string) => {
     if (saving || deleting) return
@@ -592,16 +618,21 @@ export function SidebarCustomizationEditor({
       const isCurrentlyActive = selectedVariant?.isActive ?? false
       let savedVariant: Variant | null = null
       if (isNewVariant) {
-        const call = await apiCall<VariantSingleResponse>(variantsApiPath, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            name: trimmedName.length > 0 ? trimmedName : undefined,
-            settings,
-            // New variants are activated by default — there's only one active per scope,
-            // others get auto-deactivated server-side.
-            isActive: true,
-          }),
+        const call = await runMutation({
+          operation: () =>
+            apiCall<VariantSingleResponse>(variantsApiPath, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                name: trimmedName.length > 0 ? trimmedName : undefined,
+                settings,
+                // New variants are activated by default — there's only one active per scope,
+                // others get auto-deactivated server-side.
+                isActive: true,
+              }),
+            }),
+          context: buildMutationContext('saveVariant'),
+          mutationPayload: { name: trimmedName.length > 0 ? trimmedName : null, isActive: true },
         })
         if (!call.ok) {
           setError(formatVariantApiError(call, t))
@@ -609,14 +640,23 @@ export function SidebarCustomizationEditor({
         }
         savedVariant = call.result?.variant ?? null
       } else if (selectedVariantId) {
-        const call = await apiCall<VariantSingleResponse>(`${variantsApiPath}/${encodeURIComponent(selectedVariantId)}`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            name: trimmedName.length > 0 ? trimmedName : undefined,
-            settings,
+        const call = await runMutation({
+          operation: () =>
+            apiCall<VariantSingleResponse>(`${variantsApiPath}/${encodeURIComponent(selectedVariantId)}`, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                name: trimmedName.length > 0 ? trimmedName : undefined,
+                settings,
+                isActive: isCurrentlyActive,
+              }),
+            }),
+          context: buildMutationContext('saveVariant', selectedVariantId),
+          mutationPayload: {
+            id: selectedVariantId,
+            name: trimmedName.length > 0 ? trimmedName : null,
             isActive: isCurrentlyActive,
-          }),
+          },
         })
         if (!call.ok) {
           setError(formatVariantApiError(call, t))
@@ -643,11 +683,23 @@ export function SidebarCustomizationEditor({
         preferencesPayload.applyToRoles = applyToRolesPayload
         preferencesPayload.clearRoleIds = clearRoleIdsPayload
       }
-      await apiCall(preferencesApiPath, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(preferencesPayload),
+      const preferencesCall = await runMutation({
+        operation: () =>
+          apiCall(preferencesApiPath, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(preferencesPayload),
+          }),
+        context: buildMutationContext('savePreferences', selectedVariantId),
+        mutationPayload: preferencesPayload,
       })
+      if (!preferencesCall.ok) {
+        // The variant entity is the canonical layout; the preferences sync is what the
+        // AppShell sidebar actually reads. A failed sync would leave the saved variant
+        // not reflected live, so surface it as a save error rather than flashing success.
+        setError(formatVariantApiError(preferencesCall, t))
+        return
+      }
       try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch {}
       // Refresh the list so isActive flags are accurate, plus refresh roles so hasPreference flags update.
       const [list, rolesPayload] = await Promise.all([
@@ -682,16 +734,21 @@ export function SidebarCustomizationEditor({
     } finally {
       setSaving(false)
     }
-  }, [draft, variantName, isNewVariant, selectedVariant, selectedVariantId, variantsApiPath, preferencesApiPath, canApplyToRoles, selectedRoleIds, availableRoleTargets, t, sanitizeSettingsPayload, loadVariantsList, loadRolesPayload, selectVariantInternal, onSaved])
+  }, [draft, variantName, isNewVariant, selectedVariant, selectedVariantId, variantsApiPath, preferencesApiPath, canApplyToRoles, selectedRoleIds, availableRoleTargets, t, sanitizeSettingsPayload, loadVariantsList, loadRolesPayload, selectVariantInternal, onSaved, runMutation, buildMutationContext])
 
   const toggleActive = React.useCallback(async (next: boolean) => {
     if (!selectedVariant || saving || deleting) return
     setError(null)
     try {
-      const call = await apiCall<VariantSingleResponse>(`${variantsApiPath}/${encodeURIComponent(selectedVariant.id)}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ isActive: next }),
+      const call = await runMutation({
+        operation: () =>
+          apiCall<VariantSingleResponse>(`${variantsApiPath}/${encodeURIComponent(selectedVariant.id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ isActive: next }),
+          }),
+        context: buildMutationContext('toggleVariantActive', selectedVariant.id),
+        mutationPayload: { id: selectedVariant.id, isActive: next },
       })
       if (!call.ok) {
         setError(t('appShell.sidebarCustomizationSaveError'))
@@ -706,7 +763,7 @@ export function SidebarCustomizationEditor({
       console.error('Failed to toggle variant active state', err)
       setError(t('appShell.sidebarCustomizationSaveError'))
     }
-  }, [selectedVariant, saving, deleting, variantsApiPath, t, loadVariantsList, selectVariantInternal])
+  }, [selectedVariant, saving, deleting, variantsApiPath, t, loadVariantsList, selectVariantInternal, runMutation, buildMutationContext])
 
   const deleteVariant = React.useCallback(async () => {
     if (!selectedVariant) return
@@ -724,7 +781,12 @@ export function SidebarCustomizationEditor({
     setDeleting(true)
     setError(null)
     try {
-      const call = await apiCall(`${variantsApiPath}/${encodeURIComponent(selectedVariant.id)}`, { method: 'DELETE' })
+      const call = await runMutation({
+        operation: () =>
+          apiCall(`${variantsApiPath}/${encodeURIComponent(selectedVariant.id)}`, { method: 'DELETE' }),
+        context: buildMutationContext('deleteVariant', selectedVariant.id),
+        mutationPayload: { id: selectedVariant.id },
+      })
       if (!call.ok) {
         setError(t('appShell.sidebarCustomizationSaveError'))
         return
@@ -740,7 +802,7 @@ export function SidebarCustomizationEditor({
     } finally {
       setDeleting(false)
     }
-  }, [selectedVariant, confirmDialog, t, variantsApiPath, loadVariantsList, selectVariantInternal])
+  }, [selectedVariant, confirmDialog, t, variantsApiPath, loadVariantsList, selectVariantInternal, runMutation, buildMutationContext])
 
   const isBusy = saving || deleting
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   sidebarPreferencesInputSchema,
   sidebarPreferencesScopeSchema,
@@ -89,7 +90,13 @@ async function loadRolesPayload(
   const roleScope = options.tenantId
     ? { $or: [{ tenantId: options.tenantId }, { tenantId: null }] }
     : { tenantId: null }
-  const roles = await em.find(Role, roleScope as any, { orderBy: { name: 'asc' } })
+  const roles = await findWithDecryption(
+    em,
+    Role,
+    roleScope as any,
+    { orderBy: { name: 'asc' } },
+    { tenantId: options.tenantId, organizationId: null },
+  )
   if (roles.length === 0) return []
   const rolePrefs = await loadRoleSidebarPreferences(em, {
     roleIds: roles.map((r: Role) => r.id),
@@ -107,7 +114,13 @@ async function findRoleInScope(
   em: any,
   options: { roleId: string; tenantId: string | null },
 ): Promise<Role | null> {
-  const role = await em.findOne(Role, { id: options.roleId } as any)
+  const role = await findOneWithDecryption(
+    em,
+    Role,
+    { id: options.roleId } as any,
+    undefined,
+    { tenantId: options.tenantId, organizationId: null },
+  )
   if (!role) return null
   // Cross-tenant guard: a role belongs to either the auth tenant or the global (null tenant) pool.
   // Reject the lookup otherwise so a multi-tenant deployment can't leak across tenants.
@@ -352,7 +365,13 @@ export async function PUT(req: Request) {
     ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
     : { tenantId: null }
   const availableRoles = canApplyToRoles
-    ? await em.find(Role, roleScope as any, { orderBy: { name: 'asc' } })
+    ? await findWithDecryption(
+        em,
+        Role,
+        roleScope as any,
+        { orderBy: { name: 'asc' } },
+        { tenantId: auth.tenantId ?? null, organizationId: null },
+      )
     : []
   const roleMap = new Map<string, Role>(availableRoles.map((role: Role) => [String(role.id), role]))
 
@@ -376,9 +395,11 @@ export async function PUT(req: Request) {
   const filteredClearRoleIds = clearRoleIds.filter((id) => !updatedRoleIds.includes(id) && !applyToRoles.includes(id))
 
   if (filteredClearRoleIds.length > 0) {
+    // Cross-locale: role preferences are unique per (role, tenantId); keep the delete
+    // filter aligned with save/load helpers so a clear from one locale does not leave
+    // a row created under another locale orphaned.
     await em.nativeDelete(RoleSidebarPreference, {
       role: { $in: filteredClearRoleIds },
-      locale,
       tenantId: auth.tenantId ?? null,
     })
     if (cache?.deleteByTags) {
@@ -434,7 +455,6 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'roleId query parameter is required' }, { status: 400 })
   }
 
-  const { locale } = await resolveTranslations()
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
   const rbac = container.resolve('rbacService') as any
@@ -454,9 +474,9 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
   }
 
+  // Cross-locale: keep the delete filter aligned with save/load helpers (no locale).
   await em.nativeDelete(RoleSidebarPreference, {
     role: role.id,
-    locale,
     tenantId: auth.tenantId ?? null,
   })
 

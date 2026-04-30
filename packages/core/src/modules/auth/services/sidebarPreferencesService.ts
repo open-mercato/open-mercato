@@ -1,4 +1,5 @@
 import { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleSidebarPreference, SidebarVariant, User, UserSidebarPreference } from '../data/entities'
 import {
   SIDEBAR_PREFERENCES_VERSION,
@@ -42,7 +43,13 @@ export async function loadSidebarPreference(
   // Cross-locale: variants & preferences are scoped per (user, tenant, org) only.
   // The `locale` field on the row is kept for audit / when the row was created.
   const { userId, tenantId, organizationId } = normalizeScope(scope)
-  const existing = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId })
+  const existing = await findOneWithDecryption(
+    em,
+    UserSidebarPreference,
+    { user: userId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
   return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
 }
 
@@ -56,7 +63,13 @@ export async function saveSidebarPreference(
     version: input?.version ?? SIDEBAR_PREFERENCES_VERSION,
   })
   const { userId, tenantId, organizationId, locale } = normalizeScope(scope)
-  let pref = await em.findOne(UserSidebarPreference, { user: userId, tenantId, organizationId })
+  let pref = await findOneWithDecryption(
+    em,
+    UserSidebarPreference,
+    { user: userId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!pref) {
     pref = em.create(UserSidebarPreference, {
       user: em.getReference(User, userId),
@@ -80,10 +93,13 @@ export async function loadRoleSidebarPreferences(
   if (!options.roleIds.length) return new Map()
   const tenantId = options.tenantId ?? null
   const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
-  const prefs = await em.find(RoleSidebarPreference, {
-    role: { $in: options.roleIds },
-    tenantId: tenantFilter,
-  })
+  const prefs = await findWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: { $in: options.roleIds }, tenantId: tenantFilter as any },
+    undefined,
+    { tenantId, organizationId: null },
+  )
   const map = new Map<string, SidebarPreferencesSettings>()
   for (const pref of prefs) {
     const key = pref.role.id
@@ -107,10 +123,13 @@ export async function loadFirstRoleSidebarPreference(
   if (!options.roleIds.length) return null
   const tenantId = options.tenantId ?? null
   const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
-  const prefs = await em.find(RoleSidebarPreference, {
-    role: { $in: options.roleIds },
-    tenantId: tenantFilter,
-  })
+  const prefs = await findWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: { $in: options.roleIds }, tenantId: tenantFilter as any },
+    undefined,
+    { tenantId, organizationId: null },
+  )
   if (!prefs.length) return null
   const ordered = options.roleIds
     .map((id) => {
@@ -135,7 +154,13 @@ export async function saveRoleSidebarPreference(
     version: input?.version ?? SIDEBAR_PREFERENCES_VERSION,
   })
   const { roleId, tenantId, locale } = normalizeRoleScope(scope)
-  let pref = await em.findOne(RoleSidebarPreference, { role: roleId, tenantId })
+  let pref = await findOneWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: roleId, tenantId },
+    undefined,
+    { tenantId, organizationId: null },
+  )
   if (!pref) {
     pref = em.create(RoleSidebarPreference, {
       role: em.getReference(Role, roleId),
@@ -252,11 +277,13 @@ export async function listSidebarVariants(
   scope: VariantScope,
 ): Promise<SidebarVariantRecord[]> {
   // Cross-locale: variants are scoped per (user, tenant) only.
-  const { userId, tenantId } = normalizeVariantScope(scope)
-  const variants = await em.find(
+  const { userId, tenantId, organizationId } = normalizeVariantScope(scope)
+  const variants = await findWithDecryption(
+    em,
     SidebarVariant,
     { user: userId, tenantId, deletedAt: null },
     { orderBy: { createdAt: 'asc' } },
+    { tenantId, organizationId },
   )
   return variants.map(toVariantRecord)
 }
@@ -266,13 +293,14 @@ export async function loadSidebarVariant(
   scope: VariantScope,
   variantId: string,
 ): Promise<SidebarVariantRecord | null> {
-  const { userId, tenantId } = normalizeVariantScope(scope)
-  const variant = await em.findOne(SidebarVariant, {
-    id: variantId,
-    user: userId,
-    tenantId,
-    deletedAt: null,
-  })
+  const { userId, tenantId, organizationId } = normalizeVariantScope(scope)
+  const variant = await findOneWithDecryption(
+    em,
+    SidebarVariant,
+    { id: variantId, user: userId, tenantId, deletedAt: null },
+    undefined,
+    { tenantId, organizationId },
+  )
   return variant ? toVariantRecord(variant) : null
 }
 
@@ -346,13 +374,14 @@ export async function updateSidebarVariant(
     isActive?: boolean
   },
 ): Promise<SidebarVariantRecord | null> {
-  const { userId, tenantId } = normalizeVariantScope(scope)
-  const variant = await em.findOne(SidebarVariant, {
-    id: variantId,
-    user: userId,
-    tenantId,
-    deletedAt: null,
-  })
+  const { userId, tenantId, organizationId } = normalizeVariantScope(scope)
+  const variant = await findOneWithDecryption(
+    em,
+    SidebarVariant,
+    { id: variantId, user: userId, tenantId, deletedAt: null },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!variant) return null
   if (typeof input.name === 'string' && input.name.trim().length > 0) {
     variant.name = input.name.trim()
@@ -378,13 +407,14 @@ export async function deleteSidebarVariant(
   scope: VariantScope,
   variantId: string,
 ): Promise<boolean> {
-  const { userId, tenantId } = normalizeVariantScope(scope)
-  const variant = await em.findOne(SidebarVariant, {
-    id: variantId,
-    user: userId,
-    tenantId,
-    deletedAt: null,
-  })
+  const { userId, tenantId, organizationId } = normalizeVariantScope(scope)
+  const variant = await findOneWithDecryption(
+    em,
+    SidebarVariant,
+    { id: variantId, user: userId, tenantId, deletedAt: null },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!variant) return false
   variant.deletedAt = new Date()
   variant.isActive = false
