@@ -815,13 +815,18 @@ export function AiChat({
         Promise.all(files.map((file) => readFileAsDataUrl(file))),
         upload.upload(files),
       ])
-      const successByName = new Map<string, string>()
+      // Pair upload outcomes back to chips by input INDEX, not by filename.
+      // The server may sanitize the uploaded name (whitespace, unicode,
+      // dangerous characters), and two files in the same batch can share a
+      // name — both cases broke the previous Map-by-fileName matching and
+      // left the chip stuck on the spinner forever.
+      const idByIndex = new Map<number, string>()
       for (const item of result.items) {
-        if (!successByName.has(item.fileName)) successByName.set(item.fileName, item.attachmentId)
+        if (typeof item.inputIndex === 'number') idByIndex.set(item.inputIndex, item.attachmentId)
       }
-      const failureByName = new Map<string, string>()
+      const errorByIndex = new Map<number, string>()
       for (const failure of result.failed) {
-        if (!failureByName.has(failure.fileName)) failureByName.set(failure.fileName, failure.message)
+        if (typeof failure.inputIndex === 'number') errorByIndex.set(failure.inputIndex, failure.message)
       }
       setPendingFiles((prev) => {
         const next = prev.slice()
@@ -837,13 +842,20 @@ export function AiChat({
             previewDataUrl: dataUrl ?? entry.previewDataUrl,
           }
           if (!patch.attachmentId) {
-            const id = successByName.get(entry.file.name)
+            const id = idByIndex.get(offset)
             if (id) {
               patch.attachmentId = id
               patch.error = undefined
             } else {
-              const error = failureByName.get(entry.file.name)
-              if (error) patch.error = error
+              // Defensive fallback: if neither success nor failure carried an
+              // index for this slot (older transports, partial outcome), the
+              // chip would otherwise stay on the spinner. Mark it as a
+              // generic error so the user can remove it and retry instead of
+              // staring at a dead spinner that also blocks the Send button.
+              const explicitError = errorByIndex.get(offset)
+              patch.error =
+                explicitError ??
+                'Upload finished without a server response. Remove the file and try again.'
             }
           }
           next[index] = patch

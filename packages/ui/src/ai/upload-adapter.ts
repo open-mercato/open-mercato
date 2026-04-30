@@ -64,13 +64,27 @@ export interface UploadAttachmentsForChatOptions {
 
 export interface UploadedAttachment {
   attachmentId: string
+  /**
+   * Server-returned (possibly sanitized) filename. The original
+   * client-side `File.name` is preserved on `originalFileName` so the
+   * chat composer can pair the upload result back to its chip without a
+   * sanitization-induced map miss.
+   */
   fileName: string
+  /** The exact `File.name` the caller passed in. Always set. */
+  originalFileName: string
+  /** Position of this file in the original input array. Always set. */
+  inputIndex: number
   mediaType: string
   size: number
 }
 
 export interface UploadFailure {
   fileName: string
+  /** The exact `File.name` the caller passed in. Always set. */
+  originalFileName: string
+  /** Position of this file in the original input array. Always set. */
+  inputIndex: number
   reason: UploadFailureReason
   message: string
 }
@@ -124,7 +138,11 @@ function mapStatusToReason(status: number, message: string): UploadFailureReason
   return 'server'
 }
 
-function parseServerItem(payload: unknown, fallbackFile: File): UploadedAttachment | null {
+function parseServerItem(
+  payload: unknown,
+  fallbackFile: File,
+  inputIndex: number,
+): UploadedAttachment | null {
   if (!payload || typeof payload !== 'object') return null
   const item = (payload as { item?: unknown }).item
   if (!item || typeof item !== 'object') return null
@@ -147,6 +165,8 @@ function parseServerItem(payload: unknown, fallbackFile: File): UploadedAttachme
   return {
     attachmentId: id,
     fileName,
+    originalFileName: fallbackFile.name,
+    inputIndex,
     mediaType,
     size,
   }
@@ -183,14 +203,21 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
     onProgress,
   } = args
 
+  const buildFailure = (
+    reason: UploadFailureReason,
+    message: string,
+  ): UploadFailure => ({
+    fileName: file.name,
+    originalFileName: file.name,
+    inputIndex: fileIndex,
+    reason,
+    message,
+  })
+
   if (signal.aborted) {
     return {
       ok: false,
-      failure: {
-        fileName: file.name,
-        reason: 'aborted',
-        message: 'Upload aborted before starting.',
-      },
+      failure: buildFailure('aborted', 'Upload aborted before starting.'),
     }
   }
 
@@ -237,11 +264,10 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
     if (timedOut) {
       return {
         ok: false,
-        failure: {
-          fileName: file.name,
-          reason: 'aborted',
-          message: `Upload timed out after ${Math.round(perFileTimeoutMs / 1000)}s. The server did not respond — try again, or attach the file to a record first and reference it in the chat.`,
-        },
+        failure: buildFailure(
+          'aborted',
+          `Upload timed out after ${Math.round(perFileTimeoutMs / 1000)}s. The server did not respond — try again, or attach the file to a record first and reference it in the chat.`,
+        ),
       }
     }
     const aborted =
@@ -249,21 +275,11 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
       localController.signal.aborted ||
       (networkError as { name?: string } | undefined)?.name === 'AbortError'
     if (aborted) {
-      return {
-        ok: false,
-        failure: {
-          fileName: file.name,
-          reason: 'aborted',
-          message: 'Upload aborted.',
-        },
-      }
+      return { ok: false, failure: buildFailure('aborted', 'Upload aborted.') }
     }
     const message =
       networkError instanceof Error ? networkError.message : 'Network request failed.'
-    return {
-      ok: false,
-      failure: { fileName: file.name, reason: 'network', message },
-    }
+    return { ok: false, failure: buildFailure('network', message) }
   }
   clearTimers()
 
@@ -282,21 +298,17 @@ async function uploadSingleFile(args: UploadSingleArgs): Promise<SingleOutcome> 
     const rawMessage = normalizeServerErrorMessage(payload)
     const fallbackMessage = rawMessage || `Upload failed (${response.status}).`
     const reason = mapStatusToReason(response.status, rawMessage)
-    return {
-      ok: false,
-      failure: { fileName: file.name, reason, message: fallbackMessage },
-    }
+    return { ok: false, failure: buildFailure(reason, fallbackMessage) }
   }
 
-  const item = parseServerItem(payload, file)
+  const item = parseServerItem(payload, file, fileIndex)
   if (!item) {
     return {
       ok: false,
-      failure: {
-        fileName: file.name,
-        reason: 'server',
-        message: 'Attachment API returned an unexpected response shape.',
-      },
+      failure: buildFailure(
+        'server',
+        'Attachment API returned an unexpected response shape.',
+      ),
     }
   }
 
@@ -387,8 +399,11 @@ export async function uploadAttachmentsForChat(
     }
     // Worker exited without processing this slot → it was skipped due to abort.
     const file = files[index]
+    const fallbackName = file?.name ?? `file-${index}`
     failed.push({
-      fileName: file?.name ?? `file-${index}`,
+      fileName: fallbackName,
+      originalFileName: fallbackName,
+      inputIndex: index,
       reason: 'aborted',
       message: 'Upload aborted before starting.',
     })

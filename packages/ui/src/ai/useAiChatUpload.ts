@@ -116,12 +116,14 @@ export function useAiChatUpload(
         const message = err instanceof Error ? err.message : 'Upload batch failed.'
         return {
           items: [],
-          failed: incoming.map((file) => ({
+          failed: incoming.map((file, inputIndex) => ({
             fileName: file.name,
+            originalFileName: file.name,
+            inputIndex,
             reason: 'network' as UploadFailureReason,
             message,
           })),
-        } as UploadAttachmentsForChatResult
+        } satisfies UploadAttachmentsForChatResult
       })
 
       setFiles((current) => {
