@@ -1,4 +1,4 @@
-# Portal Custom Domain Routing — Phase 1 + 1.5 Implementation Progress
+# Portal Custom Domain Routing — Phase 1 + 1.5 + 2 Implementation Progress
 
 | Field | Value |
 |-------|-------|
@@ -44,6 +44,7 @@ Or, if no PR exists yet, just tell Claude:
 | Phase 1: Migrations & generators | **Done** | Hand-wrote `Migration20260430120000_customer_accounts.ts` because `yarn db:generate` is broken on this branch (pre-existing CLI regression: `orm.getMigrator is not a function`). `yarn generate` succeeded — DomainMapping picked up by `entities.generated.ts`, all 5 subscribers registered in `modules.app.generated.ts`. |
 | Phase 1.5: Customer auth host-awareness | **Done** | `resolveTenantContext` helper, `getCustomerAuthFromCookies` extended with `expectedTenantId`, new `getCustomerAuthForHost`, login/signup/magic-link/password-reset routes accept missing `tenantId` and resolve from Host. signup uses `urlForCustomerOrg` for verification + login email URLs. |
 | Verification Gate | **Done** | `tsc --noEmit` clean across all customer_accounts files. 32 new unit tests pass (hostname, proxyRanges, resolveTenantContext). Pre-existing test failures in `rate-limit-identifiers.test.ts` and `customerSessionService.test.ts` are caused by a duplicate `@open-mercato/cache` package in `.ai/tmp/auto-review-pr/pr-1695-review/` — verified to fail on baseline before my changes. |
+| Phase 2: Next.js Node Middleware | **Done** | Discovered Next 16 renamed `middleware.ts` → `proxy.ts`; extended existing `apps/mercato/src/proxy.ts` (Node runtime via `runtime: 'nodejs'`) with custom-domain rewrite, SWR in-memory cache (`apps/mercato/src/lib/customDomainCache.ts`), HTTP resolver + warm-up via `/api/customer-accounts/domain-resolve(/all)` (`apps/mercato/src/lib/customDomainResolver.ts`), 503-on-cold-fetch-fail, `x-custom-domain` header, `x-next-url` rewrite to keep `(frontend)` layout's pathname extraction working, and `X-Open-Mercato-Origin: 1` on `/_next/health` via `next.config.ts headers()`. 13 new unit tests cover SWR/LRU/negative caching, hostname normalization, in-flight coalescing, warm-up, and 404 handling. |
 
 ## Detailed Checklist
 
@@ -197,6 +198,38 @@ All routes export `openApi`.
 
 - [ ] Add `## Implementation Status` section to spec with Phase 1 + 1.5 marked Done
 - [ ] Cross off the rev 5 verdict's "ready for implementation" — Phase 1 + 1.5 actually shipped
+
+## Phase 2 Detailed Checklist
+
+- [x] **Discovery**: confirmed Next.js 16 ships the `proxy.ts` filename (replacement for `middleware.ts`) — Next.js source at `node_modules/next/dist/lib/constants.js.map` defines both `MIDDLEWARE_FILENAME` and `PROXY_FILENAME`. Rather than create a new `middleware.ts` (which the spec was written against on the assumption of Next ≥ 15.2), extended the existing `apps/mercato/src/proxy.ts` so we keep one middleware entry-point.
+- [x] **Cache module**: `apps/mercato/src/lib/customDomainCache.ts` — `Map`-backed SWR cache with LRU eviction (re-insertion on access), positive TTL (`DOMAIN_CACHE_TTL_SECONDS`, default 60s), negative TTL (`DOMAIN_NEGATIVE_CACHE_TTL_SECONDS`, default 300s), max entries (`DOMAIN_CACHE_MAX_ENTRIES`, default 10,000), in-flight coalescing, and `primeFromList` for warm-up.
+- [x] **Resolver module**: `apps/mercato/src/lib/customDomainResolver.ts` — `createCustomDomainRouter` calls `/api/customer-accounts/domain-resolve` (per-host) and `/api/customer-accounts/domain-resolve/all` (warm-up) using `INTERNAL_APP_ORIGIN` (or `http://127.0.0.1:${PORT}` fallback) + `DOMAIN_RESOLVE_SECRET` header, with 5s default timeout. Exposes `getSharedCustomDomainRouter()`, `ensureWarmUp()` (fire-and-forget on first request), and `isPlatformHost()`.
+- [x] **proxy.ts**: switched matcher to declare `runtime: 'nodejs'`. Behavior matrix:
+  - Platform host (or no host) → existing `x-next-url` injection + `NextResponse.next()` (preserves issue #1083 fix and current behavior).
+  - Custom host + `/api/*` → matcher already excludes `/api/*` so no proxy logic runs; the route-level `resolveTenantContext` (Phase 1.5) handles host-aware tenant resolution.
+  - Custom host + active mapping → rewrite to `/{orgSlug}/portal{path}`, set `x-next-url` to the rewritten path so the `(frontend)` layout's pathname-matching keeps working, and emit `x-custom-domain: 1` on both the request-forwarded headers and the response.
+  - Custom host + cold-miss fetch failure → 503 with `Retry-After: 5` (stale entries keep serving via SWR before this point).
+  - Custom host + unknown mapping → pass-through (Next.js produces the standard 404).
+- [x] **`X-Force-Host` test bypass**: gated behind `NODE_ENV === 'test'` AND a matching `X-Force-Host-Secret` (mirrors the route-level helper added in Phase 1.5). Allows Playwright integration tests to drive the middleware with arbitrary `Host` values without `/etc/hosts` changes.
+- [x] **`/_next/health` origin marker**: added a `next.config.ts headers()` entry that sets `X-Open-Mercato-Origin: 1` on `/_next/health` (overridable via `CUSTOMER_DOMAIN_ORIGIN_HEADER`). Combined with the same header that the `domain-check` route already sets, the proxied-DNS reverse-resolve check from Phase 1 can confirm requests actually reached our origin.
+- [x] **Unit tests**: 13 new tests across two suites:
+  - `apps/mercato/src/__tests__/customDomainCache.test.ts` (9 tests): fresh hit, stale hit + background refresh, negative caching + expiry, LRU eviction, hostname normalization (case + trailing dot), concurrent in-flight coalescing, `primeFromList`, throw-on-cold-miss-doesn't-poison, un-normalizable input.
+  - `apps/mercato/src/__tests__/customDomainResolver.test.ts` (4 tests): warm-up primes cache & avoids per-host fetches, per-host fetch fallback, 404 → null, misconfigured deps return error descriptor.
+- [x] **Verification**: `npx tsc --noEmit -p .` clean from the mercato app; 48/48 mercato app tests green; 32/32 customer_accounts/lib tests still green.
+
+### Phase 2 — files created (2)
+- `apps/mercato/src/lib/customDomainCache.ts`
+- `apps/mercato/src/lib/customDomainResolver.ts`
+- `apps/mercato/src/__tests__/customDomainCache.test.ts`
+- `apps/mercato/src/__tests__/customDomainResolver.test.ts`
+
+### Phase 2 — files modified (2)
+- `apps/mercato/src/proxy.ts` (Node runtime, custom-domain rewrite, cache integration, `x-custom-domain` header, test-only `X-Force-Host` bypass)
+- `apps/mercato/next.config.ts` (added `X-Open-Mercato-Origin: 1` header for `/_next/health`)
+
+### Phase 2 — env vars introduced
+- `INTERNAL_APP_ORIGIN` (optional, defaults to `http://127.0.0.1:${PORT||3000}`) — base URL the proxy uses to call its own API. Useful in containerized deployments.
+- `DOMAIN_CACHE_TTL_SECONDS` (default 60), `DOMAIN_NEGATIVE_CACHE_TTL_SECONDS` (default 300), `DOMAIN_CACHE_MAX_ENTRIES` (default 10,000) — already named in the spec; now actually wired.
 
 ## Blockers
 
