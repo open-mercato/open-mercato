@@ -19,7 +19,7 @@ export async function claimWebhookProcessing(
   })
 
   try {
-    await em.persistAndFlush(record)
+    await em.persist(record).flush()
     return true
   } catch (error: unknown) {
     if (error instanceof UniqueConstraintViolationException) {
@@ -48,5 +48,5 @@ export async function releaseWebhookClaim(
     scope,
   )
   if (!existing) return
-  await em.removeAndFlush(existing)
+  await em.remove(existing).flush()
 }

@@ -52,7 +52,7 @@ export async function processAttachmentOcr(
     }
 
     attachment.content = result.content
-    await em.persistAndFlush(attachment)
+    await em.persist(attachment).flush()
 
     console.log(`[attachments.ocr] Processing completed:`, {
       attachmentId,

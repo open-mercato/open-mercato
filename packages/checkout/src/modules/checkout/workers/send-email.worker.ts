@@ -114,7 +114,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
   const em = (ctx.resolve('em') as EntityManager).fork()
   const { t } = await resolveTranslations()
 
-  const transaction = await findOneWithDecryption<CheckoutTransaction>(em, 'CheckoutTransaction', {
+  const transaction = await findOneWithDecryption<CheckoutTransaction>(em, CheckoutTransaction, {
     id: payload.transactionId,
     organizationId: payload.organizationId,
     tenantId: payload.tenantId,

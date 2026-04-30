@@ -58,7 +58,7 @@ describe('Workflow Definitions API', () => {
       findAndCount: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     }
 
@@ -307,7 +307,7 @@ describe('Workflow Definitions API', () => {
           organizationId: testOrgId,
         })
       )
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should prevent duplicate workflowId even with a different version', async () => {
@@ -415,7 +415,7 @@ describe('Workflow Definitions API', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
       })
-      mockEm.persistAndFlush.mockRejectedValue({
+      mockEm.flush.mockRejectedValue({
         code: '23505',
         constraint: 'workflow_definitions_workflow_id_tenant_id_unique',
         detail: 'Key (workflow_id, tenant_id) already exists.',
@@ -668,6 +668,103 @@ describe('Workflow Definitions API', () => {
 
       expect(response.status).toBe(200)
       expect(mockDefinition.enabled).toBe(false)
+    })
+
+    // Regression for issue #1586: the Edit form previously sent the same shape
+    // as the Create form (workflowId, workflowName, description, version,
+    // metadata, effectiveFrom, effectiveTo, definition with embedded triggers)
+    // but the PUT validator was strict and only accepted { definition, enabled },
+    // returning 400 "Unrecognized keys" errors.
+    test('should accept and apply create-form-shaped payload from edit form', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const fullPayload = {
+        workflowId: 'test-workflow',
+        workflowName: 'Renamed Workflow',
+        description: 'Updated description',
+        version: 1,
+        enabled: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        metadata: { tags: ['updated'], category: 'ops', icon: 'bolt' },
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            {
+              transitionId: 'start-to-end',
+              fromStepId: 'start',
+              toStepId: 'end',
+              trigger: 'auto',
+            },
+          ],
+          triggers: [
+            {
+              triggerId: 'on-customer-update',
+              name: 'On Customer Update',
+              eventPattern: 'customers.person.updated',
+              enabled: true,
+              priority: 0,
+            },
+          ],
+        },
+      }
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify(fullPayload),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.workflowName).toBe('Renamed Workflow')
+      expect(mockDefinition.description).toBe('Updated description')
+      expect(mockDefinition.enabled).toBe(false)
+      expect(mockDefinition.metadata).toEqual({ tags: ['updated'], category: 'ops', icon: 'bolt' })
+      expect(mockDefinition.definition.triggers).toHaveLength(1)
+      expect(mockDefinition.definition.triggers[0].triggerId).toBe('on-customer-update')
+      expect(mockEm.flush).toHaveBeenCalled()
+    })
+
+    test('should ignore workflowId and version on update (immutable fields)', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+      const originalWorkflowId = mockDefinition.workflowId
+      const originalVersion = mockDefinition.version
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          workflowId: 'attempted-rename',
+          version: 999,
+          enabled: false,
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.workflowId).toBe(originalWorkflowId)
+      expect(mockDefinition.version).toBe(originalVersion)
+      expect(mockDefinition.enabled).toBe(false)
+    })
+
+    test('should reject unknown payload keys (strict schema)', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: false,
+          unknownField: 'should-be-rejected',
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(400)
     })
   })
 

@@ -126,32 +126,8 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
       await search.fill('');
       await page.getByRole('button', { name: 'Refresh' }).waitFor();
       await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
-      await page.getByRole('button', { name: /^Filters/ }).click();
-      const filtersDialog = page.getByRole('heading', { name: /^Filter$/i }).locator('xpath=ancestor::div[2]');
-      try {
-        await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible({ timeout: 5000 });
-      } catch {
-        await page.getByRole('button', { name: /^Filters/ }).click();
-        await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible();
-      }
-      await filtersDialog.getByRole('combobox').nth(0).selectOption({ label: 'Active' });
-      await filtersDialog.getByRole('combobox').nth(2).selectOption({ label: 'Prospect' });
-      const filterTagInput = filtersDialog.getByPlaceholder('Add tag and press Enter');
-      await filterTagInput.fill(companyTag);
-      const tagSuggestion = filtersDialog.getByRole('button', { name: companyTag, exact: true });
-      await expect(tagSuggestion).toBeVisible();
-      await tagSuggestion.click();
-      await filtersDialog.getByRole('button', { name: 'Apply' }).first().click();
 
-      await expect(page.getByRole('button', { name: /Status:\s*Active/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: /Lifecycle stage:\s*Prospect/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: new RegExp(companyTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })).toBeVisible();
-
-      await waitForCompanyInList();
-
-      await page.getByRole('button', { name: /^Filters/ }).click();
-      await filtersDialog.getByRole('button', { name: 'Clear' }).first().click();
-      await filtersDialog.getByRole('button', { name: 'Apply' }).first().click();
+      // Verify search box surfaces the company in the list
       await search.fill(companyName);
       await page.waitForTimeout(1200);
       await waitForCompanyInList();

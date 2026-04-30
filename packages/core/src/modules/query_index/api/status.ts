@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const knex = (em as any).getConnection().getKnex()
+  const db = (em as any).getKysely()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
   const organizationId = scope.selectedId ?? auth.orgId ?? null
@@ -119,23 +120,27 @@ export async function GET(req: Request) {
 
   // Limit to entities that have active custom field definitions in current scope
   try {
-    const cfRows = await knex('custom_field_defs')
-      .distinct('entity_id')
-      .where({ is_active: true })
-      .modify((qb: any) => {
-        if (tenantId != null) {
-          qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
-        } else {
-          qb.andWhere((b: any) => b.whereNull('tenant_id'))
-        }
-        if (Array.isArray(organizationScopeIds)) {
-          qb.andWhere((b: any) => {
-            b.whereIn('organization_id', organizationScopeIds)
-            b.orWhereNull('organization_id')
-          })
-        }
-      })
-    const enabled = new Set<string>((cfRows || []).map((r: any) => String(r.entity_id)))
+    let cfQuery = db
+      .selectFrom('custom_field_defs' as any)
+      .select(['entity_id' as any])
+      .distinct()
+      .where('is_active' as any, '=', true)
+    if (tenantId != null) {
+      cfQuery = cfQuery.where((eb: any) => eb.or([
+        eb('tenant_id' as any, '=', tenantId),
+        eb('tenant_id' as any, 'is', null),
+      ]))
+    } else {
+      cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
+    }
+    if (Array.isArray(organizationScopeIds)) {
+      cfQuery = cfQuery.where((eb: any) => eb.or([
+        eb('organization_id' as any, 'in', organizationScopeIds),
+        eb('organization_id' as any, 'is', null),
+      ]))
+    }
+    const cfRows = await cfQuery.execute() as Array<{ entity_id: string }>
+    const enabled = new Set<string>((cfRows || []).map((r) => String(r.entity_id)))
     entityIds = entityIds.filter((id) => enabled.has(id))
   } catch {}
 
@@ -144,23 +149,22 @@ export async function GET(req: Request) {
 
   async function fetchJobSummary(entityType: string, tenantIdParam: string | null, organizationIdParam: string | null) {
     try {
-      const rows = await knex('entity_index_jobs')
-        .where({ entity_type: entityType })
-        .andWhere((qb: any) => {
-          if (tenantIdParam != null) {
-            qb.whereRaw('tenant_id is not distinct from ?', [tenantIdParam])
-          } else {
-            qb.whereRaw('tenant_id is not distinct from ?', [null])
-          }
-        })
-        .andWhere((qb: any) => {
-          if (organizationIdParam != null) {
-            qb.whereRaw('organization_id is not distinct from ?', [organizationIdParam]).orWhereNull('organization_id')
-          } else {
-            qb.whereRaw('organization_id is not distinct from ?', [null])
-          }
-        })
-        .orderBy('started_at', 'desc')
+      let jobQuery = db
+        .selectFrom('entity_index_jobs' as any)
+        .selectAll()
+        .where('entity_type' as any, '=', entityType)
+        .where(sql<boolean>`tenant_id is not distinct from ${tenantIdParam ?? null}`)
+      if (organizationIdParam != null) {
+        jobQuery = jobQuery.where((eb: any) => eb.or([
+          eb('organization_id' as any, '=', organizationIdParam),
+          eb('organization_id' as any, 'is', null),
+        ]))
+      } else {
+        jobQuery = jobQuery.where(sql<boolean>`organization_id is not distinct from ${null}`)
+      }
+      const rows = await jobQuery
+        .orderBy('started_at' as any, 'desc')
+        .execute() as Array<Record<string, any>>
 
       if (!rows.length) {
         return { status: 'idle' as const, partitions: [] as any[] }
@@ -294,7 +298,7 @@ export async function GET(req: Request) {
       withDeleted: false,
     } as const
     const ensureSnapshot = async () => {
-      let snapshot = await readCoverageSnapshot(knex, scope)
+      let snapshot = await readCoverageSnapshot(db, scope)
       const refreshedAt = snapshot?.refreshed_at instanceof Date
         ? snapshot.refreshed_at
         : snapshot?.refreshed_at
@@ -303,7 +307,7 @@ export async function GET(req: Request) {
       const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
       if (forceRefresh || stale) {
         await refreshCoverageSnapshot(em, scope).catch(() => undefined)
-        snapshot = await readCoverageSnapshot(knex, scope)
+        snapshot = await readCoverageSnapshot(db, scope)
       }
       const finalRefreshed = snapshot?.refreshed_at instanceof Date
         ? snapshot.refreshed_at
@@ -378,24 +382,29 @@ export async function GET(req: Request) {
     } catch {}
   }
 
-  const errorRows = await knex('indexer_error_logs')
-    .modify((qb: any) => {
-      if (tenantId != null) {
-        qb.where((inner: any) => {
-          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
-        })
-      } else {
-        qb.whereNull('tenant_id')
-      }
-    })
-    .andWhere((qb: any) => {
-      qb.whereNull('organization_id')
-      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-        qb.orWhereIn('organization_id', organizationScopeIds)
-      }
-    })
-    .orderBy('occurred_at', 'desc')
+  let errorQuery = db
+    .selectFrom('indexer_error_logs' as any)
+    .selectAll()
+  if (tenantId != null) {
+    errorQuery = errorQuery.where((eb: any) => eb.or([
+      eb('tenant_id' as any, '=', tenantId),
+      eb('tenant_id' as any, 'is', null),
+    ]))
+  } else {
+    errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
+  }
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+    errorQuery = errorQuery.where((eb: any) => eb.or([
+      eb('organization_id' as any, 'is', null),
+      eb('organization_id' as any, 'in', organizationScopeIds),
+    ]))
+  } else {
+    errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
+  }
+  const errorRows = await errorQuery
+    .orderBy('occurred_at' as any, 'desc')
     .limit(100)
+    .execute() as Array<Record<string, any>>
 
   const errors = errorRows.map((row: any) => {
     const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
@@ -414,24 +423,29 @@ export async function GET(req: Request) {
     }
   })
 
-  const logRows = await knex('indexer_status_logs')
-    .modify((qb: any) => {
-      if (tenantId != null) {
-        qb.where((inner: any) => {
-          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
-        })
-      } else {
-        qb.whereNull('tenant_id')
-      }
-    })
-    .andWhere((qb: any) => {
-      qb.whereNull('organization_id')
-      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-        qb.orWhereIn('organization_id', organizationScopeIds)
-      }
-    })
-    .orderBy('occurred_at', 'desc')
+  let logsQuery = db
+    .selectFrom('indexer_status_logs' as any)
+    .selectAll()
+  if (tenantId != null) {
+    logsQuery = logsQuery.where((eb: any) => eb.or([
+      eb('tenant_id' as any, '=', tenantId),
+      eb('tenant_id' as any, 'is', null),
+    ]))
+  } else {
+    logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
+  }
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+    logsQuery = logsQuery.where((eb: any) => eb.or([
+      eb('organization_id' as any, 'is', null),
+      eb('organization_id' as any, 'in', organizationScopeIds),
+    ]))
+  } else {
+    logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
+  }
+  const logRows = await logsQuery
+    .orderBy('occurred_at' as any, 'desc')
     .limit(100)
+    .execute() as Array<Record<string, any>>
 
   const logs = logRows.map((row: any) => {
     const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null

@@ -82,6 +82,19 @@ These guides ship automatically when the corresponding module is installed.
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
 | Implement a spec (or selected phases) | `.ai/skills/implement-spec/SKILL.md` |
 | Create / run integration tests | `.ai/skills/integration-tests/SKILL.md` |
+| Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
+
+### Agent Automation / Auto-Skills
+
+| Task | Load |
+|---|---|
+| Delegate an arbitrary task end-to-end as a PR | `.ai/skills/auto-create-pr/SKILL.md` |
+| Resume an in-progress agent PR | `.ai/skills/auto-continue-pr/SKILL.md` |
+| Automated code review on a PR (with optional autofix) | `.ai/skills/auto-review-pr/SKILL.md` |
+| Fix a GitHub issue by number and open a PR | `.ai/skills/auto-fix-github/SKILL.md` |
+| Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/trim-unused-modules/SKILL.md` |
+
+Invoke these from the Claude Code CLI as slash commands, for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-github 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
 
 ## Module Anatomy
 
@@ -126,7 +139,21 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
 3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
 4. **Confirm migrations with user** before running `yarn mercato db migrate`
-5. **BEFORE writing ANY code**, you MUST:
+5. **API route files MUST export `metadata`.** Every `src/modules/<module>/api/**/route.ts` that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth, otherwise the generator emits the warning `[generate] ⚠ Route file exports handlers but no metadata — auth will default to required` and every method silently falls back to "authentication required". Use the per-method shape:
+   ```ts
+   export const metadata = {
+     GET: { requireAuth: true, requireFeatures: ['mymodule.view'] },
+     POST: { requireAuth: true, requireFeatures: ['mymodule.manage'] },
+   }
+   ```
+   For public endpoints, opt out explicitly with `{ requireAuth: false }`. Do not use the legacy top-level `export const requireAuth` / `export const requireFeatures` — they are no longer recognised.
+6. **Write migrations in one shot.** `yarn dev` auto-applies pending migrations at startup by default (`OM_DEV_AUTO_MIGRATE=1`). Once a generated migration has been run, editing the same migration file has no effect — the next migrate pass skips it as already-applied. If you truly need to iterate, either (a) disable auto-migrate (`OM_DEV_AUTO_MIGRATE=0`) and roll back with `yarn db:migrate --down` between edits, or (b) ship the correction as a **new** migration file. Never hand-edit a historical migration that has already been applied in any environment.
+7. **After the user adds a new module, offer to trim classic mode.** A fresh `create-mercato-app` scaffold enables every built-in module (classic mode). Once the user has added their own custom module, the defaults are usually dead weight. **Ask the user** (via a short `AskUserQuestion`) whether they want to disable built-in modules that are not needed for their project. If they say yes, invoke the `trim-unused-modules` skill — do NOT hand-craft the slimdown inside the AGENTS.md reading flow. If they say no, preserve classic mode silently.
+
+   **Dashboards fallback rule.** When the user (or the `trim-unused-modules` skill) disables the `dashboards` module, you MUST update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the dashboard render with a `redirect(...)` to the first enabled backend page for the current user — preferring pages already registered in the main sidebar group and respecting the admin/superadmin role of the caller. Otherwise `/backend` will crash at build or request time because the removed module no longer ships `DashboardScreen`. Always fall back to `/backend/profile` only if no other backend page is available.
+8. **New features MUST be visible to admin/superadmin immediately.** Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also (a) add that feature to `defaultRoleFeatures` in the same module's `setup.ts` so the admin and superadmin roles get it on every tenant setup; and (b) run `yarn mercato auth sync-role-acls --all-tenants` so existing tenants pick up the new feature without a reinstall. Do this automatically unless the user has explicitly said otherwise — the user should see the features you are building, not stare at a blank admin because their role is missing a grant. Feature IDs are FROZEN once shipped; if a rename is required, add the new ID alongside, grant it, and keep the old one as a deprecated alias.
+9. **Strict Design System alignment for every UI change.** Any UI you add or edit MUST use the Open Mercato design system components and tokens. No hardcoded Tailwind status colors (`text-red-500`, `bg-green-100`, etc.) — use semantic tokens (`text-status-error-text`, `bg-status-success-bg`, …). No arbitrary text sizes (`text-[11px]`, `text-[13px]`) — use the Tailwind scale (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`) or the `text-overline` token for 11px uppercase labels. In PAGE BODY UI, use `lucide-react` icons (never inline `<svg>`); but in `page.meta.ts` files specifically, the `icon` field MUST be built with `React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: '...' }))` — see the reference pattern in `node_modules/@open-mercato/core/dist/modules/customers/backend/customers/people/page.meta.js` or mirror `packages/core/src/modules/customers/backend/customers/people/page.meta.ts` in the monorepo. Do NOT `import { IconName } from 'lucide-react'` inside meta files — after the lucide-react major upgrade, direct imports in meta files break page-metadata serialization. Grab the `d="..."` from the lucide icon you want and inline it via `React.createElement`. Use `StatusBadge` for entity status, `Alert` for inline feedback, `FormField` for standalone form inputs, `SectionHeader` for detail-page section headings, `CollapsibleSection` for collapsible regions, `LoadingMessage`/`Spinner`/`DataLoader` for async states, and `EmptyState` (or DataTable's `emptyState` prop) for empty lists. Every dialog MUST support `Cmd/Ctrl+Enter` to submit and `Escape` to cancel. Every icon-only button MUST have an `aria-label`. These rules apply to `src/modules/<module>/backend/**` and `src/modules/<module>/frontend/**` alike.
+7. **BEFORE writing ANY code**, you MUST:
    - Match your task against the **Task → Context Map** above
    - `Read` every file listed in the "Load" column for your task type
    - Only then proceed to implementation

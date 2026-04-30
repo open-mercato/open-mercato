@@ -99,7 +99,7 @@ const OrdersKpiWidget: React.FC<DashboardWidgetComponentProps<OrdersKpiSettings>
               type="checkbox"
               checked={hydrated.showComparison}
               onChange={(e) => onSettingsChange({ ...hydrated, showComparison: e.target.checked })}
-              className="h-4 w-4 rounded border focus:ring-primary"
+              className="h-4 w-4 rounded border focus-visible:ring-ring"
             />
             {t('dashboards.analytics.settings.showComparison', 'Show comparison')}
           </label>

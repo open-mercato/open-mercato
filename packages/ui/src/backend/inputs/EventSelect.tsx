@@ -104,7 +104,7 @@ export function EventSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
+      className={`h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
       disabled={disabled || isLoading}
     >
       <option value="" disabled>

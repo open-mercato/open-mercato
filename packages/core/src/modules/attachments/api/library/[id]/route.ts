@@ -244,7 +244,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
     recordPartition?.configJson,
   )
   await deleteDriver.delete(record.partitionCode, record.storagePath)
-  await em.removeAndFlush(record)
+  await em.remove(record).flush()
 
   if (dataEngine) {
     await emitCrudSideEffects({

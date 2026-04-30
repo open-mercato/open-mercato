@@ -117,7 +117,7 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
           </label>
           <select
             id="orders-by-status-variant"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.variant}
             onChange={(e) => onSettingsChange({ ...hydrated, variant: e.target.value as 'pie' | 'donut' })}
           >

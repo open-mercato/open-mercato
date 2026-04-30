@@ -7,7 +7,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -307,9 +307,11 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
   if (!option) {
     return (
-      <Notice compact variant="warning">
-        {t('data_sync.integrationTab.notAvailable', 'This integration is not registered as a data sync provider.')}
-      </Notice>
+      <Alert variant="warning">
+        <AlertDescription>
+          {t('data_sync.integrationTab.notAvailable', 'This integration is not registered as a data sync provider.')}
+        </AlertDescription>
+      </Alert>
     )
   }
 
@@ -345,21 +347,27 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       </div>
 
       {!props.isEnabled ? (
-        <Notice compact variant="warning">
-          {t('data_sync.integrationTab.integrationDisabledNotice', 'The integration is disabled. You can save schedules now, but runs will stay blocked until the integration is enabled.')}
-        </Notice>
+        <Alert variant="warning">
+          <AlertDescription>
+            {t('data_sync.integrationTab.integrationDisabledNotice', 'The integration is disabled. You can save schedules now, but runs will stay blocked until the integration is enabled.')}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {!props.hasCredentials ? (
-        <Notice compact variant="warning">
-          {t('data_sync.integrationTab.credentialsMissingNotice', 'Credentials are still missing. Save schedules first if you want, but manual and scheduled runs will fail until credentials are configured.')}
-        </Notice>
+        <Alert variant="warning">
+          <AlertDescription>
+            {t('data_sync.integrationTab.credentialsMissingNotice', 'Credentials are still missing. Save schedules first if you want, but manual and scheduled runs will fail until credentials are configured.')}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {rows.length === 0 ? (
-        <Notice compact>
-          {t('data_sync.integrationTab.empty', 'This provider does not expose any schedulable sync entities yet.')}
-        </Notice>
+        <Alert variant="info">
+          <AlertDescription>
+            {t('data_sync.integrationTab.empty', 'This provider does not expose any schedulable sync entities yet.')}
+          </AlertDescription>
+        </Alert>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[1080px] text-sm">

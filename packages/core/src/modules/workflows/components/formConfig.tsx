@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 /**
  * Form Values Type
@@ -23,6 +24,7 @@ export type WorkflowDefinitionFormValues = {
   } | null
   steps: any[]
   transitions: any[]
+  triggers: WorkflowDefinitionTrigger[]
 }
 
 /**
@@ -52,6 +54,7 @@ export const workflowDefinitionFormSchema = z.object({
   }).optional().nullable(),
   steps: z.array(z.any()),
   transitions: z.array(z.any()),
+  triggers: z.array(z.any()).default([]),
 })
 
 /**
@@ -72,6 +75,7 @@ export const defaultFormValues: WorkflowDefinitionFormValues = {
   },
   steps: [],
   transitions: [],
+  triggers: [],
 }
 
 /**
@@ -241,6 +245,7 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     metadata: workflow.metadata || { tags: [], category: '', icon: '' },
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
+    triggers: workflow.definition?.triggers || [],
   }
 }
 
@@ -248,6 +253,7 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
  * Build API payload from form values
  */
 export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
+  const triggers = values.triggers ?? []
   return {
     workflowId: values.workflowId,
     workflowName: values.workflowName,
@@ -260,6 +266,7 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     definition: {
       steps: values.steps,
       transitions: values.transitions,
+      ...(triggers.length > 0 ? { triggers } : {}),
     },
   }
 }

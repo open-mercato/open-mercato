@@ -54,14 +54,25 @@ function makeStartInput(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function createMockEm(overrides: Record<string, unknown> = {}) {
+type MockEm = EntityManager & {
+  findOne: jest.Mock
+  create: jest.Mock
+  persist: jest.Mock
+  flush: jest.Mock
+}
+
+function createMockEm(overrides: Record<string, unknown> = {}): MockEm {
+  const flush = jest.fn().mockResolvedValue(undefined)
+  const persist = jest.fn(function persist(this: unknown) {
+    return { flush }
+  })
   return {
     findOne: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockImplementation((_entity: unknown, data: Record<string, unknown>) => data),
-    persistAndFlush: jest.fn().mockResolvedValue(undefined),
-    flush: jest.fn().mockResolvedValue(undefined),
+    persist,
+    flush,
     ...overrides,
-  } as unknown as EntityManager
+  } as unknown as MockEm
 }
 
 describe('OnboardingService', () => {
@@ -71,7 +82,8 @@ describe('OnboardingService', () => {
       const service = new OnboardingService(em)
       const result = await service.createOrUpdateRequest(makeStartInput())
       expect(em.create).toHaveBeenCalledTimes(1)
-      expect(em.persistAndFlush).toHaveBeenCalledTimes(1)
+      expect(em.persist).toHaveBeenCalledTimes(1)
+      expect(em.flush).toHaveBeenCalledTimes(1)
       expect(result.request).toBeDefined()
       expect(result.token).toBeDefined()
       expect(result.token.length).toBe(64)

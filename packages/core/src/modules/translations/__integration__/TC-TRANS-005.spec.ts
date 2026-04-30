@@ -37,13 +37,31 @@ async function fillCombobox(
   } else {
     await input.press('Enter')
   }
-  // Move focus away so the ComboboxInput's onBlur handler fires and settles
-  // (onBlur has a 200ms timeout that calls confirmSelection, which may reset hasUserEdited)
   await input.press('Tab')
-  await page.waitForTimeout(300)
   if (options?.waitForEnabledPlaceholder) {
     await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
   }
+}
+
+async function selectEntityForRecordPicker(
+  page: import('@playwright/test').Page,
+  entityType: string,
+) {
+  const recordInput = page.getByPlaceholder('Search records...')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await fillCombobox(page, 'Select an entity', entityType)
+    const enabled = await expect
+      .poll(async () => !(await recordInput.isDisabled()), { timeout: 4_000 })
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false)
+    if (enabled) {
+      return
+    }
+  }
+
+  await expect(recordInput).toBeEnabled({ timeout: 10_000 })
 }
 
 /**
@@ -67,7 +85,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await page.goto('/backend/config/translations')
       await expect(page.getByRole('heading', { name: 'Translations' })).toBeVisible()
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       await expect(page.getByText('Base value')).toBeVisible()
@@ -93,7 +111,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -101,12 +119,18 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
       const titleInput = page.locator('table input').first()
       await titleInput.fill('Deutscher Titel QA')
 
       await page.getByRole('button', { name: 'Save translations' }).click()
-      await expect(page.getByText('Translations saved').first()).toBeVisible()
+      await expect.poll(async () => {
+        const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+        if (!response.ok()) return null
+        const body = (await response.json()) as { translations: Record<string, Record<string, string>> }
+        return body.translations?.de?.title ?? null
+      }).toBe('Deutscher Titel QA')
 
       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
       expect(getResponse.ok()).toBeTruthy()
@@ -139,7 +163,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -147,6 +171,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
       await expect(page.locator('table input').first()).toHaveValue('Persistenter Titel')
     } finally {

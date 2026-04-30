@@ -35,16 +35,16 @@ export function ExtensionPointList({ extensions }: { extensions: UmesExtensionIn
             {items.map((ext, idx) => (
               <div
                 key={`${ext.id}-${idx}`}
-                className="flex items-center justify-between border-b border-border/50 py-1 text-xs"
+                className="flex items-center justify-between border-b border-border/70 py-1 text-xs"
               >
                 <div>
                   <span className="font-medium">{ext.id}</span>
                   <span className="ml-1.5 text-muted-foreground">[{ext.moduleId}]</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground">{ext.target}</span>
+                  <span className="text-overline text-muted-foreground">{ext.target}</span>
                   {ext.priority !== 0 && (
-                    <span className="rounded bg-muted px-1.5 py-px text-[10px] font-semibold">
+                    <span className="rounded bg-muted px-1.5 py-px text-overline font-semibold">
                       P{ext.priority}
                     </span>
                   )}

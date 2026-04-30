@@ -30,18 +30,23 @@ const buildEm = () => {
     fork: jest.fn(),
     transactional: jest.fn(),
     create: jest.fn(),
-    persistAndFlush: jest.fn(),
+    persist: jest.fn(),
     flush: jest.fn(),
     findOne: jest.fn(),
     findOneOrFail: jest.fn(),
     count: jest.fn(),
     find: jest.fn(),
-    getConnection: jest.fn(),
+    getKysely: jest.fn(),
   }
   em.fork.mockReturnValue(em)
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
-  em.getConnection.mockReturnValue({
-    getKnex: () => ({}),
+  em.persist.mockImplementation(() => ({ flush: em.flush }))
+  em.getKysely.mockReturnValue({
+    selectFrom: () => ({
+      select: () => ({
+        where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
+      }),
+    }),
   })
   return em
 }
@@ -228,46 +233,49 @@ describe('notification service', () => {
 
     ;(findWithDecryption as jest.Mock).mockResolvedValue(notifications)
 
-    const knexUpdate = jest.fn().mockResolvedValue(notifications.length)
-    const knexSelect = jest.fn().mockResolvedValue(
-      notifications.map((n) => ({
+    // Kysely-shaped stub for `em.getKysely()`.
+    // `markAllAsRead` first runs a SELECT to collect target rows, then an UPDATE
+    // whose `executeTakeFirst` returns `{ numUpdatedRows }`.
+    const whereCalls: any[] = []
+    const selectWhereChain: any = {
+      where: jest.fn((...args: any[]) => { whereCalls.push(['select', ...args]); return selectWhereChain }),
+      execute: jest.fn(async () => notifications.map((n) => ({
         id: n.id,
         organization_id: n.organizationId,
         recipient_user_id: n.recipientUserId,
-      }))
-    )
-
-    const knexBuilder: any = {
-      where: jest.fn().mockReturnThis(),
-      whereNull: jest.fn().mockReturnThis(),
-      select: knexSelect,
-      update: knexUpdate,
-      clone: jest.fn(function clone() {
-        return this
-      }),
-      fn: { now: jest.fn(() => 'now') },
+      }))),
+    }
+    const selectChain: any = {
+      select: jest.fn(() => selectWhereChain),
+    }
+    const updateWhereChain: any = {
+      where: jest.fn((...args: any[]) => { whereCalls.push(['update', ...args]); return updateWhereChain }),
+      executeTakeFirst: jest.fn(async () => ({ numUpdatedRows: BigInt(notifications.length) })),
+    }
+    const updateChain: any = {
+      set: jest.fn(() => updateWhereChain),
+    }
+    const kyselyMock = {
+      selectFrom: jest.fn(() => selectChain),
+      updateTable: jest.fn(() => updateChain),
     }
 
-    const knexMock = Object.assign(
-      jest.fn().mockReturnValue(knexBuilder),
-      { fn: knexBuilder.fn },
-    )
-
-    em.getConnection.mockReturnValue({
-      getKnex: () => knexMock,
-    })
+    em.getKysely.mockReturnValue(kyselyMock)
 
     const service = createNotificationService({ em, eventBus })
 
     const count = await service.markAllAsRead({ ...baseCtx, organizationId: 'org-1' })
 
     expect(count).toBe(2)
-    expect(knexBuilder.where).toHaveBeenCalledWith({
-      recipient_user_id: baseCtx.userId,
-      tenant_id: baseCtx.tenantId,
-      status: 'unread',
-    })
-    expect(knexBuilder.where).toHaveBeenCalledWith('organization_id', 'org-1')
+    // Ensure scope filters were applied to both the SELECT and the UPDATE.
+    const userWhere = whereCalls.filter((call) => call[1] === 'recipient_user_id')
+    const tenantWhere = whereCalls.filter((call) => call[1] === 'tenant_id')
+    const statusWhere = whereCalls.filter((call) => call[1] === 'status')
+    const orgWhere = whereCalls.filter((call) => call[1] === 'organization_id')
+    expect(userWhere.length).toBeGreaterThanOrEqual(2)
+    expect(tenantWhere.length).toBeGreaterThanOrEqual(2)
+    expect(statusWhere[0]).toEqual(['select', 'status', '=', 'unread'])
+    expect(orgWhere[0]).toEqual(['select', 'organization_id', '=', 'org-1'])
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       expect.anything(),

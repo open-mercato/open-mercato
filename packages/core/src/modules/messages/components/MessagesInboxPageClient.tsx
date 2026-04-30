@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -12,11 +12,12 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
-
-type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
+import { toErrorMessage } from './message-detail/utils'
+import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
 
 type MessageListItem = {
   id: string
@@ -62,33 +63,19 @@ type UserListItem = {
   name?: string | null
 }
 
-function toErrorMessage(payload: unknown): string | null {
-  if (!payload) return null
-  if (typeof payload === 'string') return payload
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const nested = toErrorMessage(item)
-      if (nested) return nested
-    }
-    return null
-  }
-  if (typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
-    return (
-      toErrorMessage(record.error)
-      ?? toErrorMessage(record.message)
-      ?? toErrorMessage(record.detail)
-      ?? toErrorMessage(record.details)
-      ?? null
-    )
-  }
-  return null
-}
-
 export function MessagesInboxPageClient() {
   const router = useRouter()
   const t = useT()
+  const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+
+  const invalidateMessageListQueries = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
+  }, [queryClient])
+
+  useAppEvent('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
+
+  useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
@@ -98,6 +85,12 @@ export function MessagesInboxPageClient() {
   const pageSize = 20
   const folderMenuRef = React.useRef<HTMLDivElement | null>(null)
   const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
+  const { bulkActions, selectionScopeKey, injectionContext, ConfirmDialogElement } = useMessagesInboxBulkActions<MessageListItem>({
+    folder,
+    page,
+    search,
+    filterValues,
+  })
 
   const listQuery = useQuery({
     queryKey: [
@@ -383,6 +376,8 @@ export function MessagesInboxPageClient() {
         title={t('messages.title', 'Messages')}
         columns={columns}
         data={rows}
+        bulkActions={bulkActions}
+        selectionScopeKey={selectionScopeKey}
         searchValue={search}
         onSearchChange={(value) => {
           setSearch(value)
@@ -399,6 +394,7 @@ export function MessagesInboxPageClient() {
           setFilterValues({})
           setPage(1)
         }}
+        injectionContext={injectionContext}
         isLoading={listQuery.isLoading || listQuery.isFetching}
         pagination={{
           page,
@@ -426,19 +422,21 @@ export function MessagesInboxPageClient() {
               </Button>
               {folderMenuOpen ? (
                 <div
-                  className="absolute right-0 z-20 mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
+                  className="absolute right-0 z-dropdown mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
                   role="menu"
                 >
                   {folderOptions.map((option) => {
                     const Icon = option.icon
                     const isActive = option.id === folder
                     return (
-                      <button
+                      <Button
                         key={option.id}
                         type="button"
+                        variant="ghost"
+                        size="sm"
                         role="menuitemradio"
                         aria-checked={isActive}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''}`}
+                        className={`w-full justify-start h-auto px-2 py-1.5 text-sm font-normal ${isActive ? 'bg-accent/60' : ''}`}
                         onClick={() => {
                           setFolder(option.id)
                           setPage(1)
@@ -447,7 +445,7 @@ export function MessagesInboxPageClient() {
                       >
                         <Icon className="h-4 w-4" aria-hidden />
                         <span>{option.label}</span>
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
@@ -461,9 +459,9 @@ export function MessagesInboxPageClient() {
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
         }}
-        perspective={{ tableId: 'messages.inbox' }}
         embedded
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

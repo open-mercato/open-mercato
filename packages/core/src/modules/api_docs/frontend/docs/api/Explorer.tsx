@@ -173,6 +173,7 @@ type Category = {
 }
 
 const PLACEHOLDER_BASE_URL = 'https://api.your-service.com'
+const CATEGORY_PAGE_SIZE = 20
 
 type RequestPreview = {
   method: string
@@ -255,6 +256,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [isTesterOpen, setIsTesterOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
   const [baseUrl, setBaseUrl] = useState<string>(servers[0]?.url ?? '')
   const [apiKey, setApiKey] = useState<string>('')
 
@@ -313,6 +315,15 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
       }
       return next
     })
+    setVisibleCounts((prev) => {
+      const next: Record<string, number> = {}
+      for (const category of categories) {
+        const total = category.operations.length
+        const previous = prev[category.tag] ?? CATEGORY_PAGE_SIZE
+        next[category.tag] = Math.min(total, previous)
+      }
+      return next
+    })
   }, [categories])
 
   useEffect(() => {
@@ -336,8 +347,23 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
 
   const handleSelectOperation = (operationId: string) => {
     setSelectedId(operationId)
-    const element = document.getElementById(`operation-${operationId}`)
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+    const targetCategory = categories.find((category) =>
+      category.operations.some((operation) => operation.id === operationId)
+    )
+    if (targetCategory) {
+      const index = targetCategory.operations.findIndex((operation) => operation.id === operationId)
+      if (index >= 0) {
+        setVisibleCounts((prev) => {
+          const currentVisible = prev[targetCategory.tag] ?? CATEGORY_PAGE_SIZE
+          if (index < currentVisible) return prev
+          return { ...prev, [targetCategory.tag]: index + 1 }
+        })
+      }
+    }
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`operation-${operationId}`)
+      if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+    })
     if (shouldOpenTesterOverlay()) setIsTesterOpen(true)
     setIsNavOpen(false)
   }
@@ -419,7 +445,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                   <div key={category.tag} className="space-y-2">
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between rounded-md bg-muted px-3 py-2 text-left font-medium text-foreground hover:bg-muted/80"
+                      className="flex w-full items-center justify-between rounded-md bg-muted px-3 py-2 text-left font-medium text-foreground hover:bg-muted/50"
                       onClick={() =>
                         setExpanded((prev) => ({
                           ...prev,
@@ -444,7 +470,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                               onClick={() => handleSelectOperation(operation.id)}
                             >
                               <span
-                                className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-[11px] font-semibold uppercase ${
+                                className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-overline font-semibold uppercase ${
                                   METHOD_STYLES[operation.method] ?? 'border border-border bg-muted text-foreground'
                                 }`}
                               >
@@ -482,7 +508,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     placeholder="Search endpoints by path or summary"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                   />
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -517,14 +543,24 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
           </div>
 
           <div className="space-y-8">
-            {categories.map((category) => (
+            {categories.map((category) => {
+              const totalCount = category.operations.length
+              const visibleCount = Math.min(
+                totalCount,
+                visibleCounts[category.tag] ?? CATEGORY_PAGE_SIZE
+              )
+              const visibleOperations = category.operations.slice(0, visibleCount)
+              const hiddenCount = totalCount - visibleCount
+              return (
               <div key={category.tag} className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">{category.tag}</h2>
-                  <div className="text-xs text-muted-foreground">{category.operations.length} endpoints</div>
+                  <div className="text-xs text-muted-foreground">
+                    Showing {visibleCount} of {totalCount} endpoints
+                  </div>
                 </div>
                 <div className="space-y-6">
-                  {category.operations.map((operation) => {
+                  {visibleOperations.map((operation) => {
                     const methodClass = METHOD_STYLES[operation.method] ?? 'border border-border bg-muted text-foreground'
                     const operationId = `operation-${operation.id}`
                     const contentVariant = pickContentVariant(operation.operation?.requestBody?.content)
@@ -545,14 +581,14 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           selectedOperation?.id === operation.id ? 'ring-2 ring-primary/40' : ''
                         }`}
                       >
-                        <div className="flex flex-col gap-4 border-b bg-muted/40 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                        <div className="flex flex-col gap-4 border-b bg-muted/50 px-5 py-4 md:flex-row md:items-center md:justify-between">
                           <div className="flex items-center gap-3">
                             <span className={`rounded px-3 py-1 text-xs font-semibold uppercase ${methodClass}`}>
                               {operation.method}
                             </span>
                             <code className="text-sm text-foreground">{operation.path}</code>
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <div className="flex items-center gap-2 text-overline text-muted-foreground">
                             {operation.operation?.['x-require-auth'] ? (
                               <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900">Auth required</span>
                             ) : null}
@@ -583,7 +619,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                               </h4>
                               <div className="overflow-hidden rounded-lg border">
                                 <table className="min-w-full divide-y divide-border text-left text-xs">
-                                  <thead className="bg-muted/60 text-[11px] uppercase tracking-wide text-muted-foreground">
+                                  <thead className="bg-muted/50 text-overline uppercase tracking-wide text-muted-foreground">
                                     <tr>
                                       <th className="px-3 py-2 font-medium">Name</th>
                                       <th className="px-3 py-2 font-medium">In</th>
@@ -651,14 +687,14 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
 
                                   return (
                                     <div key={status} className="rounded-lg border">
-                                      <div className="flex items-center justify-between border-b bg-muted/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                      <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                         <span>{status}</span>
                                         <span className="text-muted-foreground">
                                           {response?.description ?? 'Response'}
                                         </span>
                                       </div>
                                       {responseVariant ? (
-                                        <div className="border-b bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+                                        <div className="border-b bg-muted/50 px-4 py-2 text-overline text-muted-foreground">
                                           Content-Type: {responseVariant.mediaType}
                                         </div>
                                       ) : null}
@@ -714,10 +750,30 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                     )
                   })}
                 </div>
+                {hiddenCount > 0 ? (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:border-foreground hover:text-foreground"
+                      onClick={() =>
+                        setVisibleCounts((prev) => ({
+                          ...prev,
+                          [category.tag]: Math.min(
+                            totalCount,
+                            (prev[category.tag] ?? CATEGORY_PAGE_SIZE) + CATEGORY_PAGE_SIZE
+                          ),
+                        }))
+                      }
+                    >
+                      Show {Math.min(CATEGORY_PAGE_SIZE, hiddenCount)} more endpoints
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ))}
+              )
+            })}
             {!categories.length ? (
-              <div className="rounded-lg border border-dashed bg-muted/40 p-6 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed bg-muted/50 p-6 text-center text-sm text-muted-foreground">
                 No endpoints match your filters. Try adjusting the method filters or clearing the search query.
               </div>
             ) : null}
@@ -796,7 +852,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           onClick={() => handleSelectOperation(operation.id)}
                         >
                           <span
-                            className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-[11px] font-semibold uppercase ${
+                            className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-overline font-semibold uppercase ${
                               METHOD_STYLES[operation.method] ?? 'border border-border bg-muted text-foreground'
                             }`}
                           >
@@ -905,7 +961,7 @@ function CodeSnippetTabs(props: { snippets: CodeSnippet[] }) {
 function MobileOverlay(props: { title: string; children: ReactNode; onClose: () => void }) {
   const { title, children, onClose } = props
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur">
+    <div className="fixed inset-0 z-modal flex flex-col bg-background/95 backdrop-blur">
       <div className="border-b bg-card px-6 py-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
@@ -1239,7 +1295,7 @@ function TesterPanel(props: TesterPanelProps) {
           </p>
         </div>
         <span
-          className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-[11px] font-semibold uppercase ${
+          className={`inline-flex min-w-[3rem] justify-center rounded border px-2 py-0.5 text-overline font-semibold uppercase ${
             METHOD_STYLES[operation.method] ?? 'border border-border bg-muted text-foreground'
           }`}
         >
@@ -1257,7 +1313,7 @@ function TesterPanel(props: TesterPanelProps) {
         <select
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         >
           {mergedBaseUrls.map((server) => (
             <option key={server.url} value={server.url}>
@@ -1282,7 +1338,7 @@ function TesterPanel(props: TesterPanelProps) {
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           placeholder="Paste your API key secret (omk_…)"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         />
       </label>
 
@@ -1306,7 +1362,7 @@ function TesterPanel(props: TesterPanelProps) {
                     }))
                   }
                   placeholder={parameter.description ?? ''}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 />
               </label>
             ))}
@@ -1334,7 +1390,7 @@ function TesterPanel(props: TesterPanelProps) {
                     }))
                   }
                   placeholder={parameter.description ?? ''}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 />
               </label>
             ))}
@@ -1352,7 +1408,7 @@ function TesterPanel(props: TesterPanelProps) {
             value={bodyContent}
             onChange={(event) => setBodyContent(event.target.value)}
             rows={8}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono leading-relaxed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono leading-relaxed focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
             placeholder="Provide request payload"
           />
         </section>
@@ -1375,7 +1431,7 @@ function TesterPanel(props: TesterPanelProps) {
         type="button"
         onClick={handleSubmit}
         disabled={isLoading}
-        className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/60"
+        className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/10"
       >
         {isLoading ? 'Sending…' : 'Send request'}
       </button>

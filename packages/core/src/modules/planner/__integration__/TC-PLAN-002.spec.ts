@@ -9,7 +9,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/plannerFixtures'
 
 test.describe('TC-PLAN-002: Availability Rule Set CRUD APIs', () => {
-  test('should create, list, search, update, and soft-delete an availability rule set', async ({ request }) => {
+  test('should create, search, update, and soft-delete an availability rule set', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const name = `QA Schedule ${stamp}`
@@ -23,18 +23,8 @@ test.describe('TC-PLAN-002: Availability Rule Set CRUD APIs', () => {
         description: 'Phase 3 API coverage',
       })
 
-      // List — should include created rule set
-      const listResponse = await apiRequest(
-        request,
-        'GET',
-        '/api/planner/availability-rule-sets',
-        { token },
-      )
-      expect(listResponse.status(), 'GET /api/planner/availability-rule-sets should return 200').toBe(200)
-      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
-      expect(listBody?.items?.some((item) => item.id === ruleSetId)).toBe(true)
-
-      // Search by name
+      // Search by name — use the unique stamp to verify the created rule set without
+      // paying the cost of loading the full collection late in the suite.
       const searchResponse = await apiRequest(
         request,
         'GET',

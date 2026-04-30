@@ -87,7 +87,7 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
       order: input.documentKind === 'order' ? (document as SalesOrder) : null,
       quote: input.documentKind === 'quote' ? (document as SalesQuote) : null,
     })
-    await em.persistAndFlush(entity)
+    await em.persist(entity).flush()
     return { id: entity.id }
   },
 }
@@ -158,7 +158,7 @@ const deleteDocumentAddress: CommandHandler<
         status: (document as SalesOrder).status ?? null,
       })
     }
-    await em.removeAndFlush(entity)
+    await em.remove(entity).flush()
     return { ok: true }
   },
 }

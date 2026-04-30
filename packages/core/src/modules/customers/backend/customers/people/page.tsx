@@ -21,6 +21,7 @@ import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advance
 import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import {
   DictionaryValue,
+  createEmptyCustomerDictionaryMaps,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -36,6 +37,7 @@ import {
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 
 type PersonRow = {
   id: string
@@ -74,20 +76,6 @@ type DictionaryKindKey = CustomerDictionaryKind
 type DictionaryMap = CustomerDictionaryMap
 
 const NO_MATCH_TAG_SENTINEL = '__no_match__'
-
-function createEmptyDictionaryMaps(): Record<DictionaryKindKey, DictionaryMap> {
-  return {
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'activity-types': {},
-    'deal-statuses': {},
-    'pipeline-stages': {},
-    'job-titles': {},
-    industries: {},
-  }
-}
 
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
@@ -169,7 +157,7 @@ export default function CustomersPeoplePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyDictionaryMaps())
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
   const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -269,7 +257,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps(createEmptyDictionaryMaps())
+      setDictionaryMaps(createEmptyCustomerDictionaryMaps())
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),
@@ -505,6 +493,7 @@ export default function CustomersPeoplePage() {
     })
     if (!confirmed) return false
     let deletedCount = 0
+    const failedIds: string[] = []
     for (const row of selectedRows) {
       try {
         await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
@@ -512,16 +501,32 @@ export default function CustomersPeoplePage() {
           headers: { 'content-type': 'application/json' },
         })
         deletedCount++
-      } catch {}
+      } catch (err) {
+        failedIds.push(row.id)
+        console.warn('[customers.people.list] bulk delete failed', row.id, err)
+      }
     }
     if (deletedCount > 0) {
       setRows((prev) => {
-        const deletedIds = new Set(selectedRows.map((r) => r.id))
-        return prev.filter((r) => !deletedIds.has(r.id))
+        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
+        return prev.filter((r) => !succeeded.has(r.id))
       })
       setTotal((prev) => Math.max(0, prev - deletedCount))
-      flash(t('customers.people.list.bulkDelete.success', '{count} people deleted', { count: deletedCount }), 'success')
+      if (failedIds.length === 0) {
+        flash(t('customers.people.list.bulkDelete.success', '{count} people deleted', { count: deletedCount }), 'success')
+      } else {
+        flash(
+          t('customers.people.list.bulkDelete.partial', '{deleted} of {total} people deleted; {failed} failed', {
+            deleted: deletedCount,
+            total: selectedRows.length,
+            failed: failedIds.length,
+          }),
+          'warning',
+        )
+      }
       setReloadToken((prev) => prev + 1)
+    } else if (failedIds.length > 0) {
+      flash(t('customers.people.list.bulkDelete.failed', 'Failed to delete {count} people', { count: failedIds.length }), 'error')
     }
     return deletedCount > 0
   }, [confirm, t])
@@ -570,15 +575,15 @@ export default function CustomersPeoplePage() {
       if (value == null) return noValue
       if (Array.isArray(value)) {
         if (!value.length) return noValue
-        const normalized = value
-          .map((item) => {
+        const normalized = normalizeCollectionLabels(
+          value.map((item) => {
             if (item == null) return ''
-            if (typeof item === 'string') return item.trim()
-            return String(item).trim()
-          })
-          .filter((item) => item.length > 0)
+            if (typeof item === 'string') return item
+            return String(item)
+          }),
+        )
         if (!normalized.length) return noValue
-        return <span className="text-sm">{normalized.join(', ')}</span>
+        return <CollectionPreviewCell labels={normalized} maxVisible={2} />
       }
       if (typeof value === 'boolean') {
         return (
@@ -598,7 +603,7 @@ export default function CustomersPeoplePage() {
       {
         accessorKey: 'name',
         header: t('customers.people.list.columns.name'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name' },
+        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name', maxWidth: '240px' },
         cell: ({ row }) => (
           <Link href={`/backend/customers/people-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
@@ -608,7 +613,7 @@ export default function CustomersPeoplePage() {
       {
         accessorKey: 'email',
         header: t('customers.people.list.columns.email'),
-        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email' },
+        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email', maxWidth: '220px' },
         cell: ({ row }) => row.original.email || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
       },
       {
@@ -744,6 +749,7 @@ export default function CustomersPeoplePage() {
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
+          maxWidth: '220px',
         },
         cell: ({ getValue }) => renderCustomFieldCell(getValue()),
       }))

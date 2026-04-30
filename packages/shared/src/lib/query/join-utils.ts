@@ -1,6 +1,9 @@
-import type { Knex } from 'knex'
+import type { Kysely } from 'kysely'
+import { sql } from 'kysely'
 import type { QueryOptions, QueryJoinEdge } from './types'
 import type { FilterOp } from './types'
+
+type AnyBuilder = any
 
 export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown; orGroup?: string; qualified?: string | null }
 
@@ -18,10 +21,12 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
   const push = (field: string, op: FilterOp, value?: unknown, orGroup?: string) => {
     out.push({ field, op, value, orGroup })
   }
-  // Handle $or at top level
+  // Handle $or at top level — one group id per disjunct so fields inside a clause are ANDed by the engine.
   if (Array.isArray(obj.$or)) {
-    const orGroupId = `or_${Date.now()}`
-    for (const clause of obj.$or as Record<string, unknown>[]) {
+    const clauses = obj.$or as Record<string, unknown>[]
+    for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex++) {
+      const clause = clauses[clauseIndex]
+      const orGroupId = `or_${clauseIndex}`
       if (clause && typeof clause === 'object') {
         for (const [rawKey, rawVal] of Object.entries(clause)) {
           const field = normalizeField(rawKey)
@@ -193,21 +198,21 @@ export function partitionFilters(
 }
 
 type ApplyJoinFiltersOptions = {
-  knex: Knex
+  db: Kysely<any>
   baseTable: string
-  builder: Knex.QueryBuilder
+  builder: AnyBuilder
   joinMap: Map<string, ResolvedJoin>
   joinFilters: Map<string, JoinFilter[]>
   aliasTables: Map<string, string>
   qualifyBase: (column: string) => string
-  applyAliasScope: (builder: Knex.QueryBuilder, alias: string, table: string) => Promise<void> | void
-  applyFilterOp: (builder: Knex.QueryBuilder, column: string, op: FilterOp, value?: unknown) => void
-  applyJoinFilterOp?: (builder: Knex.QueryBuilder, filter: JoinFilter, qualified: string, join: ResolvedJoin, table: string) => Promise<boolean> | boolean
+  applyAliasScope: (builder: AnyBuilder, alias: string, table: string) => Promise<AnyBuilder> | AnyBuilder
+  applyFilterOp: (builder: AnyBuilder, column: string, op: FilterOp, value?: unknown) => AnyBuilder
+  applyJoinFilterOp?: (builder: AnyBuilder, filter: JoinFilter, qualified: string, join: ResolvedJoin, table: string) => Promise<{ applied: boolean; builder: AnyBuilder }> | { applied: boolean; builder: AnyBuilder }
   columnExists?: (table: string, column: string) => Promise<boolean> | boolean
 }
 
 export async function applyJoinFilters({
-  knex,
+  db,
   baseTable,
   builder,
   joinMap,
@@ -218,35 +223,29 @@ export async function applyJoinFilters({
   applyFilterOp,
   applyJoinFilterOp,
   columnExists,
-}: ApplyJoinFiltersOptions): Promise<Knex.QueryBuilder> {
+}: ApplyJoinFiltersOptions): Promise<AnyBuilder> {
   const resolveAliasName = (aliasName?: string | null) => {
     if (!aliasName || aliasName === 'base') return baseTable
     return aliasName
   }
 
+  let nextBuilder = builder
   for (const [alias, filtersForAlias] of joinFilters.entries()) {
     const chain = buildJoinChain(alias, joinMap, baseTable)
     if (!chain.length) continue
     const first = chain[0]
-    const sub = knex({ [first.alias]: first.table }).select(1)
-    await applyAliasScope(sub, first.alias, first.table)
+    let sub: AnyBuilder = db.selectFrom(`${first.table} as ${first.alias}` as any).select(sql`1`.as('one'))
+    sub = await applyAliasScope(sub, first.alias, first.table)
     const parentAlias = resolveAliasName(first.fromAlias)
-    if (parentAlias === baseTable) {
-      sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, qualifyBase(first.fromField)])
-    } else {
-      sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, `${parentAlias}.${first.fromField}`])
-    }
+    const parentRef = parentAlias === baseTable ? qualifyBase(first.fromField) : `${parentAlias}.${first.fromField}`
+    sub = sub.whereRef(`${first.alias}.${first.toField}`, '=', parentRef)
     for (const cfg of chain.slice(1)) {
-      const joinArgs = { [cfg.alias]: cfg.table }
       const parent = resolveAliasName(cfg.fromAlias)
-      const joinFn = function (this: Knex.JoinClause) {
-        const left = `${cfg.alias}.${cfg.toField}`
-        const right = parent === baseTable ? qualifyBase(cfg.fromField) : `${parent}.${cfg.fromField}`
-        this.on(knex.raw('?? = ??', [left, right]))
-      }
-      if (cfg.type === 'inner') sub.join(joinArgs, joinFn)
-      else sub.leftJoin(joinArgs, joinFn)
-      await applyAliasScope(sub, cfg.alias, cfg.table)
+      const rightRef = parent === baseTable ? qualifyBase(cfg.fromField) : `${parent}.${cfg.fromField}`
+      const joinFn = cfg.type === 'inner' ? 'innerJoin' : 'leftJoin'
+      sub = (sub as any)[joinFn](`${cfg.table} as ${cfg.alias}`, (jb: any) =>
+        jb.onRef(`${cfg.alias}.${cfg.toField}`, '=', rightRef))
+      sub = await applyAliasScope(sub, cfg.alias, cfg.table)
     }
     let existsDirective: boolean | null = null
     for (const filter of filtersForAlias) {
@@ -265,13 +264,24 @@ export async function applyJoinFilters({
       }
       const qualified = `${filter.alias}.${filter.column}`
       if (applyJoinFilterOp) {
-        const handled = await applyJoinFilterOp(sub, filter, qualified, join, targetTable)
-        if (handled) continue
+        const result = await applyJoinFilterOp(sub, filter, qualified, join, targetTable)
+        if (result && result.applied) {
+          sub = result.builder
+          continue
+        }
+        if (result && result.builder) {
+          sub = result.builder
+        }
       }
-      applyFilterOp(sub, qualified, filter.op, filter.value)
+      sub = applyFilterOp(sub, qualified, filter.op, filter.value)
     }
-    if (existsDirective === false) builder = builder.whereNotExists(sub)
-    else builder = builder.whereExists(sub)
+    if (existsDirective === false) {
+      const capturedSub = sub
+      nextBuilder = nextBuilder.where((eb: any) => eb.not(eb.exists(capturedSub)))
+    } else {
+      const capturedSub = sub
+      nextBuilder = nextBuilder.where((eb: any) => eb.exists(capturedSub))
+    }
   }
-  return builder
+  return nextBuilder
 }

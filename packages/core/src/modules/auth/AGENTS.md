@@ -88,6 +88,7 @@ When adding features to any module:
 1. Declare in `acl.ts`: `export const features = ['module.view', 'module.edit', ...]`
 2. Add to `setup.ts` `defaultRoleFeatures` so roles are seeded during tenant creation
 3. Guard pages/APIs with `requireFeatures` in metadata
+4. For tenants that already exist (production, staging, demo), run `yarn mercato auth sync-role-acls --tenant <id>` after deploying — this re-applies `defaultRoleFeatures` idempotently so the new features land in existing `RoleAcl` rows. `setupTenantAndPrimaryUser` only runs during the initial tenant bootstrap.
 
 ```typescript
 // acl.ts

@@ -19,9 +19,10 @@ import {
 } from '../../../components/formConfig'
 import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
-import { EventTriggersEditor } from '../../../components/EventTriggersEditor'
+import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileDefinitionDetail } from '../../../components/mobile/MobileDefinitionDetail'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
+import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
@@ -57,8 +58,14 @@ export default function EditWorkflowDefinitionPage() {
     return null
   }, [definition])
 
+  const [triggers, setTriggers] = React.useState<WorkflowDefinitionTrigger[]>([])
+
+  React.useEffect(() => {
+    setTriggers(initialValues?.triggers ?? [])
+  }, [initialValues])
+
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
-    const payload = buildWorkflowPayload(values)
+    const payload = buildWorkflowPayload({ ...values, triggers })
 
     const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
       method: 'PUT',
@@ -121,21 +128,21 @@ export default function EditWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-4 p-4 bg-status-info-bg border border-status-info-border rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-status-info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <div>
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              <p className="text-sm font-medium text-status-info-text">
                 {t('workflows.edit.visualEditorAvailable')}
               </p>
-              <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+              <p className="text-xs text-status-info-text mt-0.5">
                 {t('workflows.edit.visualEditorDescription')}
               </p>
             </div>
           </div>
-          <Button asChild variant="outline" size="sm" className="w-full sm:w-auto border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50">
+          <Button asChild variant="outline" size="sm" className="w-full sm:w-auto border-status-info-border text-status-info-text hover:bg-status-info-bg">
             <a href={`/backend/definitions/visual-editor?id=${definitionId}`}>
               {t('workflows.actions.openVisualEditor')}
             </a>
@@ -171,9 +178,9 @@ export default function EditWorkflowDefinitionPage() {
 
         {/* Event Triggers Section */}
         <div className="mt-8">
-          <EventTriggersEditor
-            workflowDefinitionId={definitionId!}
-            workflowId={definition?.workflowId}
+          <DefinitionTriggersEditor
+            value={triggers}
+            onChange={setTriggers}
           />
         </div>
       </PageBody>

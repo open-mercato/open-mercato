@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, ChevronDown, Check } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -204,6 +204,7 @@ export type DataTableProps<T> = {
   rowClickActionIds?: string[]
   disableRowClick?: boolean
   bulkActions?: BulkAction<T>[]
+  selectionScopeKey?: string
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -627,7 +628,6 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
       <Button
         ref={buttonRef}
         variant="outline"
-        size="sm"
         type="button"
         onClick={() => {
           if (disabled) return
@@ -643,7 +643,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
+          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-dropdown"
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
@@ -677,11 +677,34 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
 }
 
 function sanitizeDndContextId(value: string): string {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const trimmed = value.trim().toLowerCase()
+  let normalized = ''
+  let previousWasDash = false
+
+  for (const character of trimmed) {
+    const isLowercaseLetter = character >= 'a' && character <= 'z'
+    const isDigit = character >= '0' && character <= '9'
+
+    if (isLowercaseLetter || isDigit || character === '_') {
+      normalized += character
+      previousWasDash = false
+      continue
+    }
+
+    if (!previousWasDash) {
+      normalized += '-'
+      previousWasDash = true
+    }
+  }
+
+  while (normalized.startsWith('-')) {
+    normalized = normalized.slice(1)
+  }
+
+  while (normalized.endsWith('-')) {
+    normalized = normalized.slice(0, -1)
+  }
+
   return normalized.length > 0 ? normalized : 'data-table'
 }
 
@@ -838,6 +861,7 @@ export function DataTable<T>({
   rowClickActionIds,
   disableRowClick = false,
   bulkActions: bulkActionsProp,
+  selectionScopeKey,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -1266,6 +1290,7 @@ export function DataTable<T>({
   const hasPropBulkActions = Array.isArray(bulkActionsProp) && bulkActionsProp.length > 0
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
@@ -1290,6 +1315,19 @@ export function DataTable<T>({
     onRowSelectionChange: setRowSelection,
   })
   React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
+  React.useEffect(() => {
+    if (selectionScopeKey === undefined) {
+      selectionScopeKeyRef.current = undefined
+      return
+    }
+    if (selectionScopeKeyRef.current === undefined) {
+      selectionScopeKeyRef.current = selectionScopeKey
+      return
+    }
+    if (selectionScopeKeyRef.current === selectionScopeKey) return
+    selectionScopeKeyRef.current = selectionScopeKey
+    setRowSelection({})
+  }, [selectionScopeKey])
   React.useEffect(() => {
     if (hasInjectedBulkActions) return
     if (Object.keys(rowSelection).length === 0) return
@@ -2096,7 +2134,6 @@ export function DataTable<T>({
             <Button
               key={action.id}
               type="button"
-              size="sm"
               variant="outline"
               title={label}
               aria-label={label}
@@ -2115,7 +2152,6 @@ export function DataTable<T>({
             <Button
               key={action.id}
               type="button"
-              size="sm"
               variant={action.destructive ? 'destructive' : 'outline'}
               onClick={() => void runPropBulkAction(action)}
             >
@@ -2269,7 +2305,7 @@ export function DataTable<T>({
                     >
                       <Filter className="h-4 w-4" />
                       {advancedFilter.value.conditions.length > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-overline text-primary-foreground">
                           {advancedFilter.value.conditions.length}
                         </span>
                       ) : null}
@@ -2366,10 +2402,12 @@ export function DataTable<T>({
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {sortable && header.column.getCanSort?.() ? (
-                        <span className="ml-1 inline-flex flex-col text-[10px] leading-none gap-px">
-                          <span className={header.column.getIsSorted() === 'asc' ? 'text-foreground' : 'text-muted-foreground/40'}>▲</span>
-                          <span className={header.column.getIsSorted() === 'desc' ? 'text-foreground' : 'text-muted-foreground/40'}>▼</span>
-                        </span>
+                        (() => {
+                          const sortState = header.column.getIsSorted()
+                          if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                          if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                          return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                        })()
                       ) : null}
                     </Button>
                   )

@@ -11,6 +11,8 @@ import {
   validateImportedReadyAppSnapshot,
   validateSlug,
 } from './lib/ready-apps.js'
+import { applyStarterPreset } from './lib/apply-starter-preset.js'
+import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,6 +23,7 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 interface Options {
   app?: string
   appUrl?: string
+  preset?: string
   registry?: string
   skipAgenticSetup: boolean
   verdaccio: boolean
@@ -41,6 +44,7 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --preset <id>      Starter preset: classic (default), empty, or crm
   --skip-agentic-setup  Skip the interactive agentic setup wizard
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
@@ -49,6 +53,8 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-store --preset empty
+  npx create-mercato-app my-store --preset crm
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -73,6 +79,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   const options: Options = {
     app: undefined,
     appUrl: undefined,
+    preset: undefined,
     registry: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
@@ -100,6 +107,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       index += 1
     } else if (arg === '--app-url') {
       options.appUrl = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--preset') {
+      options.preset = requireOptionValue(args, index, arg)
       index += 1
     } else if (!arg.startsWith('-')) {
       appName = arg
@@ -239,6 +249,8 @@ function printTemplateNextSteps(appName: string): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
+  console.log(pc.dim('  # Make sure Yarn 4.1x is installed before running the setup command, and install all the deependencies with:'))
+  console.log(pc.cyan('  yarn'))
   console.log('')
   console.log(pc.green('Suggested quick start:'))
   console.log(pc.cyan('  yarn setup'))
@@ -306,6 +318,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
 
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
+
+  const presetId = options.preset ?? DEFAULT_PRESET_ID
+  if (!VALID_PRESET_IDS.includes(presetId)) {
+    throw new Error(`Unknown preset "${presetId}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
+  }
+  if (presetId !== DEFAULT_PRESET_ID && readyAppSource) {
+    throw new Error(
+      `--preset ${presetId} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
+    )
+  }
+
   const registryConfig = options.verdaccio
     ? buildRegistryConfig('http://localhost:4873')
     : options.registry
@@ -328,6 +351,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await scaffoldImportedReadyApp(targetDir, readyAppSource)
   } else {
     await scaffoldTemplateApp(targetDir, placeholders)
+    applyStarterPreset(presetId, targetDir)
   }
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)

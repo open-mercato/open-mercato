@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { Pencil, X } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -30,18 +29,12 @@ import {
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
-type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
-
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
-
-const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -637,7 +630,7 @@ function CustomDataSectionImpl({
         ) : (
           <div
             className={cn(
-              'rounded-lg border bg-muted/20 p-3 sm:p-4 space-y-2 sm:space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'rounded-lg border bg-muted/30 p-3 sm:p-4 space-y-2 sm:space-y-3 transition hover:border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               hasFields && !loading ? 'cursor-pointer' : 'cursor-default',
             )}
             role={hasFields && !loading ? 'button' : undefined}

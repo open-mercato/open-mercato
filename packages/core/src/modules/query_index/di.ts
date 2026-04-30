@@ -72,25 +72,42 @@ export function register(container: AppContainer) {
         if (!id) return
         if (!orgId || !tenantId) {
           try {
-            const knex = (em as any).getConnection().getKnex()
+            const db = (em as any).getKysely()
             const table = resolveEntityTableName(em, entityType)
-            const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id }).first()
+            const row = await db
+              .selectFrom(table as any)
+              .select(['organization_id' as any, 'tenant_id' as any])
+              .where('id' as any, '=', id)
+              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
             orgId = row?.organization_id ?? orgId
             tenantId = row?.tenant_id ?? tenantId
           } catch {}
         }
         // Optional: only index when custom field definitions exist for this entity (org/global)
         try {
-          const knex = (em as any).getConnection().getKnex()
-          const hasCf = await knex('custom_field_defs')
-            .where({ entity_id: entityType, is_active: true })
-            .modify((qb: any) => {
-              if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
-              else qb.whereNull('organization_id')
-              if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
-              else qb.whereNull('tenant_id')
-            })
-            .first()
+          const db = (em as any).getKysely()
+          let cfQuery = db
+            .selectFrom('custom_field_defs' as any)
+            .select(['id' as any])
+            .where('entity_id' as any, '=', entityType)
+            .where('is_active' as any, '=', true)
+          if (orgId != null) {
+            cfQuery = cfQuery.where((eb: any) => eb.or([
+              eb('organization_id' as any, '=', orgId),
+              eb('organization_id' as any, 'is', null),
+            ]))
+          } else {
+            cfQuery = cfQuery.where('organization_id' as any, 'is', null as any)
+          }
+          if (tenantId != null) {
+            cfQuery = cfQuery.where((eb: any) => eb.or([
+              eb('tenant_id' as any, '=', tenantId),
+              eb('tenant_id' as any, 'is', null),
+            ]))
+          } else {
+            cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
+          }
+          const hasCf = await cfQuery.executeTakeFirst()
           if (!hasCf) return
         } catch {}
         try {
@@ -107,9 +124,13 @@ export function register(container: AppContainer) {
         if (!id) return
         if (!orgId) {
           try {
-            const knex = (em as any).getConnection().getKnex()
+            const db = (em as any).getKysely()
             const table = resolveEntityTableName(em, entityType)
-            const row = await knex(table).select(['organization_id']).where({ id }).first()
+            const row = await db
+              .selectFrom(table as any)
+              .select(['organization_id' as any])
+              .where('id' as any, '=', id)
+              .executeTakeFirst() as { organization_id: string | null } | undefined
             orgId = row?.organization_id ?? orgId
           } catch {}
         }
@@ -123,9 +144,13 @@ export function register(container: AppContainer) {
     // Build list of entity ids to subscribe to
     try {
       const em = (container.resolve('em') as any)
-      const knex = (em as any).getConnection().getKnex()
+      const db = (em as any).getKysely()
       const cfEntityIds: string[] = []
-      knex('custom_field_defs').distinct('entity_id')
+      db
+        .selectFrom('custom_field_defs' as any)
+        .select(['entity_id' as any])
+        .distinct()
+        .execute()
         .then((rows: any[]) => {
           for (const r of rows || []) cfEntityIds.push(String(r.entity_id))
         })

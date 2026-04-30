@@ -68,6 +68,7 @@ describe('GET /api/inbox_ops/proposals/[id]', () => {
 
     expect(response.status).toBe(200)
     expect(payload.proposal.id).toBe('proposal-1')
+    expect(payload.proposal.actions).toHaveLength(1)
     expect(payload.actions).toHaveLength(1)
     expect(payload.discrepancies).toHaveLength(1)
     expect(payload.email.subject).toBe('Order request')

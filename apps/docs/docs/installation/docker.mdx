@@ -143,8 +143,11 @@ All variables are pre-configured with sensible defaults in the compose file. Ove
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `JWT_SECRET` | `JWT` | Auth token secret — change for production |
-| `OPENAI_API_KEY` | — | Required for vector search and AI features |
+| `OPENAI_API_KEY` | — | Enables OpenAI-backed AI features; combine it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` to turn vector auto-indexing on |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | `true` in the shipped example env | Set to `false` or remove it to enable automatic vector indexing |
 | `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+
+Vector auto-indexing is disabled by default in `apps/mercato/.env.example`. To enable it, configure an embedding provider such as `OPENAI_API_KEY` and set `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` before you start the stack. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` is still honored for older deployments.
 
 ---
 

@@ -408,6 +408,7 @@
   "catalog.products.edit.weight.unit": "Jednostka wagi",
   "catalog.products.edit.weight.value": "Waga",
   "catalog.products.errors.handleExists": "Handle jest już używany.",
+  "catalog.products.errors.notFound": "Catalog product not found.",
   "catalog.products.errors.skuExists": "SKU jest już używany.",
   "catalog.products.errors.taxClassNotFound": "Nie znaleziono klasy podatkowej.",
   "catalog.products.filters.active": "Aktywne",

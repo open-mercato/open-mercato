@@ -12,7 +12,7 @@ export function AuthFooter() {
     (typeof pathname === 'string' && pathname.startsWith('/onboarding'))
   if (!shouldShow) return null
   return (
-    <footer className="w-full border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+    <footer className="w-full border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="max-w-screen-lg mx-auto px-4 py-3 flex flex-wrap items-center justify-end gap-4">
         <nav className="flex items-center gap-3 text-xs text-muted-foreground">
           <Link href="/terms" className="transition hover:text-foreground">

@@ -131,7 +131,7 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-24 rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={hydrated.pageSize}
             onChange={(event) => {
               const next = Number(event.target.value)
@@ -152,7 +152,7 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
             onChange={(event) => {
               onSettingsChange?.({ ...hydrated, datePeriod: event.target.value as DatePeriodOption })
             }}
-            className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <option value="last24h">{translate('sales.widgets.newOrders.settings.last24h', 'Last 24 hours')}</option>
             <option value="last7d">{translate('sales.widgets.newOrders.settings.last7d', 'Last 7 days')}</option>
@@ -176,7 +176,7 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
                 }}
                 onFocus={openNativeDatePicker}
                 onClick={openNativeDatePicker}
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
             <div className="space-y-1.5">
@@ -192,7 +192,7 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
                 }}
                 onFocus={openNativeDatePicker}
                 onClick={openNativeDatePicker}
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
           </div>

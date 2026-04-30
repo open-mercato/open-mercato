@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     existing.fieldsJson = payload.fields
     existing.isActive = payload.isActive ?? true
     existing.updatedAt = new Date()
-    await em.persistAndFlush(existing)
+    await em.persist(existing).flush()
   } else {
     const map = repo.create({
       entityId: payload.entityId,
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       fieldsJson: payload.fields,
       isActive: payload.isActive ?? true,
     })
-    await em.persistAndFlush(map)
+    await em.persist(map).flush()
   }
 
   try {

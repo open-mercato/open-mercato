@@ -16,7 +16,10 @@ test.describe('TC-SALES-002: Quote To Order Conversion', () => {
       unitPriceGross: 25,
     });
 
-    await page.getByRole('button', { name: /^Actions$/i }).click();
+    const actionsButton = page.getByRole('button', { name: /^Actions$/i });
+    if (await actionsButton.isVisible().catch(() => false)) {
+      await actionsButton.click();
+    }
     const convertMenuItem = page.getByRole('menuitem', { name: /Convert to order/i });
     const convertButton = page.getByRole('button', { name: /Convert to order/i });
     if (await convertMenuItem.count()) {
@@ -27,12 +30,15 @@ test.describe('TC-SALES-002: Quote To Order Conversion', () => {
       test.skip(true, 'Convert to order action is not exposed in this environment state.');
     }
 
-    const confirmButton = page.getByRole('button', { name: /Convert|Create order|Continue/i }).last();
-    if (await confirmButton.isVisible().catch(() => false)) {
-      await confirmButton.click();
+    const confirmDialog = page.getByRole('dialog');
+    if (await confirmDialog.isVisible().catch(() => false)) {
+      const confirmButton = confirmDialog.getByRole('button', { name: /Convert|Create order|Continue/i });
+      if (await confirmButton.count()) {
+        await confirmButton.first().click();
+      }
     }
 
-    await expect(page).toHaveURL(/\/backend\/sales\/documents\/[0-9a-f-]{36}\?kind=order$/i);
-    await expect(page.getByText('Sales order', { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/backend\/sales\/(documents\/[0-9a-f-]{36}\?kind=order|orders\/[0-9a-f-]{36})$/i);
+    await expect(page.getByText(/Sales order/i).first()).toBeVisible();
   });
 });

@@ -65,6 +65,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| **Migration** | |
+| Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
 | **Spec Lifecycle** | |
@@ -72,7 +74,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
-| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` |
+| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` + `.ai/ds-rules.md` |
 | Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/auto-review-pr/SKILL.md` |
 | Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
 | Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
@@ -181,6 +183,15 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Menu injection hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
 | Component replacement hook | `import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'` |
 | UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
+| Entity tag pill | `import { Tag } from '@open-mercato/ui/primitives/tag'` |
+| Entity tag variant map | `import type { TagMap } from '@open-mercato/ui/primitives/tag'` |
+| User / entity avatar | `import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'` |
+| Keyboard shortcut key | `import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'` |
+| Inline text link button | `import { LinkButton } from '@open-mercato/ui/primitives/link-button'` |
+| Social provider button (Google/Apple/etc.) | `import { SocialButton } from '@open-mercato/ui/primitives/social-button'` |
+| Marketing CTA with brand gradient | `import { FancyButton } from '@open-mercato/ui/primitives/fancy-button'` |
+| Checkbox primitive (with indeterminate) | `import { Checkbox } from '@open-mercato/ui/primitives/checkbox'` |
+| Checkbox with label + description (form field) | `import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'` |
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 | API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
@@ -347,89 +358,17 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 
 ## Design System Rules
 
-### Colors
-- NEVER use hardcoded Tailwind colors for status semantics (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-blue-*`, `text-amber-*`, etc.)
-- USE semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`, `text-status-info-icon`
-- Status token structure: `{property}-status-{status}-{role}` where status = error|success|warning|info|neutral and role = bg|text|border|icon
-- For destructive actions (buttons, not status display): use existing `destructive` token (`text-destructive`, `bg-destructive`)
-- All status tokens have dedicated dark mode values — NO `dark:` overrides needed
+> Foundations (token tables, decision trees, color/spacing/typography rules): `.ai/ds-rules.md`  
+> Component reference (variants, sizes, props, examples, MUST rules per primitive): `.ai/ui-components.md`  
+> Workflow guidance (CrudForm, DataTable, Loading, Flash, Notifications, Portal): `packages/ui/AGENTS.md`
 
-### Typography
-- NEVER use arbitrary text sizes (`text-[11px]`, `text-[13px]`, `text-[15px]`)
-- USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
-- For 11px uppercase labels: use `text-overline` (custom token)
-- Exception: `text-[9px]` for notification badge count (single use case)
+- NEVER use hardcoded Tailwind status colors (`text-red-*`, `bg-green-*`, `text-amber-*`, etc.) — use `{property}-status-{status}-{role}` tokens
+- NEVER use arbitrary values (`text-[13px]`, `p-[13px]`, `rounded-[24px]`, `z-[9999]`) — use DS scale
+- NEVER add `dark:` overrides on semantic/status tokens — they already handle dark mode
+- NEVER hardcode hex/rgb in `className` — always use CSS token names
+- NEVER use hardcoded Tailwind color shades for borders (`border-gray-300`) — use `border-border`, `border-input`
 
-### Typography Hierarchy
-| Role | HTML | Tailwind | When to use |
-|------|------|----------|-------------|
-| Page title | `<h1>` | `text-2xl font-bold tracking-tight` | Page header (one per page) |
-| Section title | `<h2>` | `text-xl font-semibold` | Major sections |
-| Subsection | `<h3>` | `text-sm font-semibold` | Detail page sections, card titles |
-| Body | `<p>` | `text-sm` | Default body text |
-| Body large | `<p>` | `text-base` | Emphasized body |
-| Caption | `<span>` | `text-xs text-muted-foreground` | Secondary info, timestamps |
-| Label | `<label>` | `text-sm font-medium` | Form labels (via Label component) |
-| Overline | `<span>` | `text-overline font-semibold uppercase tracking-wider` | Section labels, category tags |
-| Code | `<code>` | `text-sm font-mono` | Code snippets |
-
-### Feedback
-- USE `Alert` for inline messages — NOT `Notice` (deprecated)
-- USE `flash()` for transient toast messages
-- USE `useConfirmDialog()` for destructive action confirmation
-- Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
-- Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
-- Alert variants: `default`, `destructive` (error), `success`, `warning`, `info`
-
-### Status Display
-- USE `StatusBadge` for entity status display — NEVER hardcode colors on Badge
-- Define a `StatusMap` per entity type in your module:
-```typescript
-import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
-
-const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
-  open: 'info',
-  won: 'success',
-  lost: 'error',
-}
-```
-
-### Forms
-- USE `FormField` wrapper for standalone forms (portal, auth, custom pages)
-- CrudForm handles field layout internally — do NOT wrap CrudForm fields in FormField
-- Every input MUST have a visible label (never placeholder-only)
-- Error messages use `text-status-error-text` (FormField handles this automatically)
-
-### Icons
-- USE `lucide-react` for ALL icons — NEVER inline `<svg>` elements
-- Icon sizes: `size-3` (12px), `size-4` (16px, default), `size-5` (20px), `size-6` (24px)
-- Stroke width: 2 (lucide default) — do NOT override per-instance
-- Icon-only buttons MUST have `aria-label`
-
-### Sections
-- USE `SectionHeader` for detail page section headers (title + count + action)
-- USE `CollapsibleSection` when section content should be collapsible
-
-### Components — quick reference
-| I need to... | Use this |
-|---|---|
-| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` |
-| Show a toast notification | `flash('message', 'success\|error\|warning\|info')` |
-| Confirm a destructive action | `useConfirmDialog()` |
-| Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
-| Wrap a form field with label + error | `<FormField label="..." error={...}>` |
-| Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
-| Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
-
-### Reference Implementation
-When building a new module UI, use the **customers module** as reference:
-- List page: `packages/core/src/modules/customers/backend/customers/people/page.tsx`
-- Detail page: `packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx`
-- Create page: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`
-- Status mapping: `packages/core/src/modules/customers/components/formConfig.tsx`
-
-### Boy Scout Rule
-When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.) or arbitrary text sizes (`text-[11px]`), you MUST migrate at minimum the lines you touched to semantic tokens.
+**Boy Scout Rule**: When touching a file that has hardcoded status colors, arbitrary text sizes, or `dark:` overrides on status colors, migrate at minimum the lines you touched to semantic tokens.
 
 ## Key Commands
 

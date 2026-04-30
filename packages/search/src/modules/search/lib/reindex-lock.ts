@@ -1,7 +1,7 @@
-import type { Knex } from 'knex'
+
+import { type Kysely, sql } from 'kysely'
 import {
   prepareJob,
-  updateJobProgress,
   finalizeJob,
   type JobScope,
 } from '@open-mercato/core/modules/query_index/lib/jobs'
@@ -50,7 +50,7 @@ function buildScope(
  * Automatically cleans up stale locks (heartbeat older than 60 seconds).
  */
 export async function getReindexLockStatus(
-  knex: Knex,
+  db: Kysely<any>,
   tenantId: string,
   options?: { type?: ReindexLockType },
 ): Promise<ReindexLockStatus | null> {
@@ -62,29 +62,41 @@ export async function getReindexLockStatus(
     const entityType = LOCK_ENTITY_TYPES[lockType]
 
     try {
-      const job = await knex('entity_index_jobs')
-        .where('entity_type', entityType)
-        .whereRaw('tenant_id is not distinct from ?', [tenantId])
-        .whereNull('finished_at')
-        .first()
+      const job = await db
+        .selectFrom('entity_index_jobs' as any)
+        .selectAll()
+        .where('entity_type' as any, '=', entityType)
+        .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+        .where('finished_at' as any, 'is', null)
+        .executeTakeFirst() as {
+          id: string
+          status?: string | null
+          started_at?: Date | string | null
+          heartbeat_at?: Date | string | null
+          organization_id?: string | null
+          processed_count?: number | null
+          total_count?: number | null
+        } | undefined
 
       if (!job) continue
 
       // Check heartbeat staleness
       const heartbeatAt = job.heartbeat_at
-        ? new Date(job.heartbeat_at).getTime()
+        ? new Date(job.heartbeat_at as string | Date).getTime()
         : 0
       const elapsed = Date.now() - heartbeatAt
 
       if (elapsed > HEARTBEAT_STALE_MS) {
         // Auto-cleanup stale lock
-        await knex('entity_index_jobs')
-          .where('id', job.id)
-          .update({ finished_at: knex.fn.now() })
+        await db
+          .updateTable('entity_index_jobs' as any)
+          .set({ finished_at: sql`now()` } as any)
+          .where('id' as any, '=', job.id)
+          .execute()
         continue
       }
 
-      // started_at comes as string from knex, convert if needed
+      // started_at comes as string from Kysely, convert if needed
       const startedAtStr = job.started_at
         ? (typeof job.started_at === 'string' ? job.started_at : new Date(job.started_at).toISOString())
         : new Date().toISOString()
@@ -94,9 +106,9 @@ export async function getReindexLockStatus(
         action: job.status || 'reindexing',
         startedAt: startedAtStr,
         tenantId,
-        organizationId: job.organization_id,
-        processedCount: job.processed_count,
-        totalCount: job.total_count,
+        organizationId: job.organization_id ?? null,
+        processedCount: job.processed_count ?? null,
+        totalCount: job.total_count ?? null,
       }
       return result
     } catch {
@@ -112,7 +124,7 @@ export async function getReindexLockStatus(
  * Fulltext and vector locks are independent - they don't block each other.
  */
 export async function acquireReindexLock(
-  knex: Knex,
+  db: Kysely<any>,
   options: {
     type: ReindexLockType
     action: string
@@ -122,7 +134,7 @@ export async function acquireReindexLock(
   },
 ): Promise<{ acquired: boolean; jobId?: string }> {
   // Check existing active lock
-  const existing = await getReindexLockStatus(knex, options.tenantId, {
+  const existing = await getReindexLockStatus(db, options.tenantId, {
     type: options.type,
   })
   if (existing) {
@@ -135,7 +147,7 @@ export async function acquireReindexLock(
       options.tenantId,
       options.organizationId,
     )
-    const jobId = await prepareJob(knex, scope, 'reindexing', {
+    const jobId = await prepareJob(db, scope, 'reindexing', {
       totalCount: options.totalCount,
     })
 
@@ -149,14 +161,14 @@ export async function acquireReindexLock(
  * Release the reindex lock for a specific type.
  */
 export async function clearReindexLock(
-  knex: Knex,
+  db: Kysely<any>,
   tenantId: string,
   type: ReindexLockType,
   organizationId?: string | null,
 ): Promise<void> {
   try {
     const scope = buildScope(type, tenantId, organizationId)
-    await finalizeJob(knex, scope)
+    await finalizeJob(db, scope)
   } catch {
     // Ignore errors when clearing lock
   }
@@ -170,7 +182,7 @@ export async function clearReindexLock(
  * recreate the lock so the reindex button stays disabled while processing.
  */
 export async function updateReindexProgress(
-  knex: Knex,
+  db: Kysely<any>,
   tenantId: string,
   type: ReindexLockType,
   processedDelta: number,
@@ -179,21 +191,27 @@ export async function updateReindexProgress(
   try {
     const scope = buildScope(type, tenantId, organizationId)
     const entityType = LOCK_ENTITY_TYPES[type]
+    const delta = Math.max(0, processedDelta)
 
     // Try to update existing active job first
-    const updated = await knex('entity_index_jobs')
-      .where('entity_type', entityType)
-      .whereRaw('tenant_id is not distinct from ?', [tenantId])
-      .whereRaw('organization_id is not distinct from ?', [organizationId ?? null])
-      .whereNull('finished_at')
-      .update({
-        processed_count: knex.raw('coalesce(processed_count, 0) + ?', [Math.max(0, processedDelta)]),
-        heartbeat_at: knex.fn.now(),
-      })
+    const result = await db
+      .updateTable('entity_index_jobs' as any)
+      .set({
+        processed_count: sql`coalesce(processed_count, 0) + ${delta}`,
+        heartbeat_at: sql`now()`,
+      } as any)
+      .where('entity_type' as any, '=', entityType)
+      .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
+      .where('finished_at' as any, 'is', null)
+      .executeTakeFirst()
+
+    // Kysely returns numUpdatedRows as bigint; coerce
+    const updated = Number(result?.numUpdatedRows ?? 0)
 
     // If no active lock exists, recreate it
     if (updated === 0) {
-      await prepareJob(knex, scope, 'reindexing')
+      await prepareJob(db, scope, 'reindexing')
     }
   } catch {
     // Ignore errors when updating progress

@@ -10,9 +10,9 @@ type TabsContextValue = {
   onValueChange: (value: string) => void
 }
 
-const TabsContext = createContext<TabsContextValue | undefined>(undefined)
+export const TabsContext = createContext<TabsContextValue | undefined>(undefined)
 
-function useTabsContext() {
+export function useTabsContext() {
   const context = useContext(TabsContext)
   if (!context) {
     throw new Error('Tabs components must be used within a Tabs provider')
@@ -49,8 +49,13 @@ export function Tabs({
     [isControlled, onValueChange],
   )
 
+  const contextValue = React.useMemo<TabsContextValue>(
+    () => ({ value, onValueChange: handleValueChange }),
+    [value, handleValueChange],
+  )
+
   return (
-    <TabsContext.Provider value={{ value, onValueChange: handleValueChange }}>
+    <TabsContext.Provider value={contextValue}>
       <div className={className}>{children}</div>
     </TabsContext.Provider>
   )
@@ -98,7 +103,7 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
       className={cn(
         isSelected
           ? 'bg-background text-foreground shadow'
-          : 'hover:bg-background/50 hover:text-foreground',
+          : 'hover:bg-background/80 hover:text-foreground',
         className,
       )}
     >

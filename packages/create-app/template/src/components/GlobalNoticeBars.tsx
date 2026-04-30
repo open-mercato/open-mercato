@@ -54,11 +54,11 @@ export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-3 px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-banner flex flex-col items-center gap-3 px-4">
       {showDemoNotice ? (
-        <div className="pointer-events-auto w-full max-w-4xl rounded-lg border border-amber-200 bg-amber-50/90 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/40">
+        <div className="pointer-events-auto w-full max-w-4xl rounded-lg border border-status-warning-border bg-status-warning-bg p-4 shadow-lg backdrop-blur">
           <div className="flex items-start gap-3">
-            <div className="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">
+            <div className="flex-1 text-sm text-status-warning-text space-y-1">
               <p className="font-medium">{t('notices.demo.title', 'Demo Environment')}</p>
               <p>
                 {t('notices.demo.description', 'This instance is provided for demo purposes only. Data may be reset at any time and is not retained for any guaranteed period.')}
@@ -69,22 +69,22 @@ export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean
                   href="https://github.com/open-mercato"
                   target="_blank"
                   rel="noreferrer"
-                  className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200"
+                  className="underline font-medium hover:text-status-warning-text"
                 >
                   {t('notices.demo.installLink', 'Install Open Mercato locally')}
                 </a>
                 . {t('notices.demo.reviewLinks', 'Review our')}{' '}
-                <Link className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200" href="/terms">
+                <Link className="underline font-medium hover:text-status-warning-text" href="/terms">
                   {t('common.terms')}
                 </Link>{' '}
                 {t('notices.demo.and', 'and')}{' '}
-                <Link className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200" href="/privacy">
+                <Link className="underline font-medium hover:text-status-warning-text" href="/privacy">
                   {t('common.privacy')}
                 </Link>
                 .
               </p>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleDismissDemo} className="shrink-0 text-amber-900 dark:text-amber-100">
+            <Button variant="ghost" size="icon" onClick={handleDismissDemo} className="shrink-0 text-status-warning-text">
               <X className="size-4" />
             </Button>
           </div>

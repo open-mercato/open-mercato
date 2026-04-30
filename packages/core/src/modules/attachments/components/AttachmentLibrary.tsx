@@ -661,8 +661,8 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
         onSubmit={handleSubmit}
       />
       {isUploading ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/90 px-6 text-center backdrop-blur">
-          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border/50 bg-card/95 px-6 py-8 shadow-2xl">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80 px-6 text-center backdrop-blur">
+          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border/70 bg-card/95 px-6 py-8 shadow-2xl">
             <Spinner size="lg" className="border-primary/50 border-t-primary" />
             <div className="w-full space-y-3">
               <p className="text-base font-semibold">
@@ -844,7 +844,7 @@ export function AttachmentLibrary() {
           const placeholder = resolveAttachmentPlaceholder(value.mimeType, value.fileName)
           const PlaceholderIcon = placeholder.icon
           return (
-            <div className="flex h-16 w-16 flex-col items-center justify-center rounded border bg-muted text-[10px] font-semibold uppercase text-muted-foreground">
+            <div className="flex h-16 w-16 flex-col items-center justify-center rounded border bg-muted text-overline font-semibold uppercase text-muted-foreground">
               <PlaceholderIcon className="mb-1 h-5 w-5 text-muted-foreground" aria-hidden />
               {placeholder.label}
             </div>

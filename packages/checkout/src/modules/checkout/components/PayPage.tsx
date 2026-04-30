@@ -554,7 +554,7 @@ function buildButtonStyle(themeTokens: PayPageThemeTokens, variant: 'solid' | 'o
   }
 }
 
-const READABLE_INPUT_CLASSNAME = 'border bg-white/95 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60'
+const READABLE_INPUT_CLASSNAME = 'border bg-white/95 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50'
 
 export function PayPageSurface({
   previewBanner,
@@ -597,7 +597,7 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
 
   return (
     <section
-      className="relative overflow-hidden rounded-[32px] border p-6 sm:p-8"
+      className="relative overflow-hidden rounded-xl border p-6 sm:p-8"
       style={buildPanelStyle(themeTokens, 'hero')}
     >
       <div
@@ -609,7 +609,7 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className="inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]"
+              className="inline-flex rounded-full px-3 py-1 text-overline font-semibold uppercase tracking-widest"
               style={{
                 background: withAlpha(themeTokens.accent, 0.14),
                 color: themeTokens.text,
@@ -619,7 +619,7 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
             </span>
             {preview ? (
               <span
-                className="inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]"
+                className="inline-flex rounded-full px-3 py-1 text-overline font-semibold uppercase tracking-widest"
                 style={{
                   background: withAlpha(themeTokens.accentSecondary, 0.16),
                   color: themeTokens.text,
@@ -669,12 +669,12 @@ export function PayPageDescription({ payload, publicCustomFields, themeTokens }:
 
   return (
     <section
-      className="space-y-5 rounded-[30px] border p-6 sm:p-7"
+      className="space-y-5 rounded-xl border p-6 sm:p-7"
       style={buildPanelStyle(themeTokens, 'default')}
     >
       {hasDescription ? (
         <div className="space-y-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: themeTokens.mutedText }}>
+          <div className="text-overline font-semibold uppercase tracking-widest" style={{ color: themeTokens.mutedText }}>
             {t('checkout.payPage.description.kicker', 'Offer overview')}
           </div>
           <div className="prose prose-sm max-w-none">
@@ -702,7 +702,7 @@ export function PayPageDescription({ payload, publicCustomFields, themeTokens }:
               return (
                 <div
                   key={field.key}
-                  className={isMultiline ? 'rounded-[24px] border p-4 sm:col-span-2' : 'rounded-[24px] border p-4'}
+                  className={isMultiline ? 'rounded-xl border p-4 sm:col-span-2' : 'rounded-xl border p-4'}
                   style={{
                     background: withAlpha(themeTokens.shellBackground, 0.72),
                     borderColor: themeTokens.border,
@@ -742,7 +742,7 @@ export function PayPageCustomerForm({
 
   return (
     <section
-      className="space-y-5 rounded-[30px] border p-6 sm:p-7"
+      className="space-y-5 rounded-xl border p-6 sm:p-7"
       style={buildPanelStyle(themeTokens, 'default')}
     >
       <div className="space-y-1">
@@ -764,7 +764,7 @@ export function PayPageCustomerForm({
             <div key={field.key} className={containerClass}>
               {field.kind === 'boolean' ? (
                 <label
-                  className="flex items-start gap-3 rounded-[24px] border px-4 py-3 text-sm"
+                  className="flex items-start gap-3 rounded-xl border px-4 py-3 text-sm"
                   style={{
                     background: fieldError
                       ? themeTokens.errorSurface
@@ -863,14 +863,14 @@ export function PayPagePricing({
   return (
     <section className="space-y-4">
       <div className="space-y-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: themeTokens.mutedText }}>
+        <div className="text-overline font-semibold uppercase tracking-widest" style={{ color: themeTokens.mutedText }}>
           {t('checkout.payPage.pricing.kicker', 'Payment setup')}
         </div>
         <h2 className="text-lg font-semibold">{t('checkout.payPage.pricing.title', 'Choose how you want to pay')}</h2>
       </div>
 
       {payload.pricingMode === 'fixed' ? (
-        <div className="rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
+        <div className="rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           {typeof payload.fixedPriceOriginalAmount === 'number' ? (
             <div className="text-sm line-through" style={{ color: themeTokens.mutedText }}>
               {formatAmount(payload.fixedPriceOriginalAmount, payload.fixedPriceCurrencyCode)}
@@ -883,7 +883,7 @@ export function PayPagePricing({
       ) : null}
 
       {payload.pricingMode === 'custom_amount' ? (
-        <div className="space-y-2 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
+        <div className="space-y-2 rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           <label className="text-sm font-medium">{t('checkout.payPage.fields.customAmount', 'Amount')}</label>
           <Input
             className={READABLE_INPUT_CLASSNAME}
@@ -910,7 +910,7 @@ export function PayPagePricing({
           {(payload.priceListItems ?? []).map((item) => (
             <label
               key={item.id}
-              className="flex cursor-pointer items-center justify-between gap-3 rounded-[24px] border px-4 py-4 text-sm transition"
+              className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-4 text-sm transition"
               style={{
                 background: selectedPriceItemId === item.id
                   ? withAlpha(themeTokens.accent, 0.08)
@@ -958,16 +958,16 @@ export function PayPageSummary({
     : t('checkout.payPage.summary.awaitingSelection', 'Select an amount')
 
   return (
-    <section className="rounded-[28px] border p-5" style={buildPanelStyle(themeTokens, 'accent')}>
+    <section className="rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'accent')}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-current/70">
+          <div className="text-overline font-semibold uppercase tracking-widest text-current/70">
             {t('checkout.payPage.summary.amountDue', 'Amount due')}
           </div>
           <div className="mt-2 text-4xl font-semibold">{amountLabel}</div>
         </div>
         <div
-          className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]"
+          className="rounded-full px-3 py-1 text-overline font-semibold uppercase tracking-widest"
           style={{ background: withAlpha(themeTokens.accentContrast, 0.12) }}
         >
           {preview
@@ -998,7 +998,7 @@ export function PayPageLegalConsent({
 
   return (
     <>
-      <section className="space-y-4 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
+      <section className="space-y-4 rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'default')}>
         <div className="space-y-1">
           <h3 className="text-base font-semibold">{t('checkout.payPage.sections.legal', 'Legal confirmations')}</h3>
           <p className="text-sm" style={{ color: themeTokens.mutedText }}>
@@ -1009,7 +1009,7 @@ export function PayPageLegalConsent({
         {hasTerms ? (
           <div className="space-y-2">
             <div
-              className="rounded-[22px] border px-4 py-3"
+              className="rounded-xl border px-4 py-3"
               style={{
                 background: withAlpha(themeTokens.shellBackground, 0.72),
                 borderColor: fieldErrors['acceptedLegalConsents.terms'] ? themeTokens.errorBorder : themeTokens.border,
@@ -1055,7 +1055,7 @@ export function PayPageLegalConsent({
         {hasPrivacyPolicy ? (
           <div className="space-y-2">
             <div
-              className="rounded-[22px] border px-4 py-3"
+              className="rounded-xl border px-4 py-3"
               style={{
                 background: withAlpha(themeTokens.shellBackground, 0.72),
                 borderColor: fieldErrors['acceptedLegalConsents.privacyPolicy'] ? themeTokens.errorBorder : themeTokens.border,
@@ -1142,7 +1142,7 @@ export function PayPagePaymentForm({
   return (
     <section className="space-y-4">
       {submissionError ? (
-        <div className="rounded-[22px] border px-4 py-3 text-sm" style={buildValidationNoticeStyle(themeTokens)}>
+        <div className="rounded-xl border px-4 py-3 text-sm" style={buildValidationNoticeStyle(themeTokens)}>
           {submissionError}
         </div>
       ) : null}
@@ -1167,7 +1167,7 @@ export function PayPagePaymentForm({
           <InjectionSpot spotId="checkout.pay-page:gateway-widget:actions:before" context={injectionContext} />
           <Button
             type="button"
-            className="h-12 w-full rounded-2xl text-base"
+            className="h-12 w-full rounded-xl text-base"
             disabled={preview || isSubmitting}
             style={buildButtonStyle(themeTokens)}
             onClick={() => { void onSubmit() }}
@@ -1190,7 +1190,7 @@ export function PayPagePaymentForm({
         <Button
           type="button"
           variant="outline"
-          className="w-full rounded-2xl"
+          className="w-full rounded-xl"
           style={buildButtonStyle(themeTokens, 'outline')}
           onClick={onReset}
         >
@@ -1216,7 +1216,7 @@ export function PayPagePaymentSection({ payload, preview, themeTokens, children 
 
   return (
     <Card
-      className="overflow-hidden rounded-[32px] border backdrop-blur"
+      className="overflow-hidden rounded-xl border backdrop-blur"
       style={{
         ...buildPanelStyle(themeTokens, 'default'),
         background: `linear-gradient(180deg, ${withAlpha(themeTokens.surface, 0.96)} 0%, ${withAlpha(themeTokens.shellBackground, 0.94)} 100%)`,
@@ -1226,13 +1226,13 @@ export function PayPagePaymentSection({ payload, preview, themeTokens, children 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: themeTokens.mutedText }}>
+              <div className="text-overline font-semibold uppercase tracking-widest" style={{ color: themeTokens.mutedText }}>
                 {t('checkout.payPage.payment.kicker', 'Payment rail')}
               </div>
               <h2 className="mt-1 text-xl font-semibold">{t('checkout.payPage.sections.payment', 'Payment')}</h2>
             </div>
             <div
-              className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]"
+              className="rounded-full px-3 py-1 text-overline font-semibold uppercase tracking-widest"
               style={{
                 background: withAlpha(preview ? themeTokens.accentSecondary : themeTokens.accent, 0.12),
                 color: themeTokens.text,
@@ -1261,7 +1261,7 @@ export function PayPageHelp({ payload, preview, themeTokens }: PayPageHelpProps)
 
   return (
     <section
-      className="rounded-[24px] border px-4 py-4 text-sm"
+      className="rounded-xl border px-4 py-4 text-sm"
       style={{
         background: withAlpha(themeTokens.shellBackground, 0.7),
         borderColor: themeTokens.border,
@@ -1339,7 +1339,7 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
 
   return (
     <footer
-      className="rounded-[28px] border px-5 py-4 text-sm sm:px-6"
+      className="rounded-xl border px-5 py-4 text-sm sm:px-6"
       style={{
         background: withAlpha(themeTokens.surface, 0.86),
         borderColor: themeTokens.border,
@@ -1357,7 +1357,7 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
             <div className="relative">
               <select
                 id={selectId}
-                className="appearance-none rounded-full border px-3 py-1.5 pr-8 text-xs font-medium shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="appearance-none rounded-full border px-3 py-1.5 pr-8 text-xs font-medium shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: withAlpha(themeTokens.surface, 0.92),
                   borderColor: themeTokens.borderStrong,
@@ -1375,14 +1375,14 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
               </select>
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px]"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-overline"
                 style={{ color: themeTokens.mutedText }}
               >
                 ▼
               </span>
             </div>
           </div>
-          <div className="text-xs uppercase tracking-[0.22em]">
+          <div className="text-xs uppercase tracking-widest">
             {payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}
           </div>
         </div>
@@ -1771,7 +1771,7 @@ export function PayPage({
   const previewBanner = payload ? (
     isPreview ? (
       <div
-        className="rounded-[28px] border px-5 py-4"
+        className="rounded-xl border px-5 py-4"
         style={{
           background: withAlpha(themeTokens.accentSecondary, 0.12),
           borderColor: withAlpha(themeTokens.accentSecondary, 0.44),
@@ -1987,12 +1987,12 @@ export function PayPage({
       >
         <div className="mx-auto max-w-lg">
           <Card
-            className="rounded-[32px] border backdrop-blur"
+            className="rounded-xl border backdrop-blur"
             style={buildPanelStyle(themeTokens, 'default')}
           >
             <CardContent className="space-y-5 p-6 sm:p-8">
               <div className="space-y-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: themeTokens.mutedText }}>
+                <div className="text-overline font-semibold uppercase tracking-widest" style={{ color: themeTokens.mutedText }}>
                   {t('checkout.payPage.badges.secure', 'Secure checkout')}
                 </div>
                 <h1 className="text-2xl font-semibold">{payload.title ?? t('checkout.payPage.protectedTitle', 'Protected payment link')}</h1>

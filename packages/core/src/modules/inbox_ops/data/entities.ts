@@ -1,11 +1,5 @@
-import {
-  Entity,
-  PrimaryKey,
-  Property,
-  Index,
-  Unique,
-  OptionalProps,
-} from '@mikro-orm/core'
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 // ---------------------------------------------------------------------------
 // Shared Types

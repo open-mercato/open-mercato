@@ -30,8 +30,8 @@ export default function PortalRecentActivityWidget() {
         <div key={item.id} className={`flex items-center gap-3 py-2.5 ${idx > 0 ? 'border-t' : ''}`}>
           <ActivityIcon type={item.icon} />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{item.action}</p>
-            <p className="text-[11px] text-muted-foreground">{item.time}</p>
+            <p className="text-sm font-medium">{item.action}</p>
+            <p className="text-overline text-muted-foreground">{item.time}</p>
           </div>
         </div>
       ))}

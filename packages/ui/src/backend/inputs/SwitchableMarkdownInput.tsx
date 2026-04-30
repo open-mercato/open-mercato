@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { LoadingMessage } from '../detail/LoadingMessage'
 import { useMarkdownRemarkPlugins } from '../markdown/useMarkdownRemarkPlugins'
+import { useTheme } from '../../theme'
 
 export type SwitchableMarkdownInputProps = {
   value: string
@@ -30,7 +31,9 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 const MarkdownEditorTestStub: React.ComponentType<UiMarkdownEditorProps> = ({ value, onChange }) => (
   <textarea
@@ -69,17 +72,18 @@ export function SwitchableMarkdownInput({
   remarkPlugins,
 }: SwitchableMarkdownInputProps) {
   const resolvedPlugins = useMarkdownRemarkPlugins(remarkPlugins)
+  const { resolvedTheme } = useTheme()
   const editorWrapperClasses =
     editorWrapperClassName ?? 'w-full rounded-lg border border-muted-foreground/20 bg-background p-2'
   const editorClasses = editorClassName ?? 'w-full'
   const textareaClasses =
     textareaClassName
-    ?? 'w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+    ?? 'w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
   if (isMarkdownEnabled && !disableMarkdown) {
     return (
       <div className={editorWrapperClasses}>
-        <div data-color-mode="light" className={editorClasses}>
+        <div data-color-mode={resolvedTheme} className={editorClasses}>
           <UiMarkdownEditor
             value={value}
             height={height}

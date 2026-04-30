@@ -239,7 +239,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   )
 
   const renderMenu = () => (
-    <div className="absolute right-0 z-30 mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
+    <div className="absolute right-0 z-dropdown mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted"
@@ -744,8 +744,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
 
     React.useEffect(() => {
       const current = typeof value === 'string' ? value.trim() : ''
-      const wasAuto = autoValueRef.current && current === autoValueRef.current
-      if (!current.length || (wasAuto && lastKindRef.current && lastKindRef.current !== kind)) {
+      if (!current.length && !lastKindRef.current) {
         void requestNumber()
       } else {
         lastKindRef.current = kind
@@ -1087,7 +1086,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       label: '',
       type: 'custom',
       component: () => (
-        <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <div className="rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">
           {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
         </div>
       ),

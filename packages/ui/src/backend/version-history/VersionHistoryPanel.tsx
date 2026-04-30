@@ -11,7 +11,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './labels'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { humanizeResourceKind } from './labels'
 
 export type VersionHistoryPanelProps = {
@@ -142,12 +142,12 @@ export function VersionHistoryPanel({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-overlay bg-black/20"
         onClick={() => onOpenChange(false)}
         aria-hidden="true"
       />
       <div
-        className="fixed right-0 top-0 z-50 h-full w-full max-w-md border-l bg-background shadow-lg"
+        className="fixed right-0 top-0 z-modal h-full w-full max-w-md border-l bg-background shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label={t('audit_logs.version_history.title')}
@@ -189,9 +189,11 @@ export function VersionHistoryPanel({
             ) : (
               <div className="space-y-3">
                 {shouldAutoCheck && !permissions.isLoading && !permissions.canViewTenant && permissions.currentUserId ? (
-                  <Notice compact>
-                    {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
-                  </Notice>
+                  <Alert variant="info">
+                    <AlertDescription>
+                      {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
 
                 {isInitialLoading ? (
@@ -238,7 +240,7 @@ export function VersionHistoryPanel({
                       return (
                         <div
                           key={entry.id}
-                          className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/40 ${isRelatedEntry ? 'pl-8 pr-4 border-l-2 border-l-muted-foreground/20' : 'px-4'}`}
+                          className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/50 ${isRelatedEntry ? 'pl-8 pr-4 border-l-2 border-l-muted-foreground/20' : 'px-4'}`}
                         >
                           <Button
                             type="button"
@@ -247,7 +249,7 @@ export function VersionHistoryPanel({
                             onClick={() => setSelectedEntry(entry)}
                           >
                             {isRelatedEntry ? (
-                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
+                              <span className="text-overline uppercase tracking-wider text-muted-foreground/70 font-medium">
                                 {humanizeResourceKind(entry.resourceKind, t)}
                               </span>
                             ) : null}

@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { ensureRoles, setupInitialTenant } from './lib/setup-app'
+import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -59,17 +59,23 @@ const addUser: ModuleCli = {
       organizationId: org.id,
       tenantId: org.tenant.id,
     })
-    await em.persistAndFlush(u)
+    await em.persist(u).flush()
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
         let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+        if (!role && normalizedTenantId !== null) {
+          role = await em.findOne(Role, { name, tenantId: null })
+        }
         if (!role) {
           role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-          await em.persistAndFlush(role)
+          await em.persist(role).flush()
+        } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
+          role.tenantId = normalizedTenantId
+          await em.persist(role).flush()
         }
         const link = em.create(UserRole, { user: u, role })
-        await em.persistAndFlush(link)
+        await em.persist(link).flush()
       }
     }
     console.log('User created with id', u.id)
@@ -280,16 +286,16 @@ const rotateEncryptionKey: ModuleCli = {
       const ids = pending.map((row: any) => String(row.id))
       const users = rotate
         ? await em.find(
-            User,
-            { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-          )
+          User,
+          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
+        )
         : await findWithDecryption(
-            em,
-            User,
-            { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-            {},
-            { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
-          )
+          em,
+          User,
+          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
+          {},
+          { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
+        )
       const usersById = new Map(users.map((user) => [String(user.id), user]))
       let updated = 0
       for (const row of pending) {
@@ -389,9 +395,9 @@ const addOrganization: ModuleCli = {
     const em = resolve('em') as any
     // Create tenant implicitly for simplicity
     const tenant = em.create(Tenant, { name: `${name} Tenant` })
-    await em.persistAndFlush(tenant)
+    await em.persist(tenant).flush()
     const org = em.create(Organization, { name, tenant })
-    await em.persistAndFlush(org)
+    await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
@@ -448,7 +454,7 @@ const setupApp: ModuleCli = {
         console.log('⚠️  Updated roles if missing and reused tenant/organization.')
       }
 
-      if(env.NODE_ENV !== 'test') { 
+      if (env.NODE_ENV !== 'test') {
         for (const snapshot of result.users) {
           if (snapshot.created) {
             if (snapshot.user.email === email && password) {
@@ -462,7 +468,7 @@ const setupApp: ModuleCli = {
         }
       }
 
-      if(env.NODE_ENV !== 'test')   console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
+      if (env.NODE_ENV !== 'test') console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
       if (err instanceof Error && err.message === 'USER_EXISTS') {
         console.error('Setup aborted: user already exists with the provided email.')
@@ -485,17 +491,17 @@ const listOrganizations: ModuleCli = {
       { populate: ['tenant'] },
       { tenantId: null, organizationId: null },
     )
-    
+
     if (orgs.length === 0) {
       console.log('No organizations found')
       return
     }
-    
+
     console.log(`Found ${orgs.length} organization(s):`)
     console.log('')
     console.log('ID                                   | Name                    | Tenant ID                            | Created')
     console.log('-------------------------------------|-------------------------|-------------------------------------|-------------------')
-    
+
     for (const org of orgs) {
       const created = org.createdAt ? new Date(org.createdAt).toLocaleDateString() : 'N/A'
       const id = org.id || 'N/A'
@@ -512,17 +518,17 @@ const listTenants: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const tenants = await em.find(Tenant, {})
-    
+
     if (tenants.length === 0) {
       console.log('No tenants found')
       return
     }
-    
+
     console.log(`Found ${tenants.length} tenant(s):`)
     console.log('')
     console.log('ID                                   | Name                    | Created')
     console.log('-------------------------------------|-------------------------|-------------------')
-    
+
     for (const tenant of tenants) {
       const created = tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : 'N/A'
       const id = tenant.id || 'N/A'
@@ -541,10 +547,10 @@ const listUsers: ModuleCli = {
       const v = rest[i + 1]
       if (k) args[k] = v
     }
-    
+
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    
+
     // Build query with optional filters
     const where: any = {}
     if (args.organizationId || args.orgId || args.org) {
@@ -553,19 +559,19 @@ const listUsers: ModuleCli = {
     if (args.tenantId || args.tenant) {
       where.tenantId = args.tenantId || args.tenant
     }
-    
+
     const users = await em.find(User, where)
-    
+
     if (users.length === 0) {
       console.log('No users found')
       return
     }
-    
+
     console.log(`Found ${users.length} user(s):`)
     console.log('')
     console.log('ID                                   | Email                   | Name                    | Organization ID      | Tenant ID            | Roles')
     console.log('-------------------------------------|-------------------------|-------------------------|---------------------|---------------------|-------------------')
-    
+
     for (const user of users) {
       // Get user roles separately
       const userRoles = await findWithDecryption(
@@ -576,25 +582,25 @@ const listUsers: ModuleCli = {
         { tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null },
       )
       const roles = userRoles.map((ur: any) => ur.role?.name).filter(Boolean).join(', ') || 'None'
-      
+
       // Get organization and tenant names if IDs exist
       let orgName = 'N/A'
       let tenantName = 'N/A'
-      
+
       if (user.organizationId) {
         const org = await em.findOne(Organization, { id: user.organizationId })
         orgName = org?.name?.substring(0, 19) + '...' || user.organizationId.substring(0, 8) + '...'
       }
-      
+
       if (user.tenantId) {
         const tenant = await em.findOne(Tenant, { id: user.tenantId })
         tenantName = tenant?.name?.substring(0, 19) + '...' || user.tenantId.substring(0, 8) + '...'
       }
-      
+
       const id = user.id || 'N/A'
       const email = (user.email || 'N/A').padEnd(23)
       const name = (user.name || 'Unnamed').padEnd(23)
-      
+
       console.log(`${id.padEnd(35)} | ${email} | ${name} | ${orgName.padEnd(19)} | ${tenantName.padEnd(19)} | ${roles}`)
     }
   },
@@ -609,32 +615,94 @@ const setPassword: ModuleCli = {
       const v = rest[i + 1]
       if (k) args[k] = v
     }
-    
+
     const email = args.email
     const password = args.password
-    
+
     if (!email || !password) {
       console.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
       return
     }
     if (!ensurePasswordPolicy(password)) return
-    
+
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const emailHash = computeEmailHash(email)
     const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
-    
+
     if (!user) {
       console.error(`User with email "${email}" not found`)
       return
     }
-    
+
     user.passwordHash = await hash(password, 10)
-    await em.persistAndFlush(user)
-    
+    await em.persist(user).flush()
+
     console.log(`✅ Password updated successfully for user: ${email}`)
   },
 }
 
+const syncRoleAcls: ModuleCli = {
+  command: 'sync-role-acls',
+  async run(rest) {
+    const args: Record<string, string> = {}
+    const flags = new Set<string>()
+    for (let i = 0; i < rest.length; i++) {
+      const token = rest[i]
+      if (!token?.startsWith('--')) continue
+      const key = token.replace(/^--/, '')
+      const next = rest[i + 1]
+      if (next && !next.startsWith('--')) {
+        args[key] = next
+        i++
+      } else {
+        flags.add(key)
+      }
+    }
+    const tenantArg = args.tenantId ?? args.tenant ?? args.tenant_id ?? null
+    const includeSuperadminRole = !flags.has('no-superadmin')
+
+    const modules = getCliModules()
+    if (!modules.length) {
+      console.error('❌ No CLI modules registered. Run `yarn generate` first.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+
+    const targetTenantIds: string[] = []
+    if (tenantArg) {
+      const normalized = normalizeTenantId(tenantArg)
+      if (!normalized) {
+        console.error(`❌ Invalid --tenant value: ${tenantArg}`)
+        return
+      }
+      const tenant = await em.findOne(Tenant, { id: normalized })
+      if (!tenant) {
+        console.error(`❌ Tenant not found: ${normalized}`)
+        return
+      }
+      targetTenantIds.push(normalized)
+    } else {
+      const tenants = await em.find(Tenant, {})
+      if (!tenants.length) {
+        console.log('No tenants found; nothing to sync.')
+        return
+      }
+      for (const tenant of tenants) {
+        const id = tenant.id ? String(tenant.id) : null
+        if (id) targetTenantIds.push(id)
+      }
+    }
+
+    for (const tenantId of targetTenantIds) {
+      await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole })
+      await ensureCustomRoleAcls(em, tenantId, modules)
+      console.log(`✅ Synced role ACLs for tenant ${tenantId}`)
+    }
+  },
+}
+
 // Export the full CLI list
-export default [addUser, seedRoles, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
+export default [addUser, seedRoles, syncRoleAcls, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]

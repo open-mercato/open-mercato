@@ -193,7 +193,7 @@ export async function startWorkflow(
     updatedAt: now,
   })
 
-  await em.persistAndFlush(instance)
+  await em.persist(instance).flush()
 
   // Log WORKFLOW_STARTED event
   await logWorkflowEvent(em, {
@@ -966,6 +966,6 @@ async function logWorkflowEvent(
     occurredAt: new Date(),
   })
 
-  await em.persistAndFlush(workflowEvent)
+  await em.persist(workflowEvent).flush()
   return workflowEvent
 }

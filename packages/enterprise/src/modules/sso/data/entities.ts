@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Unique, Index } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'sso_configs' })
 // Unique index on organization_id (partial: WHERE deleted_at IS NULL) — managed by migration

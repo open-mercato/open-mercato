@@ -69,7 +69,7 @@ const seedDemo: ModuleCli = {
         organizationId,
       })
 
-      await em.persistAndFlush(workflow)
+      await em.persist(workflow).flush()
 
       console.log(`✅ Seeded demo workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
@@ -150,7 +150,7 @@ const seedDemoWithRules: ModuleCli = {
           organizationId,
         })
 
-        await em.persistAndFlush(rule)
+        await em.persist(rule).flush()
         console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }
@@ -208,7 +208,7 @@ const seedSalesPipeline: ModuleCli = {
         organizationId,
       })
 
-      await em.persistAndFlush(workflow)
+      await em.persist(workflow).flush()
 
       console.log(`✅ Seeded sales pipeline workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
@@ -268,7 +268,7 @@ const seedSimpleApproval: ModuleCli = {
         organizationId,
       })
 
-      await em.persistAndFlush(workflow)
+      await em.persist(workflow).flush()
 
       console.log(`✅ Seeded simple approval workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
@@ -371,7 +371,7 @@ const seedOrderApproval: ModuleCli = {
         organizationId,
       })
 
-      await em.persistAndFlush(workflow)
+      await em.persist(workflow).flush()
 
       console.log(`✅ Seeded order approval workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)

@@ -16,6 +16,15 @@ import {
   searchEndpoints,
   simplifyRequestBodySchema,
 } from './api-endpoint-index'
+import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
+const DEFAULT_AI_API_REQUEST_TIMEOUT_MS = 30_000
+
+function resolveAiApiRequestTimeoutMs(): number {
+  const raw = process.env.AI_API_REQUEST_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_AI_API_REQUEST_TIMEOUT_MS)
+}
 
 /**
  * Load API discovery tools into the registry
@@ -194,10 +203,11 @@ Confirm with user before POST/PUT/DELETE operations.`,
 
         // Execute request
         try {
-          const response = await fetch(url, {
+          const response = await fetchWithTimeout(url, {
             method,
             headers,
             body: requestBody ? JSON.stringify(requestBody) : undefined,
+            timeoutMs: resolveAiApiRequestTimeoutMs(),
           })
 
           const responseText = await response.text()

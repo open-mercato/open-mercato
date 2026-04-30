@@ -1,17 +1,19 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
-import { MessageObject } from '../data/entities'
+import { Message, MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema } from '../data/validators'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageSchema as composeSchema,
@@ -24,29 +26,18 @@ type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
   threadId: string
 }
 
-function getKnex(em: EntityManager): Knex {
-  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
+
+function getDb(em: EntityManager): Kysely<any> {
+  return em.getKysely<any>()
 }
 
-type MessageListRow = {
+type MessageListScopeRow = {
   id: string
-  type: string
-  visibility: 'public' | 'internal' | null
-  source_entity_type: string | null
-  source_entity_id: string | null
-  external_email: string | null
-  external_name: string | null
-  subject: string
-  body: string
   sender_user_id: string
-  priority: string
-  recipient_status: string | null
   is_draft: boolean
-  action_data: { actions?: unknown[] } | null
-  action_taken: string | null
-  sent_at: string | null
+  recipient_status: string | null
   read_at: string | null
-  thread_id: string | null
 }
 
 type AttachmentCountRow = {
@@ -60,7 +51,7 @@ type RecipientCountRow = {
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
 }
 
@@ -70,131 +61,170 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
-  const knex = getKnex(em)
+  const db = getDb(em) as any
 
-  let query = knex('messages as m')
-    .where('m.tenant_id', scope.tenantId)
-    .whereNull('m.deleted_at')
-
-  if (scope.organizationId) {
-    query = query.where('m.organization_id', scope.organizationId)
-  } else {
-    query = query.whereNull('m.organization_id')
-  }
-
-  const joinRecipient = () => {
-    query = query.leftJoin('message_recipients as r', function () {
-      this.on('m.id', '=', 'r.message_id').andOn('r.recipient_user_id', '=', knex.raw('?', [scope.userId]))
-    })
-  }
-
-  switch (input.folder) {
-    case 'inbox':
-      joinRecipient()
-      query = query
-        .whereNotNull('r.message_id')
-        .whereNull('r.deleted_at')
-        .whereNull('r.archived_at')
-        .where('m.is_draft', false)
-      break
-    case 'archived':
-      joinRecipient()
-      query = query
-        .whereNotNull('r.message_id')
-        .whereNull('r.deleted_at')
-        .whereNotNull('r.archived_at')
-      break
-    case 'sent':
-      query = query
-        .where('m.sender_user_id', scope.userId)
-        .where('m.is_draft', false)
-      joinRecipient()
-      break
-    case 'drafts':
-      query = query
-        .where('m.sender_user_id', scope.userId)
-        .where('m.is_draft', true)
-      joinRecipient()
-      break
-    case 'all':
-      joinRecipient()
-      query = query.where(function () {
-        this.where('m.sender_user_id', scope.userId).orWhereNotNull('r.message_id')
+  const searchIds = input.search
+    ? await findMessageIdsBySearchTokens({
+        em,
+        query: input.search,
+        tenantId: scope.tenantId ?? null,
+        organizationId: scope.organizationId,
       })
-      break
-    default: {
-      const unsupportedFolder: never = input.folder
-      throw new Error(`Unsupported folder: ${String(unsupportedFolder)}`)
+    : undefined
+
+  const buildBaseQuery = () => {
+    let q: any = db
+      .selectFrom('messages as m')
+      .where('m.tenant_id', '=', scope.tenantId)
+      .where('m.deleted_at', 'is', null)
+
+    if (scope.organizationId) {
+      q = q.where('m.organization_id', '=', scope.organizationId)
+    } else {
+      q = q.where('m.organization_id', 'is', null)
     }
+
+    const joinRecipient = () => {
+      q = q.leftJoin('message_recipients as r', (jb: any) => jb
+        .onRef('m.id', '=', 'r.message_id')
+        .on('r.recipient_user_id', '=', scope.userId))
+    }
+
+    switch (input.folder) {
+      case 'inbox':
+        joinRecipient()
+        q = q
+          .where('r.message_id', 'is not', null)
+          .where('r.deleted_at', 'is', null)
+          .where('r.archived_at', 'is', null)
+          .where('m.is_draft', '=', false)
+        break
+      case 'archived':
+        joinRecipient()
+        q = q
+          .where('r.message_id', 'is not', null)
+          .where('r.deleted_at', 'is', null)
+          .where('r.archived_at', 'is not', null)
+        break
+      case 'sent':
+        q = q
+          .where('m.sender_user_id', '=', scope.userId)
+          .where('m.is_draft', '=', false)
+        joinRecipient()
+        break
+      case 'drafts':
+        q = q
+          .where('m.sender_user_id', '=', scope.userId)
+          .where('m.is_draft', '=', true)
+        joinRecipient()
+        break
+      case 'all':
+        joinRecipient()
+        q = q.where((eb: any) => eb.or([
+          eb('m.sender_user_id', '=', scope.userId),
+          eb('r.message_id', 'is not', null),
+        ]))
+        break
+      default: {
+        const unsupportedFolder: never = input.folder
+        throw new Error(`Unsupported folder: ${String(unsupportedFolder)}`)
+      }
+    }
+
+    if (input.status) q = q.where('r.status', '=', input.status)
+    if (input.type) q = q.where('m.type', '=', input.type)
+    if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
+    if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
+    if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
+    if (input.externalEmail) q = q.where('m.external_email_hash', '=', hashForLookup(input.externalEmail))
+    if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
+
+    if (input.search) {
+      if (!searchIds || searchIds.length === 0) {
+        q = q.where('m.id', '=', NO_MATCH_ID)
+      } else {
+        q = q.where('m.id', 'in', searchIds)
+      }
+    }
+
+    if (input.since) q = q.where('m.sent_at', '>', new Date(input.since))
+
+    if (input.hasObjects !== undefined) {
+      const existsFn = (eb: any) => eb.exists(
+        eb.selectFrom('message_objects')
+          .select(sql<number>`1`.as('one'))
+          .whereRef('message_objects.message_id', '=', 'm.id')
+      )
+      const notExistsFn = (eb: any) => eb.not(eb.exists(
+        eb.selectFrom('message_objects')
+          .select(sql<number>`1`.as('one'))
+          .whereRef('message_objects.message_id', '=', 'm.id')
+      ))
+      q = input.hasObjects ? q.where(existsFn) : q.where(notExistsFn)
+    }
+
+    if (input.hasAttachments !== undefined) {
+      const existsFn = (eb: any) => eb.exists(
+        eb.selectFrom('attachments')
+          .select(sql<number>`1`.as('one'))
+          .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
+          .whereRef('attachments.record_id', '=', 'm.id')
+      )
+      const notExistsFn = (eb: any) => eb.not(eb.exists(
+        eb.selectFrom('attachments')
+          .select(sql<number>`1`.as('one'))
+          .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
+          .whereRef('attachments.record_id', '=', 'm.id')
+      ))
+      q = input.hasAttachments ? q.where(existsFn) : q.where(notExistsFn)
+    }
+
+    if (input.hasActions !== undefined) {
+      q = input.hasActions
+        ? q.where('m.action_data', 'is not', null)
+        : q.where('m.action_data', 'is', null)
+    }
+
+    return q
   }
 
-  if (input.status) {
-    query = query.where('r.status', input.status)
-  }
-
-  if (input.type) {
-    query = query.where('m.type', input.type)
-  }
-
-  if (input.visibility) {
-    query = query.where('m.visibility', input.visibility)
-  }
-
-  if (input.sourceEntityType) {
-    query = query.where('m.source_entity_type', input.sourceEntityType)
-  }
-
-  if (input.sourceEntityId) {
-    query = query.where('m.source_entity_id', input.sourceEntityId)
-  }
-
-  if (input.externalEmail) {
-    query = query.whereILike('m.external_email', `%${input.externalEmail}%`)
-  }
-
-  if (input.senderId) {
-    query = query.where('m.sender_user_id', input.senderId)
-  }
-
-  if (input.search) {
-    query = query.where(function () {
-      this.whereILike('m.subject', `%${input.search}%`).orWhereILike('m.body', `%${input.search}%`)
-    })
-  }
-
-  if (input.since) {
-    query = query.where('m.sent_at', '>', new Date(input.since))
-  }
-
-  if (input.hasObjects !== undefined) {
-    const subquery = knex('message_objects').select(1).whereRaw('message_objects.message_id = m.id')
-    query = input.hasObjects ? query.whereExists(subquery) : query.whereNotExists(subquery)
-  }
-
-  if (input.hasAttachments !== undefined) {
-    const subquery = knex('attachments')
-      .select(1)
-      .where('attachments.entity_id', MESSAGE_ATTACHMENT_ENTITY_ID)
-      .whereRaw('attachments.record_id = m.id')
-    query = input.hasAttachments ? query.whereExists(subquery) : query.whereNotExists(subquery)
-  }
-
-  if (input.hasActions !== undefined) {
-    query = input.hasActions ? query.whereNotNull('m.action_data') : query.whereNull('m.action_data')
-  }
-
-  const countResult = await query.clone().count('* as count').first()
+  const countResult = await buildBaseQuery()
+    .select(sql<number>`count(*)`.as('count'))
+    .executeTakeFirst() as { count: string | number } | undefined
   const total = Number(countResult?.count ?? 0)
 
   const offset = (input.page - 1) * input.pageSize
-  const messages = await query
-    .select('m.*', 'r.status as recipient_status', 'r.read_at')
+  const scopeRows = await buildBaseQuery()
+    .select([
+      'm.id',
+      'm.sender_user_id',
+      'm.is_draft',
+      'r.status as recipient_status',
+      'r.read_at',
+    ])
     .orderBy('m.sent_at', 'desc')
     .offset(offset)
     .limit(input.pageSize)
+    .execute()
 
-  const typedMessages = messages as MessageListRow[]
-  const messageIds = typedMessages.map((message) => message.id)
+  const typedRows = scopeRows as MessageListScopeRow[]
+  const messageIds = typedRows.map((row) => row.id)
+
+  const messageEntities = messageIds.length > 0
+    ? await findWithDecryption(
+        em,
+        Message,
+        { id: { $in: messageIds } },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      )
+    : []
+
+  const messagesById = new Map<string, Message>()
+  for (const message of messageEntities) {
+    messagesById.set(message.id, message)
+  }
+
   const objects = messageIds.length > 0
     ? await em.find(MessageObject, { messageId: { $in: messageIds } })
     : []
@@ -206,12 +236,13 @@ export async function GET(req: Request) {
   }, {} as Record<string, MessageObject[]>)
 
   const attachmentCounts: AttachmentCountRow[] = messageIds.length > 0
-    ? await getKnex(em)('attachments')
-        .select('record_id')
-        .count('* as count')
-        .where('entity_id', MESSAGE_ATTACHMENT_ENTITY_ID)
-        .whereIn('record_id', messageIds)
+    ? await (getDb(em) as any)
+        .selectFrom('attachments')
+        .select(['record_id', sql<string>`count(*)`.as('count')])
+        .where('entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
+        .where('record_id', 'in', messageIds)
         .groupBy('record_id')
+        .execute()
     : []
 
   const attachmentCountByMessage = attachmentCounts.reduce((acc: Record<string, number>, row) => {
@@ -220,12 +251,13 @@ export async function GET(req: Request) {
   }, {})
 
   const recipientCounts: RecipientCountRow[] = messageIds.length > 0
-    ? await getKnex(em)('message_recipients')
-        .select('message_id')
-        .count('* as count')
-        .whereIn('message_id', messageIds)
-        .whereNull('deleted_at')
+    ? await (getDb(em) as any)
+        .selectFrom('message_recipients')
+        .select(['message_id', sql<string>`count(*)`.as('count')])
+        .where('message_id', 'in', messageIds)
+        .where('deleted_at', 'is', null)
         .groupBy('message_id')
+        .execute()
     : []
 
   const recipientCountByMessage = recipientCounts.reduce((acc: Record<string, number>, row) => {
@@ -233,7 +265,7 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
-  const senderUserIds = Array.from(new Set(typedMessages.map((message) => message.sender_user_id).filter(Boolean)))
+  const senderUserIds = Array.from(new Set(typedRows.map((row) => row.sender_user_id).filter(Boolean)))
   const senderUsers = senderUserIds.length > 0
     ? await findWithDecryption(
         em,
@@ -251,39 +283,48 @@ export async function GET(req: Request) {
   })
 
   return Response.json({
-    items: typedMessages.map((message) => ({
-      ...(senderMetaById.get(message.sender_user_id)
-        ? {
-            senderName: senderMetaById.get(message.sender_user_id)?.name ?? null,
-            senderEmail: senderMetaById.get(message.sender_user_id)?.email ?? null,
-          }
-        : { senderName: null, senderEmail: null }),
-      id: message.id,
-      type: message.type,
-      visibility: message.visibility,
-      sourceEntityType: message.source_entity_type,
-      sourceEntityId: message.source_entity_id,
-      externalEmail: message.external_email,
-      externalName: message.external_name,
-      subject: message.subject,
-      bodyPreview: message.body.substring(0, 150) + (message.body.length > 150 ? '...' : ''),
-      senderUserId: message.sender_user_id,
-      priority: message.priority,
-      status: message.recipient_status ?? (message.is_draft ? 'draft' : 'sent'),
-      hasObjects: (objectsByMessage[message.id] || []).length > 0,
-      objectCount: (objectsByMessage[message.id] || []).length,
-      hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
-      attachmentCount: attachmentCountByMessage[message.id] || 0,
-      recipientCount: recipientCountByMessage[message.id] || 0,
-      hasActions:
-        Boolean(message.action_data?.actions?.length)
-        || Boolean(getMessageType(message.type)?.defaultActions?.length)
-        || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
-      actionTaken: message.action_taken,
-      sentAt: message.sent_at,
-      readAt: message.read_at,
-      threadId: message.thread_id,
-    })),
+    items: typedRows
+      .map((row) => {
+        const message = messagesById.get(row.id)
+        if (!message) return null
+        const body = typeof message.body === 'string' ? message.body : ''
+        const bodyPreview = body.substring(0, 150) + (body.length > 150 ? '...' : '')
+        const actionData = message.actionData ?? null
+        return {
+          ...(senderMetaById.get(row.sender_user_id)
+            ? {
+                senderName: senderMetaById.get(row.sender_user_id)?.name ?? null,
+                senderEmail: senderMetaById.get(row.sender_user_id)?.email ?? null,
+              }
+            : { senderName: null, senderEmail: null }),
+          id: message.id,
+          type: message.type,
+          visibility: message.visibility ?? null,
+          sourceEntityType: message.sourceEntityType ?? null,
+          sourceEntityId: message.sourceEntityId ?? null,
+          externalEmail: message.externalEmail ?? null,
+          externalName: message.externalName ?? null,
+          subject: message.subject,
+          bodyPreview,
+          senderUserId: message.senderUserId,
+          priority: message.priority,
+          status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          hasObjects: (objectsByMessage[message.id] || []).length > 0,
+          objectCount: (objectsByMessage[message.id] || []).length,
+          hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
+          attachmentCount: attachmentCountByMessage[message.id] || 0,
+          recipientCount: recipientCountByMessage[message.id] || 0,
+          hasActions:
+            Boolean(actionData?.actions?.length)
+            || Boolean(getMessageType(message.type)?.defaultActions?.length)
+            || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
+          actionTaken: message.actionTaken ?? null,
+          sentAt: message.sentAt ? message.sentAt.toISOString() : null,
+          readAt: row.read_at,
+          threadId: message.threadId ?? null,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
     page: input.page,
     pageSize: input.pageSize,
     total,

@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import type { CacheStrategy } from '@open-mercato/cache'
+import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseBooleanToken } from '../boolean'
 
 export type CrudCacheIdentifiers = {
@@ -193,7 +193,7 @@ export async function invalidateCrudCache(
     tags: tagList,
     action: 'clearing',
   })
-  const deleted = await cache.deleteByTags(tagList)
+  const deleted = await runWithCacheTenant(tenantId, () => cache.deleteByTags(tagList))
   debugCrudCache('invalidate', {
     resource,
     reason,

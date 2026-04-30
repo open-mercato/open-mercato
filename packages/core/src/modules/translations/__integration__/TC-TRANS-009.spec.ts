@@ -33,7 +33,6 @@ async function fillCombobox(
     await input.press('Enter')
   }
   await input.press('Tab')
-  await page.waitForTimeout(300)
   if (options?.waitForEnabledPlaceholder) {
     await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
   }
