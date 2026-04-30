@@ -184,11 +184,36 @@ function formatPendingActionToolResult(
   })
 }
 
+/**
+ * Per-call gating decision for the destructive-confirm-required policy.
+ * Honors a static boolean OR a predicate evaluated against the actual
+ * tool-call args, so a multi-operation tool (e.g.
+ * `customers.manage_deal_comment` with `operation: 'create' | 'update'
+ * | 'delete'`) can gate only its destructive branches without being
+ * split into multiple tools.
+ */
+function resolveIsDestructive(
+  isDestructive: boolean | ((input: unknown) => boolean) | undefined,
+  args: unknown,
+): boolean {
+  if (typeof isDestructive === 'function') {
+    try {
+      return isDestructive(args) === true
+    } catch {
+      // If the predicate throws (e.g. unexpected input shape), default to
+      // gating — fail-safe for destructive policy.
+      return true
+    }
+  }
+  return isDestructive === true
+}
+
 function adaptToolToAiSdk(
   tool: AiToolDefinition,
   ctx: AiChatRequestContext,
   mutation: MutationInterceptorOptions | null,
   container?: AwilixContainer,
+  effectiveMutationPolicy?: 'read-only' | 'confirm-required' | 'destructive-confirm-required',
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
   const handlerContext = buildToolHandlerContext(ctx, container, tool)
@@ -196,7 +221,18 @@ function adaptToolToAiSdk(
     description: tool.description,
     inputSchema: safeSchema,
     execute: async (args: unknown) => {
-      if (mutation) {
+      // Per-call gating decision. Under `destructive-confirm-required`,
+      // tools with a predicate `isDestructive(args)` may flip per call —
+      // e.g. comment delete gates while comment create runs direct.
+      const requiresApprovalNow = (() => {
+        if (!mutation) return false
+        if (effectiveMutationPolicy === 'confirm-required') return true
+        if (effectiveMutationPolicy === 'destructive-confirm-required') {
+          return resolveIsDestructive(mutation.tool.isDestructive, args)
+        }
+        return false
+      })()
+      if (mutation && requiresApprovalNow) {
         try {
           const toolCallArgs =
             args && typeof args === 'object' && !Array.isArray(args)
@@ -315,21 +351,15 @@ export async function resolveAiAgentTools(
     }
 
     try {
-      // Decide whether this mutation tool needs the prepareMutation gate
-      // for the effective policy:
-      //   - `confirm-required`: every mutation gates.
-      //   - `destructive-confirm-required`: only tools flagged
-      //     `isDestructive: true` gate; non-destructive mutations
-      //     (creates, comments, idempotent updates) run directly.
-      //   - `read-only`: covered above by `canInterceptMutations`.
-      const requiresApproval =
-        record.isMutation === true &&
-        canInterceptMutations &&
-        (effectiveMutationPolicy === 'confirm-required' ||
-          (effectiveMutationPolicy === 'destructive-confirm-required' &&
-            record.isDestructive === true))
+      // For any mutation tool whose policy isn't read-only, prepare the
+      // interceptor options once. The actual gate-vs-run-direct decision
+      // happens at call time inside `adaptToolToAiSdk` because under
+      // `destructive-confirm-required` `isDestructive` may be a predicate
+      // evaluated against the per-call args (e.g. a multi-operation
+      // tool with `operation: 'create' | 'update' | 'delete'` gates only
+      // the destructive branch).
       const mutationOptions: MutationInterceptorOptions | null =
-        requiresApproval && input.container
+        record.isMutation === true && canInterceptMutations && input.container
           ? {
               agent,
               tool: record,
@@ -347,7 +377,13 @@ export async function resolveAiAgentTools(
       // tool name sent to the model; the original dotted name stays on
       // the `tool` object for logging and prepareMutation hashing.
       const modelSafeToolName = sanitizeToolNameForModel(toolName)
-      tools[modelSafeToolName] = adaptToolToAiSdk(record, input.authContext, mutationOptions, input.container)
+      tools[modelSafeToolName] = adaptToolToAiSdk(
+        record,
+        input.authContext,
+        mutationOptions,
+        input.container,
+        effectiveMutationPolicy,
+      )
     } catch (error) {
       console.error(
         `[AI Agents] Failed to adapt tool "${toolName}" for agent "${agent.id}":`,

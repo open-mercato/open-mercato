@@ -425,11 +425,20 @@ const manageDealCommentTool: CustomersAiToolDefinition = {
   name: 'customers.manage_deal_comment',
   displayName: 'Manage deal comment',
   description:
-    'Create, update, or delete a comment on a deal. Mutation tool — every call routes through the AI pending-action approval gate. Use `operation` to pick the action.',
+    'Create, update, or delete a comment on a deal. Use `operation` to pick the action. Under `destructive-confirm-required` policy, only the `delete` branch routes through the approval card; `create` and `update` execute directly.',
   inputSchema: manageDealCommentInput as z.ZodType<unknown>,
   requiredFeatures: ['customers.activities.manage'],
   tags: ['write', 'customers'],
   isMutation: true,
+  // Predicate `isDestructive`: only the `delete` branch counts as
+  // destructive. Under `confirm-required` policy every branch still
+  // gates (the framework ignores this flag); under
+  // `destructive-confirm-required` only deletes go through the approval
+  // card while creates/updates run directly.
+  isDestructive: (input: unknown) => {
+    if (!input || typeof input !== 'object') return false
+    return (input as { operation?: unknown }).operation === 'delete'
+  },
   loadBeforeRecord: async (rawInput, ctx): Promise<CustomersToolLoadBeforeSingleRecord | null> => {
     const { tenantId } = assertTenantScope(ctx)
     const input: ManageDealCommentInput = manageDealCommentInput.parse(rawInput)

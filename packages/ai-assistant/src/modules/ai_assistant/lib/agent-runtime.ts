@@ -356,14 +356,19 @@ function buildRuntimeMutationPolicySection(
   }
   lines.push(`Effective policy: ${effective}.`)
 
-  // Bucket the agent's allowlisted tools into "gated" / "direct" / "blocked"
-  // so the model can phrase outcomes correctly per tool.
+  // Bucket the agent's allowlisted tools into "gated" / "direct" / "conditional"
+  // / "blocked" so the model can phrase outcomes correctly per tool.
+  // `conditional` covers tools whose `isDestructive` is a predicate function:
+  // their gate-vs-direct decision depends on the per-call input (e.g.
+  // `customers.manage_deal_comment` gates only its delete branch under
+  // `destructive-confirm-required`).
   const direct: string[] = []
   const gated: string[] = []
+  const conditional: string[] = []
   const blocked: string[] = []
   for (const toolName of agent.allowedTools) {
     const tool = toolRegistry.getTool(toolName) as
-      | { isMutation?: boolean; isDestructive?: boolean }
+      | { isMutation?: boolean; isDestructive?: boolean | ((input: unknown) => boolean) }
       | undefined
     if (!tool || tool.isMutation !== true) continue
     if (effective === 'read-only') {
@@ -375,11 +380,21 @@ function buildRuntimeMutationPolicySection(
       continue
     }
     // destructive-confirm-required
-    if (tool.isDestructive === true) gated.push(toolName)
-    else direct.push(toolName)
+    if (typeof tool.isDestructive === 'function') {
+      conditional.push(toolName)
+    } else if (tool.isDestructive === true) {
+      gated.push(toolName)
+    } else {
+      direct.push(toolName)
+    }
   }
 
-  if (direct.length === 0 && gated.length === 0 && blocked.length === 0) {
+  if (
+    direct.length === 0 &&
+    gated.length === 0 &&
+    conditional.length === 0 &&
+    blocked.length === 0
+  ) {
     // Read-only agent with no mutation tools — no runtime policy block needed.
     return null
   }
@@ -399,6 +414,15 @@ function buildRuntimeMutationPolicySection(
     )
     lines.push(
       'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.',
+    )
+  }
+  if (conditional.length > 0) {
+    lines.push('')
+    lines.push(
+      `Tools whose approval requirement DEPENDS ON THE INPUT under the effective policy: ${conditional.join(', ')}.`,
+    )
+    lines.push(
+      'These multi-operation tools gate ONLY the destructive branches (typically `operation: "delete"` or similar). Read the tool result envelope: if it carries `status: "pending-confirmation"` then the change is pending — tell the operator it needs their approval. If it carries direct success data, the change has ALREADY BEEN APPLIED — report it in the past tense. Never assume one branch behaves like another.',
     )
   }
   if (blocked.length > 0) {

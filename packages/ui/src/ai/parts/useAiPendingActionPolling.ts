@@ -71,19 +71,37 @@ async function fetchPendingAction(
   endpoint: string,
 ): Promise<AiPendingActionFetchResult> {
   const url = `${endpoint}/${encodeURIComponent(pendingActionId)}`
-  const call = await apiCallOrThrow<{
-    pendingAction?: AiPendingActionCardAction
-    error?: string
-    code?: string
-  }>(url, { method: 'GET' })
-  const body = call.result
-  if (body?.pendingAction) {
-    return { pendingAction: body.pendingAction, error: null }
-  }
-  if (body?.error) {
-    return {
-      pendingAction: null,
-      error: { message: body.error, code: body.code },
+  const call = await apiCallOrThrow<unknown>(url, { method: 'GET' })
+  const body = call.result as
+    | (Partial<AiPendingActionCardAction> & {
+        pendingAction?: AiPendingActionCardAction
+        error?: string
+        code?: string
+      })
+    | null
+    | undefined
+
+  // The GET route returns the bare action object (`serializePendingActionForClient(row)`),
+  // but earlier client code expected it under a `pendingAction` envelope.
+  // Accept BOTH shapes so the cards work whether the dispatcher wraps or
+  // not — bare-object payloads were the actual cause of empty
+  // `fieldDiff` and missing `executionResult.error` displays in
+  // MutationPreviewCard / ConfirmationCard / MutationResultCard.
+  if (body && typeof body === 'object') {
+    if (body.pendingAction) {
+      return { pendingAction: body.pendingAction, error: null }
+    }
+    if (
+      typeof (body as Partial<AiPendingActionCardAction>).id === 'string' &&
+      typeof (body as Partial<AiPendingActionCardAction>).status === 'string'
+    ) {
+      return { pendingAction: body as AiPendingActionCardAction, error: null }
+    }
+    if (body.error) {
+      return {
+        pendingAction: null,
+        error: { message: body.error, code: body.code },
+      }
     }
   }
   return { pendingAction: null, error: null }

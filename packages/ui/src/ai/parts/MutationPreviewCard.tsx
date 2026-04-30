@@ -121,11 +121,18 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
   }, [pendingActionId, props.endpoint, refresh])
 
   const currentStatus = action?.status ?? null
+  const executionError = action?.executionResult?.error
+  // Treat any captured handler error as terminal too — the dispatcher
+  // sometimes returns the action before the row has fully transitioned
+  // out of `executing`, and we must never leave the spinner masking a
+  // real failure. The MutationResultCard's failure path renders the
+  // error envelope as long as `executionResult.error` is set.
   const isTerminal =
     currentStatus === 'confirmed' ||
     currentStatus === 'failed' ||
     currentStatus === 'cancelled' ||
-    currentStatus === 'expired'
+    currentStatus === 'expired' ||
+    Boolean(executionError)
 
   const { handleKeyDown } = useAiShortcuts({
     onSubmit: () => {

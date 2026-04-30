@@ -143,7 +143,13 @@ export function MutationResultCard(props: MutationResultCardProps) {
     )
   }
 
-  if (isFailureStatus(status)) {
+  // Render the failure alert when the action is in a failure status OR when
+  // the dispatcher already captured an `executionResult.error` (the row may
+  // not yet have transitioned out of `executing` in the polling snapshot,
+  // but the handler error is authoritative — surface it immediately so the
+  // operator never sees a stuck "applying…" state silently masking a real
+  // failure).
+  if (isFailureStatus(status) || result?.error) {
     const code = result?.error?.code ?? status ?? 'failed'
     const message =
       result?.error?.message ??

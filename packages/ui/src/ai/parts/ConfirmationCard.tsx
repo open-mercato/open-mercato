@@ -114,12 +114,20 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
     enabled: canCancel,
   })
 
-  // Terminal states — hand off to the result card renderer.
+  // Terminal states — hand off to the result card renderer. Also short-
+  // circuit when the dispatcher has already populated an
+  // `executionResult.error`: the row may not have transitioned out of
+  // `executing` in the latest polling snapshot, but the handler error is
+  // authoritative, and leaving the spinner up while a known error is
+  // available is exactly the "stalled at processing" symptom the user
+  // reported. Surface the error card immediately.
+  const executionError = effectiveAction?.executionResult?.error
   if (
     effectiveStatus === 'confirmed' ||
     effectiveStatus === 'failed' ||
     effectiveStatus === 'cancelled' ||
-    effectiveStatus === 'expired'
+    effectiveStatus === 'expired' ||
+    executionError
   ) {
     return (
       <MutationResultCard

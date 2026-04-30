@@ -108,15 +108,22 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
    *   - `read-only`               → tool blocked (regardless of this flag).
    *   - `confirm-required`        → every mutation requires approval (this
    *                                 flag is ignored — every write gates).
-   *   - `destructive-confirm-required` → ONLY tools with `isDestructive: true`
-   *                                 require approval. Non-destructive
-   *                                 mutations (creates, idempotent updates,
-   *                                 comments, etc.) execute directly.
+   *   - `destructive-confirm-required` → tools require approval ONLY when
+   *                                 this flag resolves to `true`. Other
+   *                                 mutations execute directly.
+   *
+   * Accepts either:
+   *   - a static `boolean` (whole tool is destructive or not), OR
+   *   - a predicate `(input) => boolean` evaluated at every call so a
+   *     multi-operation tool (e.g. `customers.manage_deal_comment` with
+   *     `operation: 'create' | 'update' | 'delete'`) can gate ONLY the
+   *     destructive branches without splitting into multiple tools.
    *
    * Default `false`. Tool authors that delete data, change ownership, or
-   * trigger irreversible side-effects MUST set this to `true`.
+   * trigger irreversible side-effects MUST set this — boolean `true` for
+   * single-operation tools, predicate for multi-operation tools.
    */
-  isDestructive?: boolean
+  isDestructive?: boolean | ((input: TInput) => boolean)
   /**
    * Optional single-record before-snapshot resolver used by `prepareMutation`
    * to compute a `fieldDiff[]` against the proposed patch in `toolCallArgs`.

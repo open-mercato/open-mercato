@@ -44,6 +44,18 @@ export interface CustomersAiToolDefinition<TInput = unknown, TOutput = unknown> 
   requiredFeatures?: string[]
   tags?: string[]
   isMutation?: boolean
+  /**
+   * Marks the mutation as destructive — gates the call through the
+   * approval card under `destructive-confirm-required` policy. Accepts a
+   * static boolean (whole tool destructive) or a predicate
+   * `(input) => boolean` evaluated at every call so a multi-operation
+   * tool (e.g. `manage_deal_comment` with create/update/delete) gates
+   * only the destructive branches. Default `false`. See
+   * `@open-mercato/ai-assistant` framework `AiToolDefinition.isDestructive`
+   * for the canonical definition; this surface mirrors the contract for
+   * type-safe authoring inside the customers module.
+   */
+  isDestructive?: boolean | ((input: TInput) => boolean)
   maxCallsPerTurn?: number
   supportsAttachments?: boolean
   handler: (input: TInput, context: CustomersToolContext) => Promise<TOutput>
