@@ -3,6 +3,7 @@ import {
   assertStaticallySafeWebhookUrl,
   isPrivateIpAddress,
   parseWebhookUrl,
+  safeWebhookFetch,
   UnsafeWebhookUrlError,
 } from '../url-safety'
 
@@ -189,5 +190,56 @@ describe('url-safety — assertSafeWebhookDeliveryUrl (DNS rebinding guard)', ()
     await expect(
       assertSafeWebhookDeliveryUrl('file:///etc/passwd', { allowPrivate: true }),
     ).rejects.toMatchObject({ reason: 'forbidden_protocol' })
+  })
+})
+
+describe('url-safety — safeWebhookFetch', () => {
+  it('rejects DNS-rebinding hosts before any fetch attempt', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const lookupHost = async () => [{ address: '10.0.0.5', family: 4 }]
+    await expect(
+      safeWebhookFetch('https://rebind.evil.example/', {}, {
+        fetchImpl,
+        lookupHost,
+        allowPrivate: false,
+      }),
+    ).rejects.toBeInstanceOf(UnsafeWebhookUrlError)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('reports the private resolved address in the error reason', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const lookupHost = async () => [{ address: '10.0.0.5', family: 4 }]
+    try {
+      await safeWebhookFetch('https://rebind.evil.example/', {}, {
+        fetchImpl,
+        lookupHost,
+        allowPrivate: false,
+      })
+      throw new Error('expected throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnsafeWebhookUrlError)
+      expect((error as UnsafeWebhookUrlError).reason).toBe('private_ip_resolved')
+    }
+  })
+
+  it('forwards init through fetchImpl with redirect:"manual"', async () => {
+    const fetchImpl = jest.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch
+    const lookupHost = async () => [{ address: '93.184.216.34', family: 4 }]
+    const response = await safeWebhookFetch(
+      'https://hooks.example.com/in',
+      { method: 'POST', body: 'payload' },
+      { fetchImpl, lookupHost, allowPrivate: false },
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [, init] = (fetchImpl as unknown as jest.Mock).mock.calls[0]
+    expect(init).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        body: 'payload',
+        redirect: 'manual',
+      }),
+    )
   })
 })

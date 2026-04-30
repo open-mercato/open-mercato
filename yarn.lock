@@ -6533,6 +6533,7 @@ __metadata:
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.2"
     ts-jest: "npm:^29.4.9"
+    undici: "npm:^7.24.0"
   languageName: unknown
   linkType: soft
 
