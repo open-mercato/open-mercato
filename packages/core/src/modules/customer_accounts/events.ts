@@ -19,6 +19,14 @@ const events = [
   { id: 'customer_accounts.invitation.accepted', label: 'Customer Invitation Accepted', category: 'lifecycle', clientBroadcast: true },
   { id: 'customer_accounts.magic_link.requested', label: 'Customer Magic Link Requested', category: 'lifecycle' },
   { id: 'customer_accounts.password_reset.requested', label: 'Customer Password Reset Requested', category: 'lifecycle' },
+  // Custom domain mapping lifecycle (see .ai/specs/2026-04-08-portal-custom-domain-routing.md)
+  { id: 'customer_accounts.domain_mapping.created', label: 'Custom Domain Registered', entity: 'domain_mapping', category: 'crud', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.verified', label: 'Custom Domain DNS Verified', entity: 'domain_mapping', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.activated', label: 'Custom Domain Active', entity: 'domain_mapping', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.dns_failed', label: 'Custom Domain DNS Verification Failed', entity: 'domain_mapping', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.tls_failed', label: 'Custom Domain SSL Provisioning Failed', entity: 'domain_mapping', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.deleted', label: 'Custom Domain Removed', entity: 'domain_mapping', category: 'crud', clientBroadcast: true },
+  { id: 'customer_accounts.domain_mapping.replaced', label: 'Custom Domain Replaced', entity: 'domain_mapping', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({
