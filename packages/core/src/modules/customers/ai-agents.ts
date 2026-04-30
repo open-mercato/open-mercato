@@ -264,6 +264,8 @@ const PROMPT_SECTIONS: PromptSection[] = [
       '',
       'NEVER emit an empty card. NEVER copy the template below verbatim into a response. Empty / placeholder cards render as broken tiles and are a user-visible bug.',
       '',
+      'CRITICAL — FENCE FORMAT: every card MUST be wrapped in a triple-backtick fenced block whose info string is exactly `open-mercato:<kind>` (deal/person/company/activity). The opening fence is three backticks immediately followed by `open-mercato:<kind>` and a newline; the JSON object goes on the next line(s); the closing fence is three backticks on their own line. Without the fence the parser falls back and the card never renders — the operator sees raw JSON in prose. NEVER drop the backticks. NEVER write `open-mercato:deal { ... }` on a single line without the fence.',
+      '',
       'Card schemas (single JSON object inside a fenced block):',
       '- `open-mercato:deal` — { "id", "title", "status"?, "stage"?, "amount"?, "currency"?, "closeDate"?, "ownerName"?, "personName"?, "companyName"?, "description"?, "tags"?, "href"? }',
       '- `open-mercato:person` — { "id", "name", "title"?, "email"?, "phone"?, "companyName"?, "ownerName"?, "status"?, "tags"?, "href"? }',
