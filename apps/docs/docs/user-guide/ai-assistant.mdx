@@ -14,7 +14,19 @@ Open Mercato ships with AI-powered assistants you open directly from the admin p
 
 ## Opening the AI sheet
 
-On any supported page you'll see a **Ask AI** button in the page header or toolbar. Click it to slide the AI sheet in from the right. The sheet carries the current page context automatically — there's no need to paste record ids.
+There are two ways to open an assistant.
+
+### From any page — the global launcher (Cmd/Ctrl+L)
+
+Every backoffice page shows an **AI** pill in the topbar (next to global search). Click it — or press **Cmd/Ctrl+L** from anywhere in the admin — to open a search dialog listing every assistant you have access to. Type to filter by name, description, or module; arrow keys navigate; Enter launches; Escape closes.
+
+The launcher self-hides when no AI provider is configured **or** when your account has access to no assistants. If you don't see the button, ask your administrator to grant `ai_assistant.view` to your role and confirm at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` is set.
+
+Each row shows the assistant name, what it does, and a **Can write** badge if the assistant is allowed to propose changes (always behind an approval card).
+
+### From the page you're on — the per-page trigger
+
+On any supported page (person, company, deal, products list, …) you'll see an **Ask AI** button in the page header or toolbar. Click it to slide the AI sheet in from the right. The sheet carries the current page context automatically — there's no need to paste record ids.
 
 :::note Screenshot TODO
 Capture: `/backend/customers/people/<id>` — person detail page with the AI sheet slid in, one example question pre-typed.
@@ -76,10 +88,22 @@ Your administrator can tighten an assistant from `confirm-required` down to `rea
 
 - The assistant only sees records your user account can already see. It inherits your roles and permissions.
 - Proposals expire after **15 minutes** of inactivity by default. If a proposal expires before you confirm, just ask again — the context is preserved in the chat.
-- Attachments (product images, PDFs) are supported on agents that declare the right media types — drop them into the chat input to include them.
-- The sheet shows "thinking..." while the assistant runs; you can cancel with **Escape** at any time.
+- **Attachments** (product images, PDFs) are supported on agents that declare the right media types — drop them into the chat input to include them. The Send button stays disabled while attachments are uploading; the composer hint switches to *"Uploading attachments…"* until every chip is ready. Each file has a 60-second upload timeout — failed uploads surface as a red chip you can remove and retry.
+- The sheet shows **Thinking…** while the assistant runs; reasoning streams into a collapsible panel; you can cancel with **Escape** at any time.
+- Open multiple sessions with the same assistant — each tab has its own thread. Sessions persist across page reloads (history is kept locally).
+
+## Keyboard shortcuts
+
+| Combo | Action |
+|-------|--------|
+| `Cmd/Ctrl+L` | Open the global AI assistant launcher |
+| `Cmd/Ctrl+K` | Open the global search dialog |
+| `Cmd/Ctrl+J` | Open the legacy command palette (OpenCode chat) |
+| `Cmd/Ctrl+Enter` | Send the current message in the chat |
+| `Esc` | Cancel the streaming response or close the dialog |
 
 ## Related
 
 - Admin setup: [AI Agents settings](/framework/ai-assistant/settings)
 - Architecture: [AI Framework Overview](/framework/ai-assistant/overview)
+- Developers — add a new agent: [Developer Guide](/framework/ai-assistant/developer-guide)

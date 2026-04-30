@@ -103,6 +103,16 @@ export const getPerson = defineAiTool({
 When `agent.readOnly === true` (the default), the runtime strips any tool with `isMutation: true` from the model's tool surface. To unlock writes you MUST set `readOnly: false` AND declare a non-`read-only` `mutationPolicy`. Operators can then further downgrade — but never escalate — via the tenant settings page.
 :::
 
+### Default policy for write-capable agents
+
+Agents shipped in `packages/core` that whitelist any `isMutation: true` tool default to **`mutationPolicy: 'confirm-required'`**, not `read-only`. The intent: writes are allowed but every one needs explicit user approval through the [mutation approval card](./mutation-approvals). Per-tenant overrides can downgrade to `read-only` to lock writes back down without a redeploy. They cannot escalate above what the agent declares.
+
+Concretely:
+
+- `customers.account_assistant` — `confirm-required` (whitelists `customers.update_deal_stage` + comment/activity tools)
+- `catalog.merchandising_assistant` — `confirm-required` (whitelists the four D18 mutation tools)
+- `catalog.catalog_assistant` — `read-only` (genuinely read-only — no mutation tools)
+
 ## Chat vs object execution mode
 
 | Mode | Helper | Output | When to use |
@@ -159,9 +169,12 @@ import { AiChat } from '@open-mercato/ui/ai'
 ## Where the runtime reads each field
 
 - `checkAgentPolicy` in `lib/agent-policy.ts` enforces `requiredFeatures`, tool whitelisting, `readOnly`/`mutationPolicy`, and `acceptedMediaTypes`.
-- `resolveAiAgentTools` in `lib/agent-tools.ts` filters the registered tool pack down to the agent's `allowedTools`.
+- `resolveAiAgentTools` in `lib/agent-tools.ts` filters the registered tool pack down to the agent's `allowedTools` and wires the mutation interceptor.
 - `createModelFactory` in `lib/model-factory.ts` picks the LLM per the resolution order.
 - `runAiAgentText` / `runAiAgentObject` in `lib/agent-runtime.ts` compose the final request.
+- `tool-loader.ts` registers every tool's full typed shape — `isMutation`, `displayName`, `loadBeforeRecord(s)`, `tags` — so the agent settings UI badges mutation tools correctly and the mutation interceptor fires.
+
+When the runtime invokes a tool handler it injects the matching `AiToolDefinition` into the `McpToolContext.tool` slot, so handlers can build an `AiToolExecutionContext` for `createAiApiOperationRunner` without losing route-gate coverage.
 
 ## Using the Vercel AI SDK natively
 

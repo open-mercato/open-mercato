@@ -2,6 +2,24 @@
 
 > **IMPORTANT**: Update this file with every major change to this module. When implementing new features, modifying architecture, or changing key interfaces, update the relevant sections to keep guidance accurate for future agents.
 
+## Where to look first
+
+Before editing this module — and especially before writing or reviewing a new agent — read the public framework docs. They are the source of truth and stay in sync with this AGENTS.md by review:
+
+| Topic | Public doc | This file |
+|-------|------------|-----------|
+| System map, request flow, persistence | [`apps/docs/docs/framework/ai-assistant/architecture.mdx`](../../apps/docs/docs/framework/ai-assistant/architecture.mdx) | "Architecture Constraints" below |
+| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/create-ai-agent/SKILL.md`](../../.ai/skills/create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
+| Agent contract reference | [`apps/docs/docs/framework/ai-assistant/agents.mdx`](../../apps/docs/docs/framework/ai-assistant/agents.mdx) | "How to Add an AI Tool Pack" below |
+| Record cards + custom inline UI parts | [`apps/docs/docs/framework/ai-assistant/ui-parts.mdx`](../../apps/docs/docs/framework/ai-assistant/ui-parts.mdx) | "Adding UI Parts" below |
+| File upload contract | [`apps/docs/docs/framework/ai-assistant/attachments.mdx`](../../apps/docs/docs/framework/ai-assistant/attachments.mdx) | — |
+| Mutation approval lifecycle | [`apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx`](../../apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx) | "Workers" / "Events" below |
+| Topbar launcher + Cmd/Ctrl+L | [`apps/docs/docs/framework/ai-assistant/launcher.mdx`](../../apps/docs/docs/framework/ai-assistant/launcher.mdx) | — |
+| Tenant prompt + policy overrides | [`apps/docs/docs/framework/ai-assistant/settings.mdx`](../../apps/docs/docs/framework/ai-assistant/settings.mdx) | — |
+| Operator-facing user guide | [`apps/docs/docs/user-guide/ai-assistant.mdx`](../../apps/docs/docs/user-guide/ai-assistant.mdx) | — |
+
+If a section in this AGENTS.md disagrees with one of those public docs, treat the public doc as authoritative and open a follow-up to update this file.
+
 ## Use This Module To...
 
 - Add AI-powered assistance capabilities to Open Mercato
@@ -122,6 +140,57 @@ MUST rules:
 - MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.
 
 Run `yarn generate` after adding/changing tool definitions so the typed tool registry picks them up.
+
+### How to Add a UI Part (record cards / custom inline widgets)
+
+UI parts are typed inline widgets the agent streams into the chat. Two paths — pick the cheapest one that fits.
+
+**Path A — record cards (no registration).** Five kinds ship out of the box: `product`, `deal`, `person`, `company`, `activity`. Add a `responseStyle` rule to the agent's prompt teaching the model to emit a fenced Markdown block whose info string is `open-mercato:<kind>` and whose body is one JSON object. The chat composer auto-parses the fence into a typed component. Reference: `packages/core/src/modules/customers/ai-agents.ts` (CRM cards) and `packages/core/src/modules/catalog/ai-agents.ts` (product cards). Card payload shapes live in `packages/ui/src/ai/records/types.ts`.
+
+To add a brand-new record-card kind:
+
+1. Add the payload type + the `RecordCardKind` union in `packages/ui/src/ai/records/types.ts`.
+2. Implement the component (copy `ProductCard.tsx` or `PersonCard.tsx`; reuse `RecordCardShell` for header/leading/meta consistency).
+3. Wire it into `packages/ui/src/ai/records/registry.tsx` so `RecordCard` resolves the kind.
+4. Update the consuming agent's prompt with a fenced example.
+5. Add an integration spec asserting `<AiMessageContent>` renders the new kind from a fenced sample.
+
+**Path B — custom server-emitted parts.** For widgets that need server-only state (one-time signed URLs, action handlers, computed snapshots), register a stable namespaced component id and have the tool handler enqueue the part:
+
+```ts
+// 1. component
+'use client'
+import { registerAiUiPart } from '@open-mercato/ui/ai'
+registerAiUiPart('<module>:<kind>', YourComponent)
+
+// 2. push from a tool's handler
+async handler(args, ctx) {
+  ctx.uiParts?.enqueue({ componentId: '<module>:<kind>', props: { /* serializable */ } })
+  return { ok: true }
+}
+```
+
+MUST rules for UI parts:
+
+- MUST use a namespaced component id (`<module>:<kind>`). Reserved ids (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) are FROZEN; never reuse.
+- MUST keep props serializable (no functions, no class instances, no circular refs — the SSE encoder drops them).
+- MUST gate any privileged action inside the part behind the same ACL features as the originating tool.
+- MUST keep prompt instructions in sync with the tool — without a prompt rule the model will paraphrase instead of emitting the part.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
+
+### How to Embed the Global Launcher
+
+The topbar AI launcher is mounted in `packages/ui/src/backend/AppShell.tsx`:
+
+```tsx
+import { AiAssistantLauncher } from '@open-mercato/ui/ai'
+<AiAssistantLauncher variant="topbar" />
+```
+
+It self-fetches `/api/ai_assistant/health` and `/api/ai_assistant/ai/agents` and renders nothing when AI is not configured or the caller has access to no agents. It also binds the global **Cmd/Ctrl+L** keyboard shortcut (preventDefault'd against the browser address-bar binding). Standalone apps with custom chrome should mount the same component to expose the global launcher.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/launcher.mdx`.
 
 ### How to Configure AI Providers
 

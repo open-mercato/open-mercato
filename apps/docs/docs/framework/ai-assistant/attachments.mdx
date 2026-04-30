@@ -52,11 +52,31 @@ import { uploadAttachmentsForChat } from '@open-mercato/ui/ai/upload-adapter'
 const { items, failed } = await uploadAttachmentsForChat([file], {
   entityType: 'ai-chat-draft',     // optional — this is the default
   // recordId: '<uuid>',           // optional — minted per batch otherwise
+  // perFileTimeoutMs: 60_000,     // optional — per-file abort. Pass 0 to disable
 })
 const attachmentIds = items.map(({ attachmentId }) => attachmentId)
 ```
 
 `uploadAttachmentsForChat` is framework-agnostic (no React, no Next.js); the React hook `useAiChatUpload` is a thin wrapper that adds per-file progress/error state.
+
+### Pairing results back to the composer's chips
+
+Every `UploadedAttachment` and `UploadFailure` carries two pairing fields the chat composer relies on:
+
+| Field | Why it matters |
+|-------|----------------|
+| `originalFileName` | Exactly the `File.name` you passed in — survives server-side filename sanitization (whitespace, unicode, dangerous chars) |
+| `inputIndex` | Position in the input array. Lets you pair results back to chips even when two files in the same batch share a name |
+
+The shipped `<AiChat>` keys upload outcomes by `inputIndex` rather than by filename. If you build your own composer, do the same — the legacy "match by `fileName`" pattern silently strands chips on the spinner when the server sanitizes a name.
+
+### Per-file timeout
+
+The adapter aborts each upload after **60 seconds** by default (configurable via `perFileTimeoutMs`). The aborted upload lands in `failed` with `reason: 'aborted'` and a clear message, instead of leaving the chip spinning forever. The timer is wired through a child `AbortController` so the parent batch's abort still works.
+
+### Send button gating
+
+`<AiChat>` disables the Send button while any attachment is mid-upload. Without that gate, hitting Enter before the upload completes would ship `attachmentIds: []` to the dispatcher (the chip is visible but the server hasn't returned an id yet) — the model never sees the file. The composer hint flips to "Uploading attachments… Send is disabled until they finish." while the upload is in flight.
 
 :::warning
 Calling `POST /api/attachments` without `entityId` and `recordId` returns `400 entityId, recordId and file are required`. Always go through the adapter or include both fields explicitly — otherwise the upload silently fails and the chat sends an empty `attachmentIds`, which is exactly the "the AI doesn't see the image" symptom.

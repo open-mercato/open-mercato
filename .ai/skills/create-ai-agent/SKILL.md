@@ -46,8 +46,10 @@ Before writing any code:
 3. Confirm at least one provider key is set: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`. The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'` otherwise.
 4. Decide the agent's posture **up front**:
    - `executionMode`: `chat` (default — multi-turn UI) vs `object` (single-shot validated JSON).
-   - `mutationPolicy`: `read-only` (default) vs `confirm-required` vs `destructive-confirm-required`.
-   - `readOnly`: leave `true` unless the agent ships a curated mutation tool. The runtime hard-filters every `isMutation: true` tool when `readOnly: true`.
+   - `mutationPolicy`:
+     - **Agent ships ANY `isMutation: true` tool → default `confirm-required`.** Every write goes through the pending-action approval card. Per-tenant override can downgrade to `read-only` later. Reach for `destructive-confirm-required` only when the agent's writes include irreversible deletes / bulk cascades and you want operators to see "Destructive — confirm" framing.
+     - **Agent ships NO mutation tools → `read-only`.** The runtime will strip any future write tools you add until you flip both flags.
+   - `readOnly`: pair with `mutationPolicy`. `readOnly: true` ⇔ `read-only`. `readOnly: false` ⇔ `confirm-required` or `destructive-confirm-required`. Mismatched pairs are a code-review red flag.
 5. Identify the **ACL features** the agent and tools require. Every feature MUST exist in the module's `acl.ts` and be granted in `setup.ts` `defaultRoleFeatures` before merge.
 
 ---
@@ -338,7 +340,60 @@ yarn build:packages
 
 ---
 
+## 7.5 Ship UI Parts (Optional)
+
+UI parts are typed inline widgets the agent streams into the chat (record cards, mutation diffs, custom dashboards). Two paths:
+
+### 7.5.1 Record cards (the easy path)
+
+Five kinds ship out of the box: `product`, `deal`, `person`, `company`, `activity`. Have the model emit a fenced Markdown block whose info string is `open-mercato:<kind>` and whose body is one JSON object — the chat composer replaces the fence with a typed React component automatically (no registration needed).
+
+You only have to do two things:
+
+1. **Add a `responseStyle` rule to the prompt** — copy the example from `packages/core/src/modules/customers/ai-agents.ts` (CRM cards) or `packages/core/src/modules/catalog/ai-agents.ts` (product cards). Without the rule the model will not emit the fence.
+2. **Make tool outputs card-friendly** — return field names that map cleanly onto the card payload (e.g. catalog `list_products` exposes `imageUrl` as an alias of `defaultMediaUrl` so the model passes the field through verbatim).
+
+Card payload shapes live in `packages/ui/src/ai/records/types.ts`. To add a brand-new card kind, see `apps/docs/docs/framework/ai-assistant/ui-parts.mdx` § "Adding a new record-card kind".
+
+### 7.5.2 Custom server-emitted parts
+
+For widgets that need server-only state (one-time signed URLs, action handlers, server-computed snapshots), register a custom component id and have your tool handler enqueue the part:
+
+```ts
+// 1. component
+import { registerAiUiPart } from '@open-mercato/ui/ai'
+registerAiUiPart('<module>:<kind>', YourComponent)
+
+// 2. push from a tool
+async handler(args, ctx) {
+  ctx.uiParts?.enqueue({
+    componentId: '<module>:<kind>',
+    props: { /* serializable */ },
+  })
+  return { ok: true }
+}
+```
+
+Use namespaced ids (`<module>:<kind>`). Reserved ids (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) are FROZEN and owned by the framework — never reuse.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
+
+---
+
 ## 8. Embed the Agent UI
+
+### 8.0 Global launcher (automatic)
+
+Once the agent is in `ai-agents.generated.ts` and the user has its `requiredFeatures`, the topbar **AI** pill (`<AiAssistantLauncher>`, mounted in `AppShell`) automatically lists it in the **Cmd/Ctrl+L** dialog. No registration step needed. This is the always-on entry point — per-page triggers are additive.
+
+If you publish a standalone app with custom chrome, mount the launcher in your header:
+
+```tsx
+import { AiAssistantLauncher } from '@open-mercato/ui/ai'
+<AiAssistantLauncher />
+```
+
+It self-hides when AI is not configured (no provider key, or the user has access to no agents). Full reference: `apps/docs/docs/framework/ai-assistant/launcher.mdx`.
 
 ### 8.1 `<AiChat>` embed (chat agents)
 
@@ -461,9 +516,15 @@ When in doubt, add new — don't rename or remove.
 ## See Also
 
 - `packages/ai-assistant/AGENTS.md` — runtime internals, model factory, mutation contract.
-- `apps/docs/docs/framework/ai-assistant/agents.mdx` — public docs for agent fields and modes.
+- `apps/docs/docs/framework/ai-assistant/architecture.mdx` — system map, request flow, persistence, generators.
+- `apps/docs/docs/framework/ai-assistant/developer-guide.mdx` — public companion to this skill.
+- `apps/docs/docs/framework/ai-assistant/agents.mdx` — agent contract reference, escape hatches.
+- `apps/docs/docs/framework/ai-assistant/ui-parts.mdx` — record cards + custom inline widgets.
+- `apps/docs/docs/framework/ai-assistant/attachments.mdx` — file upload contract + base64 inline encoding.
 - `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` — full approval contract + partial-success handling.
+- `apps/docs/docs/framework/ai-assistant/launcher.mdx` — global topbar launcher + Cmd/Ctrl+L.
 - `apps/docs/docs/framework/ai-assistant/settings.mdx` — per-tenant prompt and policy override UI.
 - `apps/docs/docs/framework/ai-assistant/playground.mdx` — smoke-test surface.
+- `apps/docs/docs/user-guide/ai-assistant.mdx` — operator-facing walkthrough (use this when designing copy / suggestions).
 - `packages/core/src/modules/customers/ai-agents.ts` + `ai-tools.ts` — canonical chat agent reference.
 - `packages/core/src/modules/catalog/ai-agents.ts` + `ai-tools.ts` — canonical mutation + object-mode reference.

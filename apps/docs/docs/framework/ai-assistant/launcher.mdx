@@ -1,0 +1,122 @@
+---
+title: Global Launcher
+description: The always-visible AI button in the topbar — Cmd/Ctrl+L global shortcut, command-palette-style picker, and the gating logic that hides it when the runtime is not configured.
+---
+
+# Global Launcher
+
+`<AiAssistantLauncher>` is a reusable component that renders an "AI" button in the backoffice topbar, opens a Cmd-K-style picker over every agent the caller can launch, and embeds the chosen agent's `<AiChat>` in a right-side sheet. It is mounted unconditionally in `AppShell` and **self-hides** when the AI runtime is not configured.
+
+A single keystroke — **Cmd/Ctrl+L** — opens the picker from anywhere in the admin.
+
+:::tip Why a global launcher
+Per-page triggers (the People list `Ask AI` button, the deal-detail header trigger, the merchandising-assistant sheet) are great when the operator is already on the right page. The global launcher covers the other case: the operator wants an agent regardless of where they are. It also scales: with 20 agents, a popover stops being usable — the search dialog handles arbitrary counts.
+:::
+
+## What ships
+
+- A rounded-rectangle pill button in the topbar that mirrors the global-search trigger styling (`Sparkles` icon + "AI" label + `⌘L` kbd hint).
+- A modal dialog with a search input and arrow-key navigation listing every typed agent the caller is allowed to invoke.
+- Per-row "Can write" badge for agents whose effective `mutationPolicy` is `confirm-required` or `destructive-confirm-required`.
+- An `<AiChat>` right-side sheet opened on agent select.
+- A global keyboard binding for **Cmd/Ctrl+L** (preventing the browser's default focus-address-bar binding when an Open Mercato page has focus).
+- Self-hiding behaviour: the launcher renders nothing when `/api/ai_assistant/health` returns non-2xx **or** `/api/ai_assistant/ai/agents` returns zero accessible agents.
+
+## Component contract
+
+```tsx
+import { AiAssistantLauncher } from '@open-mercato/ui/ai'
+
+<AiAssistantLauncher />
+```
+
+That is the entire surface the topbar uses. Every prop is optional:
+
+| Prop | Default | Purpose |
+|------|---------|---------|
+| `variant` | `'topbar'` | Reserved for future placements; both values render the same trigger today |
+| `agentsEndpoint` | `/api/ai_assistant/ai/agents` | Override for tests or custom dispatchers |
+| `healthEndpoint` | `/api/ai_assistant/health` | Override for tests or hosts that gate visibility differently |
+| `skipHealthCheck` | `false` | Set when the host already knows AI is configured (e.g., feature-flag gating in tests) |
+| `disableGlobalShortcut` | `false` | Disable `Cmd/Ctrl+L` for nested launchers in dialogs |
+| `className` | — | Extra classes merged onto the trigger |
+
+## Where it is mounted
+
+`packages/ui/src/backend/AppShell.tsx` includes the launcher next to the existing topbar action group, before the profile dropdown:
+
+```tsx
+{renderedTopbarInjectedActions}
+<AiAssistantLauncher variant="topbar" />
+{rightHeaderSlot ? rightHeaderSlot : <span>...</span>}
+```
+
+You should rarely need to mount the launcher directly. It is exported so:
+
+- Standalone apps with custom chrome can drop it into their own header.
+- Per-page launchers (e.g. on a public marketing surface) can reuse the same dialog without rebuilding the picker.
+
+## How visibility is decided
+
+The launcher fetches both endpoints once when it mounts:
+
+```
+GET /api/ai_assistant/health      → { healthy: true }   (or 4xx/5xx)
+GET /api/ai_assistant/ai/agents   → { agents: [...] }   (already filtered by ACL)
+```
+
+| Result | Outcome |
+|--------|---------|
+| Health 2xx + ≥1 agent | Trigger renders, shortcut is bound |
+| Health non-2xx | Trigger never renders; shortcut is not bound |
+| Health 2xx + 0 agents | Trigger never renders (the user has access to no agents) |
+| Network error on either | Trigger never renders |
+
+This is intentional: an operator without `ai_assistant.view` (or a tenant whose admin removed every agent feature) should not see a dead AI button.
+
+## Keyboard shortcut
+
+`Cmd/Ctrl+L` opens the picker from any backoffice page.
+
+| Combo | Used by | Notes |
+|-------|---------|-------|
+| `Cmd/Ctrl+K` | Global search | Reserved — never reuse |
+| `Cmd/Ctrl+J` | OpenCode command palette | Reserved — used by the legacy Code Mode chat |
+| `Cmd/Ctrl+L` | **AI launcher** | New — `preventDefault()`'d against the browser address-bar binding when an Open Mercato page has focus |
+
+The launcher ignores the shortcut when focus is inside an `<input>`, `<textarea>`, `<select>`, or any contenteditable region — typing `L` while composing a message never opens the dialog.
+
+## Picker UI
+
+Inside the dialog:
+
+- **Search input** — filters by `id`, `label`, `description`, `moduleId`, or `keywords`.
+- **Arrow keys** — navigate the highlighted row.
+- **Enter** — launch the highlighted agent.
+- **Escape** — close.
+- **Mouse hover** — highlights the row under the cursor (so click-to-launch is unambiguous).
+- **Bottom hint bar** — shows the navigation kbd hints + `Cmd/Ctrl+L`.
+
+The "Can write" pill on a row reflects the agent's **code-declared** policy. A per-tenant downgrade to `read-only` does not change the pill (the pill describes intent, not the current envelope) — but the runtime still strips every `isMutation: true` tool when the override is read-only.
+
+## Adapting for other surfaces
+
+Want a launcher inside a customer portal page, or scoped to a specific module? Use the lower-level pieces:
+
+```tsx
+import { AiAssistantLauncher } from '@open-mercato/ui/ai'
+
+<AiAssistantLauncher
+  agentsEndpoint="/api/portal/ai/agents"
+  healthEndpoint="/api/portal/ai/health"
+  disableGlobalShortcut
+/>
+```
+
+The launcher's `<AiChat>` sheet uses an empty `pageContext={{}}` because the picker is intentionally page-agnostic. Per-page triggers continue to embed `<AiChat>` directly with their own `pageContext={{ entityType, recordId }}` — those are unaffected by the launcher.
+
+## See also
+
+- [Architecture](./architecture) — where the launcher sits in the request flow
+- [AI Agents](./agents) — agent contract that drives what shows in the picker
+- [User Guide — AI Assistant](/user-guide/ai-assistant) — operator-facing walkthrough

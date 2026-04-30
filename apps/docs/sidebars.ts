@@ -370,9 +370,13 @@ const sidebars: SidebarsConfig = {
           link: { type: "doc", id: "framework/ai-assistant/overview" },
           items: [
             "framework/ai-assistant/overview",
+            "framework/ai-assistant/architecture",
+            "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
+            "framework/ai-assistant/ui-parts",
             "framework/ai-assistant/attachments",
             "framework/ai-assistant/mutation-approvals",
+            "framework/ai-assistant/launcher",
             "framework/ai-assistant/settings",
             "framework/ai-assistant/playground",
           ],
