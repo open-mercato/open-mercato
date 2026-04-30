@@ -16,7 +16,7 @@ import { WorkflowInstance } from '../data/entities'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
-  assertSafeOutboundUrl,
+  safeOutboundFetch,
   UnsafeOutboundUrlError,
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
@@ -646,12 +646,27 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
+  let response: Response
   try {
-    await assertSafeOutboundUrl(url, {
-      subject: 'Workflow webhook URL',
-      allowPrivate,
-      lookupHost: deps.lookupHost,
-    })
+    response = await safeOutboundFetch(
+      url,
+      {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+        redirect: 'manual',
+        signal: deps.signal,
+      },
+      {
+        subject: 'Workflow webhook URL',
+        allowPrivate,
+        lookupHost: deps.lookupHost,
+        fetchImpl: deps.fetchImpl,
+      },
+    )
   } catch (error) {
     if (error instanceof UnsafeOutboundUrlError) {
       throw new Error(
@@ -660,18 +675,6 @@ export async function executeCallWebhook(
     }
     throw error
   }
-
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const response = await fetchImpl(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-    redirect: 'manual',
-    signal: deps.signal,
-  })
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get('location')

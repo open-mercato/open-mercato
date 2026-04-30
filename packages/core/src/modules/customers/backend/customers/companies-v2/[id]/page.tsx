@@ -255,7 +255,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
+    setSectionAction((prev) => (action !== null ? action : prev))
   }, [])
 
   const handleSectionAction = React.useCallback(() => {
@@ -420,6 +420,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
                 activitiesCount={data.counts?.activities ?? 0}
+                sectionAction={sectionAction}
               >
                 {activeTab === 'people' && (
                   <CompanyPeopleSection

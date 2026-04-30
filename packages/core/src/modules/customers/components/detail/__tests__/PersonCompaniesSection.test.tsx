@@ -9,6 +9,14 @@ import { PersonCompaniesSection } from '../PersonCompaniesSection'
 const flashMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
+const confirmMock = jest.fn(async () => true)
+
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({
+    confirm: (...args: unknown[]) => confirmMock(...args),
+    ConfirmDialogElement: null,
+  }),
+}))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
@@ -22,9 +30,20 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 jest.mock('../CompanyCard', () => ({
   CompanyCard: ({
     data,
+    onUnlink,
+    unlinkLabel,
   }: {
     data: { displayName: string }
-  }) => <div>{data.displayName}</div>,
+    onUnlink?: () => void
+    unlinkLabel?: string
+  }) => (
+    <div>
+      <span>{data.displayName}</span>
+      {onUnlink ? (
+        <button type="button" onClick={() => onUnlink()}>{unlinkLabel ?? 'Unlink'}</button>
+      ) : null}
+    </div>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
@@ -41,6 +60,8 @@ describe('PersonCompaniesSection', () => {
     flashMock.mockReset()
     apiCallOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockReset()
+    confirmMock.mockReset()
+    confirmMock.mockResolvedValue(true)
   })
 
   it('selects visible companies and refreshes the linked summary immediately after apply', async () => {
@@ -343,5 +364,127 @@ describe('PersonCompaniesSection', () => {
       )
     })
     expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('unlinks a single company via the per-row action through the guarded mutation', async () => {
+    let linked = [
+      {
+        linkId: 'link-1',
+        companyId: 'company-1',
+        displayName: 'Alpha Corp',
+        isPrimary: true,
+        subtitle: null,
+        profile: null,
+        billing: null,
+        primaryAddress: null,
+        tags: [],
+        roles: [],
+        activeDeal: null,
+        lastContactAt: null,
+        clv: null,
+        status: null,
+        lifecycleStage: null,
+        temperature: null,
+        renewalQuarter: null,
+      },
+    ]
+
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/people/person-1/companies/enriched')) {
+        return { items: linked, totalPages: 1 }
+      }
+      return { items: [], totalPages: 1 }
+    })
+
+    apiCallOrThrowMock.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/people/person-1/companies/company-1') {
+        linked = []
+        return { ok: true }
+      }
+      throw new Error(`Unexpected write: ${url}`)
+    })
+
+    const onChanged = jest.fn()
+    const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
+
+    renderWithProviders(
+      <PersonCompaniesSection
+        personId="person-1"
+        personName="Lena Ortiz"
+        initialLinkedCompanies={[
+          { id: 'company-1', displayName: 'Alpha Corp', isPrimary: true },
+        ]}
+        onChanged={onChanged}
+        runGuardedMutation={runGuardedMutation}
+      />,
+    )
+
+    expect(await screen.findByText('Alpha Corp')).toBeInTheDocument()
+    const unlinkButton = await screen.findByRole('button', { name: 'Unlink' })
+
+    await act(async () => {
+      fireEvent.click(unlinkButton)
+    })
+
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(runGuardedMutation).toHaveBeenCalled()
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/people/person-1/companies/company-1',
+      expect.objectContaining({ method: 'DELETE' }),
+      expect.any(Object),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Alpha Corp')).toBeNull()
+    })
+    expect(onChanged).toHaveBeenCalled()
+    expect(flashMock).toHaveBeenCalledWith('Company unlinked.', 'success')
+  })
+
+  it('cancels unlink when the confirm dialog is dismissed', async () => {
+    confirmMock.mockResolvedValue(false)
+    const linked = [
+      {
+        linkId: 'link-1',
+        companyId: 'company-1',
+        displayName: 'Alpha Corp',
+        isPrimary: true,
+        subtitle: null,
+        profile: null,
+        billing: null,
+        primaryAddress: null,
+        tags: [],
+        roles: [],
+        activeDeal: null,
+        lastContactAt: null,
+        clv: null,
+        status: null,
+        lifecycleStage: null,
+        temperature: null,
+        renewalQuarter: null,
+      },
+    ]
+    readApiResultOrThrowMock.mockImplementation(async () => ({ items: linked, totalPages: 1 }))
+
+    renderWithProviders(
+      <PersonCompaniesSection
+        personId="person-1"
+        personName="Lena Ortiz"
+        initialLinkedCompanies={[
+          { id: 'company-1', displayName: 'Alpha Corp', isPrimary: true },
+        ]}
+      />,
+    )
+
+    expect(await screen.findByText('Alpha Corp')).toBeInTheDocument()
+    const unlinkButton = await screen.findByRole('button', { name: 'Unlink' })
+
+    await act(async () => {
+      fireEvent.click(unlinkButton)
+    })
+
+    expect(confirmMock).toHaveBeenCalled()
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(screen.getByText('Alpha Corp')).toBeInTheDocument()
   })
 })

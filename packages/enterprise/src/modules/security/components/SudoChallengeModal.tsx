@@ -211,7 +211,7 @@ export default function SudoChallengeModal({
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose() }}>
       <DialogContent
-        className="sm:max-w-lg [&_[data-dialog-close]]:rounded-full [&_[data-dialog-close]]:border [&_[data-dialog-close]]:border-white/20 [&_[data-dialog-close]]:bg-white/5 [&_[data-dialog-close]]:opacity-100 [&_[data-dialog-close]]:transition-none [&_[data-dialog-close]]:hover:bg-white/10 [&_[data-dialog-close]]:hover:opacity-100 [&_[data-dialog-close]]:focus:ring-0 [&_[data-dialog-close]]:focus:ring-offset-0"
+        className="sm:max-w-lg [&_[data-dialog-close]]:rounded-full [&_[data-dialog-close]]:border [&_[data-dialog-close]]:border-white/20 [&_[data-dialog-close]]:bg-white/5 [&_[data-dialog-close]]:opacity-100 [&_[data-dialog-close]]:transition-none [&_[data-dialog-close]]:hover:bg-white/10 [&_[data-dialog-close]]:hover:opacity-100 [&_[data-dialog-close]]:focus-visible:ring-0 [&_[data-dialog-close]]:focus-visible:ring-offset-0"
         onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && challenge?.method === 'password') {
           event.preventDefault()

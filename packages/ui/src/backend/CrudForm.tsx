@@ -3,10 +3,21 @@ import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
-import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Activators,
+} from '@dnd-kit/core'
+import type { KeyboardSensorOptions } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
+import { Checkbox } from '../primitives/checkbox'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import { FormHeader } from './forms/FormHeader'
@@ -75,6 +86,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
+import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
@@ -90,6 +102,31 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
   true,
 )
+
+function isFormControlTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as Element).tagName !== 'string') return false
+  const el = target as HTMLElement
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (el.isContentEditable) return true
+  return false
+}
+
+function resolveActivatorEventTarget(event: React.SyntheticEvent | Event): EventTarget | null {
+  const native = (event as React.SyntheticEvent).nativeEvent
+  if (native && typeof (native as Event).target !== 'undefined') return (native as Event).target
+  return (event as Event).target ?? null
+}
+
+class GuardedKeyboardSensor extends KeyboardSensor {
+  static activators: Activators<KeyboardSensorOptions> = KeyboardSensor.activators.map((activator) => ({
+    eventName: activator.eventName,
+    handler: (event, options, context) => {
+      if (isFormControlTarget(resolveActivatorEventTarget(event))) return false
+      return activator.handler(event, options, context)
+    },
+  }))
+}
 
 function resolveInternalNavigationTarget(target: string | URL | null | undefined): string | null {
   if (typeof window === 'undefined' || target == null) return null
@@ -425,16 +462,31 @@ class FieldDefinitionsManagerErrorBoundary extends React.Component<
 }
 
 function SortableGroupItem({ id, children, disabled }: { id: string; children: React.ReactNode; disabled?: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled })
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     position: 'relative' as const,
   }
+  const handleProps = React.useMemo<SortableGroupHandleProps>(() => ({
+    ref: setActivatorNodeRef,
+    attributes: attributes as unknown as Record<string, unknown>,
+    listeners: listeners as unknown as Record<string, unknown> | undefined,
+    isDragging,
+    disabled: !!disabled,
+  }), [setActivatorNodeRef, attributes, listeners, isDragging, disabled])
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {children}
+    <div ref={setNodeRef} style={style}>
+      <SortableGroupHandleProvider value={handleProps}>{children}</SortableGroupHandleProvider>
     </div>
   )
 }
@@ -1667,7 +1719,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
   const sortableSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
+    useSensor(GuardedKeyboardSensor),
   )
   const handleGroupDragEnd = React.useCallback((event: DragEndEvent) => {
     const { active, over } = event
@@ -1733,7 +1785,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const text = t('entities.customFields.empty')
     const action = t('entities.customFields.addFirst')
     return (
-      <div className="rounded-md border border-dashed border-muted-foreground/50 bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
+      <div className="rounded-md border border-dashed border-muted-foreground/50 bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
         <span>{text} </span>
         {customFieldsManageHref ? (
           <Link href={customFieldsManageHref} className="font-medium text-primary hover:underline">
@@ -2773,7 +2825,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         <div className="pointer-events-none select-none opacity-70">
           {children}
         </div>
-        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-background/60 p-4 backdrop-blur-[1px] sm:p-6">
+        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-background/80 p-4 backdrop-blur-[1px] sm:p-6">
           {readOnlyOverlay ?? <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 shadow-sm" />}
         </div>
       </div>
@@ -3558,7 +3610,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
       </div>
       <div
         ref={ref}
-        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus-visible:outline-none prose prose-sm max-w-none"
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
@@ -3725,7 +3777,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <input type="checkbox" className="size-4" readOnly checked={isSel} />
+                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
                 <span>{opt.label}</span>
               </span>
             </Button>
@@ -3945,12 +3997,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            className="size-4"
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <Checkbox
             checked={value === true}
-            onChange={(e) => setValue(field.id, e.target.checked)}
+            onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
             disabled={disabled}
           />
@@ -3996,14 +4046,12 @@ const FieldControl = React.memo(function FieldControlImpl({
               : []
             const checked = arr.includes(opt.value)
             return (
-              <label key={opt.value} className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="size-4"
+              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={checked}
-                  onChange={(e) => {
+                  onCheckedChange={(state) => {
                     const next = new Set(arr)
-                    if (e.target.checked) {
+                    if (state === true) {
                       next.add(opt.value)
                     } else {
                       next.delete(opt.value)

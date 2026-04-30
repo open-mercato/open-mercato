@@ -96,7 +96,7 @@ function parseNestedJson(data: unknown): unknown {
 
 // Custom dark styles for better readability (no external CSS needed)
 const customDarkStyles: Record<string, string> = {
-  container: 'bg-transparent text-[11px] leading-relaxed font-mono',
+  container: 'bg-transparent text-overline leading-relaxed font-mono',
   basicChildStyle: 'pl-4 ml-0',
   label: 'text-purple-400 mr-1',
   nullValue: 'text-gray-500 italic',

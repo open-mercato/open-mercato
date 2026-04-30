@@ -135,7 +135,7 @@ export const AttachmentInput = ({
           {t('attachments.library.upload.saveFirst', 'Save the record before uploading files.')}
         </div>
       ) : (
-        <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-4 py-4">
+        <div className="rounded-md border border-dashed border-border/70 bg-muted/30 px-4 py-4">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"

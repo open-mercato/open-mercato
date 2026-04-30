@@ -434,7 +434,7 @@ function DashboardWidgetSelector({
             </div>
           )}
           {mode === 'inherit' && (
-            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               {t('auth.users.widgets.mode.hint', 'New users inherit widgets from their assigned roles. Override to pick a custom set.')}
             </div>
           )}

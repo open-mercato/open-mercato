@@ -168,12 +168,12 @@ function AiAssistantSettingsContent() {
             <span className="text-muted-foreground">Provider:</span>
             <span className="font-medium">{provider?.name || 'Anthropic'}</span>
             {provider?.configured ? (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs">
+              <span className="flex items-center gap-1 text-status-success-text text-xs">
                 <CheckCircle2 className="h-3 w-3" />
                 Configured
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-xs">
+              <span className="flex items-center gap-1 text-status-warning-text text-xs">
                 <XCircle className="h-3 w-3" />
                 Not configured
               </span>
@@ -201,7 +201,7 @@ function AiAssistantSettingsContent() {
                     p.id === provider?.id
                       ? 'bg-primary text-primary-foreground'
                       : p.configured
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        ? 'bg-status-success-bg text-status-success-text'
                         : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -215,7 +215,7 @@ function AiAssistantSettingsContent() {
         )}
 
         <p className="text-xs text-muted-foreground mt-3">
-          Set <code className="font-mono text-[10px] bg-muted px-1 rounded">OPENCODE_PROVIDER</code> in .env to change provider (anthropic, openai, google).
+          Set <code className="font-mono text-overline bg-muted px-1 rounded">OPENCODE_PROVIDER</code> in .env to change provider (anthropic, openai, google).
         </p>
       </div>
 
@@ -229,12 +229,12 @@ function AiAssistantSettingsContent() {
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">Full-Text Search:</span>
             {health?.search?.available ? (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <span className="flex items-center gap-1 text-status-success-text">
                 <CheckCircle2 className="h-3 w-3" />
                 Meilisearch connected
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+              <span className="flex items-center gap-1 text-status-warning-text">
                 <XCircle className="h-3 w-3" />
                 Not available
               </span>
@@ -262,7 +262,7 @@ function AiAssistantSettingsContent() {
           {/* OpenCode Server Status */}
           <div className={`p-4 rounded-lg border-2 ${
             health?.status === 'ok' && health.opencode?.healthy
-              ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+              ? 'border-status-success-border bg-status-success-bg'
               : 'border-destructive/50 bg-destructive/5'
           }`}>
             <div className="flex items-start justify-between">
@@ -270,7 +270,7 @@ function AiAssistantSettingsContent() {
                 <p className="text-sm font-medium">OpenCode Server</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {health?.status === 'ok' && health.opencode?.healthy ? (
-                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1 text-status-success-text">
                       <CheckCircle2 className="h-3 w-3" />
                       Connected
                     </span>
@@ -291,7 +291,7 @@ function AiAssistantSettingsContent() {
                 </p>
               </div>
               {health?.status === 'ok' && health.opencode?.healthy && (
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
@@ -306,9 +306,9 @@ function AiAssistantSettingsContent() {
               key={name}
               className={`p-4 rounded-lg border-2 ${
                 mcpStatus.status === 'connected'
-                  ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+                  ? 'border-status-success-border bg-status-success-bg'
                   : mcpStatus.status === 'connecting'
-                    ? 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-900/10'
+                    ? 'border-status-warning-border bg-status-warning-bg'
                     : 'border-destructive/50 bg-destructive/5'
               }`}
             >
@@ -317,12 +317,12 @@ function AiAssistantSettingsContent() {
                   <p className="text-sm font-medium">MCP Server</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {mcpStatus.status === 'connected' ? (
-                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <span className="flex items-center gap-1 text-status-success-text">
                         <CheckCircle2 className="h-3 w-3" />
                         Connected
                       </span>
                     ) : mcpStatus.status === 'connecting' ? (
-                      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <span className="flex items-center gap-1 text-status-warning-text">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         Connecting...
                       </span>
@@ -337,7 +337,7 @@ function AiAssistantSettingsContent() {
                   <p className="text-xs text-muted-foreground mt-1">localhost:3001</p>
                 </div>
                 {mcpStatus.status === 'connected' && (
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon">
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
@@ -349,7 +349,7 @@ function AiAssistantSettingsContent() {
 
           {/* Show placeholder if no MCP info */}
           {(!health?.mcp || Object.keys(health.mcp).length === 0) && (
-            <div className="p-4 rounded-lg border-2 border-border bg-muted/20">
+            <div className="p-4 rounded-lg border-2 border-border bg-muted/30">
               <div>
                 <p className="text-sm font-medium">MCP Server</p>
                 <p className="text-xs text-muted-foreground mt-1">

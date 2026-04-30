@@ -57,8 +57,30 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoShownRef = useRef(false)
+  const [otherModalOpen, setOtherModalOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Track whether another Radix Dialog or native <dialog> modal is currently open.
+  // The floating button + auto-popup must defer while the user is mid-task in another modal —
+  // stacking the feedback dialog on top deactivates the underlying dialog (Radix DismissableLayer)
+  // and leaves it with pointer-events:none, which the user perceives as a frozen page.
+  useEffect(() => {
+    if (!mounted || open) {
+      setOtherModalOpen(false)
+      return
+    }
+    const check = () => {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
+    setOtherModalOpen(check())
+    const observer = new MutationObserver(() => setOtherModalOpen(check()))
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-state', 'open'], childList: true })
+    return () => observer.disconnect()
+  }, [mounted, open])
 
   // Caption rotation animation
   useEffect(() => {
@@ -74,14 +96,24 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
 
+    function isAnotherModalOpen() {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
+
     function resetTimer() {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
       inactivityTimer.current = setTimeout(() => {
-        if (!autoShownRef.current) {
-          autoShownRef.current = true
-          setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
-          setOpen(true)
+        if (autoShownRef.current) return
+        if (isAnotherModalOpen()) {
+          inactivityTimer.current = setTimeout(resetTimer, 5_000)
+          return
         }
+        autoShownRef.current = true
+        setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
+        setOpen(true)
       }, 30_000)
     }
 
@@ -172,11 +204,13 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)
 
+  if (otherModalOpen && !open) return null
+
   const floatingButton = (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
         color: '#1B1B1B',
@@ -234,7 +268,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={submitState === 'sending'}
                   aria-invalid={Boolean(fieldErrors.email)}
-                  className={fieldErrors.email ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                  className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.email && <p className="text-xs text-red-600">{fieldErrors.email}</p>}
               </div>

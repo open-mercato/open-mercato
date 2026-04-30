@@ -67,7 +67,7 @@ export function ActionRow({
             value={value}
             onChange={(e) => handleConfigChange(field, e.target.value.split(',').map((s) => s.trim()))}
             placeholder={t('business_rules.components.actionRow.config.recipients.placeholder')}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="col-span-4 col-start-2">
             <p className="text-xs text-muted-foreground">{t('business_rules.components.actionRow.config.recipients.help')}</p>
@@ -83,7 +83,7 @@ export function ActionRow({
           <select
             value={value || 'info'}
             onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="info">{t('business_rules.components.actionRow.config.level.info')}</option>
             <option value="warn">{t('business_rules.components.actionRow.config.level.warn')}</option>
@@ -101,7 +101,7 @@ export function ActionRow({
           <select
             value={value || 'POST'}
             onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="GET">GET</option>
             <option value="POST">POST</option>
@@ -124,7 +124,7 @@ export function ActionRow({
             onChange={(e) => handleConfigChange(field, e.target.value)}
             placeholder={t('business_rules.components.actionRow.config.message.placeholder')}
             rows={2}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="col-span-4 col-start-2">
             <p className="text-xs text-muted-foreground">{t('business_rules.components.actionRow.config.message.help')}</p>
@@ -144,7 +144,7 @@ export function ActionRow({
           value={value}
           onChange={(e) => handleConfigChange(field, e.target.value)}
           placeholder={t('business_rules.components.actionRow.config.field.placeholder', { field })}
-          className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
     )
@@ -161,7 +161,7 @@ export function ActionRow({
           <select
             value={action.type || ''}
             onChange={handleTypeChange}
-            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring font-medium"
           >
             <option value="">{t('business_rules.components.actionRow.actionType.placeholder')}</option>
             {actionTypes.map((type) => (
@@ -195,7 +195,7 @@ export function ActionRow({
             type="button"
             onClick={() => onMoveUp(index)}
             disabled={!canMoveUp}
-            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={t('business_rules.components.actionRow.moveUp')}
           >
             <ChevronUp className="w-4 h-4" />
@@ -206,7 +206,7 @@ export function ActionRow({
             type="button"
             onClick={() => onMoveDown(index)}
             disabled={!canMoveDown}
-            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={t('business_rules.components.actionRow.moveDown')}
           >
             <ChevronDown className="w-4 h-4" />

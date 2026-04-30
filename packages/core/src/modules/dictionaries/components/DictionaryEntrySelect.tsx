@@ -235,7 +235,7 @@ export function DictionaryEntrySelect({
       <div className="flex items-center gap-2">
         <select
           className={[
-            'h-9 w-full rounded border pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-70',
+            'h-9 w-full rounded border pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
             selectClassName,
           ]
             .filter(Boolean)
@@ -277,7 +277,7 @@ export function DictionaryEntrySelect({
                     <label className="text-sm font-medium">{labels.valueLabel}</label>
                     <input
                       type="text"
-                      className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={newValue}
                       onChange={(event) => {
                         setNewValue(event.target.value)
@@ -293,7 +293,7 @@ export function DictionaryEntrySelect({
                       <label className="text-sm font-medium">{labels.labelLabel}</label>
                       <input
                         type="text"
-                        className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         value={newLabel}
                         onChange={(event) => setNewLabel(event.target.value)}
                         placeholder={labels.labelPlaceholder}

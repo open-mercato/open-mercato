@@ -151,7 +151,7 @@ export function ActivityForm({
             typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
           return (
             <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={currentValue}
               onChange={(event) => setValue(event.target.value)}
             >
@@ -176,7 +176,7 @@ export function ActivityForm({
           const currentValue = typeof value === 'string' ? value : ''
           return (
             <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={currentValue}
               onChange={(event) => setValue(event.target.value)}
             >
@@ -238,7 +238,7 @@ export function ActivityForm({
       component: ({ value, setValue }) => (
         <input
           type="datetime-local"
-          className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => setValue(event.target.value || '')}
           onFocus={(event) => {

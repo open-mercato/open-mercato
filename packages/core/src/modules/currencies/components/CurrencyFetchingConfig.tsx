@@ -318,7 +318,7 @@ export default function CurrencyFetchingConfig() {
         ))}
 
         {configs.length === 0 && (
-          <div className="rounded border bg-background/70 p-6 text-center">
+          <div className="rounded border bg-background/80 p-6 text-center">
             <p className="text-sm text-muted-foreground">
               {t('currencies.fetch.no_providers')}
             </p>

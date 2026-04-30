@@ -131,7 +131,7 @@ export function InlineTextEditor({
   const containerClasses = cn(
     'group overflow-hidden',
     variant === 'muted'
-      ? 'relative rounded border bg-muted/20 p-3'
+      ? 'relative rounded border bg-muted/30 p-3'
       : variant === 'plain'
         ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
         : 'rounded-lg border p-4',
@@ -324,7 +324,7 @@ export function InlineTextEditor({
                 />
               ) : (
               <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={draft}
                 onChange={(event) => {
                   if (error) setError(null)
@@ -554,7 +554,7 @@ export function InlineMultilineEditor({
 
   const containerClasses = cn(
     'group rounded-lg border p-4',
-    variant === 'muted' ? 'bg-muted/20' : null,
+    variant === 'muted' ? 'bg-muted/30' : null,
     activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName ?? null,
   )
@@ -638,7 +638,7 @@ export function InlineMultilineEditor({
                 <Textarea
                   ref={textareaRef}
                   rows={3}
-                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   placeholder={placeholder}
                   value={draft}
                   onChange={(event) => {
@@ -827,7 +827,7 @@ export function InlineSelectEditor({
                 renderEditor({ value: draft, onChange: setDraft })
               ) : (
                 <select
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                 >

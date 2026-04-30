@@ -397,7 +397,7 @@ export function FieldDefinitionsEditor({
         </div>
       )}
       {orderNotice?.dirty && (
-        <div className="sticky top-0 z-10 -mt-1 -mb-1">
+        <div className="sticky top-0 z-sticky -mt-1 -mb-1">
           <div className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 shadow-sm">
             {orderNotice?.saving ? 'Saving order…' : (orderNotice?.message ?? 'Reordered — saving soon')}
           </div>
@@ -906,7 +906,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   >
                     <div>
                       <div className="font-medium text-foreground">{option.label}</div>
-                      <div className="text-muted-foreground font-mono text-[11px]">{option.value}</div>
+                      <div className="text-muted-foreground font-mono text-overline">{option.value}</div>
                     </div>
                     <IconButton
                       variant="ghost"
@@ -1328,7 +1328,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <div>
             <label className="text-xs font-medium">Group code</label>
             <input
-              className="mt-1 w-full rounded border px-2 py-1 text-sm font-mono disabled:cursor-not-allowed disabled:bg-muted/40 disabled:text-muted-foreground"
+              className="mt-1 w-full rounded border px-2 py-1 text-sm font-mono disabled:cursor-not-allowed disabled:bg-muted/50 disabled:text-muted-foreground"
               value={groupDraft.code}
               onChange={(event) => {
                 setGroupDraft((prev) => ({ ...prev, code: event.target.value }))

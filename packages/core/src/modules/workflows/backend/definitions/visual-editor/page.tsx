@@ -824,7 +824,7 @@ export default function VisualEditorPage() {
                   disabled={!!definitionId}
                   className="h-8 text-sm"
                 />
-                {definitionId && <p className="text-[10px] text-muted-foreground">Read-only</p>}
+                {definitionId && <p className="text-overline text-muted-foreground">Read-only</p>}
               </div>
 
               {/* Workflow Name */}
@@ -995,7 +995,7 @@ export default function VisualEditorPage() {
                     <button
                       key={nodeType}
                       onClick={() => handleAddNode(nodeType)}
-                      className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/80"
+                      className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/50"
                     >
                       <Icon className="h-3.5 w-3.5" />
                       <span>{NODE_TYPE_LABELS[nodeType].title}</span>

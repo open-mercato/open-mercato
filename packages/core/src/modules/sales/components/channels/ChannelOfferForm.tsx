@@ -1782,7 +1782,7 @@ function PriceOverridesEditor({
 
   return (
     <div className="space-y-4">
-      <div className="rounded border bg-muted/60 px-3 py-2">
+      <div className="rounded border bg-muted/50 px-3 py-2">
         <div className="text-xs uppercase text-muted-foreground">
           {t('sales.channels.offers.pricing.basePriceLabel', 'Original product price')}
         </div>

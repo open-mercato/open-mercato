@@ -154,7 +154,7 @@ function AllowedMethodsField({ value, setValue, disabled }: CrudCustomFieldRende
   }, [disabled, selectedMethods, setValue])
 
   return (
-    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"

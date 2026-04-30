@@ -550,7 +550,7 @@ export default function SalesPipelinePage(): React.ReactElement {
 
               <div className="flex flex-col gap-4 pb-6 md:flex-row md:overflow-x-auto">
                 {stages.length === 0 ? (
-                  <div className="flex h-[50vh] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
+                  <div className="flex h-[50vh] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30">
                     <span className="text-sm text-muted-foreground">
                       {translate('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
                     </span>
@@ -573,7 +573,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                         {renderLaneHeader(stage, laneDeals.length)}
                         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
                           {sortedLaneDeals.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-border bg-muted/10 p-4 text-center text-xs text-muted-foreground">
+                            <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-center text-xs text-muted-foreground">
                               {translate('customers.deals.pipeline.emptyLane', 'No deals in this stage yet.')}
                             </div>
                           ) : (

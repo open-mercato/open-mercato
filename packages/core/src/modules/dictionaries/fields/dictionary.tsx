@@ -43,7 +43,7 @@ function DictionaryDefaultSelector({
         {t('dictionaries.customFields.defaultValue', 'Default value')}
       </label>
       <select
-        className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         value={defaultValue}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -121,13 +121,13 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
   const manageHref = '/backend/config/dictionaries'
 
   return (
-    <div className="mt-3 space-y-3 rounded border border-dashed border-muted-foreground/40 bg-muted/10 p-3">
+    <div className="mt-3 space-y-3 rounded border border-dashed border-muted-foreground/40 bg-muted/30 p-3">
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">
           {t('dictionaries.customFields.dictionaryLabel', 'Dictionary source')}
         </label>
         <select
-          className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           value={selectedId}
           onChange={(event) => onChange({ dictionaryId: event.target.value || undefined })}
         >
@@ -152,7 +152,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
         ) : null}
       </div>
       {selectedId ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-background/60 px-2 py-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-background/80 px-2 py-1 text-xs text-muted-foreground">
           <span>{t('dictionaries.customFields.selectedHint', 'Entries from this dictionary populate the field.')}</span>
           <a href={manageHref} className="font-medium text-primary hover:underline" target="_blank" rel="noreferrer">
             {t('dictionaries.customFields.manageLink', 'Manage dictionaries')}

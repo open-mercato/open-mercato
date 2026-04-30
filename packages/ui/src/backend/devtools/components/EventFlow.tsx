@@ -3,9 +3,9 @@
 import type { EventFlowEntry } from '@open-mercato/shared/lib/umes/devtools-types'
 
 const RESULT_CLASSES: Record<string, { text: string; bg: string }> = {
-  allowed: { text: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-  blocked: { text: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/30' },
-  error: { text: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30' },
+  allowed: { text: 'text-status-success-icon', bg: 'bg-status-success-bg' },
+  blocked: { text: 'text-status-error-icon', bg: 'bg-status-error-bg' },
+  error: { text: 'text-status-warning-icon', bg: 'bg-status-warning-bg' },
 }
 
 export function EventFlow({ entries }: { entries: EventFlowEntry[] }) {
@@ -30,11 +30,11 @@ export function EventFlow({ entries }: { entries: EventFlowEntry[] }) {
           >
             <div>
               <span className="font-medium">{entry.eventName}</span>
-              <span className="ml-1.5 text-[11px] text-muted-foreground">
+              <span className="ml-1.5 text-overline text-muted-foreground">
                 {entry.widgetId}
               </span>
             </div>
-            <span className={`text-[11px] font-semibold ${classes.text}`}>
+            <span className={`text-overline font-semibold ${classes.text}`}>
               {entry.result}
             </span>
           </div>

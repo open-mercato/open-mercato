@@ -274,7 +274,7 @@ export function DictionariesManager() {
                       <div className="flex items-center gap-2 font-medium">
                         <span>{dictionary.name}</span>
                         {dictionary.isInherited ? (
-                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
+                          <span className="rounded-full border border-border px-2 py-0.5 text-overline font-normal uppercase tracking-wide text-muted-foreground">
                             {t('dictionaries.config.list.inherited', 'Inherited')}
                           </span>
                         ) : null}
@@ -351,7 +351,7 @@ export function DictionariesManager() {
                 }}
                 placeholder={t('dictionaries.config.dialog.keyPlaceholder', 'slug_name')}
                 disabled={dialog?.mode === 'edit'}
-                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-muted ${errors.key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted ${errors.key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 aria-invalid={errors.key ? 'true' : 'false'}
                 aria-describedby="dictionary-key-hint"
               />
@@ -372,7 +372,7 @@ export function DictionariesManager() {
                   if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }))
                 }}
                 placeholder={t('dictionaries.config.dialog.namePlaceholder', 'Display name')}
-                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 aria-invalid={errors.name ? 'true' : 'false'}
               />
               {errors.name ? (
@@ -384,7 +384,7 @@ export function DictionariesManager() {
               <textarea
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                className="min-h-[120px] w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="min-h-[120px] w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder={t('dictionaries.config.dialog.descriptionPlaceholder', 'Explain how this dictionary is used (optional).')}
               />
             </div>

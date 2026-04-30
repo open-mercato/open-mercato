@@ -1496,7 +1496,7 @@ function ProductBuilder({
               </div>
               {(Array.isArray(values.options) ? values.options : []).map(
                 (option) => (
-                  <div key={option.id} className="rounded-md bg-muted/40 p-4">
+                  <div key={option.id} className="rounded-md bg-muted/50 p-4">
                     <div className="flex items-center gap-2">
                       <Input
                         value={option.title}
@@ -1553,7 +1553,7 @@ function ProductBuilder({
           <div className="rounded-lg border">
             <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
-                <thead className="bg-muted/40">
+                <thead className="bg-muted/50">
                   <tr>
                     <th className="px-3 py-2 text-left">
                       {t(
@@ -1753,7 +1753,7 @@ function ProductBuilder({
                       <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-50"
                           checked={variant.manageInventory}
                           onChange={(event) =>
                             setVariantField(
@@ -1769,7 +1769,7 @@ function ProductBuilder({
                       <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-50"
                           checked={variant.allowBackorder}
                           onChange={(event) =>
                             setVariantField(
@@ -1785,7 +1785,7 @@ function ProductBuilder({
                       <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-50"
                           checked={variant.hasInventoryKit}
                           onChange={(event) =>
                             setVariantField(

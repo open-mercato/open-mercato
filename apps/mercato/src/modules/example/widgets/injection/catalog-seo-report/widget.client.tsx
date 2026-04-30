@@ -104,7 +104,7 @@ export default function CatalogSeoReportWidget(_props: InjectionWidgetComponentP
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium text-foreground dark:text-amber-50">{issue.title}</div>
-                  <div className="text-[11px] text-amber-800 dark:text-amber-300">{issue.issue}</div>
+                  <div className="text-overline text-amber-800 dark:text-amber-300">{issue.issue}</div>
                 </div>
                 <Button asChild size="sm" variant="outline">
                   <a href={`/backend/catalog/products/${issue.id}`} className="text-xs">

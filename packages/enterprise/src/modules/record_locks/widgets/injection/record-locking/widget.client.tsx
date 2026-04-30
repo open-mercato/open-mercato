@@ -1367,7 +1367,7 @@ export default function RecordLockingWidget({
         {participantEmails.map((email) => (
           <span
             key={email}
-            className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+            className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-overline font-medium text-amber-900"
           >
             <Mail className="h-3 w-3" />
             <span>{email}</span>
