@@ -14,7 +14,7 @@ export function register(container: AppContainer) {
   // This keeps the AWS SDK entirely inside @open-mercato/storage-s3 and out of core.
   try {
     const factory = container.resolve('storageDriverFactory') as StorageDriverFactory
-    factory.registerDriver('s3', (config) => new S3StorageDriver(config))
+    factory.registerDriver('s3', (config: Record<string, unknown>) => new S3StorageDriver(config))
   } catch {
     // attachments module not enabled — S3 driver won't be available for attachment partitions.
   }
