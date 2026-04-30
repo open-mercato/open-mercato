@@ -274,6 +274,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Every module with guarded routes or pages MUST declare features in `acl.ts` — never ship an empty `acl.ts` with `requireRoles` guards
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
+- Detail/read-model APIs that expose `customFields` MUST normalize response keys to bare field names via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Reserve `cf_` / `cf:` prefixes for request payloads, query-engine selectors, and form wiring.
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`

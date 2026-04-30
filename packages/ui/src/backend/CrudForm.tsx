@@ -360,6 +360,20 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+function readInitialCustomFieldValue(
+  source: Record<string, unknown> | undefined,
+  key: string,
+): unknown {
+  if (!source || !key) return undefined
+  const candidates = [`cf_${key}`, `cf:${key}`, key]
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(source, candidate)) {
+      return source[candidate]
+    }
+  }
+  return undefined
+}
+
 function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
   if (!Array.isArray(path) || path.length === 0) return null
   const segments = path
@@ -2024,17 +2038,30 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
   React.useLayoutEffect(() => {
     if (!initialValues) return
-    const snapshot = JSON.stringify(initialValues)
+    const snapshot = JSON.stringify({
+      initialValues,
+      injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
+      customFieldMappings: cfDefinitions.map((definition) => definition.key),
+    })
     if (appliedInitialValuesSnapshotRef.current === snapshot) return
     appliedInitialValuesSnapshotRef.current = snapshot
+    const initialRecord = initialValues as Record<string, unknown>
     let mergedValues: CrudFormValues<TValues> | null = null
     setValues((prev) => {
       const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
       for (const definition of injectedFieldDefinitions) {
         if (merged[definition.id] !== undefined) continue
-        const extracted = readByDotPath(initialValues as Record<string, unknown>, definition.id)
+        const extracted = readByDotPath(initialRecord, definition.id)
         if (extracted !== undefined) {
           ;(merged as Record<string, unknown>)[definition.id] = extracted
+        }
+      }
+      for (const definition of cfDefinitions) {
+        const targetId = customEntity ? definition.key : `cf_${definition.key}`
+        if (!targetId || merged[targetId] !== undefined) continue
+        const extracted = readInitialCustomFieldValue(initialRecord, definition.key)
+        if (extracted !== undefined) {
+          ;(merged as Record<string, unknown>)[targetId] = extracted
         }
       }
       mergedValues = merged
@@ -2064,7 +2091,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [extendedInjectionEventsEnabled, initialValues, injectedFieldDefinitions, triggerInjectionEvent])
+  }, [
+    cfDefinitions,
+    customEntity,
+    extendedInjectionEventsEnabled,
+    initialValues,
+    injectedFieldDefinitions,
+    triggerInjectionEvent,
+  ])
 
   // Apply custom field defaults on create flows (one-time, ref-guarded).
   // Mode is determined from the host-provided initialValues prop, not from
