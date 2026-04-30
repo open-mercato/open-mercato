@@ -29,20 +29,17 @@ const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/, {
 const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, {
   message: 'checkout.validation.common.invalidCurrencyCode',
 })
-const optionalTrimmedString = z.preprocess(
-  normalizeBlankString,
-  z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable(),
-)
-const optionalUrlSchema = z.preprocess(
-  normalizeBlankString,
-  z.string().url('checkout.validation.common.invalidUrl').optional().nullable(),
-)
-const optionalFieldsetCodeSchema = z.preprocess(
-  normalizeBlankString,
-  z.string().regex(fieldsetCodeRegex, {
+const optionalTrimmedString = z.union([z.string(), z.null(), z.undefined()])
+  .transform(normalizeBlankString)
+  .pipe(z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable())
+const optionalUrlSchema = z.union([z.string(), z.null(), z.undefined()])
+  .transform(normalizeBlankString)
+  .pipe(z.string().url('checkout.validation.common.invalidUrl').optional().nullable())
+const optionalFieldsetCodeSchema = z.union([z.string(), z.null(), z.undefined()])
+  .transform(normalizeBlankString)
+  .pipe(z.string().regex(fieldsetCodeRegex, {
     message: 'checkout.validation.common.invalidFieldsetCode',
-  }).optional().nullable(),
-)
+  }).optional().nullable())
 const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 

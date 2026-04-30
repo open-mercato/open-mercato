@@ -392,7 +392,7 @@ async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | nu
   return null
 }
 
-async function ensureDefaultRoleAcls(
+export async function ensureDefaultRoleAcls(
   em: EntityManager,
   tenantId: string,
   modules: Module[],

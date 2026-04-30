@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { ensureRoles, setupInitialTenant } from './lib/setup-app'
+import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -637,4 +637,66 @@ const setPassword: ModuleCli = {
 }
 
 // Export the full CLI list
-export default [addUser, seedRoles, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
+const syncRoleAcls: ModuleCli = {
+  command: 'sync-role-acls',
+  async run(rest) {
+    const args: Record<string, string> = {}
+    const flags = new Set<string>()
+    for (let i = 0; i < rest.length; i++) {
+      const token = rest[i]
+      if (!token?.startsWith('--')) continue
+      const key = token.replace(/^--/, '')
+      const next = rest[i + 1]
+      if (next && !next.startsWith('--')) {
+        args[key] = next
+        i++
+      } else {
+        flags.add(key)
+      }
+    }
+    const tenantArg = args.tenantId ?? args.tenant ?? args.tenant_id ?? null
+    const includeSuperadminRole = !flags.has('no-superadmin')
+
+    const modules = getCliModules()
+    if (!modules.length) {
+      console.error('❌ No CLI modules registered. Run `yarn generate` first.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+
+    const targetTenantIds: string[] = []
+    if (tenantArg) {
+      const normalized = normalizeTenantId(tenantArg)
+      if (!normalized) {
+        console.error(`❌ Invalid --tenant value: ${tenantArg}`)
+        return
+      }
+      const tenant = await em.findOne(Tenant, { id: normalized })
+      if (!tenant) {
+        console.error(`❌ Tenant not found: ${normalized}`)
+        return
+      }
+      targetTenantIds.push(normalized)
+    } else {
+      const tenants = await em.find(Tenant, {})
+      if (!tenants.length) {
+        console.log('No tenants found; nothing to sync.')
+        return
+      }
+      for (const tenant of tenants) {
+        const id = tenant.id ? String(tenant.id) : null
+        if (id) targetTenantIds.push(id)
+      }
+    }
+
+    for (const tenantId of targetTenantIds) {
+      await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole })
+      await ensureCustomRoleAcls(em, tenantId, modules)
+      console.log(`✅ Synced role ACLs for tenant ${tenantId}`)
+    }
+  },
+}
+
+export default [addUser, seedRoles, syncRoleAcls, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
