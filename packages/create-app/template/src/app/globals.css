@@ -110,7 +110,7 @@ TODO: Fix that latter to have reference by the package names
   --font-size-overline: 0.6875rem;
   --font-size-overline--line-height: 1rem;
 
-  /* ═══ Design System: Z-Index Scale (Tailwind v4 namespace: z-{name} → var(--z-index-{name})) ═══ */
+  /* ═══ Design System: Z-Index Scale ═══ */
   --z-index-base: 0;
   --z-index-sticky: 10;
   --z-index-dropdown: 20;
@@ -136,6 +136,9 @@ TODO: Fix that latter to have reference by the package names
   --shadow-lg:  0 12px 32px rgb(16 24 40 / 0.10);
   --shadow-xl:  0 20px 40px rgb(16 24 40 / 0.12);
   --shadow-2xl: 0 25px 50px rgb(16 24 40 / 0.20);
+
+  /* Figma button focus: 2px white inner + 4px slate-alpha-16 outer */
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 }
 
 :root {
@@ -143,8 +146,7 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
-  /* Brand colors — theme-invariant (do NOT override in .dark) */
-  --brand-violet: #BC9AFF;
+  /* Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #D4F372;
   /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
   --focus-ring-inner: rgba(255, 255, 255, 1);

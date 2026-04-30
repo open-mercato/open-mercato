@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Button } from '../../primitives/button'
-import { Input } from '../../primitives/input'
 
 export type ComboboxOption = {
   value: string
@@ -209,9 +208,14 @@ export function ComboboxInput({
 
   return (
     <div className="relative w-full">
-      <Input
+      {/* Use raw <input> here instead of the DS Input primitive: ComboboxInput's
+          focus / suggestions-popup interplay relies on the trigger being a plain
+          input element. The DS wrapper introduces a <div> that desyncs autocomplete
+          on this specific surface. Keeps the rest of the form on Input primitive. */}
+      <input
         ref={inputRef}
         type="text"
+        className="w-full h-9 rounded border px-2 text-sm disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         value={input}
         placeholder={placeholder || 'Type to search...'}
         autoFocus={autoFocus}

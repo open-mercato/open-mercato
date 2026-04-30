@@ -155,7 +155,33 @@ const SelectSeparator = React.forwardRef<
 ))
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName
 
-const Select = SelectPrimitive.Root
+/**
+ * Wraps Radix `Select.Root` to absorb the controlled/uncontrolled transition
+ * many call sites trigger by passing `value={x || undefined}`. React fires
+ * "Select is changing from uncontrolled to controlled" the moment value flips
+ * from undefined to a defined string, and Radix's internal state ends up in
+ * an inconsistent shape (dropdown flashes, selections no-op). Coercing
+ * `undefined` → `''` keeps Radix in stable controlled mode for the lifetime
+ * of the component while preserving "no selection" semantics — Radix simply
+ * matches no SelectItem and `SelectValue` falls back to the placeholder.
+ */
+const Select = React.forwardRef<
+  React.ComponentRef<typeof SelectPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>
+>(({ value, defaultValue, onValueChange, ...props }, _ref) => {
+  const isControlled = value !== undefined || onValueChange !== undefined
+  if (!isControlled) {
+    return <SelectPrimitive.Root defaultValue={defaultValue} {...props} />
+  }
+  return (
+    <SelectPrimitive.Root
+      value={value ?? ''}
+      onValueChange={onValueChange}
+      {...props}
+    />
+  )
+}) as unknown as typeof SelectPrimitive.Root
+;(Select as React.ComponentType).displayName = 'Select'
 const SelectGroup = SelectPrimitive.Group
 const SelectValue = SelectPrimitive.Value
 

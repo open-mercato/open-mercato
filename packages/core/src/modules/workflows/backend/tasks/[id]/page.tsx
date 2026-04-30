@@ -32,6 +32,10 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
+  // Tracks the first required field that failed validation so we can mark the
+  // field with aria-invalid + a red ring (Radix Select can't carry HTML
+  // `required`, so we enforce constraint validation in JS instead).
+  const [invalidField, setInvalidField] = React.useState<string | null>(null)
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['workflow-task', params.id],
@@ -53,6 +57,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       ...prev,
       [fieldName]: value,
     }))
+    // Clear invalid state once the user touches the offending field.
+    if (invalidField === fieldName) setInvalidField(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,15 +66,27 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
     if (!task) return
 
-    // Validate required fields
+    // Validate required fields. Radix Select doesn't expose HTML `required`,
+    // so we enforce constraint validation here and surface it visually via
+    // `invalidField` + aria-invalid on the offending field.
     if (task.formSchema?.required) {
       for (const requiredField of task.formSchema.required) {
         if (!formData[requiredField] || formData[requiredField] === '') {
-          flash(t('workflows.tasks.detail.validation.requiredField', { field: requiredField }), 'error')
+          const fieldSchema = task.formSchema.properties?.[requiredField]
+          const fieldLabel = fieldSchema?.title ?? requiredField
+          flash(t('workflows.tasks.detail.validation.requiredField', { field: fieldLabel }), 'error')
+          setInvalidField(requiredField)
+          // Scroll + focus the trigger so the user sees what's missing.
+          if (typeof document !== 'undefined') {
+            const trigger = document.getElementById(requiredField)
+            trigger?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            trigger?.focus()
+          }
           return
         }
       }
     }
+    setInvalidField(null)
 
     setSubmitting(true)
 
@@ -131,7 +149,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
             onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
-            <SelectTrigger id={fieldName} className={inputClasses} aria-required={required}>
+            <SelectTrigger
+              id={fieldName}
+              className={`${inputClasses} ${invalidField === fieldName ? 'ring-2 ring-status-error-border border-status-error-border' : ''}`}
+              aria-required={required}
+              aria-invalid={invalidField === fieldName ? true : undefined}
+            >
               <SelectValue placeholder={t('workflows.tasks.detail.form.selectOption')} />
             </SelectTrigger>
             <SelectContent>

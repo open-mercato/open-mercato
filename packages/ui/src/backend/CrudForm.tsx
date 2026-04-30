@@ -105,6 +105,10 @@ import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteConten
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
+// Sentinel for the optional-Select clear affordance. Radix Select forbids
+// empty-string item values, so we use a stable non-empty token that maps to
+// `undefined` in the change handler.
+const SELECT_CLEAR_SENTINEL = '__crudform_select_clear__'
 const FOCUSABLE_SELECTOR =
   '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
@@ -4050,20 +4054,38 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
+          // Radix Select MUST be either always-controlled or always-uncontrolled.
+          // Passing `value={undefined}` on first render and a string later trips
+          // React's "uncontrolled → controlled" warning and breaks Radix's
+          // internal state (dropdown flashes / selections no-op). Use empty
+          // string for "no selection" instead — Radix treats it the same as
+          // undefined for matching SelectItems but keeps the prop type stable.
           value={
             Array.isArray(value)
-              ? (String(value[0] ?? '') || undefined)
-              : value == null || value === ''
-                ? undefined
+              ? String(value[0] ?? '')
+              : value == null
+                ? ''
                 : String(value)
           }
-          onValueChange={(next) => setValue(field.id, next || undefined)}
+          onValueChange={(next) => {
+            // Sentinel maps back to undefined so optional selects can be cleared.
+            if (!next || next === SELECT_CLEAR_SENTINEL) {
+              setValue(field.id, undefined)
+              return
+            }
+            setValue(field.id, next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
           </SelectTrigger>
           <SelectContent>
+            {!field.required && value != null && value !== '' && (
+              <SelectItem value={SELECT_CLEAR_SENTINEL}>
+                {t('ui.forms.select.clearOption', '— Clear —')}
+              </SelectItem>
+            )}
             {options
               .filter((opt) => opt.value !== '')
               .map((opt) => (

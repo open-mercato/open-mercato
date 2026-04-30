@@ -174,6 +174,14 @@ function isEnabledEnvFlag(value) {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+// OM_DEV_AUTO_MIGRATE defaults to ON: yarn dev applies pending migrations once
+// at startup unless the user explicitly opts out. Documented in template AGENTS.md.
+function shouldAutoMigrateOnDev() {
+  const raw = process.env.OM_DEV_AUTO_MIGRATE
+  if (typeof raw !== 'string') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
+}
+
 const splashPortConfig = (() => {
   try {
     return resolveSplashPortConfig()
@@ -1565,7 +1573,10 @@ function launchMonorepoAppDev() {
 
   app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(resolveChildExitCode({ code, signal }, 0))
+      // Unexpected child exit MUST surface as non-zero even if the child reported
+      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+      const childCode = resolveChildExitCode({ code, signal }, 1)
+      shutdown(childCode === 0 ? 1 : childCode)
     }
   })
 }
@@ -1656,6 +1667,10 @@ async function runClassicStandaloneDev() {
     await runRawYarnCommand(['install'])
   }
 
+  if (shouldAutoMigrateOnDev()) {
+    await runRawYarnCommand(['db:migrate'])
+  }
+
   launchStandaloneDev()
 }
 
@@ -1683,6 +1698,12 @@ async function main() {
       })
       await runPassthroughStage('📦 Refreshing local Open Mercato packages', ['install'], {
         stageCurrent: 1,
+        stageTotal: standaloneStageTotal,
+      })
+    }
+    if (shouldAutoMigrateOnDev()) {
+      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+        stageCurrent: 2,
         stageTotal: standaloneStageTotal,
       })
     }

@@ -17,12 +17,6 @@ export type SwitchFieldProps = Omit<React.ComponentProps<typeof Switch>, 'id'> &
   contentClassName?: string
 }
 
-let autoIdCounter = 0
-function useAutoId(prefix = 'switch-field') {
-  const [id] = React.useState(() => `${prefix}-${++autoIdCounter}`)
-  return id
-}
-
 export const SwitchField = React.forwardRef<
   React.ElementRef<typeof Switch>,
   SwitchFieldProps
@@ -40,7 +34,8 @@ export const SwitchField = React.forwardRef<
   disabled,
   ...switchProps
 }, ref) => {
-  const fallbackId = useAutoId()
+  // useId is SSR/HMR-stable; counter-based fallbacks drift on hydration.
+  const fallbackId = React.useId()
   const id = idProp ?? fallbackId
 
   const hasMultiLine = Boolean(description || sublabel || link)

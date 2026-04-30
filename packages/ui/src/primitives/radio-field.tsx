@@ -17,12 +17,6 @@ export type RadioFieldProps = Omit<React.ComponentProps<typeof Radio>, 'id'> & {
   contentClassName?: string
 }
 
-let autoIdCounter = 0
-function useAutoId(prefix = 'radio-field') {
-  const [id] = React.useState(() => `${prefix}-${++autoIdCounter}`)
-  return id
-}
-
 export const RadioField = React.forwardRef<
   React.ElementRef<typeof Radio>,
   RadioFieldProps
@@ -40,7 +34,8 @@ export const RadioField = React.forwardRef<
   disabled,
   ...radioProps
 }, ref) => {
-  const fallbackId = useAutoId()
+  // useId is SSR/HMR-stable; counter-based fallbacks drift on hydration.
+  const fallbackId = React.useId()
   const id = idProp ?? fallbackId
 
   const hasMultiLine = Boolean(description || sublabel || link)
