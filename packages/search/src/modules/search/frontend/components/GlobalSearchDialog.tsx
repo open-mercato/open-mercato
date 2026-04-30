@@ -58,7 +58,7 @@ import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/dire
 import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import { fetchGlobalSearchResults } from '../utils'
 
-const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = 3
 
 /** Default strategies used when none are configured */
 const DEFAULT_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']

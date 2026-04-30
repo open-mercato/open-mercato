@@ -25,7 +25,7 @@
   "search.dialog.actions.openGlobalSearch": "Abrir búsqueda global",
   "search.dialog.actions.openSelected": "Abrir (Enter)",
   "search.dialog.actions.search": "Buscar",
-  "search.dialog.empty.hint": "Escribe al menos dos caracteres para buscar en los registros indexados.",
+  "search.dialog.empty.hint": "Escribe al menos tres caracteres para buscar en los registros indexados.",
   "search.dialog.empty.none": "No se encontraron resultados.",
   "search.dialog.errors.noPermission": "No tienes permiso para usar la búsqueda global.",
   "search.dialog.errors.searchFailed": "La búsqueda falló.",

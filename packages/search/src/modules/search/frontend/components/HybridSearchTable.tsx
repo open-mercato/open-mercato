@@ -30,7 +30,7 @@ type Row = {
   metadata: Record<string, unknown> | null
 }
 
-const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = 3
 const ALL_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
 
 type Translator = (
