@@ -30,11 +30,19 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.goto('/backend/customers/deals/create');
 
       await page.locator('form').getByRole('textbox').first().fill(dealTitle);
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'Open' }) }).first().selectOption({ label: 'Open' });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: pipelineName }) }).first().selectOption({ label: pipelineName });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: stageName }) }).first().selectOption({ label: stageName });
+      // Radix Select via CrudForm: target by data-crud-field-id
+      const selectByFieldId = async (fieldId: string, label: string | RegExp, exact = true) => {
+        await page.locator(`[data-crud-field-id="${fieldId}"] [role="combobox"]`).first().click()
+        const opt = typeof label === 'string'
+          ? page.getByRole('option', { name: label, exact })
+          : page.getByRole('option', { name: label })
+        await opt.first().click()
+      }
+      await selectByFieldId('status', 'Open')
+      await selectByFieldId('pipelineId', pipelineName)
+      await selectByFieldId('pipelineStageId', stageName)
       await page.getByRole('spinbutton').first().fill('25000');
-      await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
+      await selectByFieldId('valueCurrency', /USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 

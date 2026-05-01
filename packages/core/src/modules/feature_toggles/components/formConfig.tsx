@@ -1,6 +1,14 @@
 "use client"
 import { CrudFormGroup, CrudCustomFieldRenderProps, CrudField } from "@open-mercato/ui/backend/CrudForm";
 import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
+import { Input } from "@open-mercato/ui/primitives/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 
@@ -13,15 +21,19 @@ export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderPr
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.boolean.label', 'Default Value (Boolean)')}</label>
-                    <select
+                    <Select
                         value={props.value as string || 'false'}
-                        onChange={(e) => props.setValue(e.target.value === 'true')}
-                        className="w-full h-9 rounded border px-2 text-sm"
+                        onValueChange={(value) => props.setValue(value === 'true')}
                         disabled={props.disabled}
                     >
-                        <option value="true">{t('feature_toggles.values.true', 'True')}</option>
-                        <option value="false">{t('feature_toggles.values.false', 'False')}</option>
-                    </select>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="true">{t('feature_toggles.values.true', 'True')}</SelectItem>
+                            <SelectItem value="false">{t('feature_toggles.values.false', 'False')}</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             );
 
@@ -29,12 +41,11 @@ export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderPr
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.string.label', 'Default Value (String)')}</label>
-                    <input
+                    <Input
                         type="text"
                         value={props.value as string || ''}
                         onChange={(e) => props.setValue(e.target.value)}
                         placeholder={t('feature_toggles.form.fields.defaultValue.string.placeholder', 'Enter default string value')}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />
@@ -45,11 +56,10 @@ export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderPr
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.number.label', 'Default Value (Number)')}</label>
-                    <input
+                    <Input
                         type="number"
                         value={props.value as number || 0}
                         onChange={(e) => props.setValue(Number(e.target.value) || 0)}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />

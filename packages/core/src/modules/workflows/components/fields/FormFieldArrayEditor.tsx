@@ -7,6 +7,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { ChevronDown, Plus, Trash2, Info } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
@@ -217,26 +224,29 @@ export function FormFieldArrayEditor({
                       <Label htmlFor={`${id}-${index}-type`} className="text-xs font-medium mb-1">
                         {t('workflows.fieldEditors.formFields.fieldType')} *
                       </Label>
-                      <select
-                        id={`${id}-${index}-type`}
+                      <Select
                         value={field.type}
-                        onChange={(e) => updateFormField(index, 'type', e.target.value)}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onValueChange={(value) => updateFormField(index, 'type', value)}
                         disabled={disabled}
                       >
-                        <option value="text">{t('workflows.form.fieldTypes.text')}</option>
-                        <option value="number">{t('workflows.form.fieldTypes.number')}</option>
-                        <option value="email">{t('workflows.form.fieldTypes.email')}</option>
-                        <option value="tel">{t('workflows.form.fieldTypes.tel')}</option>
-                        <option value="url">{t('workflows.form.fieldTypes.url')}</option>
-                        <option value="textarea">{t('workflows.form.fieldTypes.textarea')}</option>
-                        <option value="select">{t('workflows.form.fieldTypes.select')}</option>
-                        <option value="radio">{t('workflows.form.fieldTypes.radio')}</option>
-                        <option value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</option>
-                        <option value="date">{t('workflows.form.fieldTypes.date')}</option>
-                        <option value="time">{t('workflows.form.fieldTypes.time')}</option>
-                        <option value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</option>
-                      </select>
+                        <SelectTrigger id={`${id}-${index}-type`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="text">{t('workflows.form.fieldTypes.text')}</SelectItem>
+                          <SelectItem value="number">{t('workflows.form.fieldTypes.number')}</SelectItem>
+                          <SelectItem value="email">{t('workflows.form.fieldTypes.email')}</SelectItem>
+                          <SelectItem value="tel">{t('workflows.form.fieldTypes.tel')}</SelectItem>
+                          <SelectItem value="url">{t('workflows.form.fieldTypes.url')}</SelectItem>
+                          <SelectItem value="textarea">{t('workflows.form.fieldTypes.textarea')}</SelectItem>
+                          <SelectItem value="select">{t('workflows.form.fieldTypes.select')}</SelectItem>
+                          <SelectItem value="radio">{t('workflows.form.fieldTypes.radio')}</SelectItem>
+                          <SelectItem value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</SelectItem>
+                          <SelectItem value="date">{t('workflows.form.fieldTypes.date')}</SelectItem>
+                          <SelectItem value="time">{t('workflows.form.fieldTypes.time')}</SelectItem>
+                          <SelectItem value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/* Placeholder */}

@@ -148,10 +148,10 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
         </Button>
       </form>
       {lastEvent ? (
-        <div className="flex items-center gap-2 rounded bg-status-info-bg px-3 py-1.5 text-xs text-status-info-text">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-info-icon" />
+        <div className="flex items-center gap-2 rounded bg-blue-50 px-3 py-1.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
           SSE Event received: <code className="font-mono">{lastEvent.id}</code>
-          <span className="text-status-info-text">
+          <span className="text-blue-500/70">
             {new Date(lastEvent.timestamp).toLocaleTimeString()}
           </span>
         </div>

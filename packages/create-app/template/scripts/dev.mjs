@@ -174,6 +174,14 @@ function isEnabledEnvFlag(value) {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+// OM_DEV_AUTO_MIGRATE defaults to ON: yarn dev applies pending migrations once
+// at startup unless the user explicitly opts out. Documented in template AGENTS.md.
+function shouldAutoMigrateOnDev() {
+  const raw = process.env.OM_DEV_AUTO_MIGRATE
+  if (typeof raw !== 'string') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
+}
+
 const splashPortConfig = (() => {
   try {
     return resolveSplashPortConfig()
@@ -1440,70 +1448,6 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
-function isAutoMigrateEnabled() {
-  const raw = process.env.OM_DEV_AUTO_MIGRATE
-  if (typeof raw !== 'string') return true
-  const normalized = raw.trim().toLowerCase()
-  if (normalized === '') return true
-  return !['0', 'false', 'no', 'off'].includes(normalized)
-}
-
-async function runAutoMigrateIfEnabled() {
-  if (!isAutoMigrateEnabled()) {
-    console.log('ℹ️  Skipping auto-migrate: OM_DEV_AUTO_MIGRATE is disabled.')
-    return
-  }
-
-  const label = '🗄️ Auto-applying database migrations'
-  const startedAt = Date.now()
-  console.log(`${label}...`)
-  updateSplashState({
-    phase: label,
-    detail: 'Running yarn db:migrate before dev launch',
-    activity: 'Auto-migrate running',
-  })
-
-  const child = spawnCommand(yarnCommand, ['db:migrate'], {
-    label: 'db:migrate (auto)',
-    logFile: getDevRunnerLog(),
-  })
-  const capturedLines = []
-  const capture = (line) => {
-    capturedLines.push(line)
-    if (capturedLines.length > 200) capturedLines.shift()
-  }
-  connectLineStream(child.stdout, capture)
-  connectLineStream(child.stderr, capture)
-
-  const result = await waitForClose(child)
-  if (isGracefulShutdownResult(result)) return
-
-  const exitCode = resolveChildExitCode(result)
-  if (exitCode === 0) {
-    console.log(`✅ ${label} in ${formatDuration(Date.now() - startedAt)}`)
-    return
-  }
-
-  console.warn('')
-  console.warn('⚠️  Auto-migrate reported a non-zero exit.')
-  console.warn('   This usually means a migration conflict — for example, a parallel')
-  console.warn('   `yarn db:migrate` from another shell already applied the pending change.')
-  console.warn('   Last captured output (tail):')
-  for (const line of capturedLines.slice(-20)) {
-    console.warn(`   | ${line}`)
-  }
-  console.warn('')
-  console.warn('   Suggested next steps:')
-  console.warn('     • Re-run `yarn db:migrate` manually to inspect the exact error.')
-  console.warn('     • If a migration was only partially applied, roll back with')
-  console.warn('       `yarn db:migrate --down` and re-apply.')
-  console.warn('     • To disable auto-migrate entirely for this project, set')
-  console.warn('       `OM_DEV_AUTO_MIGRATE=0` in `.env.local`.')
-  console.warn('   Continuing to launch dev — the app may still work if the schema is')
-  console.warn('   actually up to date. If it does not, fix the migration before reloading.')
-  console.warn('')
-}
-
 function startPackageWatch() {
   if (classic) {
     const child = spawnCommand(yarnCommand, ['watch:packages'], {
@@ -1629,7 +1573,10 @@ function launchMonorepoAppDev() {
 
   app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(resolveChildExitCode({ code, signal }, 0))
+      // Unexpected child exit MUST surface as non-zero even if the child reported
+      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+      const childCode = resolveChildExitCode({ code, signal }, 1)
+      shutdown(childCode === 0 ? 1 : childCode)
     }
   })
 }
@@ -1720,7 +1667,10 @@ async function runClassicStandaloneDev() {
     await runRawYarnCommand(['install'])
   }
 
-  await runAutoMigrateIfEnabled()
+  if (shouldAutoMigrateOnDev()) {
+    await runRawYarnCommand(['db:migrate'])
+  }
+
   launchStandaloneDev()
 }
 
@@ -1751,7 +1701,12 @@ async function main() {
         stageTotal: standaloneStageTotal,
       })
     }
-    await runAutoMigrateIfEnabled()
+    if (shouldAutoMigrateOnDev()) {
+      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+        stageCurrent: 2,
+        stageTotal: standaloneStageTotal,
+      })
+    }
     launchStandaloneDev()
     return
   }

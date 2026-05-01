@@ -154,6 +154,16 @@ export function useMessageCompose({
   const [submitting, setSubmitting] = React.useState(false)
   const [submitMode, setSubmitMode] = React.useState<'send' | 'draft'>('send')
   const [submitError, setSubmitError] = React.useState<string | null>(null)
+  // Tracks whether the composer is currently in the "open" lifecycle so the init
+  // effect below only runs on the closed → open transition, not on every parent
+  // re-render that produces a new `defaultValues` / `contextObject` reference
+  // while the user is typing. Without this guard, an inline literal
+  // `defaultValues={{...}}` in a re-rendering parent (e.g. message detail page
+  // with live notification badges or queue progress) would clear the body /
+  // subject mid-keystroke. CI shard 9 surfaced this as TC-MSG-009 timing out
+  // because `keyboard.type` characters appeared to "type nowhere" — they were
+  // typed correctly, then immediately wiped by the next effect run.
+  const isOpenRef = React.useRef(false)
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types'],
@@ -219,7 +229,16 @@ export function useMessageCompose({
   }, [attachmentEntityId, attachmentRecordId, t])
 
   React.useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      isOpenRef.current = false
+      return
+    }
+    // Only initialize on the closed → open transition. Subsequent parent
+    // re-renders that change `defaultValues` / `contextObject` references
+    // (inline object literals are a new reference on every render) MUST NOT
+    // overwrite state the user has typed in.
+    if (isOpenRef.current) return
+    isOpenRef.current = true
 
     const nextRecipients = defaultValues?.recipients?.filter((value) => typeof value === 'string' && value.trim().length > 0) ?? []
     const dedupedRecipients = Array.from(new Set(nextRecipients))

@@ -4,6 +4,13 @@ import * as React from 'react'
 import { Cog, GripVertical, Languages, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
@@ -289,18 +296,21 @@ export function FieldDefinitionsEditor({
         <div className="rounded border bg-card p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-muted-foreground">Fieldset</label>
-            <select
-              className="border rounded px-2 py-1 text-sm"
-              value={resolvedActiveFieldset ?? ''}
-              onChange={(event) => handleActiveFieldsetChange(event.target.value)}
+            <Select
+              value={resolvedActiveFieldset || undefined}
+              onValueChange={(value) => handleActiveFieldsetChange(value ?? '')}
             >
-              <option value="">Unassigned fields</option>
-              {fieldsets.map((fs) => (
-                <option key={fs.code} value={fs.code}>
-                  {fs.label || fs.code}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger size="sm" className="w-auto min-w-[10rem]">
+                <SelectValue placeholder="Unassigned fields" />
+              </SelectTrigger>
+              <SelectContent>
+                {fieldsets.map((fs) => (
+                  <SelectItem key={fs.code} value={fs.code}>
+                    {fs.label || fs.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
@@ -339,22 +349,25 @@ export function FieldDefinitionsEditor({
               </div>
               <div>
                 <label className="text-xs">Icon</label>
-                <select
-                  className="border rounded w-full px-2 py-1 text-sm"
-                  value={activeFieldsetConfig.icon ?? ''}
-                  onChange={(event) =>
+                <Select
+                  value={activeFieldsetConfig.icon || undefined}
+                  onValueChange={(value) =>
                     handleFieldsetPatch(activeFieldsetConfig.code, {
-                      icon: event.target.value || undefined,
+                      icon: value || undefined,
                     })
                   }
                 >
-                  <option value="">Default</option>
-                  {FIELDSET_ICON_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger size="sm">
+                    <SelectValue placeholder="Default" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FIELDSET_ICON_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="text-xs">Description</label>
@@ -756,17 +769,21 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         </div>
         <div className="md:col-span-6">
           <label className="text-xs">Kind</label>
-          <select
-            className={`rounded w-full px-2 py-1 text-sm ${error?.kind ? 'border-red-500 border' : 'border'}`}
-            value={local.kind}
-            onChange={(event) => { apply({ kind: event.target.value }, true) }}
+          <Select
+            value={local.kind || undefined}
+            onValueChange={(value) => { apply({ kind: value ?? '' }, true) }}
           >
-            {kindOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className={error?.kind ? 'border-destructive' : undefined}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {kindOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {error?.kind ? <div className="text-xs text-red-600 mt-1">{error.kind}</div> : null}
       </div>
     </div>
@@ -775,18 +792,21 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="text-xs">Assign to fieldset</label>
-            <select
-              className="border rounded w-full px-2 py-1 text-sm"
-              value={currentFieldsetValue}
-              onChange={(event) => handleFieldsetSelect(event.target.value)}
+            <Select
+              value={currentFieldsetValue || undefined}
+              onValueChange={(value) => handleFieldsetSelect(value ?? '')}
             >
-              <option value="">Unassigned</option>
-              {(fieldsets || []).map((fs) => (
-                <option key={fs.code} value={fs.code}>
-                  {fs.label || fs.code}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                {(fieldsets || []).map((fs) => (
+                  <SelectItem key={fs.code} value={fs.code}>
+                    {fs.label || fs.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {currentFieldsetValue ? (
             <div>
@@ -794,18 +814,21 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 <label className="text-xs">Group</label>
               </div>
               <div className="flex items-center gap-2 mt-1">
-                <select
-                  className="flex-1 border rounded px-2 py-1 text-sm"
-                  value={currentGroup?.code ?? ''}
-                  onChange={(event) => handleGroupSelect(event.target.value)}
+                <Select
+                  value={currentGroup?.code || undefined}
+                  onValueChange={(value) => handleGroupSelect(value ?? '')}
                 >
-                  <option value="">No group</option>
-                  {groupOptions.map((group) => (
-                    <option key={group.code} value={group.code}>
-                      {group.title || group.code}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="No group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groupOptions.map((group) => (
+                      <SelectItem key={group.code} value={group.code}>
+                        {group.title || group.code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <IconButton
                   variant="outline"
                   className="text-muted-foreground"
@@ -852,16 +875,19 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <>
             <div>
               <label className="text-xs">Editor</label>
-              <select
-                className="border rounded w-full px-2 py-1 text-sm"
-                value={typeof local.configJson?.editor === 'string' ? local.configJson.editor : ''}
-                onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), editor: event.target.value || undefined } }, true) }}
+              <Select
+                value={typeof local.configJson?.editor === 'string' && local.configJson.editor ? local.configJson.editor : undefined}
+                onValueChange={(value) => { apply({ configJson: { ...(local.configJson || {}), editor: value || undefined } }, true) }}
               >
-                <option value="">Default</option>
-                <option value="markdown">Markdown (UIW)</option>
-                <option value="simpleMarkdown">Simple Markdown</option>
-                <option value="htmlRichText">HTML Rich Text</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="Default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="markdown">Markdown (UIW)</SelectItem>
+                  <SelectItem value="simpleMarkdown">Simple Markdown</SelectItem>
+                  <SelectItem value="htmlRichText">HTML Rich Text</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             {local.kind === 'text' && (
               <>
@@ -873,20 +899,23 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 {!!local.configJson?.multi && (
                   <div className="md:col-span-2">
                     <label className="text-xs">Multi-select input style</label>
-                    <select
-                      className="border rounded w-full px-2 py-1 text-sm"
+                    <Select
                       value={local.configJson?.input === 'listbox' ? 'listbox' : 'default'}
-                      onChange={(event) => {
-                        const { value } = event.target
+                      onValueChange={(value) => {
                         const nextConfig = { ...(local.configJson || {}) }
                         if (value === 'listbox') nextConfig.input = 'listbox'
                         else delete nextConfig.input
                         apply({ configJson: nextConfig }, true)
                       }}
                     >
-                      <option value="default">Default</option>
-                      <option value="listbox">Listbox (searchable)</option>
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="listbox">Listbox (searchable)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
               </>
@@ -1022,11 +1051,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           {(Array.isArray(local.configJson?.validation) ? local.configJson!.validation : []).map((rule: any, index: number) => (
             <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
               <div className="md:col-span-3">
-                <select
-                  className="border rounded w-full px-2 py-1 text-sm"
+                <Select
                   value={rule?.rule || 'required'}
-                  onChange={(event) => {
-                    const nextRule = event.target.value
+                  onValueChange={(value) => {
+                    const nextRule = value
                     apply((current) => {
                       const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
                       const existing = (list[index] as any) || {}
@@ -1035,18 +1063,23 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                     }, true)
                   }}
                 >
-                  <option value="required">required</option>
-                  <option value="date">date</option>
-                  <option value="integer">integer</option>
-                  <option value="float">float</option>
-                  <option value="lt">lt</option>
-                  <option value="lte">lte</option>
-                  <option value="gt">gt</option>
-                  <option value="gte">gte</option>
-                  <option value="eq">eq</option>
-                  <option value="ne">ne</option>
-                  <option value="regex">regex</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="required">required</SelectItem>
+                    <SelectItem value="date">date</SelectItem>
+                    <SelectItem value="integer">integer</SelectItem>
+                    <SelectItem value="float">float</SelectItem>
+                    <SelectItem value="lt">lt</SelectItem>
+                    <SelectItem value="lte">lte</SelectItem>
+                    <SelectItem value="gt">gt</SelectItem>
+                    <SelectItem value="gte">gte</SelectItem>
+                    <SelectItem value="eq">eq</SelectItem>
+                    <SelectItem value="ne">ne</SelectItem>
+                    <SelectItem value="regex">regex</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="md:col-span-4">
                 <input

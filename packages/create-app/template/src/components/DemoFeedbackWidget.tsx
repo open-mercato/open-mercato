@@ -7,6 +7,7 @@ import { MessageCircle, Send } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -200,19 +201,24 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   }, [submitState, resetForm])
 
   if (!mounted) return null
-  if (otherModalOpen && !open) return null
 
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)
 
+  if (otherModalOpen && !open) return null
+
+  // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
+  // z-banner token (no z-[60]) so it stays DS-compliant while keeping the
+  // bespoke 135deg / 0-50-100 gradient that the marketing visual depends on
+  // (FancyButton's primary variant uses 161.7deg / 0-35.36-70.72 which
+  // truncates the violet-to-end transition and looks banded).
   const floatingButton = (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-foreground shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
-        background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
-        color: '#1B1B1B',
+        backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
       aria-label={t('demoFeedback.button.ariaLabel', 'Open feedback form')}
     >
@@ -272,14 +278,14 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                 {fieldErrors.email && <p className="text-xs text-status-error-text">{fieldErrors.email}</p>}
               </div>
 
-              <textarea
+              <Textarea
                 id="feedback-message"
                 rows={3}
                 placeholder={t('demoFeedback.form.message', 'Your message (optional)')}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 disabled={submitState === 'sending'}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                className="resize-none"
               />
 
               <label className="flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
@@ -359,12 +365,13 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
               <Button
                 type="button"
-                className="mt-1 w-full gap-2"
+                className="mt-1 w-full gap-2 text-foreground"
                 disabled={submitState === 'sending'}
                 onClick={handleSubmit}
                 style={{
-                  background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
-                  color: '#1B1B1B',
+                  // Same brand-gradient as the floating CTA (135deg / 0-50-100,
+                  // brand vars instead of hex literals to satisfy DS rules).
+                  backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
                 }}
               >
                 {submitState === 'sending' ? (

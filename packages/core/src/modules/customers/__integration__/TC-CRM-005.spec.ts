@@ -31,11 +31,12 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await page.goto(`/backend/customers/people/${personId}`);
 
       await page.getByRole('button', { name: /^Edit$/i }).first().click();
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: companyName }) })
-        .first()
-        .selectOption({ label: companyName });
+      // Person detail page renders CompanySelectField directly (no CrudForm wrapper).
+      // Scope to the placeholder visible in the trigger when no company is selected.
+      const companyCombobox = page.locator('[role="combobox"]').filter({ hasText: 'Select a company' });
+      await expect(companyCombobox).toBeVisible({ timeout: 10_000 });
+      await companyCombobox.click();
+      await page.getByRole('option', { name: companyName, exact: true }).click();
       await page.getByRole('button', { name: /^Save$/ }).click();
       await expect(page.getByText(companyName, { exact: true })).toBeVisible();
 
