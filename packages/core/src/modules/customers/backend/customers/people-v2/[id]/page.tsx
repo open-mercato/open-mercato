@@ -95,15 +95,20 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const personName =
-    data?.person?.displayName && data.person.displayName.trim().length
-      ? data.person.displayName
-      : t('customers.people.list.deleteFallbackName', 'this person')
+  const rawPersonDisplayName = data?.person?.displayName
+  const personDisplayName =
+    typeof rawPersonDisplayName === 'string'
+      ? rawPersonDisplayName
+      : rawPersonDisplayName == null
+        ? ''
+        : String(rawPersonDisplayName)
+  const personName = personDisplayName.trim().length
+    ? personDisplayName
+    : t('customers.people.list.deleteFallbackName', 'this person')
 
-  const personDisplayNameForGroups =
-    typeof data?.person?.displayName === 'string' && data.person.displayName.trim().length
-      ? data.person.displayName.trim()
-      : null
+  const personDisplayNameForGroups = personDisplayName.trim().length
+    ? personDisplayName.trim()
+    : null
 
   const groups = React.useMemo(
     () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
@@ -579,7 +584,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
             entityName={personName}
-            companyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
+            companyName={
+              (() => {
+                const candidate = data.company?.displayName ?? data.companies?.[0]?.displayName ?? null
+                if (candidate == null) return null
+                return typeof candidate === 'string' ? candidate : String(candidate)
+              })()
+            }
             entityType="person"
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}

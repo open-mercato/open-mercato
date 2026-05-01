@@ -165,8 +165,12 @@ function sortCompanyPeople(
       const rightTimestamp = Date.parse(right.linkedAt ?? right.createdAt ?? '') || 0
       return rightTimestamp - leftTimestamp
     }
-    const leftLabel = left.displayName.trim().toLowerCase()
-    const rightLabel = right.displayName.trim().toLowerCase()
+    const leftLabel = (typeof left.displayName === 'string' ? left.displayName : String(left.displayName ?? ''))
+      .trim()
+      .toLowerCase()
+    const rightLabel = (typeof right.displayName === 'string' ? right.displayName : String(right.displayName ?? ''))
+      .trim()
+      .toLowerCase()
     if (sortMode === 'name-desc') return rightLabel.localeCompare(leftLabel)
     return leftLabel.localeCompare(rightLabel)
   })

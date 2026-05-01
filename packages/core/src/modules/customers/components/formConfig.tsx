@@ -1942,9 +1942,16 @@ export type PersonOverview = {
 export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<CompanyEditFormValues> {
   const rawPhone = overview.company.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
+  const rawDisplayName = overview.company.displayName as unknown
+  const displayNameValue =
+    typeof rawDisplayName === 'string'
+      ? rawDisplayName
+      : rawDisplayName == null
+        ? ''
+        : String(rawDisplayName)
   return {
     id: overview.company.id,
-    displayName: overview.company.displayName,
+    displayName: displayNameValue,
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
     status: overview.company.status ?? '',
@@ -1965,9 +1972,16 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
 export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial<PersonEditFormValues> {
   const rawPhone = overview.person.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
+  const rawDisplayName = overview.person.displayName as unknown
+  const displayNameValue =
+    typeof rawDisplayName === 'string'
+      ? rawDisplayName
+      : rawDisplayName == null
+        ? ''
+        : String(rawDisplayName)
   return {
     id: overview.person.id,
-    displayName: overview.person.displayName,
+    displayName: displayNameValue,
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',

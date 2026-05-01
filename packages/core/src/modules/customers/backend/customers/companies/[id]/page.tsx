@@ -117,10 +117,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const currentCompanyId = data?.company?.id ?? null
-  const companyName =
-    data?.company?.displayName && data.company.displayName.trim().length
-      ? data.company.displayName
-      : t('customers.companies.list.deleteFallbackName', 'this company')
+  const rawCompanyDisplayName = data?.company?.displayName
+  const companyDisplayName =
+    typeof rawCompanyDisplayName === 'string'
+      ? rawCompanyDisplayName
+      : rawCompanyDisplayName == null
+        ? ''
+        : String(rawCompanyDisplayName)
+  const companyName = companyDisplayName.trim().length
+    ? companyDisplayName
+    : t('customers.companies.list.deleteFallbackName', 'this company')
   const translateCompanyDetail = React.useCallback(
     (key: string, fallback?: string, params?: Record<string, string | number>) => {
       const mappedKey = key.startsWith('customers.people.detail.')
