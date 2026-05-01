@@ -1,4 +1,4 @@
-# Portal Custom Domain Routing — Phase 1 + 1.5 + 2 Implementation Progress
+# Portal Custom Domain Routing — Phase 1 + 1.5 + 2 + 3 Implementation Progress
 
 | Field | Value |
 |-------|-------|
@@ -44,7 +44,8 @@ Or, if no PR exists yet, just tell Claude:
 | Phase 1: Migrations & generators | **Done** | Hand-wrote `Migration20260430120000_customer_accounts.ts` because `yarn db:generate` is broken on this branch (pre-existing CLI regression: `orm.getMigrator is not a function`). `yarn generate` succeeded — DomainMapping picked up by `entities.generated.ts`, all 5 subscribers registered in `modules.app.generated.ts`. |
 | Phase 1.5: Customer auth host-awareness | **Done** | `resolveTenantContext` helper, `getCustomerAuthFromCookies` extended with `expectedTenantId`, new `getCustomerAuthForHost`, login/signup/magic-link/password-reset routes accept missing `tenantId` and resolve from Host. signup uses `urlForCustomerOrg` for verification + login email URLs. |
 | Verification Gate | **Done** | `tsc --noEmit` clean across all customer_accounts files. 32 new unit tests pass (hostname, proxyRanges, resolveTenantContext). Pre-existing test failures in `rate-limit-identifiers.test.ts` and `customerSessionService.test.ts` are caused by a duplicate `@open-mercato/cache` package in `.ai/tmp/auto-review-pr/pr-1695-review/` — verified to fail on baseline before my changes. |
-| Phase 2: Next.js Node Middleware | **Done** | Discovered Next 16 renamed `middleware.ts` → `proxy.ts`; extended existing `apps/mercato/src/proxy.ts` (Node runtime via `runtime: 'nodejs'`) with custom-domain rewrite, SWR in-memory cache (`apps/mercato/src/lib/customDomainCache.ts`), HTTP resolver + warm-up via `/api/customer-accounts/domain-resolve(/all)` (`apps/mercato/src/lib/customDomainResolver.ts`), 503-on-cold-fetch-fail, `x-custom-domain` header, `x-next-url` rewrite to keep `(frontend)` layout's pathname extraction working, and `X-Open-Mercato-Origin: 1` on `/_next/health` via `next.config.ts headers()`. 13 new unit tests cover SWR/LRU/negative caching, hostname normalization, in-flight coalescing, warm-up, and 404 handling. |
+| Phase 2: Next.js Node Middleware | **Done** | Discovered Next 16 renamed `middleware.ts` → `proxy.ts`; extended existing `apps/mercato/src/proxy.ts` (Node runtime via `runtime: 'nodejs'`) with custom-domain rewrite, SWR in-memory cache (`apps/mercato/src/lib/customDomainCache.ts`), HTTP resolver + warm-up via `/api/customer_accounts/domain-resolve(/all)` (`apps/mercato/src/lib/customDomainResolver.ts`), 503-on-cold-fetch-fail, `x-custom-domain` header, `x-next-url` rewrite to keep `(frontend)` layout's pathname extraction working, and `X-Open-Mercato-Origin: 1` on `/_next/health` via `next.config.ts headers()`. 13 new unit tests cover SWR/LRU/negative caching, hostname normalization, in-flight coalescing, warm-up, and 404 handling. **Phase 3 follow-up**: corrected the resolver/proxy URL from `customer-accounts` (with hyphen) to `customer_accounts` (with underscore) — module URLs use the snake_case module id, so the previous form returned 404 in production. Tests updated. |
+| Phase 3: Traefik Configuration | **Done** | `docker/traefik/traefik.yml` (static config: HTTP→HTTPS redirect, ACME via TLS-ALPN-01, Docker provider). Routers/services/middlewares are declared as labels on the `app` service in both `docker-compose.fullapp.yml` and `docker-compose.fullapp.dev.yml` so compose-level env substitution can wire `DOMAIN_CHECK_SECRET` and `PLATFORM_PRIMARY_HOST`. Two routers: a high-priority `Host()` for the platform domain that skips the domain-check middleware, and a `HostRegexp` catch-all for customer domains that chains the `inject-domain-check-secret` headers middleware (adds the shared secret) with a `forwardAuth` middleware that calls `http://app:3000/api/customer_accounts/domain-check`. Traefik cannot template the auth URL with the original Host, so the domain-check route was extended to read `X-Forwarded-Host` as a fallback to `?host=`. Compose volumes: `traefik_acme` named volume for `acme.json`. Dev compose defaults to LE staging via `TRAEFIK_CA_SERVER` so iteration does not burn the production quota. `dynamic.example.yml` ships the equivalent file-provider config for non-Docker deployments. `docker/traefik/README.md` documents the full deploy story, including the un-gateable Let's Encrypt rate-limit risk (Traefik has no `on_demand_tls.ask` equivalent — request gating is via ForwardAuth, but ACME issuance attempts cannot be filtered without an upstream CDN or a Traefik plugin). |
 
 ## Detailed Checklist
 
@@ -230,6 +231,38 @@ All routes export `openApi`.
 ### Phase 2 — env vars introduced
 - `INTERNAL_APP_ORIGIN` (optional, defaults to `http://127.0.0.1:${PORT||3000}`) — base URL the proxy uses to call its own API. Useful in containerized deployments.
 - `DOMAIN_CACHE_TTL_SECONDS` (default 60), `DOMAIN_NEGATIVE_CACHE_TTL_SECONDS` (default 300), `DOMAIN_CACHE_MAX_ENTRIES` (default 10,000) — already named in the spec; now actually wired.
+
+## Phase 3 Detailed Checklist
+
+- [x] **Static config**: `docker/traefik/traefik.yml` with HTTP→HTTPS redirect on `web`, TLS-terminating `websecure` entrypoint, ACME `letsencrypt` resolver using TLS-ALPN-01, ACME storage at `/letsencrypt/acme.json`, Docker provider tied to the compose network. `caServer` defaults to LE production but can be overridden via `TRAEFIK_CA_SERVER` (the dev compose flips it to staging by default).
+- [x] **Routing as Docker labels**: routers/services/middlewares live on the `app` service in both compose files so `${DOMAIN_CHECK_SECRET}` and `${PLATFORM_PRIMARY_HOST}` interpolate correctly (Traefik's file provider does not expand env vars). Two routers: a `Host()` platform router with priority 100 (no domain-check) and a `HostRegexp` catch-all with priority 1 that requires the domain-check middleware chain.
+- [x] **ForwardAuth chain**: `inject-domain-check-secret` adds the secret to the original request, then `domain-check` ForwardAuth calls `http://app:3000/api/customer_accounts/domain-check` and forwards `X-Domain-Check-Secret` + `X-Forwarded-Host` + `X-Forwarded-Proto` + `X-Forwarded-Uri`. `trustforwardheader=false` keeps Traefik from accepting client-supplied `X-Forwarded-*` headers.
+- [x] **domain-check.ts** (`packages/core/src/modules/customer_accounts/api/domain-check.ts`) extended to read `X-Forwarded-Host` when no `?host=` query parameter is supplied — Traefik cannot template the auth URL with the original Host, so we accept it via the standard ForwardAuth header.
+- [x] **docker-compose.fullapp.yml**: added `traefik` service (Traefik v3.2) on ports 80/443/8081 with the static config + acme.json volume + Docker socket; added the routing labels and the `DOMAIN_CHECK_SECRET` / `DOMAIN_RESOLVE_SECRET` / `INTERNAL_APP_ORIGIN` / `PLATFORM_DOMAINS` / `PLATFORM_PORTAL_BASE_URL` / `CUSTOMER_DOMAIN_ORIGIN_HEADER` env vars to the `app` service; declared the `traefik_acme` named volume.
+- [x] **docker-compose.fullapp.dev.yml**: same additions, plus a default `TRAEFIK_CA_SERVER` pointing at LE staging so dev iteration does not consume production quota.
+- [x] **`dynamic.example.yml`** ships the equivalent file-provider config (HostRegexp catchall, forwardAuth chain, app-upstream service) for non-Docker deployments.
+- [x] **`docker/traefik/README.md`** documents the request flow, env vars, the LE rate-limit caveat (no native `on_demand_tls.ask` equivalent in Traefik), the dev-vs-prod CA flip, and the rationale for using labels instead of a tracked dynamic.yml.
+- [x] **Phase 2 URL fix**: `apps/mercato/src/lib/customDomainResolver.ts` and its tests previously called `/api/customer-accounts/domain-resolve(/all)` (with hyphen); the actual mounted path is `/api/customer_accounts/...` (with underscore — the module id is snake_case). Corrected the URLs and the inline comment in `proxy.ts`. Without this fix the middleware would 404 every call and never populate the cache, so it had to land alongside Phase 3 for the system to be exercisable end-to-end.
+
+### Phase 3 — files created (4)
+- `docker/traefik/traefik.yml`
+- `docker/traefik/dynamic.example.yml`
+- `docker/traefik/README.md`
+
+### Phase 3 — files modified (4)
+- `docker-compose.fullapp.yml` (added Traefik service, app labels, env vars, `traefik_acme` volume)
+- `docker-compose.fullapp.dev.yml` (same additions, with LE staging as the default CA)
+- `packages/core/src/modules/customer_accounts/api/domain-check.ts` (read `X-Forwarded-Host` fallback)
+- `apps/mercato/src/lib/customDomainResolver.ts` + `apps/mercato/src/__tests__/customDomainResolver.test.ts` + `apps/mercato/src/proxy.ts` comment (URL hyphen → underscore correction; Phase 2 follow-up)
+
+### Phase 3 — env vars introduced
+- `ACME_EMAIL` — Let's Encrypt contact address.
+- `DOMAIN_CHECK_SECRET` — already specified in the spec; now actually wired through Traefik labels and the app env.
+- `TRAEFIK_HTTP_PORT`, `TRAEFIK_HTTPS_PORT`, `TRAEFIK_DASHBOARD_PORT` — host port mappings (defaults `80`, `443`, `8081`).
+- `TRAEFIK_LOG_LEVEL` — defaults to `INFO`.
+- `TRAEFIK_CA_SERVER` — ACME directory; prod default in `fullapp.yml`, staging default in `fullapp.dev.yml`.
+- `TRAEFIK_DOCKER_NETWORK` — Docker network the provider watches (auto-set per `DEPLOY_ENV`).
+- `PLATFORM_PRIMARY_HOST` — primary platform hostname; the `platform` router matches this and bypasses the domain-check middleware. Defaults to `openmercato.com`.
 
 ## Blockers
 

@@ -28,7 +28,7 @@ describe('customDomainResolver', () => {
 
   it('warmUp primes the cache from the batch endpoint and avoids per-host fetches', async () => {
     const fetchImpl = makeFetchMock((url) => {
-      if (url.endsWith('/api/customer-accounts/domain-resolve/all')) {
+      if (url.endsWith('/api/customer_accounts/domain-resolve/all')) {
         return jsonResponse(200, {
           ok: true,
           domains: [
@@ -61,7 +61,7 @@ describe('customDomainResolver', () => {
 
   it('falls back to per-host fetch when warm-up cannot be performed', async () => {
     const fetchImpl = makeFetchMock((url) => {
-      if (url.includes('/api/customer-accounts/domain-resolve?host=')) {
+      if (url.includes('/api/customer_accounts/domain-resolve?host=')) {
         return jsonResponse(200, {
           ok: true,
           tenantId: 't1',
@@ -82,7 +82,7 @@ describe('customDomainResolver', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     const calledUrl = (fetchImpl.mock.calls[0]![0] as string)
     expect(calledUrl).toBe(
-      'http://internal.test/api/customer-accounts/domain-resolve?host=shop.acme.com',
+      'http://internal.test/api/customer_accounts/domain-resolve?host=shop.acme.com',
     )
     expect((fetchImpl.mock.calls[0]![1] as RequestInit | undefined)?.headers).toMatchObject({
       'X-Domain-Resolve-Secret': 'test-secret',

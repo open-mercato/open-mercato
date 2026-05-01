@@ -1,0 +1,74 @@
+# Example Traefik dynamic configuration for non-Docker deployments.
+#
+# Use this when running Traefik outside Docker (or with a different
+# orchestrator) and you cannot rely on compose-managed labels. Replace the
+# `${...}` placeholders with concrete values before deploying — Traefik's file
+# provider does not interpolate environment variables.
+#
+# To enable: in `traefik.yml` swap the `providers.docker` block for
+#   providers:
+#     file:
+#       filename: /etc/traefik/dynamic.yml
+#       watch: true
+# and mount this file at /etc/traefik/dynamic.yml.
+
+http:
+  routers:
+    # Platform host(s) — bypass the domain-check middleware for known
+    # operator-controlled hostnames.
+    platform:
+      rule: "Host(`PLATFORM_PRIMARY_HOST_HERE`)"
+      priority: 100
+      entryPoints:
+        - websecure
+      service: app-upstream
+      tls:
+        certResolver: letsencrypt
+
+    # Catch-all for custom domains. Lower priority means the platform router
+    # wins on overlap.
+    customer-domains:
+      rule: "HostRegexp(`{any:.+}`)"
+      priority: 1
+      entryPoints:
+        - websecure
+      service: app-upstream
+      middlewares:
+        - inject-domain-check-secret
+        - domain-check
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    # Adds the shared secret to the original request so ForwardAuth can pass
+    # it through to the app's domain-check endpoint. Replace
+    # DOMAIN_CHECK_SECRET_HERE with the same value used in the app
+    # environment (DOMAIN_CHECK_SECRET).
+    inject-domain-check-secret:
+      headers:
+        customRequestHeaders:
+          X-Domain-Check-Secret: "DOMAIN_CHECK_SECRET_HERE"
+
+    # ForwardAuth gates each request: returns 404 for unmapped/unverified hosts
+    # so unauthorized hostnames cannot reach the portal handlers. Traefik
+    # cannot template the auth URL with the request's host, so it forwards
+    # the original Host as X-Forwarded-Host; the app's domain-check route
+    # accepts both `?host=` and that header.
+    domain-check:
+      forwardAuth:
+        address: "http://app:3000/api/customer_accounts/domain-check"
+        authRequestHeaders:
+          - "X-Domain-Check-Secret"
+          - "X-Forwarded-Host"
+          - "X-Forwarded-Proto"
+          - "X-Forwarded-Uri"
+        authResponseHeaders:
+          - "X-Open-Mercato-Origin"
+        trustForwardHeader: false
+
+  services:
+    app-upstream:
+      loadBalancer:
+        servers:
+          - url: "http://app:3000"
+        passHostHeader: true

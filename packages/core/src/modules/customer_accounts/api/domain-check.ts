@@ -42,7 +42,11 @@ export async function GET(req: Request) {
   if (!supplied || supplied !== expected) return unauthorized('Forbidden')
 
   const url = new URL(req.url)
-  const rawHost = url.searchParams.get('host')
+  // Traefik's ForwardAuth middleware cannot template the auth URL with the
+  // original Host, so it forwards the original request via X-Forwarded-Host.
+  // Manual / direct callers can still pass `?host=` explicitly.
+  const rawHost =
+    url.searchParams.get('host') ?? req.headers.get('x-forwarded-host')
   if (!rawHost) return notFound()
   const hostname = tryNormalizeHostname(rawHost)
   if (!hostname) return notFound()

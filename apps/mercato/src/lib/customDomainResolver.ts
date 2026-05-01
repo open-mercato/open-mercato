@@ -80,7 +80,7 @@ export function createCustomDomainRouter(deps: CustomDomainRouterDeps = {}): Cus
 
   async function singleResolve(hostname: string): Promise<DomainResolution | null> {
     if (!origin || !secret) return null
-    const url = `${origin}/api/customer-accounts/domain-resolve?host=${encodeURIComponent(hostname)}`
+    const url = `${origin}/api/customer_accounts/domain-resolve?host=${encodeURIComponent(hostname)}`
     let response: Response
     try {
       response = await fetchWithTimeout(
@@ -124,7 +124,7 @@ export function createCustomDomainRouter(deps: CustomDomainRouterDeps = {}): Cus
     if (!origin || !secret) {
       return { primed: 0, error: 'INTERNAL_APP_ORIGIN or DOMAIN_RESOLVE_SECRET is not configured' }
     }
-    const url = `${origin}/api/customer-accounts/domain-resolve/all`
+    const url = `${origin}/api/customer_accounts/domain-resolve/all`
     try {
       const response = await fetchWithTimeout(
         fetcher,
