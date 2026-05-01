@@ -25,6 +25,7 @@ import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
+import { coerceDisplayName } from '../../../../lib/displayName'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
@@ -103,13 +104,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const rawCompanyDisplayName = data?.company?.displayName
-  const companyDisplayName =
-    typeof rawCompanyDisplayName === 'string'
-      ? rawCompanyDisplayName
-      : rawCompanyDisplayName == null
-        ? ''
-        : String(rawCompanyDisplayName)
+  const companyDisplayName = coerceDisplayName(data?.company?.displayName)
   const companyName = companyDisplayName.trim().length
     ? companyDisplayName
     : t('customers.companies.list.deleteFallbackName', 'this company')

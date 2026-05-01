@@ -45,6 +45,7 @@ import {
   type PersonEditFormValues,
   type PersonOverview,
 } from '../../../../components/formConfig'
+import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -95,13 +96,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const rawPersonDisplayName = data?.person?.displayName
-  const personDisplayName =
-    typeof rawPersonDisplayName === 'string'
-      ? rawPersonDisplayName
-      : rawPersonDisplayName == null
-        ? ''
-        : String(rawPersonDisplayName)
+  const personDisplayName = coerceDisplayName(data?.person?.displayName)
   const personName = personDisplayName.trim().length
     ? personDisplayName
     : t('customers.people.list.deleteFallbackName', 'this person')
@@ -109,6 +104,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const personDisplayNameForGroups = personDisplayName.trim().length
     ? personDisplayName.trim()
     : null
+
+  const scheduleDialogCompanyName = coerceDisplayNameOrNull(
+    data?.company?.displayName ?? data?.companies?.[0]?.displayName ?? null,
+  )
 
   const groups = React.useMemo(
     () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
@@ -584,13 +583,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
             entityName={personName}
-            companyName={
-              (() => {
-                const candidate = data.company?.displayName ?? data.companies?.[0]?.displayName ?? null
-                if (candidate == null) return null
-                return typeof candidate === 'string' ? candidate : String(candidate)
-              })()
-            }
+            companyName={scheduleDialogCompanyName}
             entityType="person"
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}

@@ -1,3 +1,24 @@
+/**
+ * Coerce an arbitrary `displayName` payload to a string for safe UI consumption.
+ *
+ * The encryption pipeline used to coerce numeric-looking string display names
+ * back into numbers (issue #1734). The root cause is fixed in
+ * `parseDecryptedFieldValue`, but this helper remains as belt-and-suspenders
+ * for any persisted data that was already corrupted on read paths that bypass
+ * the new heuristic.
+ */
+export function coerceDisplayName(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  return String(value)
+}
+
+export function coerceDisplayNameOrNull(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value === 'string') return value
+  return String(value)
+}
+
 export function deriveDisplayName(
   firstName: string | null | undefined,
   lastName: string | null | undefined,

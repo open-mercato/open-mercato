@@ -582,7 +582,13 @@ export async function loadCustomFieldValues(opts: {
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
     const decrypted = encrypted
-      ? await decryptCustomFieldValue(value, resolvedTenantId ?? tenantId ?? null, getEncryptionService(), encryptionCache)
+      ? await decryptCustomFieldValue(
+          value,
+          resolvedTenantId ?? tenantId ?? null,
+          getEncryptionService(),
+          encryptionCache,
+          { kind: def?.kind ?? null },
+        )
       : value
     const existing = buckets.get(bucketKey)
     if (existing) {

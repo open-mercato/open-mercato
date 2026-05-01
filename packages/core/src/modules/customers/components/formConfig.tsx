@@ -7,7 +7,7 @@ import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
+import { coerceDisplayName, deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   Dialog,
   DialogContent,
@@ -1942,16 +1942,9 @@ export type PersonOverview = {
 export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<CompanyEditFormValues> {
   const rawPhone = overview.company.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
-  const rawDisplayName = overview.company.displayName as unknown
-  const displayNameValue =
-    typeof rawDisplayName === 'string'
-      ? rawDisplayName
-      : rawDisplayName == null
-        ? ''
-        : String(rawDisplayName)
   return {
     id: overview.company.id,
-    displayName: displayNameValue,
+    displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
     status: overview.company.status ?? '',
@@ -1972,16 +1965,9 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
 export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial<PersonEditFormValues> {
   const rawPhone = overview.person.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
-  const rawDisplayName = overview.person.displayName as unknown
-  const displayNameValue =
-    typeof rawDisplayName === 'string'
-      ? rawDisplayName
-      : rawDisplayName == null
-        ? ''
-        : String(rawDisplayName)
   return {
     id: overview.person.id,
-    displayName: displayNameValue,
+    displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',

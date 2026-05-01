@@ -17,6 +17,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { CreatePersonDialog } from './CreatePersonDialog'
 import { PersonCard } from './PersonCard'
+import { coerceDisplayName } from '../../lib/displayName'
 import { DecisionMakersFooter } from './DecisionMakersFooter'
 import { RolesSection } from './RolesSection'
 import { LinkEntityDialog, type LinkEntityOption } from '../linking/LinkEntityDialog'
@@ -165,12 +166,8 @@ function sortCompanyPeople(
       const rightTimestamp = Date.parse(right.linkedAt ?? right.createdAt ?? '') || 0
       return rightTimestamp - leftTimestamp
     }
-    const leftLabel = (typeof left.displayName === 'string' ? left.displayName : String(left.displayName ?? ''))
-      .trim()
-      .toLowerCase()
-    const rightLabel = (typeof right.displayName === 'string' ? right.displayName : String(right.displayName ?? ''))
-      .trim()
-      .toLowerCase()
+    const leftLabel = coerceDisplayName(left.displayName).trim().toLowerCase()
+    const rightLabel = coerceDisplayName(right.displayName).trim().toLowerCase()
     if (sortMode === 'name-desc') return rightLabel.localeCompare(leftLabel)
     return leftLabel.localeCompare(rightLabel)
   })

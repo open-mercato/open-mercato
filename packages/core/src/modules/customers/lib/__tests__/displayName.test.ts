@@ -1,9 +1,51 @@
 /** @jest-environment node */
 import {
+  coerceDisplayName,
+  coerceDisplayNameOrNull,
   deriveDisplayName,
   deriveDisplayNameFromEmail,
   isDerivedDisplayName,
 } from '../displayName'
+
+describe('coerceDisplayName', () => {
+  it('returns the original string when input is already a string', () => {
+    expect(coerceDisplayName('Acme Corp')).toBe('Acme Corp')
+    expect(coerceDisplayName('123')).toBe('123')
+    expect(coerceDisplayName('')).toBe('')
+  })
+
+  it('returns empty string for null and undefined', () => {
+    expect(coerceDisplayName(null)).toBe('')
+    expect(coerceDisplayName(undefined)).toBe('')
+  })
+
+  it('coerces non-string primitives to strings (issue #1734 belt-and-suspenders)', () => {
+    expect(coerceDisplayName(123)).toBe('123')
+    expect(coerceDisplayName(0)).toBe('0')
+    expect(coerceDisplayName(true)).toBe('true')
+    expect(coerceDisplayName(false)).toBe('false')
+  })
+
+  it('coerces objects via String() (defensive — should not happen in practice)', () => {
+    expect(coerceDisplayName({ toString: () => 'custom' })).toBe('custom')
+  })
+})
+
+describe('coerceDisplayNameOrNull', () => {
+  it('returns null for null/undefined', () => {
+    expect(coerceDisplayNameOrNull(null)).toBeNull()
+    expect(coerceDisplayNameOrNull(undefined)).toBeNull()
+  })
+
+  it('returns the original string when input is a string (including empty)', () => {
+    expect(coerceDisplayNameOrNull('Acme')).toBe('Acme')
+    expect(coerceDisplayNameOrNull('')).toBe('')
+  })
+
+  it('coerces numeric values to strings', () => {
+    expect(coerceDisplayNameOrNull(42)).toBe('42')
+  })
+})
 
 describe('deriveDisplayName', () => {
   it('joins first and last name with a single space', () => {
