@@ -61,7 +61,7 @@ None used (no `--skill-url` provided). Reference is the project's own spec and `
 
 ### Phase 1: Foundation (Steps 1.1–1.4)
 
-- [ ] 1.1 Module scaffold — folder, `index.ts`, `acl.ts`, `di.ts`, `setup.ts` skeleton, register in `apps/mercato/src/modules.ts`, run `yarn generate` + structural cache purge
+- [x] 1.1 Module scaffold — folder, `index.ts`, `acl.ts`, `di.ts`, `setup.ts` skeleton, register in `apps/mercato/src/modules.ts`, run `yarn generate` + structural cache purge — 35002beff
 - [ ] 1.2 `Material` entity + migration (`yarn db:generate`) + zod validators in `data/validators.ts`
 - [ ] 1.3 Material CRUD API routes via `makeCrudRoute` + OpenAPI exports + undoable commands with custom field hooks
 - [ ] 1.4 Backend list/create/detail pages (`DataTable` + `CrudForm`) + `translations.ts` declaring `name`/`description`
