@@ -195,6 +195,54 @@ Practical consequences:
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
 
+## AI Assistant — adding agents, tools, UI parts, and overrides
+
+Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
+
+- Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
+- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.openmercato.dev/framework/ai-assistant/ui-parts).
+- Replace or disable an agent / tool that another module shipped via `<module>/ai-overrides.ts` (per-module file picked up by the generator) or the programmatic `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` API exported from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → file-based → base**.
+
+Example app-level overrides at boot:
+
+```ts
+// src/bootstrap.ts
+import {
+  applyAiAgentOverrides,
+  applyAiToolOverrides,
+} from '@open-mercato/ai-assistant'
+
+// Disable an agent provided by the assistant module by default.
+applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
+// Disable a default tool we do not use.
+applyAiToolOverrides({ 'inbox_ops_accept_action': null })
+```
+
+Or as a per-module file (preferred when the override should ship with a module):
+
+```ts
+// src/modules/<my_module>/ai-overrides.ts
+import type { AiAgentOverrides } from '@open-mercato/ai-assistant'
+import myAgent from './ai-agents/my-merchandising-agent'
+
+export const aiOverrides: AiAgentOverrides = {
+  agents: {
+    'catalog.merchandising_assistant': myAgent,  // replace
+    'catalog.catalog_assistant': null,           // disable
+  },
+}
+export default aiOverrides
+```
+
+After editing any `ai-overrides.ts`:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
+
 ## Disabling the Dashboards Module: Update /backend
 
 The default `/backend` page (`src/app/(backend)/backend/page.tsx`) renders `<DashboardScreen />` from `@open-mercato/ui/backend/dashboard`. That component's data flow depends on the `dashboards` module being enabled — widgets, layouts, and the dashboard API routes all live there.

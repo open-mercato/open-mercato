@@ -1,5 +1,6 @@
 import type { GeneratorExtension } from '../extension'
 import { createAiAgentsExtension } from './ai-agents'
+import { createAiOverridesExtension } from './ai-overrides'
 import { createAiToolsExtension } from './ai-tools'
 import { createAnalyticsExtension } from './analytics'
 import { createCommandInterceptorsExtension } from './command-interceptors'
@@ -24,6 +25,7 @@ export function loadGeneratorExtensions(): GeneratorExtension[] {
     createMessagesExtension(),
     createAiToolsExtension(),
     createAiAgentsExtension(),
+    createAiOverridesExtension(),
     createEventsExtension(),
     createAnalyticsExtension(),
     createTranslatableFieldsExtension(),

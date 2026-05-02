@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import type { SearchService } from '@open-mercato/search/service'
-import { registerMcpTool, getToolRegistry } from './tool-registry'
+import { registerMcpTool, getToolRegistry, toolRegistry, unregisterMcpTool } from './tool-registry'
+import {
+  applyToolOverrideMap,
+  composeToolOverrideMap,
+  type AiOverrideConfigEntry,
+} from './ai-overrides'
 import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
 
@@ -106,6 +111,58 @@ export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): nu
 }
 
 /**
+ * Apply a list of `<module>/ai-overrides.ts` entries to the live tool
+ * registry. Tools named with `null` are unregistered; tools mapped to a
+ * full definition replace the existing registration. Module load order
+ * controls precedence — last entry wins. Programmatic overrides (set via
+ * {@link applyAiToolOverrides}) supersede file-based entries.
+ *
+ * Safe to call when no override file is present (the entries array is
+ * empty); it is a no-op then.
+ */
+export function applyAiToolOverrideEntries(
+  entries: readonly AiOverrideConfigEntry[],
+): void {
+  const overrideMap = composeToolOverrideMap(entries)
+  if (Object.keys(overrideMap).length === 0) return
+  const baseTools = toolRegistry.getTools() as Map<string, McpToolDefinition>
+  const overridden = applyToolOverrideMap<McpToolDefinition>(baseTools, overrideMap)
+  for (const [name, value] of Object.entries(overrideMap)) {
+    if (value === null) {
+      unregisterMcpTool(name)
+      console.info(`[AI Overrides] Tool "${name}" disabled by override.`)
+      continue
+    }
+    const next = overridden.get(name)
+    if (!next) continue
+    // Re-register through the public path so moduleMap stays consistent.
+    registerMcpTool(next as McpToolDefinition, { moduleId: 'ai_overrides' })
+    console.info(`[AI Overrides] Tool "${name}" replaced by override.`)
+  }
+}
+
+/**
+ * Load `ai-overrides.generated.ts` (sibling of `ai-tools.generated.ts`)
+ * and apply its tool overrides. Safe to call when the file is missing
+ * (pre-generate builds, tests) — applies only programmatic overrides in
+ * that case.
+ */
+export async function loadGeneratedAiToolOverrides(): Promise<void> {
+  let entries: AiOverrideConfigEntry[] = []
+  try {
+    const mod = (await import(
+      '@/.mercato/generated/ai-overrides.generated'
+    )) as { aiOverrideEntries?: unknown[] }
+    entries = Array.isArray(mod.aiOverrideEntries)
+      ? (mod.aiOverrideEntries as AiOverrideConfigEntry[])
+      : []
+  } catch {
+    // No override file generated.
+  }
+  applyAiToolOverrideEntries(entries)
+}
+
+/**
  * Load the generated `ai-tools.generated.ts` file emitted by
  * `yarn generate` and register every declared module tool through the
  * existing `registerMcpTool` path. Safe to call when the generated file
@@ -119,7 +176,15 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
     const entries = Array.isArray(mod.aiToolConfigEntries)
       ? mod.aiToolConfigEntries
       : []
-    return registerGeneratedAiToolEntries(entries)
+    const count = registerGeneratedAiToolEntries(entries)
+    // Apply module-to-module + programmatic tool overrides AFTER the base
+    // registrations so disable / replace semantics work end-to-end.
+    try {
+      await loadGeneratedAiToolOverrides()
+    } catch (error) {
+      console.error('[AI Overrides] Failed to apply tool overrides:', error)
+    }
+    return count
   } catch (error) {
     console.error(
       '[MCP Tools] Could not load ai-tools.generated.ts (module tools unavailable):',

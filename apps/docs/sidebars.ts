@@ -377,6 +377,7 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/attachments",
             "framework/ai-assistant/mutation-approvals",
             "framework/ai-assistant/launcher",
+            "framework/ai-assistant/overrides",
             "framework/ai-assistant/settings",
             "framework/ai-assistant/playground",
           ],

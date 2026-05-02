@@ -107,6 +107,10 @@ When `agent.readOnly === true` (the default), the runtime strips any tool with `
 
 Agents shipped in `packages/core` that whitelist any `isMutation: true` tool default to **`mutationPolicy: 'confirm-required'`**, not `read-only`. The intent: writes are allowed but every one needs explicit user approval through the [mutation approval card](./mutation-approvals). Per-tenant overrides can downgrade to `read-only` to lock writes back down without a redeploy. They cannot escalate above what the agent declares.
 
+### Replacing or disabling a registered agent
+
+Modules can replace or disable an agent registered by another module via `<module>/ai-overrides.ts` or the programmatic `applyAiAgentOverrides({ ... })` API. `null` disables; a definition replaces. See [Overrides](./overrides) for the full contract, file layout, and resolution order.
+
 Concretely:
 
 - `customers.account_assistant` — `confirm-required` (whitelists `customers.update_deal_stage` + comment/activity tools)

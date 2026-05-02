@@ -513,11 +513,63 @@ When in doubt, add new — don't rename or remove.
 
 ---
 
+## 13. Overriding Another Module's Agent or Tool
+
+Use this when the module you are working on needs to **replace** or **disable** an agent / tool that another module already shipped — for example, swapping `catalog.merchandising_assistant` for a tenant-specific variant or hiding `catalog.catalog_assistant` from the launcher.
+
+**Path A — `<module>/ai-overrides.ts` (per-module file, generator-driven):**
+
+```ts
+// src/modules/<module>/ai-overrides.ts
+import type { AiAgentOverrides } from '@open-mercato/ai-assistant'
+import myMerchandisingAgent from './ai-agents/my-merchandising-agent'
+
+export const aiOverrides: AiAgentOverrides = {
+  agents: {
+    'catalog.merchandising_assistant': myMerchandisingAgent, // replace
+    'catalog.catalog_assistant': null,                       // disable
+  },
+  tools: {
+    'inbox_ops_accept_action': null,                         // disable a default tool
+  },
+}
+
+export default aiOverrides
+```
+
+**Path B — programmatic API (app-level / dynamic):**
+
+```ts
+import {
+  applyAiAgentOverrides,
+  applyAiToolOverrides,
+} from '@open-mercato/ai-assistant'
+
+// In src/bootstrap.ts or an equivalent boot-time entry point.
+applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
+applyAiToolOverrides({ 'inbox_ops_accept_action': null })
+```
+
+MUST rules:
+
+- MUST place `ai-overrides.ts` at the **module root**. Sub-files are not auto-discovered.
+- MUST keep map keys consistent with `value.id` (agent) / `value.name` (tool); mismatches log a warning and are skipped.
+- MUST NOT use overrides to patch your own module — author the canonical definition in `ai-agents.ts` / `ai-tools.ts` instead.
+- MUST run `yarn generate` after editing any `ai-overrides.ts` file.
+- MUST run `yarn mercato configs cache structural --all-tenants` after disabling an agent so existing tenants drop stale caches.
+
+Resolution order (highest precedence first): programmatic → file-based (`ai-overrides.ts`) → base (`ai-agents.ts` / `ai-tools.ts`). Last entry per id wins. `null` disables.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+
+---
+
 ## See Also
 
 - `packages/ai-assistant/AGENTS.md` — runtime internals, model factory, mutation contract.
 - `apps/docs/docs/framework/ai-assistant/architecture.mdx` — system map, request flow, persistence, generators.
 - `apps/docs/docs/framework/ai-assistant/developer-guide.mdx` — public companion to this skill.
+- `apps/docs/docs/framework/ai-assistant/overrides.mdx` — cross-module replace + disable.
 - `apps/docs/docs/framework/ai-assistant/agents.mdx` — agent contract reference, escape hatches.
 - `apps/docs/docs/framework/ai-assistant/ui-parts.mdx` — record cards + custom inline widgets.
 - `apps/docs/docs/framework/ai-assistant/attachments.mdx` — file upload contract + base64 inline encoding.
