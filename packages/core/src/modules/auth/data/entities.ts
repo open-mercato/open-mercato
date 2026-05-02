@@ -116,7 +116,10 @@ export class RoleSidebarPreference {
 }
 
 @Entity({ tableName: 'sidebar_variants' })
-@Unique({ properties: ['user', 'tenantId', 'name'] })
+// Uniqueness is enforced by a partial unique index (`sidebar_variants_active_name_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
 export class SidebarVariant {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

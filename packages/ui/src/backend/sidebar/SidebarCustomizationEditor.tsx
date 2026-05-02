@@ -700,7 +700,7 @@ export function SidebarCustomizationEditor({
         setError(formatVariantApiError(preferencesCall, t))
         return
       }
-      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch {}
+      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch { /* no listener attached — fine, AppShell will refresh on next navigation */ }
       // Refresh the list so isActive flags are accurate, plus refresh roles so hasPreference flags update.
       const [list, rolesPayload] = await Promise.all([
         loadVariantsList(),
@@ -754,7 +754,7 @@ export function SidebarCustomizationEditor({
         setError(t('appShell.sidebarCustomizationSaveError'))
         return
       }
-      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch {}
+      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch { /* no listener attached — fine, AppShell will refresh on next navigation */ }
       const list = await loadVariantsList()
       setVariants(list)
       const fresh = list.find((v) => v.id === selectedVariant.id) ?? selectedVariant
@@ -791,7 +791,7 @@ export function SidebarCustomizationEditor({
         setError(t('appShell.sidebarCustomizationSaveError'))
         return
       }
-      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch {}
+      try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch { /* no listener attached — fine, AppShell will refresh on next navigation */ }
       const list = await loadVariantsList()
       setVariants(list)
       const fallback = list[0] ?? null
@@ -1314,6 +1314,7 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
 type SortableItemRowProps = ItemRowProps & { id: string }
 
 function SortableItemRow({ id, ...rowProps }: SortableItemRowProps) {
+  const t = useT()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, setActivatorNodeRef } = useSortable({ id })
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -1321,17 +1322,19 @@ function SortableItemRow({ id, ...rowProps }: SortableItemRowProps) {
     opacity: isDragging ? 0.5 : 1,
   }
   const dragHandle = (
-    <button
+    <IconButton
       ref={setActivatorNodeRef}
       type="button"
-      className="shrink-0 mt-1.5 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
-      aria-label="Drag to reorder"
+      variant="ghost"
+      size="sm"
+      className="shrink-0 mt-1.5 cursor-grab touch-none active:cursor-grabbing"
+      aria-label={t('appShell.sidebarCustomizationDragToReorder', 'Drag to reorder')}
       disabled={rowProps.saving}
       {...attributes}
       {...listeners}
     >
       <GripVertical className="size-4" />
-    </button>
+    </IconButton>
   )
   return (
     <div ref={setNodeRef} style={style}>
@@ -1467,6 +1470,7 @@ function SidebarPreview({
   productName: string
   pickFirstActive: boolean
 }) {
+  const t = useT()
   // Pre-compute the first visible item so we can render it as the "active" preview state.
   // This shows the user what the active state of their sidebar will look like.
   const activeKey = React.useMemo<string | null>(() => {
@@ -1502,11 +1506,13 @@ function SidebarPreview({
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background pl-2.5 pr-2 py-2 shadow-sm">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1 text-sm text-muted-foreground/70 truncate">
-            Search...
+            {t('appShell.sidebarCustomizationPreviewSearchPlaceholder', 'Search...')}
           </span>
         </div>
         {groups.length === 0 ? (
-          <p className="px-2 text-sm text-muted-foreground">No groups to preview.</p>
+          <p className="px-2 text-sm text-muted-foreground">
+            {t('appShell.sidebarCustomizationPreviewEmpty', 'No groups to preview.')}
+          </p>
         ) : (
           <nav className="flex flex-col gap-2">
             {groups.map((group, gi) => {

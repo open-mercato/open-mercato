@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -9,6 +10,10 @@ import {
   listSidebarVariants,
   type SidebarVariantRecord,
 } from '../../../services/sidebarPreferencesService'
+import {
+  createSidebarVariantInputSchema,
+  sidebarVariantRecordSchema,
+} from '../../../data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -16,45 +21,14 @@ export const metadata = {
   POST: { requireAuth: true },
 }
 
-const sidebarSettingsSchema = z.object({
-  version: z.number().int().positive().optional(),
-  groupOrder: z.array(z.string().min(1)).max(200).optional(),
-  groupLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
-  itemLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
-  hiddenItems: z.array(z.string().min(1)).max(500).optional(),
-  itemOrder: z.record(z.string().min(1), z.array(z.string().min(1)).max(500)).optional(),
-})
-
-const createVariantInputSchema = z.object({
-  name: z.string().trim().min(1).max(120).optional(),
-  settings: sidebarSettingsSchema.optional(),
-  isActive: z.boolean().optional(),
-})
-
-const variantRecordSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  isActive: z.boolean(),
-  settings: z.object({
-    version: z.number().int().positive(),
-    groupOrder: z.array(z.string()),
-    groupLabels: z.record(z.string(), z.string()),
-    itemLabels: z.record(z.string(), z.string()),
-    hiddenItems: z.array(z.string()),
-    itemOrder: z.record(z.string(), z.array(z.string())),
-  }),
-  createdAt: z.string(),
-  updatedAt: z.string().nullable(),
-})
-
 const variantListResponseSchema = z.object({
   locale: z.string(),
-  variants: z.array(variantRecordSchema),
+  variants: z.array(sidebarVariantRecordSchema),
 })
 
 const variantCreateResponseSchema = z.object({
   locale: z.string(),
-  variant: variantRecordSchema,
+  variant: sidebarVariantRecordSchema,
 })
 
 const errorSchema = z.object({ error: z.string() })
@@ -85,7 +59,7 @@ export async function GET(req: Request) {
 
   const { locale } = await resolveTranslations()
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
 
   const variants = await listSidebarVariants(em, {
     userId: effectiveUserId,
@@ -116,7 +90,7 @@ export async function POST(req: Request) {
     parsedBody = {}
   }
 
-  const parsed = createVariantInputSchema.safeParse(parsedBody)
+  const parsed = createSidebarVariantInputSchema.safeParse(parsedBody)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
@@ -124,7 +98,7 @@ export async function POST(req: Request) {
   try {
     const { locale } = await resolveTranslations()
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
+    const em = resolve('em') as EntityManager
 
     const variant = await createSidebarVariant(em, {
       userId: effectiveUserId,
@@ -133,7 +107,7 @@ export async function POST(req: Request) {
       locale,
     }, {
       name: parsed.data.name ?? null,
-      settings: (parsed.data.settings as any) ?? null,
+      settings: parsed.data.settings ?? null,
       isActive: parsed.data.isActive,
     })
 
@@ -172,7 +146,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Create a sidebar variant',
       description: 'Creates a new variant. If `name` is omitted or blank, an auto-name like "My preferences", "My preferences 2", … is assigned.',
-      requestBody: { contentType: 'application/json', schema: createVariantInputSchema },
+      requestBody: { contentType: 'application/json', schema: createSidebarVariantInputSchema },
       responses: [
         { status: 200, description: 'Variant created', schema: variantCreateResponseSchema },
         { status: 400, description: 'Invalid payload', schema: errorSchema },

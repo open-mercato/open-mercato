@@ -866,19 +866,6 @@
       },
       "indexes": [
         {
-          "keyName": "sidebar_variants_user_id_tenant_id_locale_name_unique",
-          "columnNames": [
-            "user_id",
-            "tenant_id",
-            "locale",
-            "name"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
           "keyName": "sidebar_variants_pkey",
           "columnNames": [
             "id"

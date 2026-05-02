@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -84,16 +85,16 @@ function emptySettings(): EmptySettings {
 }
 
 async function loadRolesPayload(
-  em: any,
+  em: EntityManager,
   options: { tenantId: string | null; locale: string },
 ): Promise<Array<{ id: string; name: string; hasPreference: boolean }>> {
-  const roleScope = options.tenantId
+  const roleScope: FilterQuery<Role> = options.tenantId
     ? { $or: [{ tenantId: options.tenantId }, { tenantId: null }] }
     : { tenantId: null }
   const roles = await findWithDecryption(
     em,
     Role,
-    roleScope as any,
+    roleScope,
     { orderBy: { name: 'asc' } },
     { tenantId: options.tenantId, organizationId: null },
   )
@@ -111,13 +112,13 @@ async function loadRolesPayload(
 }
 
 async function findRoleInScope(
-  em: any,
+  em: EntityManager,
   options: { roleId: string; tenantId: string | null },
 ): Promise<Role | null> {
   const role = await findOneWithDecryption(
     em,
     Role,
-    { id: options.roleId } as any,
+    { id: options.roleId },
     undefined,
     { tenantId: options.tenantId, organizationId: null },
   )
@@ -138,7 +139,7 @@ export async function GET(req: Request) {
 
   const { locale } = await resolveTranslations()
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
   const rbac = resolve('rbacService') as any
 
   const canApplyToRoles = await rbac.userHasAllFeatures?.(
@@ -294,7 +295,7 @@ export async function PUT(req: Request) {
 
   const { locale } = await resolveTranslations()
   const container = await createRequestContainer()
-  const em = container.resolve('em') as any
+  const em = container.resolve('em') as EntityManager
   const rbac = container.resolve('rbacService') as any
   const cache = container.resolve('cache') as { deleteByTags?: (tags: string[]) => Promise<unknown> } | undefined
 
@@ -361,14 +362,14 @@ export async function PUT(req: Request) {
     locale,
   }, payload)
 
-  const roleScope = auth.tenantId
+  const roleScope: FilterQuery<Role> = auth.tenantId
     ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
     : { tenantId: null }
   const availableRoles = canApplyToRoles
     ? await findWithDecryption(
         em,
         Role,
-        roleScope as any,
+        roleScope,
         { orderBy: { name: 'asc' } },
         { tenantId: auth.tenantId ?? null, organizationId: null },
       )
@@ -456,7 +457,7 @@ export async function DELETE(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as any
+  const em = container.resolve('em') as EntityManager
   const rbac = container.resolve('rbacService') as any
   const cache = container.resolve('cache') as { deleteByTags?: (tags: string[]) => Promise<unknown> } | undefined
 

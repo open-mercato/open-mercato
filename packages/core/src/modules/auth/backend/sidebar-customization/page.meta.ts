@@ -9,9 +9,16 @@ const sidebarCustomizeIcon = React.createElement(
   React.createElement('path', { d: 'M17.5 14v7' }),
 )
 
+// Page is reachable by any authenticated user — every staff user has
+// always been able to customize their PERSONAL sidebar (the variants /
+// preferences APIs gate only role-application via `auth.sidebar.manage`).
+// Inside the editor, the "Apply to roles" card and role variants picker are
+// already conditionally hidden via `canApplyToRoles` (server-checked against
+// `auth.sidebar.manage`), so non-admins see only the personal-scope flow,
+// matching the pre-PR inline-editor behavior. Restricting the whole page
+// to `auth.sidebar.manage` would be a stealth regression for non-admins.
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['auth.sidebar.manage'],
   pageTitle: 'Customize sidebar',
   pageTitleKey: 'appShell.customizeSidebar',
   pageGroup: 'Customization',

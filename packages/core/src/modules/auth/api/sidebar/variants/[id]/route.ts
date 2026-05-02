@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -10,6 +11,10 @@ import {
   updateSidebarVariant,
   type SidebarVariantRecord,
 } from '../../../../services/sidebarPreferencesService'
+import {
+  sidebarVariantRecordSchema,
+  updateSidebarVariantInputSchema,
+} from '../../../../data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -18,40 +23,9 @@ export const metadata = {
   DELETE: { requireAuth: true },
 }
 
-const sidebarSettingsSchema = z.object({
-  version: z.number().int().positive().optional(),
-  groupOrder: z.array(z.string().min(1)).max(200).optional(),
-  groupLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
-  itemLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
-  hiddenItems: z.array(z.string().min(1)).max(500).optional(),
-  itemOrder: z.record(z.string().min(1), z.array(z.string().min(1)).max(500)).optional(),
-})
-
-const updateVariantInputSchema = z.object({
-  name: z.string().trim().min(1).max(120).optional(),
-  settings: sidebarSettingsSchema.optional(),
-  isActive: z.boolean().optional(),
-})
-
-const variantRecordSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  isActive: z.boolean(),
-  settings: z.object({
-    version: z.number().int().positive(),
-    groupOrder: z.array(z.string()),
-    groupLabels: z.record(z.string(), z.string()),
-    itemLabels: z.record(z.string(), z.string()),
-    hiddenItems: z.array(z.string()),
-    itemOrder: z.record(z.string(), z.array(z.string())),
-  }),
-  createdAt: z.string(),
-  updatedAt: z.string().nullable(),
-})
-
 const variantResponseSchema = z.object({
   locale: z.string(),
-  variant: variantRecordSchema,
+  variant: sidebarVariantRecordSchema,
 })
 
 const deleteResponseSchema = z.object({ ok: z.literal(true) })
@@ -93,7 +67,7 @@ export async function GET(req: Request) {
 
   const { locale } = await resolveTranslations()
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
 
   const variant = await loadSidebarVariant(em, {
     userId: effectiveUserId,
@@ -123,14 +97,14 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const parsed = updateVariantInputSchema.safeParse(parsedBody)
+  const parsed = updateSidebarVariantInputSchema.safeParse(parsedBody)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
 
   const { locale } = await resolveTranslations()
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
 
   const variant = await updateSidebarVariant(em, {
     userId: effectiveUserId,
@@ -139,7 +113,7 @@ export async function PUT(req: Request) {
     locale,
   }, id, {
     name: parsed.data.name,
-    settings: (parsed.data.settings as any) ?? null,
+    settings: parsed.data.settings ?? null,
     isActive: parsed.data.isActive,
   })
 
@@ -159,7 +133,7 @@ export async function DELETE(req: Request) {
 
   const { locale } = await resolveTranslations()
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
 
   const ok = await deleteSidebarVariant(em, {
     userId: effectiveUserId,
@@ -188,7 +162,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Update a sidebar variant',
       description: 'Updates the variant\'s name, settings, and/or isActive flag. Setting `isActive: true` deactivates other variants in the same scope (only one active per user/tenant/locale).',
-      requestBody: { contentType: 'application/json', schema: updateVariantInputSchema },
+      requestBody: { contentType: 'application/json', schema: updateSidebarVariantInputSchema },
       responses: [
         { status: 200, description: 'Variant updated', schema: variantResponseSchema },
         { status: 400, description: 'Invalid payload', schema: errorSchema },

@@ -85,8 +85,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         >
           <span
             className={cn(
-              'block size-3 rounded-full bg-white transition-transform duration-200',
-              'shadow-[0_1px_2px_rgba(10,13,20,0.10),0_0_0_0.5px_rgba(10,13,20,0.04)]',
+              'block size-3 rounded-full bg-white transition-transform duration-200 shadow-switch-thumb',
               currentChecked ? 'translate-x-3' : 'translate-x-0'
             )}
           />

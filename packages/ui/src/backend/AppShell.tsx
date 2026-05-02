@@ -537,15 +537,18 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
   const asideClassesBase = `border-r bg-background py-4`;
 
-  // Persist collapse state to localStorage and cookie
+  // Persist collapse state to localStorage and cookie. Both writes can throw in
+  // private/incognito mode (storage blocked) or when cookies are disabled —
+  // the persisted preference is purely a UX nice-to-have, never functional, so
+  // swallow the failure and let the component fall back to the default state.
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch {}
+    try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch { /* localStorage blocked (private mode) — non-critical */ }
     try {
       document.cookie = `om_sidebar_collapsed=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
-    } catch {}
+    } catch { /* cookies disabled — non-critical */ }
   }, [collapsed])
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch {}
+    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
   }, [openGroups])
 
   // Ensure current route's group is expanded on load

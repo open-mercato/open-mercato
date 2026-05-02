@@ -1,4 +1,4 @@
-import { EntityManager } from '@mikro-orm/postgresql'
+import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleSidebarPreference, SidebarVariant, User, UserSidebarPreference } from '../data/entities'
 import {
@@ -96,7 +96,7 @@ export async function loadRoleSidebarPreferences(
   const prefs = await findWithDecryption(
     em,
     RoleSidebarPreference,
-    { role: { $in: options.roleIds }, tenantId: tenantFilter as any },
+    { role: { $in: options.roleIds }, tenantId: tenantFilter } as FilterQuery<RoleSidebarPreference>,
     undefined,
     { tenantId, organizationId: null },
   )
@@ -126,7 +126,7 @@ export async function loadFirstRoleSidebarPreference(
   const prefs = await findWithDecryption(
     em,
     RoleSidebarPreference,
-    { role: { $in: options.roleIds }, tenantId: tenantFilter as any },
+    { role: { $in: options.roleIds }, tenantId: tenantFilter } as FilterQuery<RoleSidebarPreference>,
     undefined,
     { tenantId, organizationId: null },
   )
@@ -335,7 +335,7 @@ export async function createSidebarVariant(
   scope: VariantScope,
   input: {
     name?: string | null
-    settings?: SidebarPreferencesSettings | null
+    settings?: Partial<SidebarPreferencesSettings> | null
     isActive?: boolean
   },
 ): Promise<SidebarVariantRecord> {
@@ -370,7 +370,7 @@ export async function updateSidebarVariant(
   variantId: string,
   input: {
     name?: string
-    settings?: SidebarPreferencesSettings | null
+    settings?: Partial<SidebarPreferencesSettings> | null
     isActive?: boolean
   },
 ): Promise<SidebarVariantRecord | null> {
@@ -428,14 +428,10 @@ async function deactivateAllVariants(
   exceptId?: string,
 ): Promise<void> {
   const { userId, tenantId } = normalizeVariantScope(scope)
-  const where: Record<string, unknown> = {
-    user: userId,
-    tenantId,
-    isActive: true,
-    deletedAt: null,
-  }
-  if (exceptId) where.id = { $ne: exceptId }
-  await em.nativeUpdate(SidebarVariant, where as any, { isActive: false })
+  const where: FilterQuery<SidebarVariant> = exceptId
+    ? { user: userId, tenantId, isActive: true, deletedAt: null, id: { $ne: exceptId } }
+    : { user: userId, tenantId, isActive: true, deletedAt: null }
+  await em.nativeUpdate(SidebarVariant, where, { isActive: false })
 }
 
 function normalizeVariantScope(scope: VariantScope) {
