@@ -164,6 +164,8 @@ export function useMessageCompose({
   // because `keyboard.type` characters appeared to "type nowhere" — they were
   // typed correctly, then immediately wiped by the next effect run.
   const isOpenRef = React.useRef(false)
+  const wasOpenRef = React.useRef(false)
+  const submitLockReleaseRef = React.useRef<(() => void) | null>(null)
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types'],
@@ -288,6 +290,28 @@ export function useMessageCompose({
     normalizedRequiredActionMode,
     requiredActionConfig?.defaultActionType,
   ])
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      submitLockReleaseRef.current?.()
+      submitLockReleaseRef.current = null
+      wasOpenRef.current = false
+      return
+    }
+
+    const justOpened = isOpen && !wasOpenRef.current
+    wasOpenRef.current = isOpen
+    if (!justOpened) return
+    submitLockReleaseRef.current?.()
+    submitLockReleaseRef.current = null
+    setSubmitting(false)
+    setSubmitMode('send')
+  }, [isOpen])
+
+  React.useEffect(() => () => {
+    submitLockReleaseRef.current?.()
+    submitLockReleaseRef.current = null
+  }, [])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -513,6 +537,8 @@ export function useMessageCompose({
 
     setSubmitMode(isComposeDraftSubmit ? 'draft' : 'send')
     setSubmitting(true)
+    let keepSubmitLock = false
+    let shouldReturnFalse = false
 
     try {
       let nextAttachmentIds = attachmentIds
@@ -525,44 +551,60 @@ export function useMessageCompose({
             : t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.')
           setSubmitError(message)
           flash(message, 'error')
-          return false
+          shouldReturnFalse = true
         }
       }
 
-      const { endpoint, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+      if (!shouldReturnFalse) {
+        const { endpoint, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
-      const call = await apiCall<{ id?: string }>(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+        const call = await apiCall<{ id?: string }>(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
 
-      if (!call.ok) {
-        const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
-        setSubmitError(message)
-        flash(message, 'error')
-        return false
+        if (!call.ok) {
+          const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
+          setSubmitError(message)
+          flash(message, 'error')
+          shouldReturnFalse = true
+        } else {
+          flash(operation.successMessage, 'success')
+          keepSubmitLock = true
+
+          onSuccess?.({ id: call.result?.id })
+
+          if (!inline) {
+            onOpenChange?.(false)
+          }
+        }
       }
-
-      flash(operation.successMessage, 'success')
-
-      onSuccess?.({ id: call.result?.id })
-
-      if (!inline) {
-        onOpenChange?.(false)
-      }
-      return true
     } catch (error) {
       const message = error instanceof Error
         ? error.message
         : t('messages.errors.sendFailed', 'Failed to send message.')
       setSubmitError(message)
       flash(message, 'error')
-      return false
+      shouldReturnFalse = true
     } finally {
-      setSubmitting(false)
+      if (!keepSubmitLock) {
+        setSubmitting(false)
+      }
       setSubmitMode('send')
     }
+
+    if (shouldReturnFalse) {
+      return false
+    }
+
+    if (keepSubmitLock) {
+      return await new Promise<boolean>((resolve) => {
+        submitLockReleaseRef.current = () => resolve(true)
+      })
+    }
+
+    return true
   }, [
     attachmentIds,
     composeDraftOperation,
