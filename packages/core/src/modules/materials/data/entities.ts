@@ -1,0 +1,132 @@
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+
+export type MaterialKind = 'raw' | 'semi' | 'final' | 'tool' | 'indirect'
+export type MaterialLifecycleState = 'draft' | 'active' | 'phase_out' | 'obsolete'
+
+@Entity({ tableName: 'materials' })
+@Index({ name: 'materials_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
+@Index({ name: 'materials_org_tenant_lifecycle_idx', properties: ['organizationId', 'tenantId', 'lifecycleState'] })
+@Index({
+  name: 'materials_org_code_unique',
+  expression:
+    `create unique index "materials_org_code_unique" on "materials" ("organization_id", "code") where deleted_at is null`,
+})
+export class Material {
+  [OptionalProps]?:
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'lifecycleState'
+    | 'isPurchasable'
+    | 'isSellable'
+    | 'isStockable'
+    | 'isProducible'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text' })
+  kind!: MaterialKind
+
+  @Property({ name: 'lifecycle_state', type: 'text', default: 'draft' })
+  lifecycleState: MaterialLifecycleState = 'draft'
+
+  @Property({ name: 'replacement_material_id', type: 'uuid', nullable: true })
+  replacementMaterialId?: string | null
+
+  @Property({ name: 'base_unit_id', type: 'uuid', nullable: true })
+  baseUnitId?: string | null
+
+  // Capability flags. Phase 1: is_purchasable / is_stockable / is_producible are user-settable
+  // (no profile tables yet for those capabilities). is_sellable is materialized from
+  // MaterialSalesProfile row existence — direct mutation is rejected by validator on Material
+  // update; toggle by creating/deleting the sales profile via /api/materials/[id]/sales-profile.
+  // Subscriber subscribers/sync-sales-capability.ts re-syncs the flag on every sales profile event.
+  @Property({ name: 'is_purchasable', type: 'boolean', default: true })
+  isPurchasable: boolean = true
+
+  @Property({ name: 'is_sellable', type: 'boolean', default: false })
+  isSellable: boolean = false
+
+  @Property({ name: 'is_stockable', type: 'boolean', default: true })
+  isStockable: boolean = true
+
+  @Property({ name: 'is_producible', type: 'boolean', default: false })
+  isProducible: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'material_sales_profiles' })
+@Index({
+  name: 'material_sales_profiles_material_unique',
+  expression:
+    `create unique index "material_sales_profiles_material_unique" on "material_sales_profiles" ("material_id") where deleted_at is null`,
+})
+@Index({
+  name: 'material_sales_profiles_org_gtin_unique',
+  expression:
+    `create unique index "material_sales_profiles_org_gtin_unique" on "material_sales_profiles" ("organization_id", "gtin") where gtin is not null and deleted_at is null`,
+})
+export class MaterialSalesProfile {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // 1:1 owning side. FK ID only — no MikroORM relation across module-internal aggregate (kept as
+  // bare uuid for symmetry with other intra-module references and to keep load patterns explicit).
+  @Property({ name: 'material_id', type: 'uuid' })
+  materialId!: string
+
+  @Property({ type: 'text', nullable: true })
+  gtin?: string | null
+
+  @Property({ name: 'commodity_code', type: 'text', nullable: true })
+  commodityCode?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
