@@ -78,6 +78,33 @@ export const updateMaterialSchema = scopedSchema
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>
 
+// ── Lifecycle transition ───────────────────────────────────────────────────────
+
+/**
+ * Allowed state transitions per spec: draft→active→phase_out→obsolete; plus phase_out→active.
+ * Used by both the validator (form-level guard) and the lifecycle command (defense in depth).
+ */
+export const MATERIAL_LIFECYCLE_TRANSITIONS: Record<
+  z.infer<typeof materialLifecycleStateSchema>,
+  ReadonlyArray<z.infer<typeof materialLifecycleStateSchema>>
+> = {
+  draft: ['active'],
+  active: ['phase_out'],
+  phase_out: ['obsolete', 'active'],
+  obsolete: [],
+}
+
+export const lifecycleTransitionSchema = scopedSchema
+  .extend({
+    materialId: uuid(),
+    toState: materialLifecycleStateSchema,
+    reason: z.string().trim().max(2000).optional().nullable(),
+    replacementMaterialId: uuid().optional().nullable(),
+  })
+  .strict()
+
+export type LifecycleTransitionInput = z.infer<typeof lifecycleTransitionSchema>
+
 // ── MaterialUnit (N:1 child) ────────────────────────────────────────────────────
 
 export const MATERIAL_UNIT_USAGE_VALUES = ['stock', 'purchase', 'sales', 'production'] as const

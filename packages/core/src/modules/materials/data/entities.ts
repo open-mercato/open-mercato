@@ -285,6 +285,49 @@ export class MaterialPrice {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'material_lifecycle_events' })
+@Index({
+  name: 'material_lifecycle_events_material_changed_idx',
+  expression:
+    `create index "material_lifecycle_events_material_changed_idx" on "material_lifecycle_events" ("material_id", "changed_at" desc)`,
+})
+export class MaterialLifecycleEvent {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'material_id', type: 'uuid' })
+  materialId!: string
+
+  @Property({ name: 'from_state', type: 'text' })
+  fromState!: MaterialLifecycleState
+
+  @Property({ name: 'to_state', type: 'text' })
+  toState!: MaterialLifecycleState
+
+  @Property({ name: 'changed_by_user_id', type: 'uuid', nullable: true })
+  changedByUserId?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ name: 'replacement_material_id', type: 'uuid', nullable: true })
+  replacementMaterialId?: string | null
+
+  @Property({ name: 'changed_at', type: Date })
+  changedAt!: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 @Entity({ tableName: 'material_sales_profiles' })
 @Index({
   name: 'material_sales_profiles_material_unique',
