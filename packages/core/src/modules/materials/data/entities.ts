@@ -224,6 +224,67 @@ export class MaterialSupplierLink {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'material_prices' })
+@Index({ name: 'material_prices_supplier_link_valid_from_idx', properties: ['materialSupplierLinkId', 'validFrom'] })
+@Index({ name: 'material_prices_currency_idx', properties: ['currencyId'] })
+export class MaterialPrice {
+  [OptionalProps]?:
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'baseCurrencyAmount'
+    | 'baseCurrencyAt'
+    | 'validFrom'
+    | 'validTo'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'material_supplier_link_id', type: 'uuid' })
+  materialSupplierLinkId!: string
+
+  // Original supplier price in their currency. Stored as numeric string by mikroORM v7.
+  @Property({ name: 'price_amount', type: 'decimal', precision: 18, scale: 6 })
+  priceAmount!: string
+
+  // FK ID into currencies.currencies — validator checks existence in scope.
+  @Property({ name: 'currency_id', type: 'uuid' })
+  currencyId!: string
+
+  // Cached conversion to tenant base currency. Null until FX subscriber populates it (Step 9).
+  @Property({ name: 'base_currency_amount', type: 'decimal', precision: 18, scale: 6, nullable: true })
+  baseCurrencyAmount?: string | null
+
+  @Property({ name: 'base_currency_at', type: Date, nullable: true })
+  baseCurrencyAt?: Date | null
+
+  // Optional validity window. valid_to defaults open (NULL = "current").
+  @Property({ name: 'valid_from', type: Date, nullable: true })
+  validFrom?: Date | null
+
+  @Property({ name: 'valid_to', type: Date, nullable: true })
+  validTo?: Date | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'material_sales_profiles' })
 @Index({
   name: 'material_sales_profiles_material_unique',

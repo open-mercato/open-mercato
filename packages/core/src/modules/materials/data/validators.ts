@@ -181,6 +181,60 @@ export const updateMaterialSupplierLinkSchema = scopedSchema
 export type CreateMaterialSupplierLinkInput = z.infer<typeof createMaterialSupplierLinkSchema>
 export type UpdateMaterialSupplierLinkInput = z.infer<typeof updateMaterialSupplierLinkSchema>
 
+// ── MaterialPrice (N:1 child of MaterialSupplierLink) ──────────────────────────
+
+const priceAmountSchema = z
+  .union([z.number(), z.string()])
+  .transform((value) => (typeof value === 'number' ? value.toString() : value.trim()))
+  .refine((value) => /^[0-9]+(\.[0-9]{1,6})?$/.test(value), {
+    message: 'materials.price.amount.invalid',
+  })
+  .refine((value) => Number(value) > 0, { message: 'materials.price.amount.nonPositive' })
+
+const dateSchema = z.coerce.date()
+
+// validity range guard — applied as a `.superRefine` on the wrapped object so we can produce a
+// field-level error path that the form maps to the validTo field.
+const validityRangeRefiner = (schema: z.ZodObject<any>) =>
+  schema.superRefine((data: any, ctx) => {
+    const from = data.validFrom ? new Date(data.validFrom) : null
+    const to = data.validTo ? new Date(data.validTo) : null
+    if (from && to && to < from) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['validTo'],
+        message: 'materials.price.validityRange.invalid',
+      })
+    }
+  })
+
+const baseMaterialPriceFields = {
+  materialSupplierLinkId: uuid(),
+  priceAmount: priceAmountSchema,
+  currencyId: uuid(),
+  validFrom: dateSchema.optional().nullable(),
+  validTo: dateSchema.optional().nullable(),
+  isActive: z.boolean().optional(),
+}
+
+export const createMaterialPriceSchema = validityRangeRefiner(scopedSchema.extend(baseMaterialPriceFields).strict())
+
+export const updateMaterialPriceSchema = validityRangeRefiner(
+  scopedSchema
+    .extend({
+      id: uuid(),
+      priceAmount: priceAmountSchema.optional(),
+      currencyId: uuid().optional(),
+      validFrom: dateSchema.optional().nullable(),
+      validTo: dateSchema.optional().nullable(),
+      isActive: z.boolean().optional(),
+    })
+    .strict(),
+)
+
+export type CreateMaterialPriceInput = z.infer<typeof createMaterialPriceSchema>
+export type UpdateMaterialPriceInput = z.infer<typeof updateMaterialPriceSchema>
+
 // ── MaterialSalesProfile (1:1 child) ────────────────────────────────────────────
 
 const baseSalesProfileFields = {
