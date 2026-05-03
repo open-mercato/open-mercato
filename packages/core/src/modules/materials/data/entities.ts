@@ -285,6 +285,48 @@ export class MaterialPrice {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'material_catalog_product_links' })
+@Index({
+  name: 'material_catalog_product_links_material_unique',
+  expression:
+    `create unique index "material_catalog_product_links_material_unique" on "material_catalog_product_links" ("material_id") where deleted_at is null`,
+})
+@Index({
+  name: 'material_catalog_product_links_product_unique',
+  expression:
+    `create unique index "material_catalog_product_links_product_unique" on "material_catalog_product_links" ("catalog_product_id") where deleted_at is null`,
+})
+export class MaterialCatalogProductLink {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'material_id', type: 'uuid' })
+  materialId!: string
+
+  @Property({ name: 'catalog_product_id', type: 'uuid' })
+  catalogProductId!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'material_lifecycle_events' })
 @Index({
   name: 'material_lifecycle_events_material_changed_idx',

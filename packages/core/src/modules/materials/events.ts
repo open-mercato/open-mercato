@@ -30,6 +30,10 @@ const events = [
   { id: 'materials.supplier_link.updated', label: 'Material Supplier Link Updated', entity: 'supplier_link', category: 'crud' },
   { id: 'materials.supplier_link.removed', label: 'Material Supplier Link Removed', entity: 'supplier_link', category: 'crud' },
 
+  // Catalog link (Step 13)
+  { id: 'materials.catalog_link.created', label: 'Material ↔ Catalog Product Link Created', entity: 'catalog_link', category: 'crud' },
+  { id: 'materials.catalog_link.removed', label: 'Material ↔ Catalog Product Link Removed', entity: 'catalog_link', category: 'crud' },
+
   // Prices (Step 8) + FX cache (Step 9) + expiration worker (Step 11)
   { id: 'materials.price.created', label: 'Material Price Created', entity: 'price', category: 'crud' },
   { id: 'materials.price.updated', label: 'Material Price Updated', entity: 'price', category: 'crud' },

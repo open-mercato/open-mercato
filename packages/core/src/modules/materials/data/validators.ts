@@ -78,6 +78,18 @@ export const updateMaterialSchema = scopedSchema
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>
 
+// ── MaterialCatalogProductLink (1:1 cross-module link) ─────────────────────────
+
+export const upsertMaterialCatalogLinkSchema = scopedSchema
+  .extend({
+    materialId: uuid(),
+    catalogProductId: uuid(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+
+export type UpsertMaterialCatalogLinkInput = z.infer<typeof upsertMaterialCatalogLinkSchema>
+
 // ── Lifecycle transition ───────────────────────────────────────────────────────
 
 /**
