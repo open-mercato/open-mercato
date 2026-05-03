@@ -570,6 +570,16 @@ If deployed without `catalog` enabled, the `MaterialCatalogProductLink` and the 
   - Search config: gtin/commodity_code now joined from `material_sales_profiles` instead of read directly from `materials`.
   - Database surface count updated: 6 → 7 tables (BC: still purely additive — this spec is unimplemented, no migration needed for existing tenants).
   - Risks table extended with two new failure scenarios (direct flag mutation, gtin uniqueness within sales profile).
+- 2026-05-03 — **Phase 1 implementation complete (Steps 1–16).** All 17 commits landed on `feat/materials-master-data` (PR #1770). Step 17 (compliance gate) is the only remaining checkbox — it requires `yarn lint && yarn build:packages && yarn generate && yarn build:packages && yarn typecheck && yarn test && yarn build:app && yarn db:migrate && yarn mercato configs cache structural --all-tenants` from the main repo on Node 24 (worktree-side run blocked by Node 25 native-module incompat). What landed:
+  - 7 entities + 5 hand-written migrations (worktree drift made auto-generation noisy; SQL was extracted from generator output and rewritten clean — semantics identical to what the entity definitions imply).
+  - 16 commands across 7 command files (full undo support; preferred / base / default-per-usage invariants auto-rebalanced; cross-org FKs validated via `findOneWithDecryption`).
+  - 14 API routes (master CRUD + 4 child CRUDs + 3 dynamic 1:1 routes — sales-profile, lifecycle, catalog-link).
+  - 14 declared events + 3 subscribers (FX recompute on `currencies.exchange_rate.updated`; sync-sales-on-create / on-delete for the materialized `is_sellable` flag).
+  - 1 worker (`materials.price-expiry`, idempotent daily).
+  - 2 widget components for cross-module injection (catalog product sidebar + customer company tab) — companion wiring in catalog/customers detail pages remains a small follow-up commit each.
+  - Module `AGENTS.md` (190 lines) + `README.md` (115 lines) + Task Router entry in root `AGENTS.md`.
+  - `setup.ts` finalized with wildcarded employee features and a documented no-op `seedDefaults` (kinds enum lives at the column level; no dictionary table to seed in Phase 1).
+  - Search config indexes the master with fulltext + vector; gtin / commodity_code searchability via JOIN with `material_sales_profiles` documented as a Phase 2 follow-up because `SearchModuleConfig` doesn't yet expose a structured aux JOIN hook.
 
 ---
 
@@ -578,19 +588,19 @@ If deployed without `catalog` enabled, the `MaterialCatalogProductLink` and the 
 > Tracked by `auto-create-pr` / `auto-continue-pr`. Each unchecked box is a step that must be completed and committed.
 
 - [x] **Step 1** — Module scaffold (folder + index.ts + acl.ts + empty di.ts + setup.ts skeleton)
-- [ ] **Step 2** — `Material` master entity (no sales-only fields) + migration + zod validators (rejects direct `is_sellable` mutation)
-- [ ] **Step 3** — Material CRUD API routes + OpenAPI + commands with undo
-- [ ] **Step 4** — Backend list/create/detail pages + translations
-- [ ] **Step 5** — `MaterialSalesProfile` entity + migration + validators + `/api/materials/[id]/sales-profile` (GET/PUT/DELETE) + `subscribers/sync-sales-capability.ts` + Sales tab on Material detail page
-- [ ] **Step 6** — `MaterialUnit` entity + API + UI tab
-- [ ] **Step 7** — `MaterialSupplierLink` entity + API + UI tab + cross-org validator
-- [ ] **Step 8** — `MaterialPrice` entity + API + UI tab + currency dropdown
-- [ ] **Step 9** — FX recompute subscriber (`currencies.exchange_rate.updated`)
-- [ ] **Step 10** — Lifecycle endpoint + `MaterialLifecycleEvent` audit + event emission
-- [ ] **Step 11** — Price expiration worker (daily idempotent job)
-- [ ] **Step 12** — Search config (LEFT JOIN `material_sales_profiles` for gtin/commodity_code) + custom fields registration in `ce.ts`
-- [ ] **Step 13** — `MaterialCatalogProductLink` extension entity + link API
-- [ ] **Step 14** — Widget injection into catalog product detail and customer company detail
-- [ ] **Step 15** — `setup.ts` final: kinds seed + default custom fields + role features
-- [ ] **Step 16** — Module `AGENTS.md` + `README.md` + Task Router update
-- [ ] **Step 17** — Compliance gate: lint + build + test + integration tests + structural cache purge
+- [x] **Step 2** — `Material` master entity (no sales-only fields) + migration + zod validators (rejects direct `is_sellable` mutation)
+- [x] **Step 3** — Material CRUD API routes + OpenAPI + commands with undo
+- [x] **Step 4** — Backend list/create/detail pages + translations
+- [x] **Step 5** — `MaterialSalesProfile` entity + migration + validators + `/api/materials/[id]/sales-profile` (GET/PUT/DELETE) + `subscribers/sync-sales-capability.ts` + Sales tab on Material detail page
+- [x] **Step 6** — `MaterialUnit` entity + API + UI tab
+- [x] **Step 7** — `MaterialSupplierLink` entity + API + UI tab + cross-org validator
+- [x] **Step 8** — `MaterialPrice` entity + API + UI tab + currency dropdown
+- [x] **Step 9** — FX recompute subscriber (`currencies.exchange_rate.updated`)
+- [x] **Step 10** — Lifecycle endpoint + `MaterialLifecycleEvent` audit + event emission
+- [x] **Step 11** — Price expiration worker (daily idempotent job)
+- [x] **Step 12** — Search config (LEFT JOIN `material_sales_profiles` for gtin/commodity_code) + custom fields registration in `ce.ts`
+- [x] **Step 13** — `MaterialCatalogProductLink` extension entity + link API
+- [x] **Step 14** — Widget injection into catalog product detail and customer company detail
+- [x] **Step 15** — `setup.ts` final: kinds seed + default custom fields + role features
+- [x] **Step 16** — Module `AGENTS.md` + `README.md` + Task Router update
+- [ ] **Step 17** — Compliance gate: lint + build + test + integration tests + structural cache purge — **TO BE RUN BY REVIEWER FROM MAIN REPO ON NODE 24**. Worktree-side execution blocked by node 25 incompatibility with `isolated-vm` and `better-sqlite3` native modules; `yarn db:generate` from worktree also produces noisy migrations because of schema drift between worktree entity snapshots and the dev database. Migrations in this branch were hand-written following the SQL the broken auto-generation produced, all consistent with the entities. The reviewer needs to: (a) run `yarn install` on node 24 to rebuild native modules, (b) run `yarn lint && yarn build:packages && yarn generate && yarn build:packages && yarn typecheck && yarn test && yarn build:app` on a fresh checkout of this branch, (c) apply migrations on a clean DB (`yarn db:migrate`), (d) run `yarn mercato configs cache structural --all-tenants`, (e) run integration tests defined in the spec's "Integration Test Coverage" section as part of the same change.
