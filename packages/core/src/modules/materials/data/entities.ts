@@ -158,6 +158,72 @@ export class MaterialUnit {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'material_supplier_links' })
+@Index({ name: 'material_supplier_links_material_idx', properties: ['materialId'] })
+@Index({ name: 'material_supplier_links_supplier_idx', properties: ['supplierCompanyId'] })
+@Index({
+  name: 'material_supplier_links_preferred_unique',
+  expression:
+    `create unique index "material_supplier_links_preferred_unique" on "material_supplier_links" ("material_id") where preferred = true and deleted_at is null`,
+})
+@Index({
+  name: 'material_supplier_links_material_supplier_unique',
+  expression:
+    `create unique index "material_supplier_links_material_supplier_unique" on "material_supplier_links" ("material_id", "supplier_company_id") where deleted_at is null`,
+})
+export class MaterialSupplierLink {
+  [OptionalProps]?:
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'preferred'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'material_id', type: 'uuid' })
+  materialId!: string
+
+  // FK ID only — no MikroORM relation (cross-module rule per AGENTS.md). Validator checks
+  // existence in CustomerCompanyProfile within the same org/tenant scope.
+  @Property({ name: 'supplier_company_id', type: 'uuid' })
+  supplierCompanyId!: string
+
+  @Property({ name: 'supplier_sku', type: 'text', nullable: true })
+  supplierSku?: string | null
+
+  @Property({ name: 'min_order_qty', type: 'decimal', precision: 18, scale: 6, nullable: true })
+  minOrderQty?: string | null
+
+  @Property({ name: 'lead_time_days', type: 'integer', nullable: true })
+  leadTimeDays?: number | null
+
+  @Property({ type: 'boolean', default: false })
+  preferred: boolean = false
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'material_sales_profiles' })
 @Index({
   name: 'material_sales_profiles_material_unique',

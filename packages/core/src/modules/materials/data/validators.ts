@@ -131,6 +131,56 @@ export const updateMaterialUnitSchema = scopedSchema
 export type CreateMaterialUnitInput = z.infer<typeof createMaterialUnitSchema>
 export type UpdateMaterialUnitInput = z.infer<typeof updateMaterialUnitSchema>
 
+// ── MaterialSupplierLink (N:1 child, FK to customers.CustomerCompanyProfile) ────
+
+const supplierSkuSchema = z.string().trim().min(1).max(64)
+
+// Decimal as string for min_order_qty (mikroORM v7 numeric storage convention).
+const minOrderQtySchema = z
+  .union([z.number(), z.string()])
+  .transform((value) => (typeof value === 'number' ? value.toString() : value.trim()))
+  .refine((value) => /^[0-9]+(\.[0-9]{1,6})?$/.test(value), {
+    message: 'materials.supplier_link.minOrderQty.invalid',
+  })
+  .refine((value) => Number(value) > 0, { message: 'materials.supplier_link.minOrderQty.nonPositive' })
+
+const leadTimeDaysSchema = z
+  .union([z.number(), z.string()])
+  .transform((value) => (typeof value === 'number' ? value : parseInt(String(value), 10)))
+  .refine((value) => Number.isFinite(value) && Number.isInteger(value) && value >= 0, {
+    message: 'materials.supplier_link.leadTimeDays.invalid',
+  })
+
+const notesSchema = z.string().trim().max(2000)
+
+const baseSupplierLinkFields = {
+  materialId: uuid(),
+  supplierCompanyId: uuid(),
+  supplierSku: supplierSkuSchema.optional().nullable(),
+  minOrderQty: minOrderQtySchema.optional().nullable(),
+  leadTimeDays: leadTimeDaysSchema.optional().nullable(),
+  preferred: z.boolean().optional(),
+  notes: notesSchema.optional().nullable(),
+  isActive: z.boolean().optional(),
+}
+
+export const createMaterialSupplierLinkSchema = scopedSchema.extend(baseSupplierLinkFields).strict()
+
+export const updateMaterialSupplierLinkSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    supplierSku: supplierSkuSchema.optional().nullable(),
+    minOrderQty: minOrderQtySchema.optional().nullable(),
+    leadTimeDays: leadTimeDaysSchema.optional().nullable(),
+    preferred: z.boolean().optional(),
+    notes: notesSchema.optional().nullable(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+
+export type CreateMaterialSupplierLinkInput = z.infer<typeof createMaterialSupplierLinkSchema>
+export type UpdateMaterialSupplierLinkInput = z.infer<typeof updateMaterialSupplierLinkSchema>
+
 // ── MaterialSalesProfile (1:1 child) ────────────────────────────────────────────
 
 const baseSalesProfileFields = {

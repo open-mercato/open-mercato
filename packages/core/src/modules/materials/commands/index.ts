@@ -2,3 +2,4 @@
 import './material'
 import './material-sales-profile'
 import './material-unit'
+import './material-supplier-link'
