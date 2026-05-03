@@ -84,6 +84,80 @@ export class Material {
   deletedAt?: Date | null
 }
 
+export type MaterialUnitUsage = 'stock' | 'purchase' | 'sales' | 'production'
+
+@Entity({ tableName: 'material_units' })
+@Index({ name: 'material_units_material_usage_idx', properties: ['materialId', 'usage'] })
+@Index({
+  name: 'material_units_material_code_unique',
+  expression:
+    `create unique index "material_units_material_code_unique" on "material_units" ("material_id", "code") where deleted_at is null`,
+})
+@Index({
+  name: 'material_units_material_base_unique',
+  expression:
+    `create unique index "material_units_material_base_unique" on "material_units" ("material_id") where is_base = true and deleted_at is null`,
+})
+@Index({
+  name: 'material_units_material_default_per_usage_unique',
+  expression:
+    `create unique index "material_units_material_default_per_usage_unique" on "material_units" ("material_id", "usage") where is_default_for_usage = true and deleted_at is null`,
+})
+export class MaterialUnit {
+  [OptionalProps]?:
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'isBase'
+    | 'isDefaultForUsage'
+    | 'factor'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'material_id', type: 'uuid' })
+  materialId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text' })
+  usage!: MaterialUnitUsage
+
+  // Numeric stored as text in pg via mikroORM v7 default. Conversion factor from this unit
+  // to the material's base unit. 1.0 for the base unit itself.
+  @Property({ type: 'decimal', precision: 18, scale: 6 })
+  factor: string = '1.000000'
+
+  @Property({ name: 'is_base', type: 'boolean', default: false })
+  isBase: boolean = false
+
+  @Property({ name: 'is_default_for_usage', type: 'boolean', default: false })
+  isDefaultForUsage: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'material_sales_profiles' })
 @Index({
   name: 'material_sales_profiles_material_unique',

@@ -20,6 +20,11 @@ const events = [
   { id: 'materials.sales_profile.updated', label: 'Material Sales Profile Updated', entity: 'sales_profile', category: 'crud' },
   { id: 'materials.sales_profile.deleted', label: 'Material Sales Profile Deleted', entity: 'sales_profile', category: 'crud' },
 
+  // Material units (Step 6)
+  { id: 'materials.unit.created', label: 'Material Unit Created', entity: 'unit', category: 'crud' },
+  { id: 'materials.unit.updated', label: 'Material Unit Updated', entity: 'unit', category: 'crud' },
+  { id: 'materials.unit.deleted', label: 'Material Unit Deleted', entity: 'unit', category: 'crud' },
+
   // Supplier links (Step 7)
   { id: 'materials.supplier_link.created', label: 'Material Supplier Link Created', entity: 'supplier_link', category: 'crud' },
   { id: 'materials.supplier_link.updated', label: 'Material Supplier Link Updated', entity: 'supplier_link', category: 'crud' },

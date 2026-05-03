@@ -78,6 +78,59 @@ export const updateMaterialSchema = scopedSchema
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>
 
+// ── MaterialUnit (N:1 child) ────────────────────────────────────────────────────
+
+export const MATERIAL_UNIT_USAGE_VALUES = ['stock', 'purchase', 'sales', 'production'] as const
+export const materialUnitUsageSchema = z.enum(MATERIAL_UNIT_USAGE_VALUES)
+
+const unitCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(16)
+  .regex(/^[A-Za-z0-9._\-]+$/, { message: 'materials.unit.code.invalid' })
+
+const unitLabelSchema = z.string().trim().min(1).max(64)
+
+// Decimal as string (mikroORM v7 returns numerics as strings to preserve precision).
+// Validate as positive number with up to 6 decimal places.
+const unitFactorSchema = z
+  .union([z.number(), z.string()])
+  .transform((value) => (typeof value === 'number' ? value.toString() : value.trim()))
+  .refine((value) => /^[0-9]+(\.[0-9]{1,6})?$/.test(value), {
+    message: 'materials.unit.factor.invalid',
+  })
+  .refine((value) => Number(value) > 0, { message: 'materials.unit.factor.nonPositive' })
+
+const baseUnitFields = {
+  materialId: uuid(),
+  code: unitCodeSchema,
+  label: unitLabelSchema,
+  usage: materialUnitUsageSchema,
+  factor: unitFactorSchema.optional(),
+  isBase: z.boolean().optional(),
+  isDefaultForUsage: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+}
+
+export const createMaterialUnitSchema = scopedSchema.extend(baseUnitFields).strict()
+
+export const updateMaterialUnitSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    code: unitCodeSchema.optional(),
+    label: unitLabelSchema.optional(),
+    usage: materialUnitUsageSchema.optional(),
+    factor: unitFactorSchema.optional(),
+    isBase: z.boolean().optional(),
+    isDefaultForUsage: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+
+export type CreateMaterialUnitInput = z.infer<typeof createMaterialUnitSchema>
+export type UpdateMaterialUnitInput = z.infer<typeof updateMaterialUnitSchema>
+
 // ── MaterialSalesProfile (1:1 child) ────────────────────────────────────────────
 
 const baseSalesProfileFields = {

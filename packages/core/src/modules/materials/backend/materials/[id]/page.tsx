@@ -15,6 +15,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { UnitsTab } from './UnitsTab'
 
 const KIND_VALUES = ['raw', 'semi', 'final', 'tool', 'indirect'] as const
 const LIFECYCLE_VALUES = ['draft', 'active', 'phase_out', 'obsolete'] as const
@@ -336,9 +337,7 @@ export default function MaterialDetailPage() {
             <TabsList>
               <TabsTrigger value="overview">{t('materials.detail.tab.overview', 'Overview')}</TabsTrigger>
               <TabsTrigger value="sales">{t('materials.detail.tab.sales', 'Sales')}</TabsTrigger>
-              <TabsTrigger value="units" disabled>
-                {t('materials.detail.tab.units', 'Units')}
-              </TabsTrigger>
+              <TabsTrigger value="units">{t('materials.detail.tab.units', 'Units')}</TabsTrigger>
               <TabsTrigger value="suppliers" disabled>
                 {t('materials.detail.tab.suppliers', 'Suppliers')}
               </TabsTrigger>
@@ -445,9 +444,11 @@ export default function MaterialDetailPage() {
               </div>
             </TabsContent>
             <TabsContent value="units">
-              <p className="p-4 text-sm text-muted-foreground">
-                {t('materials.detail.tab.units.placeholder', 'Units management lands in Step 6.')}
-              </p>
+              <UnitsTab
+                materialId={material.id}
+                organizationId={material.organization_id}
+                tenantId={material.tenant_id}
+              />
             </TabsContent>
             <TabsContent value="suppliers">
               <p className="p-4 text-sm text-muted-foreground">
