@@ -9,7 +9,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible } from './fieldConfig'
+import { isVisible, getFieldLabel } from './fieldConfig'
 import type { Participant, RsvpStatus } from './useScheduleFormState'
 import { PARTICIPANT_COLORS } from './useScheduleFormState'
 
@@ -186,10 +186,18 @@ export function ParticipantsField({
 
   if (!isVisible(activityType, 'participants')) return null
 
+  const sectionLabel = getFieldLabel(
+    activityType,
+    'participants',
+    t,
+    'customers.schedule.participants',
+    'Participants',
+  )
+
   return (
     <div>
       <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
-        {t('customers.schedule.participants', 'Participants')}
+        {sectionLabel}
       </label>
       <div className="mt-2.5 flex flex-wrap content-center items-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
         {participants.map((p) => (

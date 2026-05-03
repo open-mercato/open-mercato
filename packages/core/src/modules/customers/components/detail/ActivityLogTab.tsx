@@ -1,7 +1,7 @@
 'use client'
 
-import { InlineActivityComposer } from './InlineActivityComposer'
-import { PlannedActivitiesSection } from './PlannedActivitiesSection'
+import { ActivitiesCard } from './ActivitiesCard'
+import type { ActivityKind } from './ActivitiesAddNewMenu'
 import { ActivityHistorySection } from './ActivityHistorySection'
 import type { InteractionSummary } from './types'
 
@@ -15,43 +15,41 @@ type ActivityLogTabProps = {
   plannedActivities: InteractionSummary[]
   onActivityCreated: () => void
   onScheduleRequested: () => void
+  onAddActivity?: (kind: ActivityKind) => void
   onMarkDone: (id: string) => void
   onEditActivity: (activity: InteractionSummary) => void
   onCancelActivity: (id: string) => void
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   useCanonicalInteractions?: boolean
+  /** Optional parent-entity company name; surfaces in planned event subtitles when no deal is set. */
+  entityCompanyName?: string | null
 }
 
 export function ActivityLogTab({
   entityId,
   plannedActivities,
-  onActivityCreated,
   onScheduleRequested,
-  onMarkDone,
+  onAddActivity,
   onEditActivity,
-  onCancelActivity,
-  runGuardedMutation,
   refreshKey = 0,
   useCanonicalInteractions = false,
+  entityCompanyName,
 }: ActivityLogTabProps) {
+  const handleAddNew = (kind: ActivityKind) => {
+    if (onAddActivity) onAddActivity(kind)
+    else onScheduleRequested()
+  }
+
   return (
     <div className="space-y-4">
-      <InlineActivityComposer
-        entityType="company"
+      <ActivitiesCard
         entityId={entityId}
-        onActivityCreated={onActivityCreated}
-        runGuardedMutation={runGuardedMutation}
-        onScheduleRequested={onScheduleRequested}
-        useCanonicalInteractions={useCanonicalInteractions}
-      />
-
-      <PlannedActivitiesSection
-        activities={plannedActivities}
-        onComplete={onMarkDone}
-        onSchedule={onScheduleRequested}
-        onEdit={onEditActivity}
-        onCancel={onCancelActivity}
+        plannedActivities={plannedActivities}
+        refreshKey={refreshKey}
+        onAddNew={handleAddNew}
+        onEditActivity={onEditActivity}
+        entityCompanyName={entityCompanyName}
       />
 
       <ActivityHistorySection

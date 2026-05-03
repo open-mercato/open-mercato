@@ -80,52 +80,48 @@ function TimelineEntry({
 
   return (
     <div
-      className={`px-5 py-4 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/50 transition-colors' : ''}`}
+      className={`py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
       onClick={() => onEdit?.(activity)}
       role={onEdit ? 'button' : undefined}
       tabIndex={onEdit ? 0 : undefined}
       onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
     >
-      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '72px 40px 1fr' }}>
+      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
         {/* Column 1: Date */}
-        <div className="shrink-0 pt-0.5">
-          <span className="block text-xs font-bold leading-tight">
+        <div className="shrink-0">
+          <span className="block text-[11px] font-semibold leading-tight text-foreground">
             {formatRelativeDate(dateStr, t)}
           </span>
-          <span className="block text-xs leading-tight text-muted-foreground">
+          <span className="block text-[10px] leading-tight text-muted-foreground">
             {formatTime(dateStr)}
           </span>
         </div>
 
         {/* Column 2: Type icon */}
-        <div className="flex size-10 items-center justify-center rounded-lg bg-muted shrink-0">
-          {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : null}
+        <div className="flex size-8 items-center justify-center rounded-md bg-muted shrink-0">
+          {TypeIcon ? <TypeIcon className="size-3.5 text-muted-foreground" /> : null}
         </div>
 
         {/* Column 3: Content */}
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-semibold leading-5">
-              {title}{duration}
-            </span>
-          </div>
+        <div className="min-w-0 space-y-1.5">
+          <span className="block text-[12px] font-semibold leading-tight text-foreground">
+            {title}{duration}
+          </span>
 
           {activity.body && activity.title && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-[11px] leading-snug text-muted-foreground">
               {activity.body}
             </p>
           )}
 
           {activity.authorName && (
-            <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-              <User className="size-3 shrink-0" />
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <User className="size-2.5 shrink-0" />
               <span>{t('customers.timeline.author', 'by {{name}}', { name: activity.authorName })}</span>
             </div>
           )}
 
-          <div className="mt-2">
-            <AiActionChips activityType={activity.interactionType} />
-          </div>
+          <AiActionChips activityType={activity.interactionType} />
         </div>
       </div>
     </div>

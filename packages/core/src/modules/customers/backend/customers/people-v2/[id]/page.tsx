@@ -23,18 +23,17 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { ActivitiesCard } from '../../../../components/detail/ActivitiesCard'
+import type { ActivityKind } from '../../../../components/detail/ActivitiesAddNewMenu'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
-import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
-import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
-import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
   buildPersonEditPayload,
@@ -186,11 +185,26 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     [injectionContext, runMutation],
   )
 
-  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
-    runMutationWithContext,
-    onAfterChange: handleActivityCreated,
-    logContext: 'customers.people-v2',
-  })
+  const handleAddActivity = React.useCallback((kind: ActivityKind) => {
+    setScheduleEditData({
+      id: '',
+      interactionType: kind,
+      title: null,
+      body: null,
+      scheduledAt: null,
+      durationMinutes: null,
+      location: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      reminderMinutes: null,
+      visibility: null,
+      linkedEntities: null,
+      guestPermissions: null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
     const raw = activity as Record<string, unknown>
@@ -444,20 +458,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   if (activeTab === 'activities') {
                     return (
                       <div className="space-y-4">
-                        <InlineActivityComposer
-                          entityType="person"
+                        <ActivitiesCard
                           entityId={personId}
-                          onActivityCreated={handleActivityCreated}
-                          runGuardedMutation={runMutationWithContext}
-                          onScheduleRequested={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
-                          useCanonicalInteractions={useCanonicalInteractions}
-                        />
-                        <PlannedActivitiesSection
-                          activities={plannedActivities}
-                          onComplete={handleMarkDone}
-                          onSchedule={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
-                          onEdit={handleEditActivity}
-                          onCancel={handleCancelActivity}
+                          plannedActivities={plannedActivities}
+                          refreshKey={activityRefreshKey}
+                          onAddNew={handleAddActivity}
+                          onEditActivity={handleEditActivity}
+                          entityCompanyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
                         />
                         <ActivitiesSection
                           entityId={personId}
