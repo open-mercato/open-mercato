@@ -59,7 +59,7 @@ export async function POST(req: Request, routeCtx: RouteCtx) {
       })
     }
 
-    const body = await readJsonSafe<Record<string, unknown>>(req, {})
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = lifecycleTransitionSchema.parse({
       organizationId: ctx.selectedOrganizationId,
       tenantId: auth.tenantId,
@@ -116,7 +116,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Transition lifecycle state',
       description:
         'Moves the material between lifecycle states per the spec state machine: draft→active→phase_out→obsolete (plus phase_out→active reverse). Same-state requests return 409. Invalid transitions return 409 with an `allowed` hint. `replacementMaterialId` only applies when transitioning to obsolete; it is silently dropped on other transitions. Appends a row to `material_lifecycle_events` and emits `materials.material.lifecycle_changed`.',
-      requestBody: { required: true, content: { 'application/json': { schema: lifecycleBodySchema } } },
+      requestBody: { schema: lifecycleBodySchema },
       responses: [
         { status: 200, description: 'Lifecycle transition applied', schema: lifecycleResponseSchema },
         { status: 404, description: 'Material not found in caller scope', schema: z.object({ error: z.string() }) },

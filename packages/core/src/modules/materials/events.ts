@@ -41,4 +41,10 @@ const events = [
   { id: 'materials.price.expired', label: 'Material Price Expired', entity: 'price', category: 'lifecycle' },
 ] as const
 
-export const eventsConfig = createModuleEvents(events)
+export const eventsConfig = createModuleEvents({ moduleId: 'materials', events })
+
+/** Type-safe event emitter for the materials module */
+export const emitMaterialsEvent = eventsConfig.emit
+
+/** Event IDs that can be emitted by the materials module */
+export type MaterialsEventId = (typeof events)[number]['id']

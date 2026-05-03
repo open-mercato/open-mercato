@@ -314,8 +314,8 @@ export function SuppliersTab({ materialId, organizationId, tenantId }: Suppliers
           'materials.detail.suppliers.delete.description',
           'The link to "{{supplier}}" will be soft-deleted. Price history attached to this link is preserved.',
         ).replace('{{supplier}}', supplierName),
-        confirmLabel: t('materials.detail.suppliers.delete.confirm', 'Remove'),
-        cancelLabel: t('materials.detail.suppliers.delete.cancel', 'Cancel'),
+        confirmText: t('materials.detail.suppliers.delete.confirm', 'Remove'),
+        cancelText: t('materials.detail.suppliers.delete.cancel', 'Cancel'),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -474,6 +474,7 @@ export function SuppliersTab({ materialId, organizationId, tenantId }: Suppliers
             </DialogTitle>
           </DialogHeader>
           <CrudForm<SupplierLinkFormValues>
+            fields={[]}
             groups={formGroups}
             initialValues={initialValues}
             submitLabel={

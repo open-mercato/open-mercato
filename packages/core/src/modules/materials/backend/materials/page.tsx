@@ -115,8 +115,8 @@ export default function MaterialsListPage() {
           'materials.list.delete.description',
           'Material "{{code}}" will be soft-deleted. You can undo via the audit log.',
         ).replace('{{code}}', code),
-        confirmLabel: t('materials.list.delete.confirm', 'Delete'),
-        cancelLabel: t('materials.list.delete.cancel', 'Cancel'),
+        confirmText: t('materials.list.delete.confirm', 'Delete'),
+        cancelText: t('materials.list.delete.cancel', 'Cancel'),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -192,8 +192,7 @@ export default function MaterialsListPage() {
         header: '',
         cell: ({ row }) => (
           <RowActions
-            id={`material-${row.original.id}-actions`}
-            actions={[
+            items={[
               {
                 id: 'edit',
                 label: t('materials.list.actions.edit', 'Edit'),
@@ -202,7 +201,7 @@ export default function MaterialsListPage() {
               {
                 id: 'delete',
                 label: t('materials.list.actions.delete', 'Delete'),
-                onClick: () => handleDelete(row.original.id, row.original.code),
+                onSelect: () => handleDelete(row.original.id, row.original.code),
                 destructive: true,
               },
             ]}
@@ -301,15 +300,21 @@ export default function MaterialsListPage() {
           searchPlaceholder={t('materials.list.search.placeholder', 'Search by code or name')}
           filters={filterDefs}
           filterValues={filters}
-          onFiltersChange={(next) => {
+          onFiltersApply={(next: FilterValues) => {
             setFilters(next)
             setPage(1)
           }}
-          page={page}
-          pageSize={50}
-          total={total}
-          totalPages={totalPages}
-          onPageChange={setPage}
+          onFiltersClear={() => {
+            setFilters({})
+            setPage(1)
+          }}
+          pagination={{
+            page,
+            pageSize: 50,
+            total,
+            totalPages,
+            onPageChange: setPage,
+          }}
         />
         {ConfirmDialogElement}
       </PageBody>

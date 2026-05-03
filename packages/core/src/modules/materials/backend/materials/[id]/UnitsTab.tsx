@@ -225,8 +225,8 @@ export function UnitsTab({ materialId, organizationId, tenantId }: UnitsTabProps
           'materials.detail.units.delete.description',
           'Unit "{{code}}" will be soft-deleted. The base unit cannot be deleted while other units exist.',
         ).replace('{{code}}', unit.code),
-        confirmLabel: t('materials.detail.units.delete.confirm', 'Delete'),
-        cancelLabel: t('materials.detail.units.delete.cancel', 'Cancel'),
+        confirmText: t('materials.detail.units.delete.confirm', 'Delete'),
+        cancelText: t('materials.detail.units.delete.cancel', 'Cancel'),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -374,6 +374,7 @@ export function UnitsTab({ materialId, organizationId, tenantId }: UnitsTabProps
             </DialogTitle>
           </DialogHeader>
           <CrudForm<UnitFormValues>
+            fields={[]}
             groups={formGroups}
             initialValues={initialValues}
             submitLabel={

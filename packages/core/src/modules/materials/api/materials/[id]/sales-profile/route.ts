@@ -122,7 +122,7 @@ export async function PUT(req: Request, routeCtx: RouteCtx) {
       })
     }
 
-    const body = await readJsonSafe<Record<string, unknown>>(req, {})
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = upsertMaterialSalesProfileSchema.parse({
       organizationId: ctx.selectedOrganizationId,
       tenantId: ctx.auth!.tenantId!,
@@ -244,7 +244,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Upsert sales profile',
       description:
         'Creates or updates the sales profile. Creating one materializes `Material.is_sellable=true` via subscriber. Returns 201 on first create, 200 on subsequent updates.',
-      requestBody: { required: true, content: { 'application/json': { schema: upsertBodySchema } } },
+      requestBody: { schema: upsertBodySchema },
       responses: [
         { status: 200, description: 'Sales profile updated', schema: upsertResponseSchema },
         { status: 201, description: 'Sales profile created', schema: upsertResponseSchema },

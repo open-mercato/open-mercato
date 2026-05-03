@@ -178,8 +178,8 @@ export default function MaterialDetailPage() {
         'materials.detail.sales.remove.description',
         'The sales profile (GTIN, commodity code) will be soft-deleted and the material will no longer be marked as sellable. You can re-enable it any time.',
       ),
-      confirmLabel: t('materials.detail.sales.remove.confirm', 'Stop selling'),
-      cancelLabel: t('materials.detail.sales.remove.cancel', 'Cancel'),
+      confirmText: t('materials.detail.sales.remove.confirm', 'Stop selling'),
+      cancelText: t('materials.detail.sales.remove.cancel', 'Cancel'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -312,8 +312,8 @@ export default function MaterialDetailPage() {
     }
   }, [material])
 
-  if (loading) return <LoadingMessage>{t('materials.detail.loading', 'Loading material…')}</LoadingMessage>
-  if (error || !material) return <ErrorMessage>{error ?? t('materials.detail.error.unknown', 'Unknown error')}</ErrorMessage>
+  if (loading) return <LoadingMessage label={t('materials.detail.loading', 'Loading material…')} />
+  if (error || !material) return <ErrorMessage label={error ?? t('materials.detail.error.unknown', 'Unknown error')} />
 
   return (
     <Page>
@@ -347,11 +347,11 @@ export default function MaterialDetailPage() {
             <TabsContent value="overview">
               <CrudForm<MaterialFormValues>
                 title={t('materials.detail.section.overview', 'Overview')}
+                fields={[]}
                 groups={formGroups}
                 initialValues={initialValues}
                 submitLabel={t('materials.detail.save', 'Save changes')}
-                showDelete
-                deleteLabel={t('materials.detail.delete', 'Delete material')}
+                deleteVisible
                 onSubmit={async (values) => {
                   const payload: Record<string, unknown> = {
                     id: material.id,
@@ -378,8 +378,8 @@ export default function MaterialDetailPage() {
                       'materials.detail.delete.description',
                       'Material "{{code}}" will be soft-deleted. You can undo via the audit log.',
                     ).replace('{{code}}', material.code),
-                    confirmLabel: t('materials.detail.delete.confirm', 'Delete'),
-                    cancelLabel: t('materials.detail.delete.cancel', 'Cancel'),
+                    confirmText: t('materials.detail.delete.confirm', 'Delete'),
+                    cancelText: t('materials.detail.delete.cancel', 'Cancel'),
                     variant: 'destructive',
                   })
                   if (!confirmed) return
@@ -424,6 +424,7 @@ export default function MaterialDetailPage() {
                 {salesProfile ? (
                   <CrudForm<SalesProfileFormValues>
                     title={t('materials.detail.sales.form.title', 'Sales identifiers')}
+                    fields={[]}
                     groups={salesFormGroups}
                     initialValues={salesInitialValues}
                     submitLabel={t('materials.detail.sales.form.save', 'Save sales identifiers')}

@@ -368,8 +368,8 @@ export function PricesTab({ materialId, organizationId, tenantId }: PricesTabPro
           'materials.detail.prices.delete.description',
           'Price record will be soft-deleted. The audit log preserves the prior amount and validity window — undo via that path.',
         ),
-        confirmLabel: t('materials.detail.prices.delete.confirm', 'Delete'),
-        cancelLabel: t('materials.detail.prices.delete.cancel', 'Cancel'),
+        confirmText: t('materials.detail.prices.delete.confirm', 'Delete'),
+        cancelText: t('materials.detail.prices.delete.cancel', 'Cancel'),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -517,6 +517,7 @@ export function PricesTab({ materialId, organizationId, tenantId }: PricesTabPro
             </DialogTitle>
           </DialogHeader>
           <CrudForm<PriceFormValues>
+            fields={[]}
             groups={formGroups}
             initialValues={initialValues}
             submitLabel={

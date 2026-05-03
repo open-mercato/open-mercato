@@ -118,6 +118,7 @@ export default function CreateMaterialPage() {
           backHref="/backend/materials"
           cancelHref="/backend/materials"
           submitLabel={t('materials.form.submit', 'Create material')}
+          fields={[]}
           groups={groups}
           initialValues={{
             kind: 'raw',

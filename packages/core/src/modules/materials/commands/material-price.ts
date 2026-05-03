@@ -18,6 +18,7 @@ import { MaterialPrice, MaterialSupplierLink } from '../data/entities'
 import {
   createMaterialPriceSchema,
   updateMaterialPriceSchema,
+  checkPriceValidityRange,
   type CreateMaterialPriceInput,
   type UpdateMaterialPriceInput,
 } from '../data/validators'
@@ -157,6 +158,12 @@ const createPriceCommand: CommandHandler<CreateMaterialPriceInput, { priceId: st
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
+    const rangeError = checkPriceValidityRange(parsed.validFrom ?? null, parsed.validTo ?? null)
+    if (rangeError) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, { error: translate(rangeError, 'validTo must be on or after validFrom') })
+    }
+
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await ensureSupplierLinkInScope(em, parsed.materialSupplierLinkId, parsed.organizationId, parsed.tenantId)
     await ensureCurrencyInScope(em, parsed.currencyId, parsed.organizationId, parsed.tenantId)
@@ -254,6 +261,13 @@ const updatePriceCommand: CommandHandler<UpdateMaterialPriceInput, { priceId: st
       // Amount changed → also invalidate FX cache.
       price.baseCurrencyAmount = null
       price.baseCurrencyAt = null
+    }
+    const nextValidFrom = parsed.validFrom !== undefined ? (parsed.validFrom ?? null) : (price.validFrom ?? null)
+    const nextValidTo = parsed.validTo !== undefined ? (parsed.validTo ?? null) : (price.validTo ?? null)
+    const rangeError = checkPriceValidityRange(nextValidFrom, nextValidTo)
+    if (rangeError) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, { error: translate(rangeError, 'validTo must be on or after validFrom') })
     }
     if (parsed.validFrom !== undefined) price.validFrom = parsed.validFrom ?? null
     if (parsed.validTo !== undefined) price.validTo = parsed.validTo ?? null

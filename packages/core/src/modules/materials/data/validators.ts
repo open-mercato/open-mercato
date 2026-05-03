@@ -232,21 +232,6 @@ const priceAmountSchema = z
 
 const dateSchema = z.coerce.date()
 
-// validity range guard — applied as a `.superRefine` on the wrapped object so we can produce a
-// field-level error path that the form maps to the validTo field.
-const validityRangeRefiner = (schema: z.ZodObject<any>) =>
-  schema.superRefine((data: any, ctx) => {
-    const from = data.validFrom ? new Date(data.validFrom) : null
-    const to = data.validTo ? new Date(data.validTo) : null
-    if (from && to && to < from) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['validTo'],
-        message: 'materials.price.validityRange.invalid',
-      })
-    }
-  })
-
 const baseMaterialPriceFields = {
   materialSupplierLinkId: uuid(),
   priceAmount: priceAmountSchema,
@@ -256,23 +241,38 @@ const baseMaterialPriceFields = {
   isActive: z.boolean().optional(),
 }
 
-export const createMaterialPriceSchema = validityRangeRefiner(scopedSchema.extend(baseMaterialPriceFields).strict())
+export const createMaterialPriceSchema = scopedSchema.extend(baseMaterialPriceFields).strict()
 
-export const updateMaterialPriceSchema = validityRangeRefiner(
-  scopedSchema
-    .extend({
-      id: uuid(),
-      priceAmount: priceAmountSchema.optional(),
-      currencyId: uuid().optional(),
-      validFrom: dateSchema.optional().nullable(),
-      validTo: dateSchema.optional().nullable(),
-      isActive: z.boolean().optional(),
-    })
-    .strict(),
-)
+export const updateMaterialPriceSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    priceAmount: priceAmountSchema.optional(),
+    currencyId: uuid().optional(),
+    validFrom: dateSchema.optional().nullable(),
+    validTo: dateSchema.optional().nullable(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
 
 export type CreateMaterialPriceInput = z.infer<typeof createMaterialPriceSchema>
 export type UpdateMaterialPriceInput = z.infer<typeof updateMaterialPriceSchema>
+
+/**
+ * Validity range guard — pure function used by the price command after parsing.
+ * Returns an error message key when `validTo < validFrom`, otherwise null.
+ * Lives outside the zod schema so `z.infer` keeps `validFrom?: Date | null | undefined`
+ * cleanly typed (wrapping the schema in a `.superRefine` would degrade it to `ZodEffects`
+ * and erase the optional/nullable inference).
+ */
+export function checkPriceValidityRange(
+  validFrom: Date | null | undefined,
+  validTo: Date | null | undefined,
+): string | null {
+  if (validFrom && validTo && validTo < validFrom) {
+    return 'materials.price.validityRange.invalid'
+  }
+  return null
+}
 
 // ── MaterialSalesProfile (1:1 child) ────────────────────────────────────────────
 

@@ -112,7 +112,7 @@ export async function PUT(req: Request, routeCtx: RouteCtx) {
       })
     }
 
-    const body = await readJsonSafe<Record<string, unknown>>(req, {})
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = upsertMaterialCatalogLinkSchema.parse({
       organizationId: ctx.selectedOrganizationId,
       tenantId: ctx.auth!.tenantId!,
@@ -219,7 +219,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Upsert catalog link (re-link semantics)',
       description:
         'Creates or re-targets the 1:1 link. Server validates both the material and the catalog product live in the same org. Returns 201 on first create, 200 on subsequent updates. 409 if the catalog product is already linked to a different material.',
-      requestBody: { required: true, content: { 'application/json': { schema: upsertBodySchema } } },
+      requestBody: { schema: upsertBodySchema },
       responses: [
         { status: 200, description: 'Link updated', schema: upsertResponseSchema },
         { status: 201, description: 'Link created', schema: upsertResponseSchema },
