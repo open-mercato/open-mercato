@@ -16,7 +16,7 @@ metadata:
 
 This skill guides creation of consistent, production-grade backend/backoffice interfaces using the established @open-mercato/ui component library. All implementations must leverage existing components to maintain visual and behavioral consistency across modules.
 
-For complete component documentation, see `references/ui-components.md`.
+For complete component documentation, see `references/ui-components.md`. Pair this skill with `packages/ui/AGENTS.md` and `packages/ui/src/backend/AGENTS.md` for the current design-system and backend-host rules.
 
 ## Design Principles
 
@@ -27,6 +27,7 @@ Backend UI prioritizes **usability, consistency, and productivity** over creativ
 3. **Data Density**: Admin users need information-rich interfaces. Optimize for scanning and quick actions.
 4. **Keyboard Navigation**: Support Cmd/Ctrl+Enter for primary actions, Escape to cancel, and standard shortcuts.
 5. **Clear Hierarchy**: Page → Section → Content. Use PageHeader, PageBody, and consistent spacing.
+6. **Design System Discipline**: Use semantic status tokens and the shared backend primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `EmptyState`). No hardcoded status colors or arbitrary text sizes.
 
 ## Required Component Library
 
