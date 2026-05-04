@@ -3,7 +3,7 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronDown, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
@@ -547,6 +547,25 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       document.cookie = `om_sidebar_collapsed=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
     } catch { /* cookies disabled — non-critical */ }
   }, [collapsed])
+
+  // Two-level sidebar (Option B): when entering settings/profile mode, force the
+  // main sidebar to collapsed (icons only) so the section sub-nav can sit beside
+  // it; restore the user's previous expansion when returning to the main mode.
+  // Initial ref is 'main' so direct mounts on /backend/settings also auto-collapse.
+  const collapsedBeforeSectionRef = React.useRef<boolean | null>(null)
+  const previousSidebarModeRef = React.useRef<'main' | 'settings' | 'profile'>('main')
+  React.useEffect(() => {
+    const previous = previousSidebarModeRef.current
+    if (previous === 'main' && sidebarMode !== 'main') {
+      collapsedBeforeSectionRef.current = collapsed
+      if (!collapsed) setCollapsed(true)
+    } else if (previous !== 'main' && sidebarMode === 'main' && collapsedBeforeSectionRef.current !== null) {
+      const restoreTo = collapsedBeforeSectionRef.current
+      collapsedBeforeSectionRef.current = null
+      if (collapsed !== restoreTo) setCollapsed(restoreTo)
+    }
+    previousSidebarModeRef.current = sidebarMode
+  }, [sidebarMode, collapsed])
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
   }, [openGroups])
@@ -584,7 +603,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     sections: SectionNavGroup[],
     title: string,
     compact: boolean,
-    hideHeader?: boolean
+    hideHeader?: boolean,
+    hideSearch?: boolean
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
@@ -603,7 +623,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             </Link>
           </div>
         )}
-        {!compact && (
+        {!compact && !hideSearch && (
           <Input
             type="text"
             value={navQuery}
@@ -628,13 +648,14 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
         <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
+            const sectionNavQueryActive = hideSearch ? false : navQueryActive
             const matchesItemQuery = (item: typeof section.items[number]): boolean => {
-              if (!navQueryActive) return true
+              if (!sectionNavQueryActive) return true
               const label = item.labelKey ? t(item.labelKey, item.label) : item.label
               if (matchesQuery(label)) return true
               return Array.isArray(item.children) && item.children.some(matchesItemQuery)
             }
-            const visibleItems = navQueryActive
+            const visibleItems = sectionNavQueryActive
               ? section.items.filter(matchesItemQuery)
               : section.items
             if (visibleItems.length === 0) return null
@@ -646,7 +667,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
             const filterChildren = (children: typeof section.items | undefined) => {
               if (!children) return [] as typeof section.items
-              if (!navQueryActive) return [...children]
+              if (!sectionNavQueryActive) return [...children]
               return children.filter(matchesItemQuery)
             }
 
@@ -661,7 +682,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 pathname === child.href ||
                 pathname.startsWith(`${child.href}/`)
               )))
-              const showChildren = childItems.length > 0 && (isOnItemBranch || navQueryActive)
+              const showChildren = childItems.length > 0 && (isOnItemBranch || sectionNavQueryActive)
               const isActive = isOnItemBranch || hasActiveChild
               const base = compact ? 'w-10 h-10 justify-center' : 'w-full py-2 gap-2'
               const spacingStyle = !compact
@@ -731,7 +752,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     )
   }
 
-  function renderSidebar(compact: boolean, hideHeader?: boolean) {
+  function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
     if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
@@ -768,7 +789,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       )
     }
 
-    if (sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
+    if (!forceMainOnly && sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
       const mergedSettingsSections = mergeSectionGroupsWithInjected(
         resolvedSettingsSections,
         settingsSidebarInjectedMenuItems,
@@ -782,7 +803,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       )
     }
 
-    if (sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
+    if (!forceMainOnly && sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
       const mergedProfileSections = mergeSectionGroupsWithInjected(
         resolvedProfileSections,
         profileSidebarInjectedMenuItems,
@@ -1013,9 +1034,49 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     )
   }
 
-  const gridColsClass = effectiveCollapsed
-    ? 'lg:grid-cols-[80px_1fr]'
-    : 'lg:grid-cols-[240px_1fr]'
+  function renderSectionAside() {
+    let sections: SectionNavGroup[] | null = null
+    let title = ''
+    if (sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
+      sections = mergeSectionGroupsWithInjected(
+        resolvedSettingsSections,
+        settingsSidebarInjectedMenuItems,
+        t,
+      )
+      title = settingsSectionTitle ?? t('backend.nav.settings', 'Settings')
+    } else if (sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
+      sections = mergeSectionGroupsWithInjected(
+        resolvedProfileSections,
+        profileSidebarInjectedMenuItems,
+        t,
+      )
+      title = profileSectionTitle ?? t('backend.nav.profile', 'Profile')
+    }
+    if (!sections) return null
+    return (
+      <div className="flex h-full flex-col gap-2">
+        <Link
+          href="/backend"
+          className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+          data-testid="appshell-section-back-to-main"
+          aria-label={t('backend.nav.backToMain', 'Back to Main')}
+        >
+          <ChevronLeft className="size-4 shrink-0" aria-hidden />
+          <span className="truncate">{title}</span>
+        </Link>
+        <div className="min-h-0 flex-1">
+          {renderSectionSidebar(sections, title, false, true, true)}
+        </div>
+      </div>
+    )
+  }
+
+  const isSectionView =
+    (sidebarMode === 'settings' && !!resolvedSettingsSections && resolvedSettingsSections.length > 0) ||
+    (sidebarMode === 'profile' && !!resolvedProfileSections && resolvedProfileSections.length > 0)
+  const gridColsClass = isSectionView
+    ? (effectiveCollapsed ? 'lg:grid-cols-[80px_240px_1fr]' : 'lg:grid-cols-[240px_240px_1fr]')
+    : (effectiveCollapsed ? 'lg:grid-cols-[80px_1fr]' : 'lg:grid-cols-[240px_1fr]')
   const headerCtxValue = React.useMemo(() => ({
     setBreadcrumb: setHeaderBreadcrumb,
     setTitle: setHeaderTitle,
@@ -1055,10 +1116,10 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
-    <div className={`min-h-svh lg:grid ${gridColsClass}`}>
-      {/* Desktop sidebar */}
-      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`} style={{ width: asideWidth }}>
-        {renderSidebar(effectiveCollapsed)}
+    <div className={`min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}>
+      {/* Desktop main sidebar */}
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
+        {renderSidebar(effectiveCollapsed, false, isSectionView)}
         {/* Scroll affordance — gradient fade + chevron that flips up when the user
             reaches the bottom and disappears when nothing is scrollable. */}
         {sidebarScrollState !== 'none' ? (
@@ -1076,6 +1137,26 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           </div>
         ) : null}
       </aside>
+
+      {/* Desktop section sidebar (Option B two-level) — sits beside the main sidebar
+          when the user is on settings/profile routes. Mobile drawer keeps the
+          original swap behavior to fit the narrow width. */}
+      {isSectionView ? (
+        <aside
+          className={`${asideClassesBase} px-3 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
+          style={{ width: '240px' }}
+          data-testid="appshell-section-sidebar"
+        >
+          {renderSectionAside()}
+          {/* Static bottom fade — covers the native iOS scroll indicator and signals
+              that the section list is scrollable. Same look as the main sidebar's
+              affordance but without the chevron / scroll-state machinery. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/80 to-transparent"
+          />
+        </aside>
+      ) : null}
 
       <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">

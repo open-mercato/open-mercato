@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -382,6 +382,158 @@ describe('AppShell', () => {
       window.fetch = previousWindowFetch
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
+  })
+
+  describe('two-level sidebar (settings/profile mode)', () => {
+    it('renders main + section sidebars side-by-side when on a settings path', async () => {
+      mockPathname = '/backend/entities/user'
+
+      const { container } = renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('User Entities')).toBeInTheDocument()
+      })
+
+      const sectionAside = screen.getByTestId('appshell-section-sidebar')
+      expect(sectionAside).toBeInTheDocument()
+      expect(within(sectionAside).getByText('User Entities')).toBeInTheDocument()
+      // Main aside is auto-collapsed (icons only) when on a section path; the
+      // labels live in the `title` tooltip attribute, not as visible text.
+      expect(container.querySelector('a[href="/backend/users"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/backend/roles"]')).not.toBeNull()
+    })
+
+    it('section header renders chevron + title as a single Back-to-Main link', async () => {
+      mockPathname = '/backend/entities/user'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsSectionTitle="Settings"
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const backLink = await screen.findByTestId('appshell-section-back-to-main')
+      expect(backLink).toHaveAttribute('href', '/backend')
+      expect(backLink).toHaveAttribute('aria-label', 'Back to Main')
+      expect(backLink.textContent).toContain('Settings')
+    })
+
+    it('does not render a duplicate search input inside the section sidebar', async () => {
+      mockPathname = '/backend/entities/user'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const sectionAside = await screen.findByTestId('appshell-section-sidebar')
+      expect(within(sectionAside).queryByLabelText('Search navigation')).toBeNull()
+    })
+
+    it('auto-collapses the main sidebar to 80px when mounting directly on a settings path', async () => {
+      mockPathname = '/backend/entities/user'
+
+      const { container } = renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        const mainAside = container.querySelector('aside') as HTMLElement | null
+        expect(mainAside).not.toBeNull()
+        expect(mainAside!.style.width).toBe('80px')
+      })
+    })
+
+    it('does not render the section sidebar when on a main route', async () => {
+      mockPathname = '/backend/users'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Main content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      expect(screen.queryByTestId('appshell-section-sidebar')).toBeNull()
+      expect(screen.queryByTestId('appshell-section-back-to-main')).toBeNull()
+    })
   })
 
   it('renders nav icons from iconName when iconMarkup is missing', async () => {
