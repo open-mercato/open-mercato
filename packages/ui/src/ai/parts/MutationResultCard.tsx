@@ -1,12 +1,29 @@
 "use client"
 
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Wand2, XCircle } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
+import { Button } from '../../primitives/button'
 import type { AiUiPartProps } from '../ui-part-registry'
 import { useAiPendingActionPolling } from './useAiPendingActionPolling'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from './types'
+
+/** Custom DOM event the failure card dispatches when the operator clicks
+ * "Fix with AI". `<AiChat>` listens for this and sends a follow-up user
+ * message asking the agent to diagnose and retry the failed call. */
+export const AI_CHAT_FIX_REQUEST_EVENT = 'om-ai-chat-fix-request'
+
+export interface AiChatFixRequestDetail {
+  message: string
+  toolName?: string
+  pendingActionId?: string
+}
+
+function dispatchFixRequest(detail: AiChatFixRequestDetail): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent<AiChatFixRequestDetail>(AI_CHAT_FIX_REQUEST_EVENT, { detail }))
+}
 
 /**
  * Terminal-state card that renders the `executionResult` of a pending
@@ -157,6 +174,34 @@ export function MutationResultCard(props: MutationResultCardProps) {
         'ai_assistant.chat.mutation_cards.result.failureBody',
         'The mutation could not be applied.',
       )
+    const onFixWithAi = () => {
+      // Build a structured prompt that gives the agent enough context to
+      // diagnose and retry without copy/paste from the operator. Keeping
+      // it explicit ("retry with corrected arguments") nudges the model
+      // away from re-issuing the same args (which would just hit the
+      // same error). The repository's idempotency check only dedupes
+      // active `pending` rows, so a fresh prepareMutation call after a
+      // terminal failure always produces a new pending action — the
+      // retry is never silently collapsed.
+      const promptLines: string[] = [
+        `The previous call to tool "${action.toolName}" failed.`,
+        `Error: ${code} — ${message}.`,
+      ]
+      if (action.targetEntityType || action.targetRecordId) {
+        promptLines.push(
+          `Target: ${action.targetEntityType ?? '?'}${action.targetRecordId ? ' / ' + action.targetRecordId : ''}.`,
+        )
+      }
+      promptLines.push(
+        '',
+        'Diagnose what went wrong (likely a schema, scope, or referenced-id issue), correct the arguments, and call the tool again. If the failure indicates missing prerequisites (e.g. a deal needs a linked person/company before commenting), tell me what to fix on the platform side instead of retrying blindly. Do not repeat the exact same arguments — you must change at least one parameter or stop and explain.',
+      )
+      dispatchFixRequest({
+        message: promptLines.join('\n'),
+        toolName: action.toolName,
+        pendingActionId: action.id,
+      })
+    }
     return (
       <Alert variant="destructive" data-ai-mutation-result="failure">
         <XCircle className="size-4" aria-hidden />
@@ -167,10 +212,29 @@ export function MutationResultCard(props: MutationResultCardProps) {
           )}
         </AlertTitle>
         <AlertDescription>
-          <span className="mr-2 font-mono text-xs" data-ai-mutation-result-code>
-            {code}
-          </span>
-          <span>{message}</span>
+          <div>
+            <span className="mr-2 font-mono text-xs" data-ai-mutation-result-code>
+              {code}
+            </span>
+            <span>{message}</span>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onFixWithAi}
+              data-ai-mutation-result-fix
+            >
+              <Wand2 className="size-4" aria-hidden />
+              <span>
+                {t(
+                  'ai_assistant.chat.mutation_cards.result.fixWithAi',
+                  'Fix with AI',
+                )}
+              </span>
+            </Button>
+          </div>
         </AlertDescription>
       </Alert>
     )

@@ -126,6 +126,23 @@ export class AiPendingActionRepository {
       if (existing && existing.status === 'pending') {
         return existing
       }
+      // Terminal stale row would collide on the unique
+      // `(tenantId, organizationId, idempotencyKey)` constraint when we
+      // try to insert a fresh one with the same hash — and that exact
+      // collision happens whenever the operator clicks "Fix with AI"
+      // and the model retries the SAME tool with the SAME args. Remove
+      // the stale row first so a retry can always proceed; success rows
+      // stay (they represent a real, applied change), and failed /
+      // cancelled / expired rows are cleared because they're blocking
+      // exactly the recovery flow they were created to enable.
+      if (
+        existing &&
+        (existing.status === 'failed' ||
+          existing.status === 'cancelled' ||
+          existing.status === 'expired')
+      ) {
+        await tx.remove(existing).flush()
+      }
       const row = tx.create(AiPendingAction, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,

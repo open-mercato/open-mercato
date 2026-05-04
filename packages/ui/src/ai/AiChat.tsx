@@ -840,6 +840,28 @@ export function AiChat({
     handleSendMessage(input)
   }, [handleSendMessage, input])
 
+  // Listen for "Fix with AI" requests dispatched by the failure variant
+  // of `MutationResultCard`. Any rendered failure card can fire a custom
+  // DOM event with the prompt — this side-steps having to thread a
+  // sendMessage callback through the UI-part registry while keeping the
+  // chat the single owner of message creation. Idempotency is handled
+  // server-side: `prepareMutation` only dedupes against active `pending`
+  // rows, so a retry after a terminal failure always produces a fresh
+  // pending action.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail
+      const message = detail?.message
+      if (typeof message !== 'string' || message.trim().length === 0) return
+      handleSendMessage(message)
+    }
+    window.addEventListener('om-ai-chat-fix-request', handler as EventListener)
+    return () => {
+      window.removeEventListener('om-ai-chat-fix-request', handler as EventListener)
+    }
+  }, [handleSendMessage])
+
   const cancelOrBlur = React.useCallback(() => {
     if (isBusy) {
       chat.cancel()

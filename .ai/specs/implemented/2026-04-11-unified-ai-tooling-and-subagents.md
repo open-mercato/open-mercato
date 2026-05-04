@@ -1546,6 +1546,96 @@ Design sketch:
 - SLA / expiry: the TTL from D16 still applies, but the queue can surface "expires in X" as a soft warning and escalate via notifications
 - rationale: keeps every mutation fully re-checked at execution (no cached permissions), lets long-running or autonomous agents produce batches without blocking the chat UX, and reuses every piece of infrastructure built in Phase 3
 
+### Phase 5 — Post-1593 Follow-ups (Sessions, Notifications, Recovery, Hardening)
+
+Phase 5 collects the follow-up scope surfaced during the operator-testing pass on PR #1593. Most items below were partially completed inside the PR itself (sessions UI, runtime mutation-policy block, generic UI-part envelope, fix-with-AI). They are recorded here so each can graduate from "implemented inside #1593" to "covered by tests, docs, and downstream tool authorship guidance" before the spec moves on to D17 (Stacked Approval Queue) in Phase 6.
+
+Phasing strategy: ship in parallel sub-phases (5a / 5b / 5c) so the queue infrastructure (D17 / Phase 6) does not block UX hardening, and the operator-visible improvements (sessions, recovery) can be released independently of the persistence layer (notifications, audit).
+
+#### Phase 5a — Sessions, Tabs, History, Dock (operator UX)
+Goal: turn one-shot chats into resumable, multi-tab sessions across every chat surface, plus a persistent dock that survives page navigation.
+
+Status snapshot (delivered in #1593):
+
+- `AiChatSessionsProvider` + `useAiChatSessions` hook + per-(agent, conversationId) localStorage layout in `useAiChat`.
+- `<ChatPaneTabs>` with `+`, click-outside history dropdown, inline rename with `Enter`/`Esc`, close X, and per-session tab state.
+- `<AiDockProvider>` mounted under `AppShell` with a desktop right-side panel, drag-resize, collapse, undock, and per-tenant width persistence.
+- Lazy `<AiChat>` import in dock + launcher so the streaming runtime is not pulled into AppShell unit tests.
+
+Outstanding for Phase 5a:
+
+- Lift `<AiChat>` mounts out of `<DialogContent>` so closing the chat surface does not abort an in-flight fetch. The current implementation persists messages up to the abort point, which is acceptable but does not match the user-visible expectation that the model continues running while the dock is hidden.
+- Extract a single `<ChatPaneSession>` wrapper so per-page widgets (customers / catalog / launcher / dock) share one body component instead of four near-identical copies. Net code reduction; no behavior change.
+- Add Playwright integration coverage for: tab switch persists messages, close-last-tab auto-mints fresh tab, history dropdown reopens closed session in new active tab, rename survives page reload, dock survives router navigation.
+- Document the `AiChatSession` storage layout and namespace in `apps/docs/docs/framework/ai-assistant/architecture.mdx`.
+
+#### Phase 5b — Notifications & Pending-Action Recovery
+Goal: never let a pending action go silent. The chat may be closed, the tab may have been collapsed, the operator may have navigated to another module — they must still know an approval is waiting.
+
+Status snapshot (delivered in #1593):
+
+- `useAiPendingActionPolling` parser accepts both bare and wrapped GET responses so polling never silently returns `null`.
+- `MutationPreviewCard` / `ConfirmationCard` / `MutationResultCard` short-circuit to the failure card whenever `executionResult.error` is populated even before the row's status flips out of `executing`.
+- Confirm/cancel API calls have a 60-second `AbortController` timeout that surfaces a structured `{ status: 408, code: 'request_timeout' }` envelope.
+- HTTP 200 with `mutationResult.error` is treated as a confirm error and rewinds `phase` to `'preview'` so the alert renders inline.
+- "Fix with AI" button on the failure card dispatches `om-ai-chat-fix-request` consumed by `<AiChat>`; the prompt forbids the model from repeating identical args.
+- `AiPendingActionRepository.create` deletes any existing terminal row (`failed` / `cancelled` / `expired`) with the same idempotency key inside the same transaction so retries are never blocked by the unique constraint.
+
+Outstanding for Phase 5b:
+
+- Define a notification type `ai_assistant.pending_action.created` that fires from a subscriber on the new `ai.action.created` event (event itself needs to be added — currently only `confirmed` / `cancelled` / `expired` exist). Notification body: agent label, tool name, target entity short label, expiry timestamp.
+- Notification renderer must include a deep-link of shape `/backend/<surface>?ai-resume=<sessionId>&ai-action=<pendingActionId>`. Add a router-side handler in `AppShell` (or `AiDockProvider`) that:
+  1. Reads `ai-resume` / `ai-action` from the URL on mount,
+  2. Calls `useAiChatSessions().reopenSession` (and `setActiveSession`) so the right tab is focused,
+  3. Calls `useAiDock().dock(...)` to surface the chat,
+  4. Strips the params so the link is single-shot.
+- Subscriber-driven notification dismissal: on `ai.action.confirmed` / `ai.action.cancelled` / `ai.action.expired`, mark the matching notification read and emit a follow-up notification only when the outcome was `failed` (so the operator can act on the recovery flow).
+- Telemetry: count expired vs confirmed vs failed pending actions per tenant per agent, feed the existing operations dashboard via the standard module event bridge.
+- Integration tests: navigation away with pending action ⇒ notification appears with deep-link; click deep-link ⇒ correct chat surface opens with the right tab active and the approval card visible; expiry sweep ⇒ notification updates.
+
+#### Phase 5c — Tool Authorship Hardening (Mutation Policy + Diff Quality)
+Goal: bring the per-tool gating contract and the field-diff card up to operator-grade quality across every mutation tool the platform ships, not just the demo agents.
+
+Status snapshot (delivered in #1593):
+
+- `AiToolDefinition.isDestructive` accepts a static boolean **or** a predicate `(input) => boolean` evaluated at every call so multi-operation tools can gate only their destructive branches.
+- `customers.manage_deal_comment.isDestructive` is a predicate that gates only `operation === 'delete'`.
+- `agent-runtime.ts` injects a runtime `MUTATION POLICY (RUNTIME)` block into every system prompt that buckets the agent's whitelisted tools into `direct` / `gated` / `conditional` / `blocked` so the model phrases outcomes correctly per tool ("applied" vs. "pending approval" vs. "depends on operation").
+
+Outstanding for Phase 5c:
+
+- Audit every existing mutation tool in `packages/core/src/modules/**/ai-tools/**` and explicitly set `isDestructive` (boolean or predicate) on each. Inventory:
+  - `customers.update_deal_stage` — likely `isDestructive: false` (state change, not data loss).
+  - `catalog.update_product` / `catalog.bulk_update_products` / `catalog.apply_attribute_extraction` / `catalog.update_product_media_descriptions` — author judgment per tool.
+  - any future delete / archive / cascade tools — must default to `isDestructive: true`.
+- Add ESLint rule (or generator-time warning) flagging any `defineAiTool({ isMutation: true, ... })` call that does not declare `isDestructive` — silent-default `false` is correct semantics but should be a deliberate choice, not an oversight.
+- Empty-diff problem on `create` operations: `prepareMutation`'s `extractPatchFromArgs` strips well-known envelope keys but cannot distinguish "create with all-new fields" from "no-op". Tools that represent a `create` branch (e.g. `manage_deal_comment` create) should ship a `loadBeforeRecord` resolver that returns a synthetic `before` shaped like the post-create entity (`{ commentId: null, body: null, ... }`) so the diff highlights every new field as an addition. Document this contract in `packages/ai-assistant/AGENTS.md`.
+- Resolve dot-graph relationship lookups in tool handlers (`CustomerDeal` → linked person/company via `CustomerDealPersonLink` / `CustomerDealCompanyLink` rather than a non-existent `.entity` field) and add a generator-time check that flags any `(deal as any).entity`-style lookups in `ai-tools/`.
+- Document the `Fix with AI` retry contract for tool authors: predicate-`isDestructive` tools must gracefully handle the case where the model retries with corrected args (no leftover side-effects from the first failed attempt).
+
+#### Phase 5d — Generic UI-Part Contract Hardening
+Goal: make the dynamic-UI-part path (any tool can return `{ uiPart }` / `{ uiParts: [...] }`) a published contract module authors can rely on.
+
+Status snapshot (delivered in #1593):
+
+- `useAiChat`'s `extractUiPartsFromOutput` accepts the `pending-confirmation` / `awaiting-confirmation` mutation envelope, single `{ uiPart }`, or list `{ uiParts: [...] }` shapes; deduped per `key` so streaming chunks don't double-render.
+- `MessageRow` renders message-level `uiParts` via `MessageUiParts` against the active registry; unknown component ids fall back to `UnknownUiPartPlaceholder`.
+- `CatalogStatsCard` is the canonical dynamic example, registered via side-effect import and emitted by `catalog.show_stats`.
+
+Outstanding for Phase 5d:
+
+- Move the registration of in-tree custom UI parts (`catalog.stats-card` today, more later) from per-page client side-effect imports to a discoverable convention (`<module>/ai-ui-parts.client.ts` or similar) the generator wires into `apps/mercato/.mercato/generated/ai-ui-parts.generated.ts`. Avoids the current "must visit /backend/catalog/products once before the launcher can render the card globally" trap.
+- Server-side validation of the UI-part envelope so a misconfigured tool that returns a malformed `{ uiPart }` shows the operator a structured error in chat instead of an `UnknownUiPartPlaceholder` with a typoed id.
+- Document the contract in `apps/docs/docs/framework/ai-assistant/ui-parts.mdx` with a copy-pasteable example: `defineAiTool` returning `{ uiPart: { componentId, payload } }`, the `<MyCard />` registration site, and the `useAiUiPart` resolver.
+- Standalone-app coverage: the create-app template must auto-generate the `ai-ui-parts.generated.ts` aggregator so user-installed packages can ship custom UI parts without per-app boilerplate.
+
+Cross-cutting Phase 5 exit criteria:
+
+- Every behavior delivered inside PR #1593 has Playwright coverage in `__integration__/`.
+- `apps/docs/docs/framework/ai-assistant/` has a dedicated page per sub-phase (`sessions.mdx`, `pending-action-recovery.mdx`, `tool-authoring-checklist.mdx`, `ui-parts.mdx`).
+- The runtime mutation-policy block is documented in the existing `mutation-approvals.mdx` with the gated/direct/conditional/blocked taxonomy.
+- BC contract: nothing introduced in Phase 5 changes existing event ids, route URLs, ACL features, or generated-file shapes. New event id `ai.action.created` is the only addition (FROZEN once shipped per `BACKWARD_COMPATIBILITY.md` §5).
+
 ## Implementation Plan
 
 The implementation plan below mirrors the delivery phases above. Each phase should end in a reviewable, working slice rather than a partially wired framework.
@@ -1762,6 +1852,13 @@ When implemented, release notes must call out:
 | Risks include failure scenarios and mitigations | Pass | Concrete table included |
 
 ## Changelog
+
+### 2026-04-30 — Phase 5 follow-ups from PR #1593 operator-testing pass
+- Added a new **Phase 5 — Post-1593 Follow-ups** section to the Phasing block, split into four parallel sub-phases (5a sessions/dock, 5b notifications/recovery, 5c tool-authorship hardening, 5d UI-part contract). Each sub-phase carries a status snapshot of work already merged inside PR #1593 plus an explicit outstanding list so subsequent PRs can pick up cleanly.
+- Recorded the new operator-grade contracts surfaced during testing: per-(agent, conversationId) chat session storage, persistent dock provider, generic `{ uiPart }` envelope, predicate-`isDestructive` for multi-operation tools, runtime `MUTATION POLICY (RUNTIME)` system-prompt block, dual-shape pending-action polling parser, terminal-row cleanup before retry, "Fix with AI" failure-card affordance.
+- Tracked the outstanding gaps that will land in subsequent PRs: lifting `<AiChat>` mounts above the dialog lifecycle so streams survive close, single `<ChatPaneSession>` wrapper, in-app notifications with deep-link resume (`ai.action.created` event + URL params consumed by `<AiDockProvider>`), code-base-wide `isDestructive` audit, generator-time enforcement of the destructive flag, synthetic `loadBeforeRecord` for create branches so the field-diff card shows additions, generated `ai-ui-parts.generated.ts` aggregator, server-side UI-part envelope validation, and dedicated docs pages.
+- BC posture: Phase 5 introduces only the additive `ai.action.created` event (FROZEN once shipped). Every other change is internal to the AI assistant runtime or the UI surface and does not alter existing routes, ACL features, generated shapes, or DB schema.
+- Cross-reference: this changelog entry is mirrored as a follow-up comment on PR #1593 so the queue of outstanding work is visible from both the spec and the merge thread.
 
 ### 2026-04-28 — Coherent callback names (`generateText` / `generateObject`) for the native AI SDK escape hatch
 - Renamed the proposed `sdkOverride` callback to `generateText` (on `runAiAgentText`) and `generateObject` (on `runAiAgentObject`) so each runtime's escape hatch is named after the AI SDK function it ultimately calls. Updated the Phase 4 follow-up entry and the "Using the Vercel AI SDK natively" section of `apps/docs/docs/framework/ai-assistant/agents.mdx` accordingly.
