@@ -125,9 +125,34 @@ export function CollapsibleZoneLayout({
       const target =
         document.getElementById(section.targetId ?? `collapsible-group-wrapper-${section.id}`)
         ?? document.getElementById(`collapsible-group-${section.id}`)
-      const headingButton = target?.querySelector<HTMLButtonElement>('button[aria-controls]')
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      headingButton?.focus({ preventScroll: true })
+      if (!target) return
+      const headingButton = target.querySelector<HTMLButtonElement>('button[aria-controls]')
+      // If the inner CollapsibleGroup is currently collapsed, expand it so its
+      // contents become visible and tabbable for the user who just navigated here.
+      if (headingButton?.getAttribute('aria-expanded') === 'false') {
+        headingButton.click()
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Prefer focusing the first focusable input/textarea/select inside the
+      // section so the user can start typing immediately. Skip hidden, disabled,
+      // or non-interactive controls. Fall back to the section heading.
+      requestAnimationFrame(() => {
+        const focusables = Array.from(
+          target.querySelectorAll<HTMLElement>(
+            'input:not([type="hidden"]), textarea, select, [contenteditable="true"]',
+          ),
+        )
+        const firstInput = focusables.find((el) => {
+          if (el.hasAttribute('disabled') || el.getAttribute('aria-hidden') === 'true') return false
+          if (el instanceof HTMLInputElement && el.readOnly) return false
+          return true
+        })
+        if (firstInput) {
+          firstInput.focus({ preventScroll: true })
+          return
+        }
+        headingButton?.focus({ preventScroll: true })
+      })
     })
   }, [canCollapse, canShowSideBySide, setCollapsed])
 
