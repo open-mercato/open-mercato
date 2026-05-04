@@ -9,10 +9,11 @@ Operators tune registered AI agents from the **AI Agents** settings page without
 
 Navigate to **Settings → Module Configs → AI Agents** (`/backend/config/ai-assistant/agents`).
 
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/agents` — agent picker on the left, with `customers.account_assistant` selected and both override sections visible.
-Save as: `apps/docs/static/img/ai-assistant/settings-overview.png`. Embed with `![alt](/img/ai-assistant/settings-overview.png)`.
-:::
+![AI Agents settings page with agent metadata, mutation policy, and prompt override panels](/screenshots/open-mercato-ai-assistant-settings-1.png)
+
+The agent picker at the top of the page lists every registered assistant. Selecting an agent loads its module, execution mode, mutation policy, read-only flag, and max-step limits — plus the prompt-section editors and the policy-override switch:
+
+![Agent picker dropdown listing Catalog, Catalog Merchandising, and Customers Account assistants](/screenshots/open-mercato-assitant-settings-per-assistant.png)
 
 ## Prompt overrides
 
@@ -41,10 +42,9 @@ Every save creates a **new row** in `ai_agent_prompt_overrides` with `version = 
 
 The runtime's `composeSystemPromptWithOverride` appends override content to the matching base section. Overrides **cannot** replace a built-in section — this keeps the model's operating envelope (scope, tool list, mutation policy language) under code control.
 
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/agents` — Prompt Overrides tab open for `catalog.merchandising_assistant`, showing the seven section editors with one populated.
-Save as: `apps/docs/static/img/ai-assistant/settings-prompt-override.png`. Embed with `![alt](/img/ai-assistant/settings-prompt-override.png)`.
-:::
+![Prompt sections panel with the rendered system prompt and per-section override toggles for ROLE, SCOPE, DATA, TOOLS, and ATTACHMENTS](/screenshots/open-mercato-ai-assistant-prompt-override.png)
+
+Each section shows the shipped default copy on the left and a toggle on the right. Flipping **Override** opens an editor whose content is appended (never substituted) to the built-in text when the system prompt is composed. The full system prompt rendered at the top of the panel reflects the latest version, including any saved overrides.
 
 ## Mutation-policy overrides
 
@@ -66,10 +66,11 @@ Effective policy = most restrictive of `{ code-declared, override }`. A corrupt 
 
 The settings UI computes the base rank from `agent.mutationPolicy` and disables every policy option whose rank exceeds the base. If an operator somehow submits an escalation (custom API caller, stale client), the route refuses and surfaces a toast.
 
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/agents` — Mutation Policy tab for `catalog.merchandising_assistant`, hovering the `confirm-required` option so the escalation tooltip is visible.
-Save as: `apps/docs/static/img/ai-assistant/settings-mutation-policy.png`. Embed with `![alt](/img/ai-assistant/settings-mutation-policy.png)`.
-:::
+The same panel exposes a **per-tool enablement** list directly below the mutation-policy switch. Operators can disable individual tools — including built-in mutation tools — without redeploying:
+
+![Per-tool enablement list with Read and Mutation badges and per-tool Enabled toggles](/screenshots/open-mercato-ai-assistant-tools.png)
+
+Disabling a tool here removes it from the model's tool surface for the active tenant; the runtime keeps the underlying handler registered so the change is reversible.
 
 ### Non-versioned
 
@@ -90,7 +91,7 @@ Removing this feature from a role hides the page and returns 403 on the API. The
 ## Operator workflow
 
 1. Open the settings page.
-2. Pick an agent in the left column.
+2. Pick an agent from the top dropdown.
 3. Edit a prompt section (for example, add a company-specific "respond in formal tone" rule under `responseStyle`).
 4. Save — the UI toasts the new version number.
 5. Optionally tighten the mutation policy (for example, flip `catalog.merchandising_assistant` from `confirm-required` to `destructive-confirm-required`).

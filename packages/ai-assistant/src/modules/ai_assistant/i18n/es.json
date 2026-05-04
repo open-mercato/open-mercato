@@ -89,6 +89,7 @@
   "ai_assistant.agents.tools.tooltipDisabled": "Editable tras el despliegue de los controles de política de mutación en la Fase 3.",
   "ai_assistant.chat.assistantRoleLabel": "Asistente",
   "ai_assistant.chat.attachFile": "Attach file",
+  "ai_assistant.chat.betaChip": "beta",
   "ai_assistant.chat.cancel": "Cancelar respuesta en streaming",
   "ai_assistant.chat.composerLabel": "Editor de mensajes",
   "ai_assistant.chat.composerPlaceholder": "Escriba un mensaje al agente de IA...",

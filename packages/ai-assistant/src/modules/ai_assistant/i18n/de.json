@@ -89,6 +89,7 @@
   "ai_assistant.agents.tools.tooltipDisabled": "Bearbeitbar, sobald Phase 3 die Mutationsrichtlinien-Steuerung liefert.",
   "ai_assistant.chat.assistantRoleLabel": "Assistent",
   "ai_assistant.chat.attachFile": "Attach file",
+  "ai_assistant.chat.betaChip": "beta",
   "ai_assistant.chat.cancel": "Streaming-Antwort abbrechen",
   "ai_assistant.chat.composerLabel": "Nachrichteneditor",
   "ai_assistant.chat.composerPlaceholder": "Nachricht an den KI-Agenten...",

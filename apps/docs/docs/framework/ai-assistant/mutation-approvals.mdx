@@ -126,6 +126,10 @@ The D18 demo does not listen directly for these three events — it listens for 
 | `confirmation-card` | `packages/ui/src/ai/parts/ConfirmationCard.tsx` | The single-button confirm/cancel UI |
 | `mutation-result-card` | `packages/ui/src/ai/parts/MutationResultCard.tsx` | After the confirm route returns; renders success + `failedRecords` mixed outcomes |
 
+The cards stream into the chat inline. A pending action looks like this in the Customers Account Assistant — the previous turn already finished (`Action applied`), and the new tool call (`customers.manage_record_activity`) is staged for review with a per-field diff and the Cancel/Confirm buttons:
+
+![Mutation approval card inside the AI chat showing a customers.manage_record_activity proposal with field-by-field diff and Confirm/Cancel buttons](/screenshots/open-mercato-ai-assistant-mutations-approvals.png)
+
 The canonical registry lives in `approval-cards-map.ts`:
 
 ```ts

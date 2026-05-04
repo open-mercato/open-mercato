@@ -945,9 +945,30 @@ export function AiChat({
     textareaRef.current?.focus()
   }, [])
 
+  // Sticky-bottom autoscroll: only re-pin to the bottom when the user is
+  // already there (or within a small tolerance). If they have scrolled up to
+  // read an earlier part of a long response, every streaming delta would
+  // otherwise yank them back to the tail and make the message look truncated.
+  // Tolerance is generous enough to absorb sub-pixel rounding, but tight
+  // enough that an intentional scroll-up keeps the user where they want.
+  const stickToBottomRef = React.useRef(true)
+  const SCROLL_STICK_TOLERANCE_PX = 64
+
   React.useEffect(() => {
     const node = transcriptRef.current
     if (!node) return
+    const handleScroll = () => {
+      const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+      stickToBottomRef.current = distanceFromBottom <= SCROLL_STICK_TOLERANCE_PX
+    }
+    node.addEventListener('scroll', handleScroll, { passive: true })
+    return () => node.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  React.useEffect(() => {
+    const node = transcriptRef.current
+    if (!node) return
+    if (!stickToBottomRef.current) return
     node.scrollTop = node.scrollHeight
   }, [chat.messages])
 

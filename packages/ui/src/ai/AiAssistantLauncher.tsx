@@ -539,6 +539,12 @@ export function AiAssistantLauncher({
                         <span className="truncate font-medium leading-tight">
                           {agent.label}
                         </span>
+                        <span
+                          className="inline-flex items-center rounded-full border border-border bg-secondary px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground"
+                          data-ai-beta-chip=""
+                        >
+                          {t('ai_assistant.chat.betaChip', 'beta')}
+                        </span>
                         {writes ? (
                           <span
                             className="inline-flex items-center rounded-full border border-border bg-secondary px-1.5 py-0 text-[10px] font-medium text-secondary-foreground"
@@ -646,9 +652,15 @@ export function AiAssistantLauncher({
               >
                 <PanelRightOpen className="size-4" aria-hidden />
               </IconButton>
-              <DialogTitle className="flex-1 min-w-0 truncate flex items-center gap-2">
+              <DialogTitle className="flex-1 min-w-0 flex items-center gap-2">
                 <Sparkles className="size-4 text-primary shrink-0" aria-hidden />
-                <span className="truncate">{activeAgent?.label ?? dialogTitle}</span>
+                <span className="min-w-0 truncate">{activeAgent?.label ?? dialogTitle}</span>
+                <span
+                  className="inline-flex shrink-0 items-center rounded-full border border-border bg-secondary px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground"
+                  data-ai-beta-chip=""
+                >
+                  {t('ai_assistant.chat.betaChip', 'beta')}
+                </span>
               </DialogTitle>
             </div>
             {activeAgent?.description ? (

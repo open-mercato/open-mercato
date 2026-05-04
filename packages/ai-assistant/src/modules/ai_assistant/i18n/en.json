@@ -89,6 +89,7 @@
   "ai_assistant.agents.tools.tooltipDisabled": "Editable after Phase 3 lands mutation policy controls.",
   "ai_assistant.chat.assistantRoleLabel": "Assistant",
   "ai_assistant.chat.attachFile": "Attach file",
+  "ai_assistant.chat.betaChip": "beta",
   "ai_assistant.chat.cancel": "Cancel streaming response",
   "ai_assistant.chat.composerLabel": "Message composer",
   "ai_assistant.chat.composerPlaceholder": "Message the AI agent...",

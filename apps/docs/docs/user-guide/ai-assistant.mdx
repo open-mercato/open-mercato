@@ -20,6 +20,8 @@ There are two ways to open an assistant.
 
 Every backoffice page shows an **AI** pill in the topbar (next to global search). Click it — or press **Cmd/Ctrl+L** from anywhere in the admin — to open a search dialog listing every assistant you have access to. Type to filter by name, description, or module; arrow keys navigate; Enter launches; Escape closes.
 
+![AI assistants picker with three registered agents and Can write badges](/screenshots/open-mercato-ai-assistant-available-assistants.png)
+
 The launcher self-hides when no AI provider is configured **or** when your account has access to no assistants. If you don't see the button, ask your administrator to grant `ai_assistant.view` to your role and confirm at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` is set.
 
 Each row shows the assistant name, what it does, and a **Can write** badge if the assistant is allowed to propose changes (always behind an approval card).
@@ -28,10 +30,9 @@ Each row shows the assistant name, what it does, and a **Can write** badge if th
 
 On any supported page (person, company, deal, products list, …) you'll see an **Ask AI** button in the page header or toolbar. Click it to slide the AI sheet in from the right. The sheet carries the current page context automatically — there's no need to paste record ids.
 
-:::note Screenshot TODO
-Capture: `/backend/customers/people/<id>` — person detail page with the AI sheet slid in, one example question pre-typed.
-Save as: `apps/docs/static/img/ai-assistant/person-sheet.png`. Embed with `![alt](/img/ai-assistant/person-sheet.png)`.
-:::
+The Customers AI assistant, opened from the people list, can search across people, companies, deals, and activities and stream rich record cards back into the chat:
+
+![Customers AI assistant searching for "Norton" and rendering people record cards in the chat](/screenshots/open-mercato-ai-assistant-customers-search.png)
 
 ## The merchandising demo (D18)
 
@@ -42,10 +43,17 @@ The **Merchandising Assistant** lives on the products list at `/backend/catalog/
 3. **Title variants** — generate a handful of alternative titles for A/B testing or channel-specific wording.
 4. **Price adjustment suggestion** — compute a justified price delta per product based on the current price, cost, and category peers.
 
-:::note Screenshot TODO
-Capture: `/backend/catalog/catalog/products` — products list with three rows selected and the Merchandising Assistant sheet open on the canned-prompt picker.
-Save as: `apps/docs/static/img/ai-assistant/merchandising-canned-prompts.png`. Embed with `![alt](/img/ai-assistant/merchandising-canned-prompts.png)`.
-:::
+The assistant streams quick stats like product, active, category, and tag counts as a compact overview card so you can size up the selection at a glance:
+
+![Catalog Merchandising Assistant rendering a quick catalog overview stats card with Products, Active, Categories, and Tags counts](/screenshots/open-mercato-ai-assistant-catalog-ovewrview.png)
+
+Drilling into the same chat, asking for a sample of records returns rich product cards with status badges, SKU, description, and a deep link back to the record:
+
+![Catalog Merchandising Assistant streaming three product record cards with status badges and SKUs](/screenshots/open-mercato-ai-assistant-catalog-records.png)
+
+Every chat thread is preserved per assistant. Open the history menu in the sheet header to jump back into a prior session — the canned prompt picker stays accessible while you flip between threads:
+
+![Catalog Merchandising Assistant Recent Sessions dropdown listing previous chat threads with timestamps](/screenshots/open-mercato-ai-assistant-history.png)
 
 ## The approval flow
 
@@ -57,10 +65,9 @@ Any time the assistant wants to write something, it does **not** write directly.
 
 Nothing is persisted until you press Confirm.
 
-:::note Screenshot TODO
-Capture: `/backend/catalog/catalog/products` — Merchandising Assistant sheet showing a proposal card with three products, each row expanded to show the field diff, Confirm All button visible.
-Save as: `apps/docs/static/img/ai-assistant/approval-confirm-all.png`. Embed with `![alt](/img/ai-assistant/approval-confirm-all.png)`.
-:::
+The proposal card below was raised by the Customers Account Assistant when the operator asked it to log a planned call as a new activity. Notice the **Action applied** banner from the previous turn (a comment that was already approved earlier in the session) and the new **Review proposed changes** card with a per-field before/after table — every value the assistant wants to write is shown alongside the **Cancel** and **Confirm** buttons:
+
+![Mutation approval card showing customers.manage_record_activity proposal with field-by-field diff and Cancel/Confirm controls](/screenshots/open-mercato-ai-assistant-mutations-approvals.png)
 
 After you press Confirm:
 
@@ -78,8 +85,8 @@ Save as: `apps/docs/static/img/ai-assistant/approval-partial-success.png`. Embed
 
 Not every assistant can write. An assistant's operating envelope is printed in the sheet header:
 
-- **Read-only** (the default for the Account Assistant) — the assistant can explore and answer questions, but the **[Ask AI]** button will never propose a write. Questions that would require a write ("update this deal to stage X") are politely refused.
-- **Confirm required** — every write is staged as a proposal card with diff + Confirm.
+- **Read-only** (the shipped default for the **Catalog Assistant**) — the assistant can explore and answer questions, but it will never propose a write. Questions that would require a write ("update this deal to stage X") are politely refused.
+- **Confirm required** (the shipped default for the **Customers Account Assistant** and the **Catalog Merchandising Assistant**) — every write is staged as a proposal card with diff + Confirm.
 - **Destructive confirm required** — the same flow, scoped to destructive actions (deletes, bulk cascades). The card explicitly labels the destructive scope.
 
 Your administrator can tighten an assistant from `confirm-required` down to `read-only` at any time (see [AI Agents settings](/framework/ai-assistant/settings)). They cannot loosen it beyond what the shipped agent declares.
