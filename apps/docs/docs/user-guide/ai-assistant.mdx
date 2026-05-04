@@ -45,7 +45,7 @@ The **Merchandising Assistant** lives on the products list at `/backend/catalog/
 
 The assistant streams quick stats like product, active, category, and tag counts as a compact overview card so you can size up the selection at a glance:
 
-![Catalog Merchandising Assistant rendering a quick catalog overview stats card with Products, Active, Categories, and Tags counts](/screenshots/open-mercato-ai-assistant-catalog-ovewrview.png)
+![Catalog Merchandising Assistant rendering a quick catalog overview stats card with Products, Active, Categories, and Tags counts](/screenshots/open-mercato-ai-assistant-catalog-overview.png)
 
 Drilling into the same chat, asking for a sample of records returns rich product cards with status badges, SKU, description, and a deep link back to the record:
 
@@ -75,11 +75,6 @@ After you press Confirm:
 2. Rows that changed under you are skipped and surfaced as "stale — please retry" in the result card.
 3. The remaining rows are updated inside a single database transaction.
 4. The products list refreshes in place — no page reload needed.
-
-:::note Screenshot TODO
-Capture: `/backend/catalog/catalog/products` — result card after a partial-success confirm, showing two succeeded rows and one stale-version row.
-Save as: `apps/docs/static/img/ai-assistant/approval-partial-success.png`. Embed with `![alt](/img/ai-assistant/approval-partial-success.png)`.
-:::
 
 ## Read-only vs confirm-required
 

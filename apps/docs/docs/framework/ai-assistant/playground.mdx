@@ -9,11 +9,6 @@ The playground is the fastest way to exercise a registered agent end-to-end with
 
 Open at `/backend/config/ai-assistant/playground`. Requires the `ai_assistant.settings.manage` feature.
 
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/playground` — landing state with agent picker, empty chat, and the debug panel collapsed.
-Save as: `apps/docs/static/img/ai-assistant/playground-landing.png`. Embed with `![alt](/img/ai-assistant/playground-landing.png)`.
-:::
-
 ## Agent picker
 
 Every agent aggregated into `ai-agents.generated.ts` shows up in the picker. The selection drives:
@@ -30,19 +25,9 @@ When the picked agent declares `executionMode: 'chat'` (the default), the playgr
 - A stable per-session `conversationId` so idempotency dedupes repeated turns.
 - An inline attachment uploader when `agent.acceptedMediaTypes` is non-empty.
 
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/playground` — `customers.account_assistant` selected, one user turn + one assistant reply, debug panel expanded.
-Save as: `apps/docs/static/img/ai-assistant/playground-chat.png`. Embed with `![alt](/img/ai-assistant/playground-chat.png)`.
-:::
-
 ## Object mode
 
 When the picked agent declares `executionMode: 'object'`, the playground swaps the chat for a JSON input editor and a result panel. The runtime validates the returned object against `agent.output.schema` and surfaces violations inline.
-
-:::note Screenshot TODO
-Capture: `/backend/config/ai-assistant/playground` — object-mode agent selected, input JSON filled, result JSON tree rendered.
-Save as: `apps/docs/static/img/ai-assistant/playground-object.png`. Embed with `![alt](/img/ai-assistant/playground-object.png)`.
-:::
 
 ## Debug panel
 
