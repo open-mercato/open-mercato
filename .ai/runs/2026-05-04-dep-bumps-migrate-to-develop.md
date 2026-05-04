@@ -106,7 +106,7 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 ### Phase 1: Apply package.json bumps and regenerate lockfile
 
 - [x] 1.1 Apply minor-and-patch bumps from #1723 across affected package.json files — 313e892bb
-- [ ] 1.2 Apply in-scope major bumps from #1724 (mikro-orm 7.0.13, ts-morph 28)
+- [x] 1.2 Apply in-scope major bumps from #1724 (mikro-orm 7.0.13, ts-morph 28) — 25aaff5c4
 - [ ] 1.3 Run yarn install to regenerate yarn.lock
 
 ### Phase 2: Adapt code for non-reverted majors
