@@ -9,24 +9,41 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)
 [![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?logo=next.js)](https://nextjs.org/)
 
+**Open Mercato - the AI-Engineering Foundation Framework.**
+
+AI code assistants generate code. They don't decide where it goes, how it should be layered, or whether it stays consistent across 30 or 50 engineers in the team. 
+
+Open Mercato is the open-source foundation framework that solves it:
+
+- **Architecture-aware AI harness** - agents know where in the project to place code, not just how to write it, they are provided with autonomous skills for everything from adding data table, Design-System coherent forms to implementing whole features with unit and integration tests,
+- **Spec-first development** - specs ship with the repo, AI output becomes reproducible
+- **Including AI harness and skills for human cooperation** - code review, ticketing flow and debugging
+- **Ready-made CRM/ERP domain modules** - start at 80% done
+- **Open-source, no lock-in** - full code ownership, no per-seat pricing trap
+- **Teachable** - the whole team enters AI-assisted dev, not just 1–2 seniors
+
+End with „almost ready apps”. Ship it pro, ship it fast. We’ve got you!
+
+Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't enough. Built for developers who want to build professional business apps and backends without constantly checking their back. 
+
 Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑grade CRMs, ERPs, and commerce backends. It’s modular, extensible, and designed so teams can mix their own modules, entities, and workflows while keeping the guardrails of a production-ready stack.
 
 ## Start with 80% done.
 
-**Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise ready business features like CRM, Sales, OMS, Encryption and build the remaining **20&percnt;** that really makes the difference for your business.
+**Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise-ready business features like CRM, Sales, OMS, Encryption, and build the remaining **20&percnt;** that really makes the difference for your business.
 
 [![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
 
 
 ## Core Use Cases
 
+- 🛒 **Commerce** – launch CPQ flows, B2B ordering portals, or full commerce backends with reusable modules.
+- 🌐 **Headless/API platform/Custom Backend** – expose rich, well-typed APIs for mobile and web apps using the same extensible data model.
 - 💼 **CRM** – model customers, opportunities, and bespoke workflows with infinitely flexible data definitions.
 - 🏭 **ERP** – manage orders, production, and service delivery while tailoring modules to match your operational reality.
-- 🛒 **Commerce** – launch CPQ flows, B2B ordering portals, or full commerce backends with reusable modules.
 - 🤝 **Self-service system** – spin up customer or partner portals with configurable forms, guided flows, and granular permissions.
 - 🔄 **Workflows** – orchestrate custom data lifecycles and document workflows per tenant or team.
 - 🧵 **Production** – coordinate production management with modular entities, automation hooks, and reporting.
-- 🌐 **Headless/API platform** – expose rich, well-typed APIs for mobile and web apps using the same extensible data model.
 
 ## Highlights
 
