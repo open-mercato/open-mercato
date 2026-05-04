@@ -10,6 +10,7 @@ import {
   writeValue,
 } from '../ast'
 import {
+  emptyObject,
   moduleEntry,
   namespaceFallback,
   namespaceImportSpec,
@@ -54,7 +55,7 @@ export function createAiOverridesExtension(): GeneratorExtension {
               value: namespaceFallback({
                 importName,
                 members: ['aiOverrides', 'default'],
-                fallback: '{}',
+                fallback: emptyObject(),
                 castType: 'Record<string, unknown>',
               }),
             },
