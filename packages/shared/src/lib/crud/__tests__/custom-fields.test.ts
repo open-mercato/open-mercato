@@ -1,10 +1,12 @@
 import {
   buildCustomFieldFiltersFromQuery,
+  decorateRecordWithCustomFields,
   extractAllCustomFieldEntries,
   loadCustomFieldDefinitionIndex,
   loadCustomFieldValues,
   splitCustomFieldPayload,
 } from '../custom-fields'
+import type { CustomFieldDefinitionIndex, CustomFieldDefinitionSummary } from '../custom-fields'
 import { encryptWithAesGcm } from '../../encryption/aes'
 
 const mockEntityManager = (defs: any[]) => ({
@@ -224,6 +226,75 @@ describe('loadCustomFieldValues (encryption)', () => {
       encryptionService: mockService as any,
     })
     expect(values['rec-1'].cf_priority).toBe(42)
+  })
+})
+
+describe('decorateRecordWithCustomFields', () => {
+  const buildDefinition = (
+    overrides: Partial<CustomFieldDefinitionSummary> = {},
+  ): CustomFieldDefinitionSummary => ({
+    key: 'priority',
+    label: 'Priority',
+    kind: 'integer',
+    multi: false,
+    organizationId: null,
+    tenantId: null,
+    priority: 0,
+    updatedAt: 1,
+    ...overrides,
+  })
+
+  const buildIndex = (
+    entries: Array<[string, CustomFieldDefinitionSummary[]]>,
+  ): CustomFieldDefinitionIndex => new Map(entries)
+
+  it('returns the value in customValues and customFields when an active definition exists', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition()]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      { cf_priority: 3 },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 3 })
+    expect(result.customFields).toEqual([
+      { key: 'priority', label: 'Priority', value: 3, kind: 'integer', multi: false },
+    ])
+  })
+
+  it('skips orphaned custom field values whose definition was deleted (regression for #1749)', () => {
+    const result = decorateRecordWithCustomFields(
+      { cf_my_test_key: 'leftover' },
+      buildIndex([]),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+  })
+
+  it('keeps active fields and drops orphaned ones in mixed payloads', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition({ key: 'priority', label: 'Priority' })]],
+      ['severity', [buildDefinition({ key: 'severity', label: 'Severity', kind: 'text', priority: 1 })]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      {
+        cf_priority: 5,
+        cf_severity: 'high',
+        cf_my_test_key: 'should-not-leak',
+      },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 5, severity: 'high' })
+    expect(result.customFields.map((entry) => entry.key)).toEqual(['priority', 'severity'])
+    expect(result.customFields.find((entry) => entry.key === 'my_test_key')).toBeUndefined()
   })
 })
 

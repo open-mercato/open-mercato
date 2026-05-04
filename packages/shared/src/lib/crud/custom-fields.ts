@@ -427,20 +427,22 @@ export function decorateRecordWithCustomFields(
     const bareKey = prefixedKey.replace(/^cf_/, '')
     const normalizedKey = normalizeDefinitionKey(bareKey)
     if (!normalizedKey) return
-    values[bareKey] = value
     const defsForKey = definitions.get(normalizedKey) ?? []
     const resolvedDef = selectDefinitionForRecord(defsForKey, organizationId, tenantId)
+    // Skip custom field values without active definitions to prevent orphaned fields
+    if (!resolvedDef) return
+    values[bareKey] = value
     const entry: CustomFieldDisplayEntry = {
       key: bareKey,
-      label: resolvedDef?.label ?? bareKey,
+      label: resolvedDef.label ?? bareKey,
       value,
-      kind: resolvedDef?.kind ?? null,
-      multi: resolvedDef?.multi ?? Array.isArray(value),
+      kind: resolvedDef.kind ?? null,
+      multi: resolvedDef.multi ?? Array.isArray(value),
     }
     entries.push({
       entry,
-      priority: resolvedDef?.priority ?? Number.MAX_SAFE_INTEGER,
-      updatedAt: resolvedDef?.updatedAt ?? 0,
+      priority: resolvedDef.priority ?? Number.MAX_SAFE_INTEGER,
+      updatedAt: resolvedDef.updatedAt ?? 0,
     })
   })
 
