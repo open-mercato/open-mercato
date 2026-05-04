@@ -39,6 +39,7 @@ test.describe('TC-AI-INJECT-013: catalog merchandising via injection', () => {
     await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
 
     const trigger = page.locator('[data-ai-merchandising-trigger]').first();
     await expect(trigger).toBeVisible({ timeout: 60_000 });
