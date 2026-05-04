@@ -4,8 +4,8 @@
 // - overrides: optional unified per-app override surface — replace or
 //   disable any contract a module presents. AI is wired today (Phase 1);
 //   other domains are stubbed and emit a one-shot warning if used.
-//   See `framework/ai-assistant/overrides` (and the umbrella spec
-//   `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`) in the docs.
+//   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
+//   `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
 

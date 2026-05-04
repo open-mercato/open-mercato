@@ -222,9 +222,10 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   // near-white in dark mode and disappears against the pale gradient.
   // Mirrors the `FancyButton` primitive's `text-white` precedent on its
   // fixed dark gradient. The `om-demo-feedback-floating` class hooks into
-  // globals.css (`body[data-ai-chat-open="true"] .om-demo-feedback-floating`)
-  // so the FAB also hides while any AI chat surface is open; the
-  // `aiDockActive` gate hides it outright when the AI dock is mounted.
+  // `body[data-ai-chat-open="true"] .om-demo-feedback-floating` in
+  // globals.css so the FAB hides while the AI dock surface is open
+  // (anchored on the right edge of the viewport); the same `aiDockActive`
+  // gate hides the FAB outright when the dock is mounted in this app shell.
   const floatingButton = aiDockActive ? null : (
     <button
       type="button"

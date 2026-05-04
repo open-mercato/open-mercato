@@ -87,7 +87,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
             'Action applied with failures',
           )}
         </AlertTitle>
-        <AlertDescription>
+        <div className="text-sm leading-relaxed">
           <p>
             {t(
               'ai_assistant.chat.mutation_cards.result.partialBody',
@@ -108,7 +108,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
               </li>
             ))}
           </ul>
-        </AlertDescription>
+        </div>
       </Alert>
     )
   }
@@ -122,7 +122,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
         <AlertTitle>
           {t('ai_assistant.chat.mutation_cards.result.successTitle', 'Action applied')}
         </AlertTitle>
-        <AlertDescription>
+        <div className="text-sm leading-relaxed">
           <p>
             {result?.commandName
               ? t(
@@ -155,7 +155,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
               )}
             </p>
           ) : null}
-        </AlertDescription>
+        </div>
       </Alert>
     )
   }
@@ -303,7 +303,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
             'Action failed',
           )}
         </AlertTitle>
-        <AlertDescription>
+        <div className="text-sm leading-relaxed">
           <div>
             <span className="mr-2 font-mono text-xs" data-ai-mutation-result-code>
               {code}
@@ -349,7 +349,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
               </span>
             </Button>
           </div>
-        </AlertDescription>
+        </div>
       </Alert>
     )
   }

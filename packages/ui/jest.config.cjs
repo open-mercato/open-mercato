@@ -3,6 +3,7 @@ module.exports = {
   testEnvironment: 'jsdom',
   watchman: false,
   rootDir: '.',
+  maxWorkers: 4,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
