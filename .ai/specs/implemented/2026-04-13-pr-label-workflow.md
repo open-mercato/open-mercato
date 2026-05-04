@@ -66,7 +66,25 @@ These classify what the PR is about. Applied once, never removed.
 | `skip-qa` | `#c5def5` light blue | Explicitly mark that QA is not needed (docs, deps, CI-only) |
 | `in-progress` | `#fbca04` amber | An auto-skill (or human) is actively working on this PR/issue right now — concurrency lock |
 
-**Total: 17 labels** (down from 50+)
+### Priority Labels (mutually exclusive within group — at most one)
+
+These communicate urgency on issues and PRs. They are additive relative to category/meta labels, but only one priority label may be applied at a time. The default — when no priority label is present — is treated as `priority-medium`.
+
+| Label | Color | When to apply |
+|-------|-------|---------------|
+| `priority-low` | `#C2E0C6` pale green | Cosmetic, opportunistic, or follow-up cleanup work; can wait several cycles |
+| `priority-medium` | `#FBCA04` yellow | Default working priority for normal feature/bug work |
+| `priority-high` | `#FF8A65` orange | Release-blocking — must land before the next release |
+| `priority-extreme` | `#B60205` deep red | Drop everything: production outage, active data-loss bug, or security incident |
+
+Rules:
+
+- Issues and PRs SHOULD carry a priority label. If absent, treat as `priority-medium`.
+- Triage MUST replace any existing priority label rather than stacking — use `gh issue edit <n> --remove-label priority-low --add-label priority-high` (or the GraphQL helper used elsewhere).
+- `priority-extreme` MUST be paired with an explanatory comment naming the incident/outage and the on-call owner.
+- Auto-skills MUST NOT set or change priority labels on their own; human triage owns priority. The only exception is `priority-extreme` on confirmed CI-breaking or security-impacting regressions, which an auto-skill MAY apply with an explanatory comment.
+
+**Total: 21 labels** (down from 50+; 17 from the original spec plus 4 priority labels added 2026-05-04).
 
 ---
 
@@ -546,6 +564,12 @@ gh label create "needs-qa" --color "d876e3" --description "Requires manual QA be
 gh label create "skip-qa" --color "c5def5" --description "QA not required" --force
 gh label create "in-progress" --color "fbca04" --description "Auto-skill (or human) is actively working — concurrency lock" --force
 
+# --- Priority labels (added 2026-05-04) ---
+gh label create "priority-low" --color "C2E0C6" --description "Low priority — fix when convenient" --force
+gh label create "priority-medium" --color "FBCA04" --description "Medium priority — should be addressed in the current cycle" --force
+gh label create "priority-high" --color "FF8A65" --description "High priority — block the next release until resolved" --force
+gh label create "priority-extreme" --color "B60205" --description "Extreme priority — drop everything and address immediately" --force
+
 # --- Update existing labels ---
 gh label edit "do not merge" --name "do-not-merge" --description "Held from merging" 2>/dev/null
 gh label edit "merge-queue" --description "All gates passed — ready to merge" --force
@@ -571,7 +595,7 @@ echo "Done. Labels cleaned up."
 
 ---
 
-## Final Label Inventory (17 labels)
+## Final Label Inventory (21 labels)
 
 | # | Label | Type | Color |
 |---|-------|------|-------|
@@ -592,6 +616,10 @@ echo "Done. Labels cleaned up."
 | 15 | `needs-qa` | Meta | 🟣 purple |
 | 16 | `skip-qa` | Meta | 🔵 light blue |
 | 17 | `in-progress` | Meta (lock) | 🟡 amber |
+| 18 | `priority-low` | Priority | 🟢 pale green |
+| 19 | `priority-medium` | Priority | 🟡 yellow |
+| 20 | `priority-high` | Priority | 🟠 orange |
+| 21 | `priority-extreme` | Priority | 🔴 deep red |
 
 ## Implementation Status
 
@@ -601,6 +629,7 @@ echo "Done. Labels cleaned up."
 | Phase 2 — Skill Updates | Done | 2026-04-14 | `auto-review-pr` and `auto-fix-github` updated; `merge-buddy` and `review-prs` skills added |
 | Phase 3 — AGENTS.md Updates | Done | 2026-04-14 | Root `AGENTS.md` documents the PR workflow, QA routing, and `gh` helper commands |
 | Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
+| Phase 5 — Priority Labels | Done | 2026-05-04 | Added `priority-low/medium/high/extreme` to communicate urgency on issues and PRs; documented in this spec and root `AGENTS.md` |
 
 ### Detailed Progress
 
@@ -611,6 +640,7 @@ echo "Done. Labels cleaned up."
 - [x] Add `merge-buddy` skill
 - [x] Add `review-prs` skill
 - [x] Add PR workflow guidance to root `AGENTS.md`
+- [x] Add `priority-low/medium/high/extreme` labels and triage rules (2026-05-04)
 - [ ] Add optional GitHub Actions enforcement
 
 ---

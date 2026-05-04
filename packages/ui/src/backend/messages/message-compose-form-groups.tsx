@@ -4,6 +4,13 @@ import { type CrudField } from '../CrudForm'
 import { IconButton } from '../../primitives/icon-button'
 import { Input } from '../../primitives/input'
 import { Label } from '../../primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { Switch } from '../../primitives/switch'
 import { AttachmentsSection } from '../detail/AttachmentsSection'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
@@ -98,19 +105,21 @@ function ContextActionsSection({ compose }: ComposeProps) {
           <Label htmlFor="messages-compose-context-action-type">
             {compose.t('messages.composer.objectPicker.actionTypeLabel', 'Action type')}
           </Label>
-          <select
-            id="messages-compose-context-action-type"
-            value={compose.contextActionType}
-            onChange={(event) => compose.setContextActionType(event.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          <Select
+            value={compose.contextActionType || undefined}
+            onValueChange={(value) => compose.setContextActionType(value || '')}
           >
-            <option value="">{compose.t('messages.composer.objectPicker.actionTypePlaceholder', 'Select action')}</option>
-            {compose.contextActionOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="messages-compose-context-action-type">
+              <SelectValue placeholder={compose.t('messages.composer.objectPicker.actionTypePlaceholder', 'Select action')} />
+            </SelectTrigger>
+            <SelectContent>
+              {compose.contextActionOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ) : null}
     </div>

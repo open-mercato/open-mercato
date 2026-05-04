@@ -690,6 +690,7 @@
   "ui.columnChooser.ungrouped": "Other",
   "ui.contextHelp.hide": "Ocultar",
   "ui.contextHelp.show": "Mostrar",
+  "ui.crud.dragHandle.aria": "Arrastra para reordenar",
   "ui.dataLoader.loading": "Cargando...",
   "ui.dataTable.actionsColumn": "Acciones",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",

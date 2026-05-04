@@ -13,6 +13,7 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
+type SignupResponse = { ok: boolean; error?: string }
 
 export default function PortalSignupPage({ params }: Props) {
   const t = useT()
@@ -38,7 +39,7 @@ export default function PortalSignupPage({ params }: Props) {
 
       setSubmitting(true)
       try {
-        const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/signup', {
+        const result = await apiCall<SignupResponse>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
@@ -86,8 +87,11 @@ export default function PortalSignupPage({ params }: Props) {
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.success.title', 'Account Created')}</h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.signup.success.description', 'Your account has been created. You can now sign in.')}</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.success.title', 'Check your email')}</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">{t(
+          'portal.signup.success.description',
+          'If your registration was accepted, check your email for next steps before signing in. Some organizations require an administrator to activate new accounts.',
+        )}</p>
         <Button asChild className="mt-6 w-full rounded-lg">
           <Link href={`/${orgSlug}/portal/login`}>{t('portal.signup.success.loginLink', 'Sign In')}</Link>
         </Button>

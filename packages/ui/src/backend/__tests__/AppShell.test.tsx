@@ -313,7 +313,7 @@ describe('AppShell', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
+      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-muted')
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
   })

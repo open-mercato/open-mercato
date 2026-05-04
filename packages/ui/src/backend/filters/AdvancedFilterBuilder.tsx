@@ -3,6 +3,14 @@ import * as React from 'react'
 import { ChevronDown, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
+import { Input } from '../../primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   AdvancedFilterState,
@@ -114,30 +122,41 @@ function ConditionRow({
         )}
       </div>
 
-      <select
-        className="rounded border bg-background px-2 py-1.5 text-sm min-w-[140px]"
-        value={condition.field}
-        onChange={(e) => handleFieldChange(e.target.value)}
-        aria-label={t('ui.advancedFilter.selectField', 'Select field')}
+      <Select
+        value={condition.field || undefined}
+        onValueChange={(next) => handleFieldChange(next ?? '')}
       >
-        <option value="" disabled>{t('ui.advancedFilter.selectFieldPlaceholder', 'Select field...')}</option>
-        {fields.map((f) => (
-          <option key={f.key} value={f.key}>{f.label}</option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="min-w-[140px]"
+          aria-label={t('ui.advancedFilter.selectField', 'Select field')}
+        >
+          <SelectValue placeholder={t('ui.advancedFilter.selectFieldPlaceholder', 'Select field...')} />
+        </SelectTrigger>
+        <SelectContent>
+          {fields.map((f) => (
+            <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      <select
-        className="rounded border bg-background px-2 py-1.5 text-sm min-w-[120px]"
+      <Select
         value={condition.operator}
-        onChange={(e) => onUpdate(condition.id, { operator: e.target.value as FilterOperator, value: '' })}
-        aria-label={t('ui.advancedFilter.selectOperator', 'Select operator')}
+        onValueChange={(next) => onUpdate(condition.id, { operator: next as FilterOperator, value: '' })}
       >
-        {operators.map((op) => (
-          <option key={op} value={op}>
-            {t(`ui.advancedFilter.operator.${op}`, OPERATOR_LABELS[op])}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="min-w-[120px]"
+          aria-label={t('ui.advancedFilter.selectOperator', 'Select operator')}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {operators.map((op) => (
+            <SelectItem key={op} value={op}>
+              {t(`ui.advancedFilter.operator.${op}`, OPERATOR_LABELS[op])}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {!valueless ? (
         <ValueInput
@@ -180,17 +199,22 @@ function ValueInput({
 
   if (fieldType === 'select' && fieldDef?.options) {
     return (
-      <select
-        className="rounded border bg-background px-2 py-1.5 text-sm min-w-[140px]"
-        value={typeof value === 'string' ? value : ''}
-        onChange={(e) => onUpdate(condition.id, { value: e.target.value })}
-        aria-label={t('ui.advancedFilter.selectValue', 'Select value')}
+      <Select
+        value={typeof value === 'string' && value ? value : undefined}
+        onValueChange={(next) => onUpdate(condition.id, { value: next ?? '' })}
       >
-        <option value="" disabled>{t('ui.advancedFilter.selectValuePlaceholder', 'Select...')}</option>
-        {fieldDef.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="min-w-[140px]"
+          aria-label={t('ui.advancedFilter.selectValue', 'Select value')}
+        >
+          <SelectValue placeholder={t('ui.advancedFilter.selectValuePlaceholder', 'Select...')} />
+        </SelectTrigger>
+        <SelectContent>
+          {fieldDef.options.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     )
   }
 
@@ -208,9 +232,10 @@ function ValueInput({
 
   if (fieldType === 'number') {
     return (
-      <input
+      <Input
         type="number"
-        className="rounded border bg-background px-2 py-1.5 text-sm w-[120px]"
+        size="sm"
+        className="w-[120px]"
         value={typeof value === 'number' ? value : typeof value === 'string' ? value : ''}
         onChange={(e) => onUpdate(condition.id, { value: e.target.value })}
         placeholder={t('ui.advancedFilter.numberPlaceholder', 'Value')}
@@ -220,9 +245,10 @@ function ValueInput({
   }
 
   return (
-    <input
+    <Input
       type="text"
-      className="rounded border bg-background px-2 py-1.5 text-sm min-w-[140px]"
+      size="sm"
+      className="min-w-[140px]"
       value={typeof value === 'string' ? value : ''}
       onChange={(e) => onUpdate(condition.id, { value: e.target.value })}
       placeholder={t('ui.advancedFilter.textPlaceholder', 'Value...')}

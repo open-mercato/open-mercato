@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -223,8 +224,7 @@ export function AnnualRevenueField({
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('customers.companies.detail.fields.annualRevenuePlaceholder', 'Enter amount')}
             </label>
-            <input
-              className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <Input
               value={draftAmount}
               onChange={(event) => {
                 setDraftAmount(event.target.value)

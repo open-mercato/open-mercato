@@ -121,6 +121,89 @@ describe('CrudForm custom field loading', () => {
     expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
   })
 
+  it('hydrates bare-key custom field initialValues after definitions load and after remount', async () => {
+    const loadOptions = jest.fn().mockResolvedValue([
+      { value: 'CNY', label: 'CNY - Chinese Yuan' },
+    ])
+
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: any) => ({
+      id: `cf_${definition.key}`,
+      label: definition.label ?? definition.key,
+      type: 'select',
+      loadOptions,
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'preferred_currency',
+          label: 'Preferred currency',
+          kind: 'currency',
+        },
+      ],
+      metadata: {
+        items: [],
+        fieldsetsByEntity: {},
+        entitySettings: {},
+      },
+    })
+
+    function Host({ visible }: { visible: boolean }) {
+      if (!visible) return null
+      return (
+        <CrudForm
+          embedded
+          title="Form"
+          entityId="customers:customer_company_profile"
+          fields={fields}
+          groups={groups}
+          initialValues={{ name: 'Acme', preferred_currency: 'CNY' }}
+          onSubmit={() => {}}
+        />
+      )
+    }
+
+    const { container, rerender } = renderWithProviders(
+      <Host visible />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'entities.customFields.manageFieldset': 'Manage fields',
+        },
+      },
+    )
+
+    const getCurrencySelect = () =>
+      container.querySelector('[data-crud-field-id="cf_preferred_currency"] select') as HTMLSelectElement | null
+
+    await waitFor(() => {
+      expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()?.value).toBe('CNY')
+    })
+
+    await act(async () => {
+      rerender(<Host visible={false} />)
+    })
+
+    await act(async () => {
+      rerender(<Host visible />)
+    })
+
+    await waitFor(() => {
+      expect(getCurrencySelect()).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()?.value).toBe('CNY')
+    })
+    expect(loadOptions).toHaveBeenCalled()
+  })
+
   it('opens the field manager without submitting the parent form', async () => {
     const handleSubmit = jest.fn().mockResolvedValue(undefined)
 

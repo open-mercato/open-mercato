@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Settings, Save } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
@@ -233,25 +241,25 @@ export function DictionaryEntrySelect({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <select
-          className={[
-            'h-9 w-full rounded border pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-            selectClassName,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(next || undefined)}
           disabled={disabled}
-          title={activeOption?.label ?? undefined}
         >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value} title={option.label}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            className={selectClassName}
+            title={activeOption?.label ?? undefined}
+          >
+            <SelectValue placeholder={labels.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1">
           {allowInlineCreate && createOption ? (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -275,9 +283,8 @@ export function DictionaryEntrySelect({
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">{labels.valueLabel}</label>
-                    <input
+                    <Input
                       type="text"
-                      className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={newValue}
                       onChange={(event) => {
                         setNewValue(event.target.value)
@@ -291,9 +298,8 @@ export function DictionaryEntrySelect({
                   {showLabelInput ? (
                     <div className="space-y-2">
                       <label className="text-sm font-medium">{labels.labelLabel}</label>
-                      <input
+                      <Input
                         type="text"
-                        className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         value={newLabel}
                         onChange={(event) => setNewLabel(event.target.value)}
                         placeholder={labels.labelPlaceholder}

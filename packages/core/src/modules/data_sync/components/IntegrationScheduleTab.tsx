@@ -8,6 +8,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -396,17 +403,21 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                     <td className="px-3 py-3 font-medium">{formatEntityTypeLabel(row.entityType)}</td>
                     <td className="px-3 py-3">{t(`data_sync.dashboard.direction.${row.direction}`, row.direction === 'import' ? 'Import' : 'Export')}</td>
                     <td className="px-3 py-3">
-                      <select
-                        className="flex h-10 w-full min-w-32 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      <Select
                         value={scheduleState.scheduleType}
-                        onChange={(event) => updateScheduleEditor(row.key, {
-                          scheduleType: event.target.value === 'cron' ? 'cron' : 'interval',
+                        onValueChange={(value) => updateScheduleEditor(row.key, {
+                          scheduleType: value === 'cron' ? 'cron' : 'interval',
                         }, row.entityType)}
                         disabled={controlsDisabled}
                       >
-                        <option value="interval">{t('data_sync.dashboard.schedule.interval', 'Interval')}</option>
-                        <option value="cron">{t('data_sync.dashboard.schedule.cron', 'Cron')}</option>
-                      </select>
+                        <SelectTrigger size="lg" className="min-w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="interval">{t('data_sync.dashboard.schedule.interval', 'Interval')}</SelectItem>
+                          <SelectItem value="cron">{t('data_sync.dashboard.schedule.cron', 'Cron')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </td>
                     <td className="px-3 py-3">
                       <Input

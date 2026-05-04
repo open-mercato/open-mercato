@@ -8,6 +8,13 @@ import type { IconOption } from '@open-mercato/core/modules/dictionaries/compone
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
@@ -1013,19 +1020,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.entity', 'Assign to customer')}
                     </label>
-                    <select
-                      id="note-entity-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={selectedEntityId}
-                      onChange={(event) => setSelectedEntityId(event.target.value)}
+                    <Select
+                      value={selectedEntityId || undefined}
+                      onValueChange={(next) => setSelectedEntityId(next ?? '')}
                       disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
                     >
-                      {normalizedEntityOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-entity-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedEntityOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
                 {normalizedDealOptions.length ? (
@@ -1036,22 +1046,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.deal', 'Link to deal (optional)')}
                     </label>
-                    <select
-                      id="note-deal-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={selectedDealId}
-                      onChange={(event) => setSelectedDealId(event.target.value)}
+                    <Select
+                      value={selectedDealId || undefined}
+                      onValueChange={(next) => setSelectedDealId(next ?? '')}
                       disabled={isSubmitting || isLoading}
                     >
-                      <option value="">
-                        {label('fields.dealPlaceholder', 'No linked deal')}
-                      </option>
-                      {normalizedDealOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-deal-select">
+                        <SelectValue placeholder={label('fields.dealPlaceholder', 'No linked deal')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedDealOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
               </div>

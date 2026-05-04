@@ -6,6 +6,13 @@ import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleSlot,
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -1308,22 +1315,24 @@ export function AvailabilityRulesEditor({
               {ruleSetsLoading ? (
                 <span className="text-xs text-muted-foreground">{listLabels.ruleSetLoading}</span>
               ) : (
-                <select
-                  className="h-9 rounded border bg-background px-2 text-sm"
-                  value={rulesetId ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value
+                <Select
+                  value={rulesetId || undefined}
+                  onValueChange={(value) => {
                     void handleRuleSetChange(value ? value : null)
                   }}
                   disabled={isReadOnly}
                 >
-                  <option value="">{listLabels.ruleSetPlaceholder}</option>
-                  {ruleSets.map((ruleSet) => (
-                    <option key={ruleSet.id} value={ruleSet.id}>
-                      {ruleSet.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger size="sm" className="w-auto min-w-[10rem]">
+                    <SelectValue placeholder={listLabels.ruleSetPlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ruleSets.map((ruleSet) => (
+                      <SelectItem key={ruleSet.id} value={ruleSet.id}>
+                        {ruleSet.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               <Button type="button" variant="outline" size="sm" onClick={() => setCreateRuleSetOpen(true)} disabled={isReadOnly}>
                 <Plus className="size-4 mr-2" aria-hidden />
@@ -1717,17 +1726,21 @@ export function AvailabilityRulesEditor({
                       ) : (
                         <div className="space-y-2">
                           <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
-                          <select
-                            className="h-9 rounded border bg-background pl-2 pr-8 text-sm"
+                          <Select
                             value={String(editorWeekday)}
-                            onChange={(event) => setEditorWeekday(Number(event.target.value))}
+                            onValueChange={(value) => setEditorWeekday(Number(value))}
                           >
-                            {DAY_LABELS.map((day, index) => (
-                              <option key={day.code} value={index}>
-                                {t(day.nameKey, day.fallback)}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger size="sm" className="w-auto min-w-[8rem]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DAY_LABELS.map((day, index) => (
+                                <SelectItem key={day.code} value={String(index)}>
+                                  {t(day.nameKey, day.fallback)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       )}
 

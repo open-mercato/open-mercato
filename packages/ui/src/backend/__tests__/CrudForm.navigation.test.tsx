@@ -153,4 +153,46 @@ describe('CrudForm unsaved navigation guard', () => {
     expect(confirmDialogMock).not.toHaveBeenCalled()
     expect(window.location.pathname).toBe('/after-save')
   })
+
+  it('suppresses the native beforeunload dialog while the submit-bypass flag is active (regression: #1733)', async () => {
+    let beforeUnloadDuringSubmit: BeforeUnloadEvent | null = null
+    const onSubmit = jest.fn(async () => {
+      const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent
+      Object.defineProperty(event, 'returnValue', { writable: true, value: undefined })
+      window.dispatchEvent(event)
+      beforeUnloadDuringSubmit = event
+    })
+
+    const { container } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} initialValues={{ name: 'Alice' }} onSubmit={onSubmit} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    const form = container.querySelector('form') as HTMLFormElement
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+
+    const dirtyEvent = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent
+    Object.defineProperty(dirtyEvent, 'returnValue', { writable: true, value: undefined })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+
+    await act(async () => {
+      fireEvent.submit(form)
+      await Promise.resolve()
+    })
+
+    expect(onSubmit).toHaveBeenCalled()
+    expect(beforeUnloadDuringSubmit).not.toBeNull()
+    expect(beforeUnloadDuringSubmit!.defaultPrevented).toBe(false)
+    expect(beforeUnloadDuringSubmit!.returnValue).toBeUndefined()
+  })
 })

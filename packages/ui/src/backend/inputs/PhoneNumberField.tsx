@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
+import { Input } from '../../primitives/input'
 
 export type PhoneDuplicateMatch = {
   id: string
@@ -136,9 +137,8 @@ export function PhoneNumberField({
 
   return (
     <div className="space-y-2">
-      <input
+      <Input
         type="tel"
-        className="w-full h-9 rounded border px-2 text-sm"
         value={local}
         onChange={handleChange}
         onBlur={handleBlur}

@@ -13,7 +13,10 @@ import {
   CustomerPersonCompanyLink,
   CustomerPersonProfile,
 } from '../../../../data/entities'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../../../lib/personCompanyLinkTable'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -129,12 +132,14 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       },
       'customers.companies.people.GET',
     )
-    const links = await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      linkWhere,
-      { populate: ['person'] },
-      entityScope,
+    const links = filterActivePersonCompanyLinks(
+      await findWithDecryption(
+        em,
+        CustomerPersonCompanyLink,
+        linkWhere,
+        { populate: ['person'] },
+        entityScope,
+      ),
     )
 
     const personIds = links

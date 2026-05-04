@@ -228,4 +228,105 @@ describe('CollapsibleZoneLayout', () => {
     })
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
+
+  it('focuses the first input field inside the activated section when available', async () => {
+    currentWidth = 1180
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: currentWidth,
+    })
+    const scrollIntoView = jest.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    })
+
+    const { container } = renderWithProviders(
+      <CollapsibleZoneLayout
+        zone1={(
+          <div id="collapsible-group-wrapper-personalData">
+            <button type="button" aria-controls="collapsible-group-personalData" aria-expanded="true">Personal group</button>
+            <input type="hidden" name="hidden-field" defaultValue="hidden" />
+            <input type="text" name="first-name" placeholder="First name" />
+            <input type="text" name="last-name" placeholder="Last name" />
+          </div>
+        )}
+        zone2={<div>Zone 2</div>}
+        entityName="Ada Lovelace"
+        pageType="person-v2"
+        sections={[
+          { id: 'personalData', icon: User, label: 'Personal data' },
+        ]}
+      />,
+      { dict: {} },
+    )
+
+    const layout = container.firstElementChild as HTMLElement
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'collapsed')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personal data' }))
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'stacked')
+      expect(screen.getByPlaceholderText('First name')).toHaveFocus()
+    })
+  })
+
+  it('expands a collapsed inner group when activated from the rail', async () => {
+    currentWidth = 1180
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: currentWidth,
+    })
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: jest.fn(),
+    })
+
+    const headingClickHandler = jest.fn()
+
+    const { container } = renderWithProviders(
+      <CollapsibleZoneLayout
+        zone1={(
+          <div id="collapsible-group-wrapper-personalData">
+            <button
+              type="button"
+              aria-controls="collapsible-group-personalData"
+              aria-expanded="false"
+              onClick={headingClickHandler}
+            >
+              Personal group
+            </button>
+          </div>
+        )}
+        zone2={<div>Zone 2</div>}
+        entityName="Ada Lovelace"
+        pageType="person-v2"
+        sections={[
+          { id: 'personalData', icon: User, label: 'Personal data' },
+        ]}
+      />,
+      { dict: {} },
+    )
+
+    const layout = container.firstElementChild as HTMLElement
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'collapsed')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personal data' }))
+
+    await waitFor(() => {
+      expect(layout).toHaveAttribute('data-zone-layout-mode', 'stacked')
+      expect(headingClickHandler).toHaveBeenCalled()
+    })
+  })
 })

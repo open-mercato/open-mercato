@@ -114,6 +114,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
 - Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
+- Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`. They are applied to issues and PRs to communicate urgency, are additive with respect to category and meta labels, and default to **unset** (treated as `priority-medium`) when no priority label is present. Use `priority-extreme` for production outages or security incidents that require immediate action; `priority-high` for release-blocking issues; `priority-low` for cosmetic, opportunistic, or follow-up cleanup work.
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
 - `auto-review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
 - `auto-review-pr` MUST move review failures to `changes-requested`.
@@ -287,6 +288,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Every module with guarded routes or pages MUST declare features in `acl.ts` — never ship an empty `acl.ts` with `requireRoles` guards
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
+- Detail/read-model APIs that expose `customFields` MUST normalize response keys to bare field names via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Reserve `cf_` / `cf:` prefixes for request payloads, query-engine selectors, and form wiring.
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
@@ -344,7 +346,8 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Validate all inputs with zod; place validators in `data/validators.ts`
 -   Derive TypeScript types from zod via `z.infer<typeof schema>`
 -   Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
--   Never hand-write migrations — update ORM entities, run `yarn db:generate`
+-   Default migration workflow: update ORM entities, run `yarn db:generate`, and review the generated SQL plus `migrations/.snapshot-open-mercato.json`
+-   Coding-agent exception: if `yarn db:generate` emits unrelated migrations, delete the unrelated output, keep or write only the intended SQL migration for this entity change, and update the affected module's `.snapshot-open-mercato.json`. Never run `yarn db:migrate` just to make the generator quiet.
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
 -   RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead

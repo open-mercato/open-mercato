@@ -5,7 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -24,6 +32,10 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
+  // Tracks the first required field that failed validation so we can mark the
+  // field with aria-invalid + a red ring (Radix Select can't carry HTML
+  // `required`, so we enforce constraint validation in JS instead).
+  const [invalidField, setInvalidField] = React.useState<string | null>(null)
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['workflow-task', params.id],
@@ -45,6 +57,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       ...prev,
       [fieldName]: value,
     }))
+    // Clear invalid state once the user touches the offending field.
+    if (invalidField === fieldName) setInvalidField(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,15 +66,27 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
     if (!task) return
 
-    // Validate required fields
+    // Validate required fields. Radix Select doesn't expose HTML `required`,
+    // so we enforce constraint validation here and surface it visually via
+    // `invalidField` + aria-invalid on the offending field.
     if (task.formSchema?.required) {
       for (const requiredField of task.formSchema.required) {
         if (!formData[requiredField] || formData[requiredField] === '') {
-          flash(t('workflows.tasks.detail.validation.requiredField', { field: requiredField }), 'error')
+          const fieldSchema = task.formSchema.properties?.[requiredField]
+          const fieldLabel = fieldSchema?.title ?? requiredField
+          flash(t('workflows.tasks.detail.validation.requiredField', { field: fieldLabel }), 'error')
+          setInvalidField(requiredField)
+          // Scroll + focus the trigger so the user sees what's missing.
+          if (typeof document !== 'undefined') {
+            const trigger = document.getElementById(requiredField)
+            trigger?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            trigger?.focus()
+          }
           return
         }
       }
     }
+    setInvalidField(null)
 
     setSubmitting(true)
 
@@ -119,20 +145,26 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           {fieldDescription && (
             <p className="text-xs text-muted-foreground">{fieldDescription}</p>
           )}
-          <select
-            id={fieldName}
-            value={fieldValue(fieldName)}
-            onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-            required={required}
-            className={inputClasses}
+          <Select
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
+            onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
-            <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
-            {enumValues.map((value: any) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              id={fieldName}
+              className={`${inputClasses} ${invalidField === fieldName ? 'ring-2 ring-status-error-border border-status-error-border' : ''}`}
+              aria-required={required}
+              aria-invalid={invalidField === fieldName ? true : undefined}
+            >
+              <SelectValue placeholder={t('workflows.tasks.detail.form.selectOption')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: any) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     }
@@ -150,13 +182,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
               )}
-              <input
+              <Input
                 type="email"
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
-                className={inputClasses}
               />
             </div>
           )
@@ -212,13 +243,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -234,14 +264,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="number"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
-              className={inputClasses}
             />
           </div>
         )
@@ -278,13 +307,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )

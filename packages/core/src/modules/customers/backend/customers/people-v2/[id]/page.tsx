@@ -45,6 +45,7 @@ import {
   type PersonEditFormValues,
   type PersonOverview,
 } from '../../../../components/formConfig'
+import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -59,7 +60,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
-  const groups = React.useMemo(() => createPersonPersonalDataGroups(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -96,10 +96,23 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const personName =
-    data?.person?.displayName && data.person.displayName.trim().length
-      ? data.person.displayName
-      : t('customers.people.list.deleteFallbackName', 'this person')
+  const personDisplayName = coerceDisplayName(data?.person?.displayName)
+  const personName = personDisplayName.trim().length
+    ? personDisplayName
+    : t('customers.people.list.deleteFallbackName', 'this person')
+
+  const personDisplayNameForGroups = personDisplayName.trim().length
+    ? personDisplayName.trim()
+    : null
+
+  const scheduleDialogCompanyName = coerceDisplayNameOrNull(
+    data?.company?.displayName ?? data?.companies?.[0]?.displayName ?? null,
+  )
+
+  const groups = React.useMemo(
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
+    [t, personDisplayNameForGroups],
+  )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
     { id: 'personalData', icon: User, label: t('customers.people.form.groups.personalData', 'Personal data') },
@@ -249,7 +262,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
+    setSectionAction((prev) => (action !== null ? action : prev))
   }, [])
 
   React.useEffect(() => {
@@ -424,6 +437,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 dealsCount={dealCount}
                 companiesCount={companyCount}
                 tasksCount={todoCount}
+                sectionAction={sectionAction}
               >
                 <div className="min-w-0">
                 {(() => {
@@ -569,7 +583,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
             entityName={personName}
-            companyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
+            companyName={scheduleDialogCompanyName}
             entityType="person"
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}

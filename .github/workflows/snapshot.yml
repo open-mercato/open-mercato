@@ -282,6 +282,7 @@ jobs:
           NODE_ENV=test
           OM_TEST_MODE=1
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
+          OM_INTEGRATION_TEST=true
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
@@ -333,7 +334,7 @@ jobs:
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
         run: |
-          PORT=3001 yarn start &
+          PORT=3001 yarn start > /tmp/standalone-app.log 2>&1 &
           echo "Waiting for standalone app to be ready..."
           for i in $(seq 1 180); do
             if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
@@ -343,6 +344,8 @@ jobs:
             sleep 1
           done
           echo "App failed to start within 180s"
+          echo "=== last 200 lines of /tmp/standalone-app.log ==="
+          tail -n 200 /tmp/standalone-app.log || true
           exit 1
 
       # --- Run integration tests ---
@@ -357,6 +360,12 @@ jobs:
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
         run: yarn test:integration
 
+      - name: Print standalone app log on test failure
+        if: failure()
+        run: |
+          echo "=== /tmp/standalone-app.log (last 1000 lines) ==="
+          tail -n 1000 /tmp/standalone-app.log || echo "(no log file)"
+
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -366,4 +375,12 @@ jobs:
             .ai/qa/test-results/html/
             .ai/qa/test-results/artifacts/
             .ai/qa/test-results/results.json
+          if-no-files-found: ignore
+
+      - name: Upload standalone app log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: standalone-app-log
+          path: /tmp/standalone-app.log
           if-no-files-found: ignore

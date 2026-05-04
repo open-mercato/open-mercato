@@ -9,6 +9,15 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-007: Create Deal', () => {
   test('should create a deal with value, probability, close date and company association', async ({ page, request }) => {
+    // Multiple Radix Select dropdowns that load options from /api/customers/dictionaries/*
+    // and /api/customers/pipelines on mount; under CI shard 6 parallel load each
+    // dropdown can take longer than the 20s default to enable, and a clobbered
+    // CrudForm initialValues effect can clear `title` mid-test if we proceed
+    // before status options have committed. Extend the budget and gate every
+    // interactive control with toBeVisible/toBeEnabled (Maciej-pattern, see
+    // commit ac37d013d for TC-MSG-009).
+    test.setTimeout(120_000);
+
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;
@@ -29,12 +38,35 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/create');
 
-      await page.locator('form').getByRole('textbox').first().fill(dealTitle);
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'Open' }) }).first().selectOption({ label: 'Open' });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: pipelineName }) }).first().selectOption({ label: pipelineName });
-      await page.locator('select').filter({ has: page.locator('option', { hasText: stageName }) }).first().selectOption({ label: stageName });
+      // Wait for all dictionary-driven dropdowns to finish loading before any
+      // user input. Radix Select renders the trigger as `disabled` while the
+      // options promise is pending (DictionaryEntrySelect.loading), and a late
+      // resolve can re-trigger CrudForm's initialValues merge that clobbers
+      // already-typed values like `title`.
+      await expect(page.locator('[data-crud-field-id="status"] [role="combobox"]').first()).toBeEnabled({ timeout: 30_000 });
+      await expect(page.locator('[data-crud-field-id="valueCurrency"] [role="combobox"]').first()).toBeEnabled({ timeout: 30_000 });
+      await expect(page.locator('[data-crud-field-id="pipelineId"] [role="combobox"]').first()).toBeEnabled({ timeout: 30_000 });
+
+      const titleInput = page.locator('form').getByRole('textbox').first();
+      await titleInput.fill(dealTitle);
+      await expect(titleInput).toHaveValue(dealTitle, { timeout: 10_000 });
+
+      // Radix Select via CrudForm: target by data-crud-field-id
+      const selectByFieldId = async (fieldId: string, label: string | RegExp, exact = true) => {
+        const trigger = page.locator(`[data-crud-field-id="${fieldId}"] [role="combobox"]`).first();
+        await expect(trigger).toBeEnabled({ timeout: 30_000 });
+        await trigger.click();
+        const opt = typeof label === 'string'
+          ? page.getByRole('option', { name: label, exact })
+          : page.getByRole('option', { name: label });
+        await expect(opt.first()).toBeVisible({ timeout: 10_000 });
+        await opt.first().click();
+      }
+      await selectByFieldId('status', 'Open')
+      await selectByFieldId('pipelineId', pipelineName)
+      await selectByFieldId('pipelineStageId', stageName)
       await page.getByRole('spinbutton').first().fill('25000');
-      await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
+      await selectByFieldId('valueCurrency', /USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 
@@ -42,9 +74,18 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await companySearch.fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
+      // Final guard: re-assert title before submit. If a late dictionary load
+      // re-merged initialValues mid-test and cleared the value, refill it
+      // here so the next submit succeeds rather than failing validation.
+      const submitTitleValue = await titleInput.inputValue();
+      if (submitTitleValue !== dealTitle) {
+        await titleInput.fill(dealTitle);
+        await expect(titleInput).toHaveValue(dealTitle, { timeout: 10_000 });
+      }
+
       await page.getByRole('button', { name: 'Create deal' }).first().click();
 
-      await expect(page).toHaveURL(/\/backend\/customers\/deals$/i);
+      await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
       const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();

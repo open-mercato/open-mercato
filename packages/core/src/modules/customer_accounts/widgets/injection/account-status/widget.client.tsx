@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 interface AccountStatusData {
@@ -167,12 +168,12 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
         </label>
-        <input
+        <Input
           id="invite-email"
           type="email"
+          size="sm"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           required
           disabled={isSubmitting}
         />
@@ -182,12 +183,12 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
         <label htmlFor="invite-display-name" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('customer_accounts.widgets.invite.displayName', 'Display Name')}
         </label>
-        <input
+        <Input
           id="invite-display-name"
           type="text"
+          size="sm"
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={isSubmitting}
         />
       </div>
