@@ -6582,7 +6582,9 @@ __metadata:
     jest-environment-jsdom: "npm:^30.3.0"
     react-big-calendar: "npm:^1.19.4"
     react-day-picker: "npm:^9.14.0"
+    react-markdown: "npm:^10.1.0"
     recharts: "npm:^3.8.1"
+    remark-gfm: "npm:^4.0.1"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"

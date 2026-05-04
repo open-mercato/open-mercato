@@ -76,14 +76,14 @@ function normalizeMethod(method: string): AiApiHttpMethod {
   throw new Error(`Unsupported method "${method}"`)
 }
 
-function normalizePath(path: string): string {
+// Exported for unit testing — see __tests__/ai-api-operation-runner.test.ts.
+// `path` arrives from agent tool inputs (LLM-controlled), so trailing-slash
+// stripping is implemented as a linear character-code scan rather than the
+// /\/+$/ regex (CodeQL js/polynomial-redos: regex exhibits polynomial
+// backtracking on long runs of `/`). The loop is O(n) regardless of input.
+export function normalizePath(path: string): string {
   if (typeof path !== 'string' || path.length === 0) return '/'
   const trimmed = path.startsWith('/') ? path : `/${path}`
-  // Strip trailing slashes via a linear scan instead of /\/+$/ — the regex
-  // form is flagged by CodeQL js/polynomial-redos because `path` arrives
-  // from agent tool inputs (LLM-controlled), and /\/+$/ exhibits polynomial
-  // backtracking on long runs of `/`. The character-code loop runs in
-  // O(n) regardless of input shape.
   let end = trimmed.length
   while (end > 1 && trimmed.charCodeAt(end - 1) === 47 /* '/' */) end--
   return trimmed.slice(0, end)
