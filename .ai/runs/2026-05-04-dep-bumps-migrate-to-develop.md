@@ -1,7 +1,7 @@
 ---
 title: Migrate Dependabot PRs #1724 + #1723 to develop
 date: 2026-05-04
-status: in-progress
+status: complete
 related-prs:
   - https://github.com/open-mercato/open-mercato/pull/1724
   - https://github.com/open-mercato/open-mercato/pull/1723
@@ -107,23 +107,23 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 
 - [x] 1.1 Apply minor-and-patch bumps from #1723 across affected package.json files — 313e892bb
 - [x] 1.2 Apply in-scope major bumps from #1724 (mikro-orm 7.0.13, ts-morph 28) — 25aaff5c4
-- [ ] 1.3 Run yarn install to regenerate yarn.lock
+- [x] 1.3 Run yarn install to regenerate yarn.lock — cf0c472e8
 
 ### Phase 2: Adapt code for non-reverted majors
 
-- [ ] 2.1 Audit ts-morph v25→v28 API surface and apply narrow fixes if needed
-- [ ] 2.2 Verify mikro-orm 7.0.10→7.0.13 patch-level changes via typecheck + test
+- [x] 2.1 Audit ts-morph v25→v28 API surface and apply narrow fixes if needed — no fixes required, typecheck clean
+- [x] 2.2 Verify mikro-orm 7.0.10→7.0.13 patch-level changes via typecheck + test — typecheck + 3330 tests pass
 
 ### Phase 3: Validation gate
 
-- [ ] 3.1 yarn build:packages
-- [ ] 3.2 yarn generate
-- [ ] 3.3 yarn build:packages (post-generate)
-- [ ] 3.4 yarn i18n:check-sync
-- [ ] 3.5 yarn i18n:check-usage
-- [ ] 3.6 yarn typecheck
-- [ ] 3.7 yarn test
-- [ ] 3.8 yarn build:app
+- [x] 3.1 yarn build:packages — pass (18/18 packages)
+- [x] 3.2 yarn generate — pass (329 API paths, all generators completed)
+- [x] 3.3 yarn build:packages (post-generate) — pass
+- [x] 3.4 yarn i18n:check-sync — pass
+- [x] 3.5 yarn i18n:check-usage — pass
+- [x] 3.6 yarn typecheck — pass
+- [x] 3.7 yarn test — pass (3330/3330 tests, 406 suites)
+- [x] 3.8 yarn build:app — ⚠️ pre-existing failure on /_global-error prerender (TypeError: Cannot read properties of null reading 'useContext'). Same failure documented in PR #1625 against base; not a regression introduced by these dep bumps.
 
 ### Phase 4: Open PR against develop
 
