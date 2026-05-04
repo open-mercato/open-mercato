@@ -13,6 +13,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Provenance is only attested when the OIDC trusted-publisher config on npmjs.org
+# matches the workflow's identity (repository + ref). For PR-triggered canary
+# publishes the ref is `refs/pull/<n>/merge`, which won't match a trusted publisher
+# pinned to `refs/heads/develop` or release tags — npm returns a confusing 404 PUT
+# in that case. Keep provenance on for branch/tag pushes (develop, main, release-*)
+# and the official release dist-tags, fall back to classic NPM_TOKEN auth otherwise.
+PROVENANCE_FLAG="--provenance"
+if [ -n "${GITHUB_EVENT_NAME:-}" ] && [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+  PROVENANCE_FLAG=""
+  echo "==> Pull-request event detected; publishing without --provenance to keep canary builds reachable for forks of the npm trusted-publisher config."
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_REPOSITORY_URL="https://github.com/open-mercato/open-mercato"
 
@@ -64,7 +76,7 @@ for pkg_dir in $PACKAGES; do
   fi
 
   if [ -f "package.tgz" ]; then
-    if npm publish "package.tgz" --access public --tag "$TAG" --provenance 2>&1; then
+    if npm publish "package.tgz" --access public --tag "$TAG" $PROVENANCE_FLAG 2>&1; then
       echo "    ✓ Published"
     else
       echo "    ✗ Failed to publish"
