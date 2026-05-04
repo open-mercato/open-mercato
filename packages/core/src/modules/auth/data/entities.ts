@@ -57,7 +57,10 @@ export class Role {
 }
 
 @Entity({ tableName: 'user_sidebar_preferences' })
-@Unique({ properties: ['user', 'tenantId', 'organizationId'] })
+// Uniqueness is enforced by a partial unique index (`user_sidebar_preferences_active_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
 export class UserSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -88,7 +91,10 @@ export class UserSidebarPreference {
 }
 
 @Entity({ tableName: 'role_sidebar_preferences' })
-@Unique({ properties: ['role', 'tenantId'] })
+// Uniqueness is enforced by a partial unique index (`role_sidebar_preferences_active_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
 export class RoleSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

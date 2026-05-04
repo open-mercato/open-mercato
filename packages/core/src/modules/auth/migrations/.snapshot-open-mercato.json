@@ -428,18 +428,6 @@
       },
       "indexes": [
         {
-          "keyName": "role_sidebar_preferences_role_id_tenant_id_locale_unique",
-          "columnNames": [
-            "role_id",
-            "tenant_id",
-            "locale"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
           "keyName": "role_sidebar_preferences_pkey",
           "columnNames": [
             "id"
@@ -1910,19 +1898,6 @@
         }
       },
       "indexes": [
-        {
-          "keyName": "user_sidebar_preferences_user_id_tenant_id_organi_35248_unique",
-          "columnNames": [
-            "user_id",
-            "tenant_id",
-            "organization_id",
-            "locale"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
         {
           "keyName": "user_sidebar_preferences_pkey",
           "columnNames": [
