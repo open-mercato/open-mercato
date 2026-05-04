@@ -57,7 +57,7 @@
     "node-html-markdown": "^2.0.0"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^7.0.10",
+    "@mikro-orm/postgresql": "^7.0.13",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
