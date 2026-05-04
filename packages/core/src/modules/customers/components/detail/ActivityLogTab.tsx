@@ -13,12 +13,16 @@ type GuardedMutationRunner = <T,>(
 type ActivityLogTabProps = {
   entityId: string
   plannedActivities: InteractionSummary[]
-  onActivityCreated: () => void
+  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
+  onActivityCreated?: () => void
   onScheduleRequested: () => void
   onAddActivity?: (kind: ActivityKind) => void
-  onMarkDone: (id: string) => void
+  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
+  onMarkDone?: (id: string) => void
   onEditActivity: (activity: InteractionSummary) => void
-  onCancelActivity: (id: string) => void
+  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
+  onCancelActivity?: (id: string) => void
+  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   useCanonicalInteractions?: boolean

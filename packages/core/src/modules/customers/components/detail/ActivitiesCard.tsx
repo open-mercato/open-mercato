@@ -179,37 +179,37 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          'flex w-full items-start gap-2 py-2 text-left transition-colors',
+          'flex w-full items-start gap-[9px] pt-[8px] text-left transition-colors',
           interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
         )}
       >
-        <div className="flex w-[43px] shrink-0 flex-col gap-0.5 pt-0.5">
+        <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
           <span className="text-xs font-semibold leading-none text-foreground">
             {validDate ? formatTime(date) : ''}
           </span>
-          <span className="text-overline leading-none text-muted-foreground">
+          <span className="text-[10px] leading-none font-normal text-muted-foreground">
             {validDate ? formatRelativeDay(date, t) : ''}
           </span>
         </div>
-        <div className="flex shrink-0 items-center justify-center rounded-full bg-muted ring-4 ring-background size-7">
-          <Icon className="size-3.5 text-muted-foreground" />
+        <div className="flex shrink-0 items-center justify-center rounded-full bg-muted border-4 border-background size-7">
+          <Icon className="size-4 text-muted-foreground" />
         </div>
-        <div className="min-w-0 flex flex-1 flex-col gap-1">
-          <span className="text-sm leading-5 text-foreground">
+        <div className="min-w-0 flex flex-1 flex-col gap-[4px]">
+          <span className="text-sm leading-5 tracking-[-0.084px] text-foreground">
             {activity.title ?? activity.body ?? labelForType(activity.interactionType, t)}
           </span>
           {duration ? (
             <span className={cn(
-              'inline-flex items-center gap-1 rounded-full pl-1 pr-2 py-0.5 text-xs font-medium',
+              'inline-flex w-fit items-center gap-[2px] rounded-full pl-[4px] pr-[8px] py-[2px] text-xs font-medium leading-[16px]',
               overdue
                 ? 'bg-status-error-bg text-status-error-text'
                 : 'bg-status-warning-bg text-status-warning-text',
             )}>
-              <Clock className="size-3" />
+              <Clock className="size-4" />
               {formatDuration(duration, t)}
             </span>
           ) : null}
-          <span className="text-overline text-muted-foreground">{subtitle}</span>
+          <span className="text-[11px] font-normal text-muted-foreground">{subtitle}</span>
         </div>
       </button>
     </li>

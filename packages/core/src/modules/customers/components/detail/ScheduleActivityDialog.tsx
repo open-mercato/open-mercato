@@ -124,6 +124,16 @@ export function ScheduleActivityDialog({
     setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
   }, [open, editData])
 
+  // Reset per-type chip state when the user switches activity type in create mode.
+  // In edit mode, the persisted customValues should win, so we skip the reset.
+  React.useEffect(() => {
+    if (!open || isEditing) return
+    setCallDirection('outbound')
+    setCallOutcome(null)
+    setCallPhoneNumber('')
+    setTaskPriority('medium')
+  }, [state.activityType, open, isEditing])
+
   const formSnapshot = React.useMemo(() => JSON.stringify({
     activityType: state.activityType,
     title: state.title,

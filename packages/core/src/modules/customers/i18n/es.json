@@ -1995,7 +1995,7 @@
   "customers.timeline.filter.call": "Call",
   "customers.timeline.filter.email": "Email",
   "customers.timeline.filter.from": "From date",
-  "customers.timeline.filter.meeting": "Meetings",
+  "customers.timeline.filter.meeting": "Meeting",
   "customers.timeline.filter.note": "Note",
   "customers.timeline.filter.to": "To date",
   "customers.timeline.history.filtered": "filtered: {{types}} · {{count}} results",

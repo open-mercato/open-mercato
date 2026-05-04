@@ -17,8 +17,8 @@ interface ActivitiesDayStripProps {
 
 const VISIBLE_DAYS = 5
 const BUSYNESS_SLOTS = 10
-const SLOT_START_HOUR = 8
-const SLOT_END_HOUR = 18
+const SLOT_START_HOUR = 7
+const SLOT_END_HOUR = 22
 
 const DAY_LABEL_KEYS: Array<[number, string, string]> = [
   [0, 'customers.calendar.day.sun', 'SUN'],
@@ -146,16 +146,11 @@ function computeDayBusyness(events: InteractionSummary[], day: Date): DayBusynes
 
 function formatBusyLabel(busy: DayBusyness, t: TranslateFn): string {
   if (busy.eventCount === 0) return ''
-  const hours = Math.floor(busy.totalMinutes / 60)
-  const minutes = Math.round(busy.totalMinutes - hours * 60)
-  let durationLabel: string
-  if (hours >= 1 && minutes === 0) {
-    durationLabel = t('customers.activities.calendar.hoursShort', '{hours}h', { hours })
-  } else if (hours >= 1) {
-    durationLabel = t('customers.activities.calendar.hoursMinutesShort', '{hours}h {minutes}m', { hours, minutes })
-  } else {
-    durationLabel = t('customers.activities.calendar.minutesShort', '{minutes}m', { minutes: Math.max(minutes, 1) })
-  }
+  // Match Figma 784:809 label format: "Xm" when under an hour, "Xh" otherwise.
+  // Mixed "Xh Ym" overflows the 101px card and is not part of the visual spec.
+  const durationLabel = busy.totalMinutes < 60
+    ? t('customers.activities.calendar.minutesShort', '{minutes}m', { minutes: Math.max(Math.round(busy.totalMinutes), 1) })
+    : t('customers.activities.calendar.hoursShort', '{hours}h', { hours: Math.floor(busy.totalMinutes / 60) })
   return t('customers.activities.calendar.eventsSummary', '{count} {countLabel} · {duration}', {
     count: busy.eventCount,
     countLabel: busy.eventCount === 1
@@ -214,7 +209,10 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
           { signal: controller.signal },
         )
         setEvents(Array.isArray(payload?.items) ? payload.items : [])
-      } catch {
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name !== 'AbortError') {
+          console.warn('[ActivitiesDayStrip] failed to load interactions', err)
+        }
         setEvents([])
       }
     })()
@@ -331,21 +329,16 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
       aria-pressed={isActive}
       aria-label={`${dayName} ${dayNumber}`}
       className={cn(
-        'flex h-26 w-[101px] flex-col items-center gap-1.5 overflow-hidden rounded-lg border p-3 transition-colors',
+        'flex h-[104px] w-[101px] flex-col items-center gap-[6px] overflow-hidden rounded-[10px] border p-[12px] transition-colors',
         isActive
           ? 'border-transparent bg-foreground'
           : 'border-border bg-card hover:border-foreground/40',
       )}
     >
-      <span
-        className={cn(
-          'text-overline font-medium leading-none',
-          isActive ? 'text-background/70' : 'text-muted-foreground',
-        )}
-      >
+      <span className="text-[11px] font-medium leading-none tracking-[0.44px] text-muted-foreground">
         {dayName}
       </span>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-[5px]">
         <span
           className={cn(
             'text-2xl font-semibold leading-7',
@@ -366,12 +359,7 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
           <BusySlot key={index} state={state} active={isActive} />
         ))}
       </div>
-      <span
-        className={cn(
-          'text-overline leading-[14px] font-normal',
-          isActive ? 'text-background/70' : 'text-muted-foreground',
-        )}
-      >
+      <span className="text-[11px] leading-[14px] font-normal whitespace-nowrap text-muted-foreground">
         {label}
       </span>
     </button>
