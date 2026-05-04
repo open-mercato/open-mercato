@@ -34,6 +34,8 @@ describe('catalog module-root ai-tools aggregator', () => {
         'catalog.list_product_tags',
         'catalog.list_option_schemas',
         'catalog.list_unit_conversions',
+        // Demo dynamic UI part (Phase 5d preview): inline "Catalog overview" card.
+        'catalog.show_stats',
         // D18 merchandising (Step 3.11)
         'catalog.search_products',
         'catalog.get_product_bundle',

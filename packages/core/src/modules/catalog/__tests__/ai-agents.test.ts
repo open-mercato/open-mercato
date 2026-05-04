@@ -43,6 +43,11 @@ const BASE_CATALOG_READ_TOOLS = new Set([
   'catalog.list_product_tags',
   'catalog.list_option_schemas',
   'catalog.list_unit_conversions',
+  // Read-only demo dynamic UI-part tool — emits the inline "Catalog overview"
+  // card via the generic `{ uiPart }` envelope. Whitelisted on the catalog
+  // assistant so the operator can request a snapshot (product / category /
+  // tag counts) without leaving the chat surface.
+  'catalog.show_stats',
 ])
 
 const D18_MERCHANDISING_DENY_LIST = [
