@@ -54,13 +54,11 @@ export async function GET(req: NextRequest) {
       organizationId: auth.orgId,
     })
 
-    // No LLM provider configured (no API keys set). The launcher and any
-    // AI surface should hide silently rather than render an entry that fails
-    // the moment the operator clicks it.
+    // No LLM provider configured (no API keys set). The launcher uses the
+    // `aiConfigured` flag to hide silently; explicit `<AiChat>` mounts and
+    // playground pages still see the full registry so they can show their
+    // own configuration prompts instead of silently disappearing.
     const aiConfigured = llmProviderRegistry.resolveFirstConfigured() != null
-    if (!aiConfigured) {
-      return NextResponse.json({ agents: [], total: 0, aiConfigured: false })
-    }
 
     await loadAgentRegistry()
     const all = listAgents()
@@ -96,7 +94,7 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ agents, total: agents.length, aiConfigured: true })
+    return NextResponse.json({ agents, total: agents.length, aiConfigured })
   } catch (error) {
     console.error('[AI Agents] Failed to list agents:', error)
     return NextResponse.json(

@@ -113,6 +113,7 @@ interface AgentsResponse {
     mutationPolicy?: string | null
     keywords?: string[] | null
   }>
+  aiConfigured?: boolean
 }
 
 interface HealthResponse {
@@ -182,6 +183,10 @@ export function AiAssistantLauncher({
   const [agents, setAgents] = React.useState<AiAssistantLauncherAgent[]>([])
   const [agentsLoaded, setAgentsLoaded] = React.useState(false)
   const [agentsError, setAgentsError] = React.useState<string | null>(null)
+  // `aiConfigured: false` → no LLM provider key in env. Hide the launcher
+  // silently rather than letting the operator click into a chat that will
+  // immediately throw `no_provider_configured`.
+  const [aiConfigured, setAiConfigured] = React.useState<boolean | null>(null)
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [activeAgent, setActiveAgent] = React.useState<AiAssistantLauncherAgent | null>(null)
   const [chatOpen, setChatOpen] = React.useState(false)
@@ -254,6 +259,9 @@ export function AiAssistantLauncher({
         if (call.result) {
           setAgents(normalizeAgents(call.result))
           setAgentsError(null)
+          if (typeof call.result.aiConfigured === 'boolean') {
+            setAiConfigured(call.result.aiConfigured)
+          }
         } else {
           setAgents([])
           setAgentsError('Empty agents response')
@@ -434,7 +442,10 @@ export function AiAssistantLauncher({
   // hard veto so we still hide when the runtime explicitly opts out, but
   // unknown / pending health does NOT block the agents fetch result.
   const shouldRender =
-    healthy !== false && agentsLoaded && agents.length > 0
+    healthy !== false &&
+    aiConfigured !== false &&
+    agentsLoaded &&
+    agents.length > 0
 
   if (!shouldRender) return null
 

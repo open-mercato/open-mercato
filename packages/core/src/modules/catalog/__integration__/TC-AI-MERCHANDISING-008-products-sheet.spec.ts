@@ -79,9 +79,13 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
+    // Ensure the React click handler has bound — wait for the button to be enabled and any
+    // pending DataTable/widget mount work to settle before exercising it.
+    await expect(trigger).toBeEnabled({ timeout: 30_000 });
 
     await trigger.click();
 
@@ -100,9 +104,13 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
+    // Ensure the React click handler has bound — wait for the button to be enabled and any
+    // pending DataTable/widget mount work to settle before exercising it.
+    await expect(trigger).toBeEnabled({ timeout: 30_000 });
     await trigger.click();
 
     const sheet = page.locator('[data-ai-merchandising-sheet]');
@@ -144,9 +152,13 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
+    // Ensure the React click handler has bound — wait for the button to be enabled and any
+    // pending DataTable/widget mount work to settle before exercising it.
+    await expect(trigger).toBeEnabled({ timeout: 30_000 });
     await trigger.click();
 
     const sheet = page.locator('[data-ai-merchandising-sheet]');
