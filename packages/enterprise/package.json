@@ -70,8 +70,8 @@
     "@simplewebauthn/server": "^13.3.0",
     "@simplewebauthn/types": "^12.0.0",
     "@types/qrcode": "^1.5.5",
-    "openid-client": "^6.8.3",
-    "otpauth": "9.5.0",
+    "openid-client": "^6.8.4",
+    "otpauth": "9.5.1",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {

@@ -89,7 +89,7 @@
     }
   },
   "dependencies": {
-    "rate-limiter-flexible": "^11.0.1",
+    "rate-limiter-flexible": "^11.0.2",
     "sanitize-html": "^2.17.2"
   },
   "devDependencies": {

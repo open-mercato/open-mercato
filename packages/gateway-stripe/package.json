@@ -64,9 +64,9 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@stripe/react-stripe-js": "^6.2.0",
-    "@stripe/stripe-js": "^9.2.0",
-    "stripe": "^22.0.2"
+    "@stripe/react-stripe-js": "^6.3.0",
+    "@stripe/stripe-js": "^9.4.0",
+    "stripe": "^22.1.0"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^6.6.10",
