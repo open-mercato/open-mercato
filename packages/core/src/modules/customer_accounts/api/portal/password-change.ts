@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { passwordChangeSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -30,6 +32,7 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+  const em = container.resolve('em') as EntityManager
 
   const user = await customerUserService.findById(auth.sub, auth.tenantId)
   if (!user) {
@@ -41,10 +44,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Current password is incorrect' }, { status: 400 })
   }
 
-  await customerUserService.updatePassword(user, parsed.data.newPassword)
+  await em.transactional(async (trx) => {
+    await customerUserService.updatePassword(user, parsed.data.newPassword, trx)
+    await customerSessionService.revokeAllUserSessions(user.id, trx)
+  })
 
-  // Revoke all existing sessions for security
-  await customerSessionService.revokeAllUserSessions(user.id)
+  void emitCustomerAccountsEvent('customer_accounts.password.changed', {
+    userId: user.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+    changedBy: 'self',
+    changedById: null,
+    at: new Date().toISOString(),
+  }).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

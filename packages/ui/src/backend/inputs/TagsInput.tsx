@@ -205,7 +205,7 @@ export function TagsInput({
               <span className="flex flex-col items-start leading-tight">
                 <span className="whitespace-nowrap">{label}</span>
                 {description ? (
-                  <span className="text-[10px] text-muted-foreground">{description}</span>
+                  <span className="text-overline text-muted-foreground">{description}</span>
                 ) : null}
               </span>
               <IconButton
@@ -285,7 +285,7 @@ export function TagsInput({
               >
                 <span>{option.label}</span>
                 {option.description ? (
-                  <span className="text-[10px] text-muted-foreground">{option.description}</span>
+                  <span className="text-overline text-muted-foreground">{option.description}</span>
                 ) : null}
               </Button>
             ))}

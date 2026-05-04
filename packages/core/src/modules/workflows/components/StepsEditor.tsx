@@ -4,6 +4,13 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -165,18 +172,21 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                   <Label htmlFor={`step-${index}-type`} className="text-xs">
                     {t('workflows.steps.stepType')} *
                   </Label>
-                  <select
-                    id={`step-${index}-type`}
+                  <Select
                     value={step.stepType}
-                    onChange={(e) => updateStep(index, 'stepType', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    onValueChange={(value) => updateStep(index, 'stepType', value)}
                   >
-                    {STEP_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {t(`workflows.steps.types.${type.value}`)}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id={`step-${index}-type`} className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STEP_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {t(`workflows.steps.types.${type.value}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor={`step-${index}-timeout`} className="text-xs">

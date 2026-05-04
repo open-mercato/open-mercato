@@ -98,7 +98,7 @@ export function MobileInstanceOverview({
             <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.workflowId')}</dt>
             <dd className="text-right">
               <div className="text-sm font-mono">{instance.workflowId}</div>
-              <div className="text-[10px] text-muted-foreground">v{instance.version}</div>
+              <div className="text-overline text-muted-foreground">v{instance.version}</div>
             </dd>
           </div>
           <div className="flex items-start justify-between">
@@ -176,20 +176,20 @@ export function MobileInstanceOverview({
           <div className="space-y-2">
             {timelineEvents.map((event, idx) => (
               <div key={event.id} className="flex items-start gap-2 rounded-lg border bg-muted p-2.5">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-background text-[10px] font-medium">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-background text-overline font-medium">
                   {idx + 1}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${getEventTypeBadgeClass(event.eventType)}`}>
+                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-overline font-medium ${getEventTypeBadgeClass(event.eventType)}`}>
                       {t(`workflows.events.types.${event.eventType}`) || event.eventType}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-overline text-muted-foreground">
                       {new Date(event.occurredAt).toLocaleTimeString()}
                     </span>
                   </div>
                   {event.eventData?.toStepId && (
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    <p className="mt-0.5 text-overline text-muted-foreground">
                       {event.eventData.fromStepId ? `${event.eventData.fromStepId} -> ` : '-> '}
                       {event.eventData.toStepId}
                     </p>
@@ -214,11 +214,11 @@ export function MobileInstanceOverview({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${getEventTypeBadgeClass(event.eventType)}`}>
+                        <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-overline font-medium ${getEventTypeBadgeClass(event.eventType)}`}>
                           {t(`workflows.events.types.${event.eventType}`) || event.eventType}
                         </span>
                       </div>
-                      <div className="mt-1 text-[10px] text-muted-foreground">
+                      <div className="mt-1 text-overline text-muted-foreground">
                         {new Date(event.occurredAt).toLocaleString()}
                       </div>
                     </div>

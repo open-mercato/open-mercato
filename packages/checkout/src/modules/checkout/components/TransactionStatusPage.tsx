@@ -153,11 +153,11 @@ export function TransactionStatusPage({
       ? 'border-red-200 bg-red-50 text-red-700'
       : statusCopy.tone === 'warning'
         ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-border/70 bg-muted/20 text-foreground'
+        : 'border-border/70 bg-muted/30 text-foreground'
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl items-center px-4 py-12">
-      <Card className="w-full rounded-[32px] border-white/70 bg-white/95 shadow-xl backdrop-blur">
+      <Card className="w-full rounded-xl border-white/70 bg-white/95 shadow-xl backdrop-blur">
         <CardContent className="space-y-6 p-8 sm:p-10">
           <div className={cn(
             'mx-auto flex size-16 items-center justify-center rounded-full border',
@@ -182,7 +182,7 @@ export function TransactionStatusPage({
             </div>
           </div>
           <div className="flex justify-center">
-            <Button type="button" className="rounded-2xl px-6" onClick={() => router.push(`/pay/${encodeURIComponent(slug)}`)}>
+            <Button type="button" className="rounded-xl px-6" onClick={() => router.push(`/pay/${encodeURIComponent(slug)}`)}>
               {t('checkout.statusPage.backToPayment', 'Back to payment page')}
             </Button>
           </div>

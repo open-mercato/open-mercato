@@ -85,11 +85,11 @@ export function DealWonPopup({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-[420px]">
+      <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-[420px]">
         <VisuallyHidden>
           <DialogTitle>{t('customers.deals.detail.won.title', 'Closed successfully')}</DialogTitle>
         </VisuallyHidden>
-        <div className="overflow-hidden rounded-2xl bg-card">
+        <div className="max-h-[90vh] overflow-y-auto rounded-2xl bg-card">
           <div className="px-6 pb-5 pt-6">
             {/* TODO(ds-review): decorative gradient — consider defining a named gradient token if reused */}
             <div className="flex h-[200px] items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(141,150,244,0.5),rgba(198,203,254,0.95))] text-foreground">

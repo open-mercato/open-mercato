@@ -5,6 +5,13 @@ import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudFo
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { DictionarySelectControl } from '../components/DictionarySelectControl'
 import { useDictionaryEntries } from '../components/hooks/useDictionaryEntries'
 
@@ -42,18 +49,21 @@ function DictionaryDefaultSelector({
       <label className="text-xs font-medium text-muted-foreground">
         {t('dictionaries.customFields.defaultValue', 'Default value')}
       </label>
-      <select
-        className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        value={defaultValue}
-        onChange={(event) => onChange(event.target.value)}
+      <Select
+        value={defaultValue || undefined}
+        onValueChange={(next) => onChange(next ?? '')}
       >
-        <option value="">{t('dictionaries.customFields.defaultValueNone', 'No default')}</option>
-        {entries.map((entry) => (
-          <option key={entry.value} value={entry.value}>
-            {entry.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger size="sm">
+          <SelectValue placeholder={t('dictionaries.customFields.defaultValueNone', 'No default')} />
+        </SelectTrigger>
+        <SelectContent>
+          {entries.map((entry) => (
+            <SelectItem key={entry.value} value={entry.value}>
+              {entry.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {isLoading ? (
         <p className="text-xs text-muted-foreground">
           {t('dictionaries.customFields.loading', 'Loading dictionaries…')}
@@ -121,24 +131,27 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
   const manageHref = '/backend/config/dictionaries'
 
   return (
-    <div className="mt-3 space-y-3 rounded border border-dashed border-muted-foreground/40 bg-muted/10 p-3">
+    <div className="mt-3 space-y-3 rounded border border-dashed border-muted-foreground/40 bg-muted/30 p-3">
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">
           {t('dictionaries.customFields.dictionaryLabel', 'Dictionary source')}
         </label>
-        <select
-          className="w-full rounded border px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          value={selectedId}
-          onChange={(event) => onChange({ dictionaryId: event.target.value || undefined })}
+        <Select
+          value={selectedId || undefined}
+          onValueChange={(next) => onChange({ dictionaryId: next || undefined })}
         >
-          <option value="">{t('dictionaries.customFields.dictionaryPlaceholder', 'Select a dictionary')}</option>
-          {items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-              {item.isActive ? '' : ` (${t('dictionaries.customFields.inactive', 'inactive')})`}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="sm">
+            <SelectValue placeholder={t('dictionaries.customFields.dictionaryPlaceholder', 'Select a dictionary')} />
+          </SelectTrigger>
+          <SelectContent>
+            {items.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.name}
+                {item.isActive ? '' : ` (${t('dictionaries.customFields.inactive', 'inactive')})`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {loading ? (
           <p className="text-xs text-muted-foreground">
             {t('dictionaries.customFields.loading', 'Loading dictionaries…')}
@@ -152,7 +165,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
         ) : null}
       </div>
       {selectedId ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-background/60 px-2 py-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-background/80 px-2 py-1 text-xs text-muted-foreground">
           <span>{t('dictionaries.customFields.selectedHint', 'Entries from this dictionary populate the field.')}</span>
           <a href={manageHref} className="font-medium text-primary hover:underline" target="_blank" rel="noreferrer">
             {t('dictionaries.customFields.manageLink', 'Manage dictionaries')}

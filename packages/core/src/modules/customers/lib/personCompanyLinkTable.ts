@@ -51,3 +51,17 @@ export async function withActiveCustomerPersonCompanyLinkFilter<T extends Record
   }
   return { ...where, deletedAt: null }
 }
+
+/**
+ * Drop soft-deleted link rows from a result set as a defense-in-depth fallback.
+ * MikroORM has historically dropped `deletedAt: null` from the WHERE clause for
+ * nullable date columns under certain configurations, so callers SHOULD apply this
+ * after `findWithDecryption(...)` until the upstream query filter is verified to
+ * fully cover all callers.
+ */
+export function filterActivePersonCompanyLinks<T extends { deletedAt?: Date | string | null | undefined }>(
+  links: T[] | null | undefined,
+): T[] {
+  if (!Array.isArray(links)) return []
+  return links.filter((entry) => entry?.deletedAt == null)
+}

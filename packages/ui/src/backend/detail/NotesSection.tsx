@@ -8,6 +8,13 @@ import type { IconOption } from '@open-mercato/core/modules/dictionaries/compone
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
@@ -157,7 +164,7 @@ function TimelineItemHeader({
   return (
     <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
       {icon && renderIcon ? (
-        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/50', wrapperSize].join(' ')}>
           {renderIcon(icon, iconSizeClass)}
         </span>
       ) : null}
@@ -948,7 +955,7 @@ function NotesSectionImpl<C = unknown>({
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
-          composerOpen ? 'max-h-[1200px] bg-muted/10 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+          composerOpen ? 'max-h-[1200px] bg-muted/30 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
         ].join(' ')}
         aria-hidden={!composerOpen}
       >
@@ -1013,19 +1020,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.entity', 'Assign to customer')}
                     </label>
-                    <select
-                      id="note-entity-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      value={selectedEntityId}
-                      onChange={(event) => setSelectedEntityId(event.target.value)}
+                    <Select
+                      value={selectedEntityId || undefined}
+                      onValueChange={(next) => setSelectedEntityId(next ?? '')}
                       disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
                     >
-                      {normalizedEntityOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-entity-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedEntityOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
                 {normalizedDealOptions.length ? (
@@ -1036,22 +1046,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.deal', 'Link to deal (optional)')}
                     </label>
-                    <select
-                      id="note-deal-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      value={selectedDealId}
-                      onChange={(event) => setSelectedDealId(event.target.value)}
+                    <Select
+                      value={selectedDealId || undefined}
+                      onValueChange={(next) => setSelectedDealId(next ?? '')}
                       disabled={isSubmitting || isLoading}
                     >
-                      <option value="">
-                        {label('fields.dealPlaceholder', 'No linked deal')}
-                      </option>
-                      {normalizedDealOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-deal-select">
+                        <SelectValue placeholder={label('fields.dealPlaceholder', 'No linked deal')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedDealOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
               </div>
@@ -1072,7 +1082,7 @@ function NotesSectionImpl<C = unknown>({
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   {draftIcon && renderIcon ? (
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/50">
                       {renderIcon(draftIcon, 'h-4 w-4')}
                     </span>
                   ) : null}
@@ -1231,7 +1241,7 @@ function NotesSectionImpl<C = unknown>({
                       rows={3}
                       textareaRef={contentTextareaRef}
                       onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
-                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
                       remarkPlugins={markdownPlugins}
                     />

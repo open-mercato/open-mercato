@@ -20,7 +20,7 @@ test.describe('TC-AUTH-013: Configure Role ACL and Permissions', () => {
       await page.getByRole('button', { name: 'Create' }).first().click();
       await expect(page).toHaveURL(/\/backend\/roles(?:\?.*)?$/);
 
-      await page.getByRole('textbox', { name: 'Search' }).fill(roleName);
+      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(roleName);
       await page.getByRole('row', { name: new RegExp(roleName, 'i') }).click();
       await expect(page).toHaveURL(/\/backend\/roles\/[0-9a-f-]{36}\/edit$/i);
       roleId = page.url().match(/\/backend\/roles\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
@@ -36,7 +36,7 @@ test.describe('TC-AUTH-013: Configure Role ACL and Permissions', () => {
       await page.getByRole('button', { name: 'Save' }).first().click();
 
       await expect(page).toHaveURL(/\/backend\/roles(?:\?.*)?$/);
-      await page.getByRole('textbox', { name: 'Search' }).fill(roleName);
+      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(roleName);
       await page.getByRole('row', { name: new RegExp(roleName, 'i') }).click();
       await expect(featureCheckbox).toBeChecked();
     } finally {

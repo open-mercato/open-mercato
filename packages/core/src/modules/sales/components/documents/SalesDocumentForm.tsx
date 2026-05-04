@@ -5,7 +5,14 @@ import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFor
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import {
   Dialog,
   DialogContent,
@@ -239,7 +246,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   )
 
   const renderMenu = () => (
-    <div className="absolute right-0 z-30 mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
+    <div className="absolute right-0 z-dropdown mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted"
@@ -885,33 +892,37 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     : t('sales.documents.form.shipping.hint', 'Select an address or define a new one.')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={useCustom}
-                  onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
-                />
-                <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.shipping.custom', 'Define new address')}
+                flip
+                checked={useCustom}
+                onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
+              />
             </div>
             {!useCustom ? (
-              <select
-                className="w-full rounded border px-2 py-2 text-sm"
-                value={selectedId}
-                onChange={(evt) => updateValue('shippingAddressId', evt.target.value || null)}
+              <Select
+                value={selectedId || undefined}
+                onValueChange={(value) => updateValue('shippingAddressId', value || null)}
                 disabled={addressesLoading || customerRequired}
               >
-                <option value="">
-                  {addressesLoading
-                    ? t('sales.documents.form.address.loading', 'Loading addresses…')
-                    : t('sales.documents.form.address.placeholder', 'Select address')}
-                </option>
-                {addressOptions.map((addr) => {
-                  const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-                  return (
-                    <option key={addr.id} value={addr.id}>{optionLabel}</option>
-                  )
-                })}
-              </select>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      addressesLoading
+                        ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                        : t('sales.documents.form.address.placeholder', 'Select address')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {addressOptions.map((addr) => {
+                    const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                    return (
+                      <SelectItem key={addr.id} value={addr.id}>{optionLabel}</SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
             ) : null}
             {useCustom ? (
               <div className="space-y-3">
@@ -922,13 +933,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
                 />
-                <label className="col-span-2 flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={formValues.saveShippingAddress === true}
-                    onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
-                  />
-                  {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-                </label>
+                <SwitchField
+                  containerClassName="col-span-2"
+                  label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                  flip
+                  checked={formValues.saveShippingAddress === true}
+                  onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
+                />
               </div>
             ) : null}
             {addressesError && customerId ? (
@@ -1004,53 +1015,56 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     : t('sales.documents.form.billing.hint', 'Select an address or define a new one.')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={sameAsShipping}
-                  onCheckedChange={(checked) => {
-                    updateValue('sameAsShipping', checked)
-                    if (checked) {
-                      updateValue('useCustomBilling', useCustomShipping)
-                      updateValue('billingAddressId', shippingId)
-                      updateValue('billingAddressDraft', shippingDraft)
-                    }
-                  }}
-                />
-                <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}</span>
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}
+                flip
+                checked={sameAsShipping}
+                onCheckedChange={(checked) => {
+                  updateValue('sameAsShipping', checked)
+                  if (checked) {
+                    updateValue('useCustomBilling', useCustomShipping)
+                    updateValue('billingAddressId', shippingId)
+                    updateValue('billingAddressDraft', shippingDraft)
+                  }
+                }}
+              />
             </div>
 
             {!sameAsShipping ? (
               <>
                 {!useCustom ? (
-                  <select
-                    className="w-full rounded border px-2 py-2 text-sm"
-                    value={selectedId}
-                    onChange={(evt) => updateValue('billingAddressId', evt.target.value || null)}
+                  <Select
+                    value={selectedId || undefined}
+                    onValueChange={(value) => updateValue('billingAddressId', value || null)}
                     disabled={addressesLoading || customerRequired}
                   >
-                    <option value="">
-                      {addressesLoading
-                        ? t('sales.documents.form.address.loading', 'Loading addresses…')
-                        : t('sales.documents.form.address.placeholder', 'Select address')}
-                    </option>
-                    {addressOptions.map((addr) => {
-                      const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-                      return (
-                        <option key={addr.id} value={addr.id}>{optionLabel}</option>
-                      )
-                    })}
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          addressesLoading
+                            ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                            : t('sales.documents.form.address.placeholder', 'Select address')
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addressOptions.map((addr) => {
+                        const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                        return (
+                          <SelectItem key={addr.id} value={addr.id}>{optionLabel}</SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
                 ) : null}
 
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={useCustom}
-                    onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
-                    disabled={false}
-                  />
-                  <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-                </label>
+                <SwitchField
+                  label={t('sales.documents.form.shipping.custom', 'Define new address')}
+                  flip
+                  checked={useCustom}
+                  onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
+                  disabled={false}
+                />
 
                 {useCustom ? (
                   <div className="space-y-3">
@@ -1061,13 +1075,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                       onChange={(next) => updateValue('billingAddressDraft', next)}
                       hidePrimaryToggle
                     />
-                    <label className="col-span-2 flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={formValues.saveBillingAddress === true}
-                        onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
-                      />
-                      {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-                    </label>
+                    <SwitchField
+                      containerClassName="col-span-2"
+                      label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                      flip
+                      checked={formValues.saveBillingAddress === true}
+                      onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
+                    />
                   </div>
                 ) : null}
               </>
@@ -1086,7 +1100,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       label: '',
       type: 'custom',
       component: () => (
-        <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <div className="rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">
           {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
         </div>
       ),
@@ -1208,17 +1222,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               />
             </div>
             <div className="space-y-2">
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="email"
-                  className="w-full rounded border pl-8 pr-2 py-2 text-sm"
-                  value={emailValue}
-                  onChange={(event) => setValue('customerEmail', event.target.value)}
-                  placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
-                  spellCheck={false}
-                />
-              </div>
+              <Input
+                type="email"
+                leftIcon={<Mail />}
+                value={emailValue}
+                onChange={(event) => setValue('customerEmail', event.target.value)}
+                placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
+                spellCheck={false}
+              />
               {duplicate ? (
                 <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
                   <span>

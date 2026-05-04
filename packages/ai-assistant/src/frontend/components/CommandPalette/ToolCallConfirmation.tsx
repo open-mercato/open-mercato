@@ -39,10 +39,10 @@ export function ToolCallConfirmation({
 
   if (toolCall.status === 'completed') {
     return (
-      <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800">
+      <div className="bg-status-success-bg rounded-lg p-3 border border-status-success-border">
         <div className="flex items-center gap-2">
-          <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm text-emerald-800 dark:text-emerald-200">
+          <Check className="h-4 w-4 text-status-success-icon" />
+          <span className="text-sm text-status-success-text">
             {toolCall.toolName} completed successfully
           </span>
         </div>

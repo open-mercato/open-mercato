@@ -43,6 +43,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { withActiveCustomerPersonCompanyLinkFilter } from '../../../lib/personCompanyLinkTable'
+import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -778,10 +779,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const routing = await resolveCompanyCustomFieldRouting(em, company.tenantId ?? null, company.organizationId ?? null)
-  const customFields = mergeCompanyCustomFieldValues(
-    routing,
-    entityCustomFieldValues?.[company.id] ?? {},
-    profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+  const customFields = normalizeCustomerDetailCustomFields(
+    mergeCompanyCustomFieldValues(
+      routing,
+      entityCustomFieldValues?.[company.id] ?? {},
+      profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+    ),
   )
 
   const activityCount = await em.count(CustomerInteraction, {

@@ -5,6 +5,13 @@ import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PriceKindSettings } from '../PriceKindSettings'
 
+// Radix Select uses pointer capture / scrollIntoView APIs that jsdom doesn't implement.
+if (typeof window !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
+  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined
+  if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined
+}
+
 const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
 const mockRaiseCrudError = jest.fn()
@@ -60,6 +67,28 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogTitle: ({ children }: any) => <h3 data-testid="dialog-title">{children}</h3>,
   DialogDescription: ({ children }: any) => <p>{children}</p>,
   DialogFooter: ({ children }: any) => <div data-testid="dialog-footer">{children}</div>,
+}))
+
+// Mock Radix-based Radio primitives — jsdom has gaps in pointer/focus APIs
+jest.mock('@open-mercato/ui/primitives/radio', () => ({
+  RadioGroup: ({ children, value, onValueChange, name }: any) => (
+    <div role="radiogroup" data-testid="radio-group" data-value={value} data-name={name}>
+      {React.Children.map(children, (child: any) =>
+        React.cloneElement(child, { __groupValue: value, __onChange: onValueChange })
+      )}
+    </div>
+  ),
+  Radio: ({ value, __groupValue, __onChange, ...props }: any) => (
+    <input
+      type="radio"
+      role="radio"
+      value={value}
+      checked={__groupValue === value}
+      onChange={() => __onChange?.(value)}
+      data-radio-value={value}
+      {...props}
+    />
+  ),
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({

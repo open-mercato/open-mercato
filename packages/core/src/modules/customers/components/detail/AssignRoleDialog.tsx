@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Search, Check } from 'lucide-react'
+import Link from 'next/link'
+import { Search, Check, Settings2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -17,6 +18,8 @@ import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionar
 import type { RoleAssignment } from './RoleAssignmentRow'
 import { fetchAssignableStaffMembersPage } from './assignableStaff'
 import { getInitials } from './utils'
+
+const MANAGE_ROLE_TYPES_HREF = '/backend/config/customers'
 
 type StaffMember = {
   id: string
@@ -34,6 +37,7 @@ interface AssignRoleDialogProps {
   existingRoleTypes?: Set<string>
   existingAssignments?: RoleAssignment[]
   initialRoleType?: string | null
+  canManageRoleTypes?: boolean
 }
 
 type StepId = 1 | 2 | 3
@@ -55,6 +59,7 @@ export function AssignRoleDialog({
   existingRoleTypes,
   existingAssignments = [],
   initialRoleType = null,
+  canManageRoleTypes = false,
 }: AssignRoleDialogProps) {
   const t = useT()
   const [step, setStep] = React.useState<StepId>(1)
@@ -401,6 +406,16 @@ export function AssignRoleDialog({
                       </Badge>
                     ) : null}
                   </div>
+                  {canManageRoleTypes ? (
+                    <Link
+                      href={MANAGE_ROLE_TYPES_HREF}
+                      className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                      data-testid="assign-role-dialog-manage-role-types"
+                    >
+                      <Settings2 className="size-3.5" aria-hidden="true" />
+                      {t('customers.roles.dialog.manageRoleTypes', 'Manage role types')}
+                    </Link>
+                  ) : null}
                 </div>
 
                 {!availableRoleTypes.length ? (
@@ -434,14 +449,27 @@ export function AssignRoleDialog({
                         </Badge>
                       </div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setStep(1)}
-                    >
-                      {t('customers.roles.dialog.change', 'Change')}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {canManageRoleTypes ? (
+                        <Button asChild variant="ghost" size="sm">
+                          <Link
+                            href={MANAGE_ROLE_TYPES_HREF}
+                            data-testid="assign-role-dialog-manage-role-types-step2"
+                          >
+                            <Settings2 className="mr-1 size-3.5" aria-hidden="true" />
+                            {t('customers.roles.dialog.manageRoleTypes', 'Manage role types')}
+                          </Link>
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setStep(1)}
+                      >
+                        {t('customers.roles.dialog.change', 'Change')}
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

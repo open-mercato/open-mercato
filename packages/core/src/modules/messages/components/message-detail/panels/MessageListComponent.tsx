@@ -29,7 +29,7 @@ export function MessageListComponent({ message, onClick }: MessageListItemProps)
   return (
     <div
       className={cn(
-        'group min-w-0 w-full cursor-pointer rounded-md px-2 py-2 transition-colors hover:bg-muted/40',
+        'group min-w-0 w-full cursor-pointer rounded-md px-2 py-2 transition-colors hover:bg-muted/50',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
       )}
       role="button"

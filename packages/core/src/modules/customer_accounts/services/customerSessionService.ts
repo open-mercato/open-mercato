@@ -137,14 +137,15 @@ export class CustomerSessionService {
     )
   }
 
-  async revokeAllUserSessions(userId: string): Promise<void> {
+  async revokeAllUserSessions(userId: string, em?: EntityManager): Promise<void> {
     const now = new Date()
-    await this.em.nativeUpdate(
+    const target = em ?? this.em
+    await target.nativeUpdate(
       CustomerUserSession,
       { user: userId as any, deletedAt: null },
       { deletedAt: now },
     )
-    await this.em.nativeUpdate(
+    await target.nativeUpdate(
       CustomerUser,
       { id: userId },
       { sessionsRevokedAt: now },

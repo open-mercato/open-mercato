@@ -10,6 +10,8 @@ import { OrganizationSelect } from '@open-mercato/core/modules/directory/compone
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
@@ -395,26 +397,20 @@ function DashboardWidgetSelector({
       )}
       {!error && (
         <>
-          <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                value="inherit"
-                checked={mode === 'inherit'}
-                onChange={() => onModeChange('inherit')}
-              />
-              {t('auth.users.widgets.mode.inherit', 'Inherit from roles')}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                value="override"
-                checked={mode === 'override'}
-                onChange={() => onModeChange('override')}
-              />
-              {t('auth.users.widgets.mode.override', 'Override for this user')}
-            </label>
-          </div>
+          <RadioGroup
+            className="flex flex-row items-center gap-3 rounded-md border bg-muted/30 px-3 py-2"
+            value={mode}
+            onValueChange={(next) => onModeChange(next as 'inherit' | 'override')}
+          >
+            <RadioField
+              value="inherit"
+              label={t('auth.users.widgets.mode.inherit', 'Inherit from roles')}
+            />
+            <RadioField
+              value="override"
+              label={t('auth.users.widgets.mode.override', 'Override for this user')}
+            />
+          </RadioGroup>
           {mode === 'override' && (
             <div className="space-y-2">
               {catalog.map((widget) => (
@@ -434,7 +430,7 @@ function DashboardWidgetSelector({
             </div>
           )}
           {mode === 'inherit' && (
-            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               {t('auth.users.widgets.mode.hint', 'New users inherit widgets from their assigned roles. Override to pick a custom set.')}
             </div>
           )}

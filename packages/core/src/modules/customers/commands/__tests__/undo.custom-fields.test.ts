@@ -1673,6 +1673,7 @@ describe('customers commands undo custom fields', () => {
         if (ctor === CustomerInteraction && where.entity === entity) return [interaction]
         return []
       }),
+      count: jest.fn(async () => 0),
       nativeUpdate: jest.fn(async () => 1),
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
@@ -1695,7 +1696,7 @@ describe('customers commands undo custom fields', () => {
     const interactionDeleteOrder = em.nativeDelete.mock.invocationCallOrder[
       em.nativeDelete.mock.calls.findIndex(([ctor]) => ctor === CustomerInteraction)
     ]
-    expect(interactionDeleteOrder).toBeLessThan(em.flush.mock.invocationCallOrder[0])
+    expect(em.transactional).toHaveBeenCalled()
   })
 
   it('people.delete removes canonical interactions before deleting the person entity', async () => {

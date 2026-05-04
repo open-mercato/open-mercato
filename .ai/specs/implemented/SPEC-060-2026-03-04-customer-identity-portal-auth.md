@@ -1638,6 +1638,10 @@ The following capabilities are explicitly deferred from the current scope. They 
 
 ## Changelog
 
+### 2026-04-29 (v5 — Portal signup messaging alignment)
+- **Portal signup success UX fix**: The portal signup page no longer promises immediate login after a `202 Accepted` response. It now tells users to check email for next steps before signing in, which stays compatible with anti-enumeration responses, email verification, and tenants that require manual activation.
+- **Inactive login feedback**: The portal login page now surfaces inactive-account failures with a dedicated message instead of collapsing them into generic invalid-credentials feedback.
+
 ### 2026-04-11 (v4 — Immediate JWT Invalidation via `sessions_revoked_at`)
 - **Added `sessions_revoked_at` column** to `CustomerUser`: nullable timestamp set by `revokeAllUserSessions()`. When set, any JWT whose `iat` (issued-at) precedes this timestamp is rejected by `getCustomerAuthFromRequest()`.
 - **Modified `getCustomerAuthFromRequest()`**: After JWT signature verification, performs a lightweight DB lookup (`em.findOne(CustomerUser, { id }, { fields: ['sessionsRevokedAt'] })`) to compare `jwt.iat` against `sessions_revoked_at`. Follows the staff auth pattern (`resolveCanonicalInteractiveAuthContext` in `server.ts`). Fail-closed: container or DB errors return `null` (unauthenticated).

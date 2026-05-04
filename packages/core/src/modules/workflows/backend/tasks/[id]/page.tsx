@@ -5,7 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -24,6 +32,10 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
+  // Tracks the first required field that failed validation so we can mark the
+  // field with aria-invalid + a red ring (Radix Select can't carry HTML
+  // `required`, so we enforce constraint validation in JS instead).
+  const [invalidField, setInvalidField] = React.useState<string | null>(null)
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['workflow-task', params.id],
@@ -45,6 +57,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       ...prev,
       [fieldName]: value,
     }))
+    // Clear invalid state once the user touches the offending field.
+    if (invalidField === fieldName) setInvalidField(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,15 +66,27 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
     if (!task) return
 
-    // Validate required fields
+    // Validate required fields. Radix Select doesn't expose HTML `required`,
+    // so we enforce constraint validation here and surface it visually via
+    // `invalidField` + aria-invalid on the offending field.
     if (task.formSchema?.required) {
       for (const requiredField of task.formSchema.required) {
         if (!formData[requiredField] || formData[requiredField] === '') {
-          flash(t('workflows.tasks.detail.validation.requiredField', { field: requiredField }), 'error')
+          const fieldSchema = task.formSchema.properties?.[requiredField]
+          const fieldLabel = fieldSchema?.title ?? requiredField
+          flash(t('workflows.tasks.detail.validation.requiredField', { field: fieldLabel }), 'error')
+          setInvalidField(requiredField)
+          // Scroll + focus the trigger so the user sees what's missing.
+          if (typeof document !== 'undefined') {
+            const trigger = document.getElementById(requiredField)
+            trigger?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            trigger?.focus()
+          }
           return
         }
       }
     }
+    setInvalidField(null)
 
     setSubmitting(true)
 
@@ -105,7 +131,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     const required = task?.formSchema?.required?.includes(fieldName) || false
     const enumValues = fieldSchema.enum
 
-    const inputClasses = "w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+    const inputClasses = "w-full px-3 py-2 border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     const labelClasses = "block text-sm font-medium text-foreground mb-1"
 
     // Handle enum (select dropdown)
@@ -114,25 +140,31 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
         <div key={fieldName} className="space-y-2">
           <label htmlFor={fieldName} className={labelClasses}>
             {fieldTitle}
-            {required && <span className="text-red-600 ml-1">*</span>}
+            {required && <span className="text-status-error-text ml-1">*</span>}
           </label>
           {fieldDescription && (
             <p className="text-xs text-muted-foreground">{fieldDescription}</p>
           )}
-          <select
-            id={fieldName}
-            value={fieldValue(fieldName)}
-            onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-            required={required}
-            className={inputClasses}
+          <Select
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
+            onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
-            <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
-            {enumValues.map((value: any) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              id={fieldName}
+              className={`${inputClasses} ${invalidField === fieldName ? 'ring-2 ring-status-error-border border-status-error-border' : ''}`}
+              aria-required={required}
+              aria-invalid={invalidField === fieldName ? true : undefined}
+            >
+              <SelectValue placeholder={t('workflows.tasks.detail.form.selectOption')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: any) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     }
@@ -145,18 +177,17 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
               )}
-              <input
+              <Input
                 type="email"
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
-                className={inputClasses}
               />
             </div>
           )
@@ -166,7 +197,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -187,7 +218,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -207,18 +238,17 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -229,19 +259,18 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="number"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
-              className={inputClasses}
             />
           </div>
         )
@@ -255,11 +284,11 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 id={fieldName}
                 checked={!!formData[fieldName]}
                 onChange={(e) => handleFieldChange(fieldName, e.target.checked)}
-                className="w-4 h-4 text-primary border-border rounded focus:ring-primary"
+                className="w-4 h-4 text-primary border-border rounded focus-visible:ring-ring"
               />
               <label htmlFor={fieldName} className="text-sm font-medium text-foreground">
                 {fieldTitle}
-                {required && <span className="text-red-600 ml-1">*</span>}
+                {required && <span className="text-status-error-text ml-1">*</span>}
               </label>
             </div>
             {fieldDescription && (
@@ -273,18 +302,17 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-red-600 ml-1">*</span>}
+              {required && <span className="text-status-error-text ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -294,13 +322,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const getStatusBadgeClass = (status: UserTaskStatus) => {
     switch (status) {
       case 'PENDING':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'IN_PROGRESS':
-        return 'bg-blue-100 text-blue-800 dark:text-blue-200'
+        return 'bg-status-info-bg text-status-info-text'
       case 'COMPLETED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-status-success-bg text-status-success-text'
       case 'CANCELLED':
-        return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
+        return 'bg-muted text-foreground'
       default:
         return 'bg-muted text-muted-foreground'
     }
@@ -324,7 +352,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       <Page>
         <PageBody>
           <div className="p-8 text-center">
-            <p className="text-red-600">{t('workflows.tasks.detail.notFound')}</p>
+            <p className="text-status-error-text">{t('workflows.tasks.detail.notFound')}</p>
             <Button onClick={() => router.push('/backend/tasks')} className="mt-4">
               {t('workflows.tasks.detail.backToList')}
             </Button>
@@ -389,8 +417,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div className="space-y-3">
 
             {isOverdue && (
-              <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                <p className="text-sm text-red-800 dark:text-red-200 font-medium">
+              <div className="bg-status-error-bg border border-status-error-border rounded-lg p-3">
+                <p className="text-sm text-status-error-text font-medium">
                   {t('workflows.tasks.detail.overdueWarning')}
                 </p>
               </div>
@@ -410,7 +438,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               {task.dueDate && (
                 <div>
                   <span className="text-muted-foreground">{t('workflows.tasks.fields.dueDate')}:</span>
-                  <span className={`ml-2 ${isOverdue ? 'text-red-600 font-medium' : 'text-foreground'}`}>
+                  <span className={`ml-2 ${isOverdue ? 'text-status-error-text font-medium' : 'text-foreground'}`}>
                     {new Date(task.dueDate).toLocaleString()}
                   </span>
                 </div>
@@ -440,8 +468,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           </div>
 
           {!isCompletable && (
-            <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <p className="text-sm text-blue-800 dark:text-blue-200">
+            <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+              <p className="text-sm text-status-info-text">
                 {t('workflows.tasks.detail.cannotComplete')}
               </p>
             </div>
@@ -463,8 +491,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 )}
 
                 {!task.formSchema?.properties && (
-                  <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                    <p className="text-sm text-status-info-text">
                       {t('workflows.tasks.detail.noFormSchema')}
                     </p>
                   </div>
@@ -482,7 +510,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                     value={comments}
                     onChange={(e) => setComments(e.target.value)}
                     rows={3}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     placeholder={t('workflows.tasks.detail.commentsPlaceholder')}
                   />
                 </div>

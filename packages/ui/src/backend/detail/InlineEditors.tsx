@@ -6,6 +6,13 @@ import { FileCode, Loader2, Mail, Pencil, Phone, X } from 'lucide-react'
 import type { PluggableList } from 'unified'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -131,7 +138,7 @@ export function InlineTextEditor({
   const containerClasses = cn(
     'group overflow-hidden',
     variant === 'muted'
-      ? 'relative rounded border bg-muted/20 p-3'
+      ? 'relative rounded border bg-muted/30 p-3'
       : variant === 'plain'
         ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
         : 'rounded-lg border p-4',
@@ -324,7 +331,7 @@ export function InlineTextEditor({
                 />
               ) : (
               <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={draft}
                 onChange={(event) => {
                   if (error) setError(null)
@@ -554,7 +561,7 @@ export function InlineMultilineEditor({
 
   const containerClasses = cn(
     'group rounded-lg border p-4',
-    variant === 'muted' ? 'bg-muted/20' : null,
+    variant === 'muted' ? 'bg-muted/30' : null,
     activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName ?? null,
   )
@@ -638,7 +645,7 @@ export function InlineMultilineEditor({
                 <Textarea
                   ref={textareaRef}
                   rows={3}
-                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   placeholder={placeholder}
                   value={draft}
                   onChange={(event) => {
@@ -826,18 +833,21 @@ export function InlineSelectEditor({
               {renderEditor ? (
                 renderEditor({ value: draft, onChange: setDraft })
               ) : (
-                <select
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                <Select
+                  value={draft || undefined}
+                  onValueChange={(next) => setDraft(next ?? '')}
                 >
-                  <option value="">{t('ui.detail.inline.select.placeholder', 'Not set')}</option>
-                  {options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('ui.detail.inline.select.placeholder', 'Not set')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>

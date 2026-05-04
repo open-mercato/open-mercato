@@ -26,6 +26,12 @@ class MockResponse {
   async text() {
     return this.body
   }
+
+  clone() {
+    const cloned = new MockResponse(this.body, { status: this.status })
+    cloned.headers = new Map(this.headers)
+    return cloned
+  }
 }
 
 if (typeof globalThis.Response === 'undefined') {

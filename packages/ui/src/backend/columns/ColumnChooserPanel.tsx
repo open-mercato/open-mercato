@@ -4,6 +4,7 @@ import { Search, GripVertical, X, ChevronRight } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Switch } from '../../primitives/switch'
+import { Input } from '../../primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   DndContext,
@@ -167,16 +168,14 @@ export function ColumnChooserSection({
   return (
     <div className="flex flex-col">
       <div className="px-4 py-3 border-t">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            className="w-full rounded border bg-background pl-8 pr-2 py-2 text-sm"
-            placeholder={t('ui.columnChooser.search', 'Search columns...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+        <Input
+          type="text"
+          size="sm"
+          leftIcon={<Search />}
+          placeholder={t('ui.columnChooser.search', 'Search columns...')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       <div>
@@ -276,7 +275,7 @@ export function ColumnChooserPanel({
   }, [open])
   if (!open) return null
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-80 border-l bg-background shadow-lg flex flex-col">
+    <div className="fixed inset-y-0 right-0 z-modal w-80 border-l bg-background shadow-lg flex flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="font-semibold text-sm">
           {t('ui.columnChooser.title', 'Columns')}

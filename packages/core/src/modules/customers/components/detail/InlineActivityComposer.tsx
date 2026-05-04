@@ -1,12 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { SquarePen, Calendar, Check } from 'lucide-react'
+import { SquarePen, Calendar, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { ActivityTypeSelector, type ActivityType } from './ActivityTypeSelector'
 import { MiniWeekCalendar } from './MiniWeekCalendar'
 
@@ -65,6 +66,24 @@ export function InlineActivityComposer({
   const [saving, setSaving] = React.useState(false)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const descriptionRef = React.useRef<HTMLTextAreaElement>(null)
+
+  const weekPreviewStorageKey = `om:inline-composer:week-preview:${entityType}`
+  const { value: weekPreviewHidden, toggle: toggleWeekPreview } = usePersistedBooleanFlag(
+    weekPreviewStorageKey,
+    false,
+  )
+
+  const resizeDescription = React.useCallback(() => {
+    const el = descriptionRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const maxHeight = 200
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
+  }, [])
+
+  React.useEffect(() => {
+    resizeDescription()
+  }, [description, resizeDescription])
 
   const handleTypeSelect = React.useCallback((type: ActivityType) => {
     setSelectedType((previous) => (previous === type ? null : type))
@@ -191,19 +210,26 @@ export function InlineActivityComposer({
       {/* Description + date row */}
       <div className="mt-4 flex items-start gap-3">
         <div className="flex-1">
+          <label
+            htmlFor="inline-activity-composer-description"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
+            {t('customers.activityComposer.descriptionLabel', 'Description')}
+          </label>
           <textarea
             ref={descriptionRef}
+            id="inline-activity-composer-description"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder={t('customers.activityComposer.descriptionPlaceholder', 'What happened?')}
-            className="min-h-[44px] w-full resize-none rounded-lg border bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            rows={1}
+            className="min-h-[72px] w-full resize-none rounded-lg border bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={3}
           />
           {errors.description ? (
             <p className="mt-1 text-xs text-destructive">{errors.description}</p>
           ) : null}
         </div>
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground">
+        <label className="mt-[22px] flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground">
           <Calendar className="size-4" />
           <span className="text-sm font-medium text-foreground">{formatDateBadge(occurredAt, t)}</span>
           <input
@@ -215,9 +241,42 @@ export function InlineActivityComposer({
         </label>
       </div>
 
-      {/* Mini calendar preview */}
       <div className="mt-4">
-        <MiniWeekCalendar entityId={entityId} useCanonicalInteractions={useCanonicalInteractions} refreshRef={calendarRefreshRef} />
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('customers.activityComposer.weekPreviewTitle', 'This week')}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggleWeekPreview}
+            aria-expanded={!weekPreviewHidden}
+            aria-controls="inline-activity-composer-week-preview"
+            className="h-auto px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {weekPreviewHidden ? (
+              <>
+                <ChevronDown className="mr-1 size-3" />
+                {t('customers.activityComposer.showWeekPreview', 'Show week preview')}
+              </>
+            ) : (
+              <>
+                <ChevronUp className="mr-1 size-3" />
+                {t('customers.activityComposer.hideWeekPreview', 'Hide week preview')}
+              </>
+            )}
+          </Button>
+        </div>
+        {!weekPreviewHidden ? (
+          <div id="inline-activity-composer-week-preview">
+            <MiniWeekCalendar
+              entityId={entityId}
+              useCanonicalInteractions={useCanonicalInteractions}
+              refreshRef={calendarRefreshRef}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* Scheduled for (optional) */}

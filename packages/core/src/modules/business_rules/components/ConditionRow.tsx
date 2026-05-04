@@ -2,6 +2,14 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { X } from 'lucide-react'
 import type { SimpleCondition } from './utils/conditionValidation'
 import { getComparisonOperators, isValidFieldPath } from './utils/conditionValidation'
@@ -72,14 +80,12 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.field')}
           </label>
-          <input
+          <Input
             type="text"
             value={condition.field || ''}
             onChange={handleFieldChange}
             placeholder={t('business_rules.components.conditionRow.field.placeholder')}
-            className={`w-full px-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              fieldError ? 'border-red-500' : 'border-border'
-            }`}
+            aria-invalid={fieldError ? true : undefined}
           />
           {fieldError && (
             <p className="text-xs text-red-600 mt-0.5">
@@ -93,17 +99,21 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.operator')}
           </label>
-          <select
+          <Select
             value={condition.operator || '='}
-            onChange={handleOperatorChange}
-            className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onValueChange={(value) => handleOperatorChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
           >
-            {operators.map((op) => (
-              <option key={op.value} value={op.value}>
-                {op.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {operators.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Value Input */}
@@ -128,7 +138,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 }
               </button>
             </div>
-            <input
+            <Input
               type="text"
               value={
                 useFieldComparison
@@ -144,7 +154,6 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 ? t('business_rules.components.conditionRow.field.comparisonPlaceholder')
                 : t('business_rules.components.conditionRow.value.placeholder')
               }
-              className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-muted-foreground mt-0.5">
               {useFieldComparison

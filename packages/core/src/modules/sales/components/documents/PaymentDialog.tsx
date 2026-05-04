@@ -350,7 +350,7 @@ export function PaymentDialog({
                 onChange={(event) => setValue(event.target.value)}
                 placeholder="0.00"
               />
-              <span className="rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs font-semibold uppercase text-foreground">
+              <span className="rounded-full border border-border/70 bg-muted/50 px-3 py-1 text-xs font-semibold uppercase text-foreground">
                 {currencyLabel}
               </span>
             </div>

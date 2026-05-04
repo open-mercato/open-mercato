@@ -13,6 +13,7 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
+type SignupResponse = { ok: boolean; error?: string }
 
 export default function PortalSignupPage({ params }: Props) {
   const t = useT()
@@ -38,7 +39,7 @@ export default function PortalSignupPage({ params }: Props) {
 
       setSubmitting(true)
       try {
-        const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/signup', {
+        const result = await apiCall<SignupResponse>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
@@ -86,8 +87,11 @@ export default function PortalSignupPage({ params }: Props) {
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.success.title', 'Account Created')}</h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.signup.success.description', 'Your account has been created. You can now sign in.')}</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.success.title', 'Check your email')}</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">{t(
+          'portal.signup.success.description',
+          'If your registration was accepted, check your email for next steps before signing in. Some organizations require an administrator to activate new accounts.',
+        )}</p>
         <Button asChild className="mt-6 w-full rounded-lg">
           <Link href={`/${orgSlug}/portal/login`}>{t('portal.signup.success.loginLink', 'Sign In')}</Link>
         </Button>
@@ -112,17 +116,17 @@ export default function PortalSignupPage({ params }: Props) {
         ) : null}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-name" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
+          <Label htmlFor="signup-name" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
           <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
+          <Label htmlFor="signup-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
           <Input id="signup-email" type="email" autoComplete="email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-password" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
+          <Label htmlFor="signup-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
           <Input id="signup-password" type="password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
@@ -130,7 +134,7 @@ export default function PortalSignupPage({ params }: Props) {
           {submitting ? t('portal.signup.submitting', 'Creating account...') : t('portal.signup.submit', 'Create Account')}
         </Button>
 
-        <p className="text-center text-[13px] text-muted-foreground">
+        <p className="text-center text-sm text-muted-foreground">
           {t('portal.signup.hasAccount', 'Already have an account?')}{' '}
           <Link href={`/${orgSlug}/portal/login`} className="font-medium text-foreground underline underline-offset-4 hover:opacity-80">
             {t('portal.signup.loginLink', 'Sign in')}

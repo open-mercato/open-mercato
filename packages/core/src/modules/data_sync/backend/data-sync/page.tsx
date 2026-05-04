@@ -13,6 +13,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -143,7 +150,7 @@ function getSummaryBadgeStyle(kind: 'enabled' | 'disabled' | 'ready' | 'missing'
 
   return {
     variant: 'outline',
-    className: 'border-muted-foreground/20 bg-muted/40 text-muted-foreground',
+    className: 'border-muted-foreground/20 bg-muted/50 text-muted-foreground',
   }
 }
 
@@ -615,7 +622,7 @@ export default function SyncRunsDashboardPage() {
           <CardHeader className="space-y-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   <Repeat className="size-4" />
                   <span>{t('data_sync.dashboard.start.eyebrow', 'Run once or keep it recurring')}</span>
                 </div>
@@ -676,56 +683,71 @@ export default function SyncRunsDashboardPage() {
                   <PlugZap className="size-4 text-muted-foreground" />
                   <span>{t('data_sync.dashboard.columns.integration')}</span>
                 </Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={selectedIntegrationId}
-                  onChange={(event) => setSelectedIntegrationId(event.target.value)}
+                <Select
+                  value={selectedIntegrationId || undefined}
+                  onValueChange={(value) => setSelectedIntegrationId(value ?? '')}
                   disabled={isLoadingOptions || options.length === 0}
                 >
-                  {options.length === 0 ? (
-                    <option value="">{t('integrations.marketplace.noResults', 'No integrations found')}</option>
-                  ) : null}
-                  {options.map((item) => (
-                    <option key={item.integrationId} value={item.integrationId}>
-                      {item.title}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger size="lg">
+                    <SelectValue
+                      placeholder={
+                        options.length === 0
+                          ? t('integrations.marketplace.noResults', 'No integrations found')
+                          : undefined
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((item) => (
+                      <SelectItem key={item.integrationId} value={item.integrationId}>
+                        {item.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-sm font-medium">
                   <Boxes className="size-4 text-muted-foreground" />
                   <span>{t('data_sync.dashboard.columns.entityType')}</span>
                 </Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={selectedEntityType}
-                  onChange={(event) => setSelectedEntityType(event.target.value)}
+                <Select
+                  value={selectedEntityType || undefined}
+                  onValueChange={(value) => setSelectedEntityType(value ?? '')}
                   disabled={entityOptions.length === 0}
                 >
-                  {entityOptions.map((entityType) => (
-                    <option key={entityType} value={entityType}>
-                      {formatEntityTypeLabel(entityType)}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger size="lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {entityOptions.map((entityType) => (
+                      <SelectItem key={entityType} value={entityType}>
+                        {formatEntityTypeLabel(entityType)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-sm font-medium">
                   <ArrowRightLeft className="size-4 text-muted-foreground" />
                   <span>{t('data_sync.dashboard.columns.direction')}</span>
                 </Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={selectedDirection}
-                  onChange={(event) => setSelectedDirection(event.target.value === 'export' ? 'export' : 'import')}
+                  onValueChange={(value) => setSelectedDirection(value === 'export' ? 'export' : 'import')}
                   disabled={selectedIntegration?.direction !== 'bidirectional'}
                 >
-                  <option value="import">{t('data_sync.dashboard.direction.import')}</option>
-                  {(selectedIntegration?.direction === 'bidirectional' || selectedIntegration?.direction === 'export') ? (
-                    <option value="export">{t('data_sync.dashboard.direction.export')}</option>
-                  ) : null}
-                </select>
+                  <SelectTrigger size="lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="import">{t('data_sync.dashboard.direction.import')}</SelectItem>
+                    {(selectedIntegration?.direction === 'bidirectional' || selectedIntegration?.direction === 'export') ? (
+                      <SelectItem value="export">{t('data_sync.dashboard.direction.export')}</SelectItem>
+                    ) : null}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -734,7 +756,7 @@ export default function SyncRunsDashboardPage() {
             ) : null}
 
             <div className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -790,7 +812,7 @@ export default function SyncRunsDashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -818,17 +840,21 @@ export default function SyncRunsDashboardPage() {
                       <Clock3 className="size-4 text-muted-foreground" />
                       <span>{t('data_sync.dashboard.schedule.type', 'Schedule type')}</span>
                     </Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    <Select
                       value={scheduleEditor.scheduleType}
-                      onChange={(event) => updateScheduleEditor({
-                        scheduleType: event.target.value === 'cron' ? 'cron' : 'interval',
+                      onValueChange={(value) => updateScheduleEditor({
+                        scheduleType: value === 'cron' ? 'cron' : 'interval',
                       })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                     >
-                      <option value="interval">{t('data_sync.dashboard.schedule.interval', 'Interval')}</option>
-                      <option value="cron">{t('data_sync.dashboard.schedule.cron', 'Cron')}</option>
-                    </select>
+                      <SelectTrigger size="lg">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="interval">{t('data_sync.dashboard.schedule.interval', 'Interval')}</SelectItem>
+                        <SelectItem value="cron">{t('data_sync.dashboard.schedule.cron', 'Cron')}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2 text-sm font-medium">

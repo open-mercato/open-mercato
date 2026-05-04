@@ -143,12 +143,12 @@ export function CommandPalette() {
     <>
       {/* Custom blur overlay when debug mode is on (since modal=false removes it) */}
       {isOpen && showDebug && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm pointer-events-none" />
+        <div className="fixed inset-0 z-overlay bg-black/50 backdrop-blur-sm pointer-events-none" />
       )}
       <Dialog open={isOpen} onOpenChange={handleOpenChange} modal={!showDebug}>
         <DialogContent
           className={cn(
-            'fixed left-1/2 top-[10vh] z-50 -translate-x-1/2',
+            'fixed left-1/2 top-[10vh] z-modal -translate-x-1/2',
             'w-full max-w-2xl p-0',
             'rounded-xl border bg-background shadow-2xl',
             'flex flex-col'
@@ -226,7 +226,7 @@ export function CommandPalette() {
                     placeholder="Describe what you want to do..."
                     className={cn(
                       'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
-                      'focus:ring-2 focus:ring-ring',
+                      'focus-visible:ring-2 focus-visible:ring-ring',
                       'disabled:opacity-50'
                     )}
                     disabled={isStreaming}
@@ -264,7 +264,7 @@ export function CommandPalette() {
       {isOpen && showDebug && typeof document !== 'undefined' && createPortal(
         <div
           data-debug-panel
-          className="fixed z-[9999] bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
+          className="fixed z-top bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
           style={{ top: '80px', right: '20px', width: '400px', minWidth: '400px', maxWidth: '400px', maxHeight: 'calc(100vh - 100px)' }}
         >
           <DebugPanel

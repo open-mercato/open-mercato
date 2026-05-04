@@ -45,7 +45,7 @@ const optionalBooleanQuery = z.preprocess((value) => {
   if (value === true || value === 'true' || value === '1') return true
   if (value === false || value === 'false' || value === '0') return false
   return value
-}, z.boolean().optional())
+}, z.boolean().optional()).optional()
 
 export const integrationMarketplaceHealthStatusSchema = z.enum(['healthy', 'degraded', 'unhealthy', 'unconfigured'])
 

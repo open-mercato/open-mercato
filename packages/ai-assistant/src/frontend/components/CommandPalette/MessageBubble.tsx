@@ -55,8 +55,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1',
             '[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-2 [&_h3]:mb-1',
             // Code blocks
-            '[&_pre]:bg-background/50 [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-2 [&_pre]:overflow-x-auto',
-            '[&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs',
+            '[&_pre]:bg-background/80 [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-2 [&_pre]:overflow-x-auto',
+            '[&_code]:bg-background/80 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs',
             // Strong/emphasis
             '[&_strong]:font-semibold [&_em]:italic',
             // Blockquotes

@@ -211,7 +211,7 @@ function CurrencyInlineEditor({
                 className="text-sm text-foreground"
                 iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
                 iconClassName="h-3.5 w-3.5"
-                colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+                colorClassName="h-2.5 w-2.5 rounded-full border border-border/70"
               />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
@@ -242,7 +242,7 @@ function CurrencyInlineEditor({
               className="mt-1 inline-flex items-center gap-2 text-sm text-foreground"
               iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
               iconClassName="h-3.5 w-3.5"
-              colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+              colorClassName="h-2.5 w-2.5 rounded-full border border-border/70"
             />
           )}
         </div>
@@ -1139,21 +1139,18 @@ function ContactEmailInlineEditor({
                 }
               }}
             >
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  className="w-full rounded-md border pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft}
-                  onChange={(event) => {
-                    if (error) setError(null)
-                    setDraft(event.target.value)
-                  }}
-                  placeholder={placeholder}
-                  type="email"
-                  autoFocus
-                  spellCheck={false}
-                />
-              </div>
+              <Input
+                leftIcon={<Mail />}
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                placeholder={placeholder}
+                type="email"
+                autoFocus
+                spellCheck={false}
+              />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               {!error && duplicate ? (
                 <p className="text-xs text-muted-foreground">
@@ -4562,7 +4559,7 @@ export default function SalesDocumentDetailPage({
               {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
               <span className="inline-flex items-center gap-1">
                 {statusDisplay?.color
-                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/70')
                   : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
               </span>
               <span>{statusDisplay?.label ?? record.status}</span>

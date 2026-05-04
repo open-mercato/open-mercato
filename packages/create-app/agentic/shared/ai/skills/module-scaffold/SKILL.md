@@ -57,9 +57,8 @@ src/modules/<module_id>/
 ├── setup.ts                    # Tenant init, role features
 ├── di.ts                       # Awilix DI registrations
 ├── events.ts                   # Typed event declarations (if needed)
-├── entities/
-│   └── <Entity>.ts             # MikroORM entity class
 ├── data/
+│   ├── entities.ts             # MikroORM entity classes
 │   └── validators.ts           # Zod validation schemas
 ├── api/
 │   ├── get/
@@ -81,12 +80,12 @@ src/modules/<module_id>/
 
 ## 3. Create Entity
 
-**File**: `src/modules/<module_id>/entities/<Entity>.ts`
+**File**: `src/modules/<module_id>/data/entities.ts`
 
 ### Template
 
 ```typescript
-import { Entity, Property, PrimaryKey, Index } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { v4 } from 'uuid'
 
 @Entity({ tableName: '<entities>' })  // plural, snake_case
@@ -132,6 +131,7 @@ export class <Entity> {
 - PK: always `uuid` with `v4()` default
 - MUST include `organization_id` + `tenant_id` with `@Index()`
 - MUST include `created_at`, `updated_at`, `deleted_at`, `is_active`
+- Entity decorators MUST come from `@mikro-orm/decorators/legacy`
 - Cross-module references: store FK as `uuid` field (e.g., `customer_id`) — never use ORM `@ManyToOne`
 - Use `@Property({ type: 'jsonb' })` for flexible/nested data
 - Use `@Property({ type: 'varchar', length: N })` for bounded strings
@@ -179,7 +179,7 @@ Use `makeCrudRoute` for standard CRUD. Each HTTP method lives in its own file.
 
 ```typescript
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({
   entity: <Entity>,
@@ -202,7 +202,7 @@ export const openApi = {
 
 ```typescript
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { <Entity> } from '../../data/entities'
 import { create<Entity>Schema } from '../../data/validators'
 
 const handler = makeCrudRoute({
@@ -226,7 +226,7 @@ export const openApi = {
 
 ```typescript
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { <Entity> } from '../../data/entities'
 import { update<Entity>Schema } from '../../data/validators'
 
 const handler = makeCrudRoute({
@@ -250,7 +250,7 @@ export const openApi = {
 
 ```typescript
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({
   entity: <Entity>,
@@ -589,7 +589,7 @@ Add to `src/modules.ts`:
 
 ```bash
 yarn generate          # Discover module files, update .mercato/generated/
-yarn db:generate       # Create migration for new entity
+yarn db:generate       # Probe/create migration for the new entity
 ```
 
 ### Step 3: Review Migration
@@ -599,11 +599,13 @@ Check the generated migration file in `src/modules/<module_id>/migrations/`. Ver
 - All columns present with correct types
 - Indexes on `organization_id`, `tenant_id`
 - No unexpected changes
+- `migrations/.snapshot-open-mercato.json` was updated to the post-change schema
+- Unrelated generated migrations were deleted from the diff
 
 ### Step 4: Apply & Test
 
 ```bash
-yarn db:migrate        # Apply migration (confirm with user first)
+yarn db:migrate        # Apply migration only after explicit user confirmation
 yarn dev               # Start dev server
 ```
 
@@ -631,7 +633,7 @@ yarn dev               # Start dev server
 - [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
 - [ ] `yarn generate` run after creating files
-- [ ] `yarn db:generate` run after creating entity
+- [ ] Migration SQL is scoped to this entity and `.snapshot-open-mercato.json` is updated
 - [ ] No `any` types
 - [ ] No hardcoded user-facing strings
 - [ ] No direct ORM relationships to other modules
@@ -651,6 +653,8 @@ yarn dev               # Start dev server
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
 - **MUST** register module in `src/modules.ts` with `from: '@app'`
 - **MUST** run `yarn generate` after creating module files
-- **MUST** run `yarn db:generate` after creating/modifying entities
+- **MUST** create or keep a scoped migration after creating/modifying entities and update `.snapshot-open-mercato.json`
+- **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
+- **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST NOT** create ORM relationships (`@ManyToOne`, `@OneToMany`) to entities in other modules
 - **MUST NOT** edit `.mercato/generated/*` files manually

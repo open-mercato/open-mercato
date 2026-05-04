@@ -7,6 +7,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { CompanyCard, type EnrichedCompanyData } from './CompanyCard'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { LinkEntityDialog, type LinkEntityOption } from '../linking/LinkEntityDialog'
@@ -88,8 +90,10 @@ export function PersonCompaniesSection({
   runGuardedMutation,
 }: PersonCompaniesSectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [items, setItems] = React.useState<EnrichedCompanyData[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [unlinkingId, setUnlinkingId] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
   const [sort, setSort] = React.useState<'name-asc' | 'name-desc' | 'recent'>('name-asc')
   const [page, setPage] = React.useState(1)
@@ -309,6 +313,64 @@ export function PersonCompaniesSection({
     [linkedCompanies, linkedPrimaryId, loadData, onChanged, personId, runWriteMutation, t],
   )
 
+  const handleUnlink = React.useCallback(
+    async (companyId: string, displayName: string) => {
+      if (!companyId || unlinkingId) return
+      const confirmed = await confirm({
+        title: t('customers.people.detail.companies.unlinkConfirmTitle', 'Unlink company'),
+        description: t(
+          'customers.people.detail.companies.unlinkConfirm',
+          'Unlink {{company}} from {{person}}?',
+          { company: displayName, person: _personName },
+        ),
+        confirmText: t('customers.people.detail.companies.unlinkAction', 'Unlink'),
+        cancelText: t('customers.linking.actions.cancel', 'Cancel'),
+      })
+      if (!confirmed) return
+      setUnlinkingId(companyId)
+      try {
+        await runWriteMutation(
+          () =>
+            apiCallOrThrow(
+              `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
+              { method: 'DELETE' },
+              {
+                errorMessage: t(
+                  'customers.people.detail.companies.unlinkError',
+                  'Failed to unlink company.',
+                ),
+              },
+            ),
+          { companyId, personId, operation: 'unlinkPersonCompanyLink' },
+        )
+        await loadData({ showLoading: false })
+        await onChanged?.()
+        flash(
+          t('customers.people.detail.companies.unlinkSuccess', 'Company unlinked.'),
+          'success',
+        )
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : t(
+              'customers.people.detail.companies.unlinkError',
+              'Failed to unlink company.',
+            )
+        flash(message, 'error')
+      } finally {
+        setUnlinkingId(null)
+      }
+    },
+    [_personName, confirm, loadData, onChanged, personId, runWriteMutation, t, unlinkingId],
+  )
+
+  useAppEvent('customers.person_company_link.deleted', (event) => {
+    const payload = event.payload as { personEntityId?: string | null } | null | undefined
+    if (payload && payload.personEntityId === personId) {
+      void loadData({ showLoading: false })
+    }
+  }, [personId, loadData])
+
   return (
     <>
       <div className="space-y-4">
@@ -399,6 +461,9 @@ export function PersonCompaniesSection({
                   temperatureMap={temperatureDict?.map}
                   renewalQuarterMap={renewalQuarterDict?.map}
                   roleMap={roleDict?.map}
+                  onUnlink={() => handleUnlink(item.companyId, item.displayName)}
+                  unlinkLabel={t('customers.people.detail.companies.unlinkAction', 'Unlink')}
+                  unlinkDisabled={unlinkingId === item.companyId}
                 />
               ))}
             </div>
@@ -417,6 +482,7 @@ export function PersonCompaniesSection({
         onConfirm={handleLinkConfirm}
         runGuardedMutation={runWriteMutation}
       />
+      {ConfirmDialogElement}
     </>
   )
 }
