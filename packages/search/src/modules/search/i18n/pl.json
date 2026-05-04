@@ -25,7 +25,7 @@
   "search.dialog.actions.openGlobalSearch": "Otwórz globalne wyszukiwanie",
   "search.dialog.actions.openSelected": "Otwórz (Enter)",
   "search.dialog.actions.search": "Szukaj",
-  "search.dialog.empty.hint": "Wpisz co najmniej dwa znaki, aby przeszukać zindeksowane rekordy.",
+  "search.dialog.empty.hint": "Wpisz co najmniej {{count}} znaki, aby przeszukać zindeksowane rekordy.",
   "search.dialog.empty.none": "Brak wyników.",
   "search.dialog.errors.noPermission": "Nie masz uprawnień do korzystania z wyszukiwania globalnego.",
   "search.dialog.errors.searchFailed": "Wyszukiwanie nie powiodło się.",

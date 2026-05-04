@@ -50,6 +50,11 @@ const nextConfig: NextConfig = {
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
   ],
+  // Mirror server-only env vars that client components must observe. Keep this
+  // list minimal — anything added here is inlined into the client bundle.
+  env: {
+    OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
+  },
   async headers() {
     return [
       {
