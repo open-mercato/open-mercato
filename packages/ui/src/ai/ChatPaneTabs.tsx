@@ -185,8 +185,8 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
         type="button"
         variant="ghost"
         size="sm"
-        aria-label="New session"
-        title="New session"
+        aria-label={t('ai_assistant.chat.tabs.newSession', 'New session')}
+        title={t('ai_assistant.chat.tabs.newSession', 'New session')}
         onClick={() => sessions.createSession(agentId)}
         data-ai-chat-new-session=""
         className="shrink-0"
@@ -224,6 +224,7 @@ interface HistoryDropdownProps {
  * predictable across the dock + every dialog host without z-index hacks.
  */
 function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdownProps) {
+  const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
@@ -253,8 +254,8 @@ function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdown
         type="button"
         variant="ghost"
         size="sm"
-        aria-label="Recent sessions"
-        title="Recent sessions"
+        aria-label={t('ai_assistant.chat.tabs.recentSessions', 'Recent sessions')}
+        title={t('ai_assistant.chat.tabs.recentSessions', 'Recent sessions')}
         data-ai-chat-history-trigger=""
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
@@ -272,11 +273,11 @@ function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdown
           role="menu"
         >
           <div className="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Recent sessions
+            {t('ai_assistant.chat.tabs.recentSessions', 'Recent sessions')}
           </div>
           {closed.length === 0 ? (
             <div className="px-3 py-3 text-xs text-muted-foreground" data-ai-chat-history-empty="">
-              No previous sessions yet.
+              {t('ai_assistant.chat.tabs.noPreviousSessions', 'No previous sessions yet.')}
             </div>
           ) : (
             <div className="flex flex-col gap-0.5">

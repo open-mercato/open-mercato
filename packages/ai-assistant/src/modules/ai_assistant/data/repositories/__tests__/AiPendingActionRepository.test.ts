@@ -124,7 +124,17 @@ function mockEm() {
       em.__pendingPersist = row
       return em
     },
+    remove: (row: Row) => {
+      em.__pendingRemove = row
+      return em
+    },
     flush: async () => {
+      if (em.__pendingRemove) {
+        const row = em.__pendingRemove as Row
+        const idx = store.findIndex((candidate) => candidate.id === row.id)
+        if (idx >= 0) store.splice(idx, 1)
+        em.__pendingRemove = null
+      }
       if (em.__pendingPersist) {
         const row = em.__pendingPersist as Row
         const idx = store.findIndex((candidate) => candidate.id === row.id)
@@ -214,7 +224,12 @@ describe('AiPendingActionRepository', () => {
     const second = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
     expect(second.id).not.toBe(first.id)
     expect(second.status).toBe('pending')
-    expect(em.__store).toHaveLength(2)
+    // The repo removes stale terminal rows (cancelled/failed/expired) before
+    // minting a fresh pending row so the unique-key constraint stays satisfied
+    // and the "Fix with AI" retry flow works. Store ends up with just the
+    // new pending row.
+    expect(em.__store).toHaveLength(1)
+    expect(em.__store[0].id).toBe(second.id)
   })
 
   it('setStatus rejects illegal transitions (e.g. confirmed → pending) with AiPendingActionStateError', async () => {

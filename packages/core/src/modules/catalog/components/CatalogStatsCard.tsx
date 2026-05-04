@@ -14,6 +14,7 @@
 
 import * as React from 'react'
 import { Boxes, FolderTree, PackageCheck, Tags } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   defaultAiUiPartRegistry,
   type AiUiPartProps,
@@ -56,6 +57,7 @@ function StatTile({
 }
 
 export function CatalogStatsCard({ payload }: AiUiPartProps) {
+  const t = useT()
   const data = (payload ?? {}) as CatalogStatsCardPayload
   return (
     <div
@@ -64,27 +66,27 @@ export function CatalogStatsCard({ payload }: AiUiPartProps) {
     >
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
         <Boxes className="size-4 text-primary" aria-hidden />
-        <span>Catalog overview</span>
+        <span>{t('catalog.stats.title', 'Catalog overview')}</span>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatTile
           icon={<Boxes className="size-3" aria-hidden />}
-          label="Products"
+          label={t('catalog.stats.products', 'Products')}
           value={formatCount(data.products)}
         />
         <StatTile
           icon={<PackageCheck className="size-3" aria-hidden />}
-          label="Active"
+          label={t('catalog.stats.active', 'Active')}
           value={formatCount(data.activeProducts)}
         />
         <StatTile
           icon={<FolderTree className="size-3" aria-hidden />}
-          label="Categories"
+          label={t('catalog.stats.categories', 'Categories')}
           value={formatCount(data.categories)}
         />
         <StatTile
           icon={<Tags className="size-3" aria-hidden />}
-          label="Tags"
+          label={t('catalog.stats.tags', 'Tags')}
           value={formatCount(data.tags)}
         />
       </div>
@@ -93,7 +95,7 @@ export function CatalogStatsCard({ payload }: AiUiPartProps) {
       ) : null}
       {data.generatedAt ? (
         <p className="mt-2 text-[10px] text-muted-foreground">
-          Snapshot at {new Date(data.generatedAt).toLocaleString()}
+          {t('catalog.stats.snapshotAt', 'Snapshot at {time}').replace('{time}', new Date(data.generatedAt).toLocaleString())}
         </p>
       ) : null}
     </div>
