@@ -89,9 +89,9 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.0.10",
-    "@mikro-orm/decorators": "^7.0.10",
-    "@mikro-orm/postgresql": "^7.0.10",
+    "@mikro-orm/core": "^7.0.13",
+    "@mikro-orm/decorators": "^7.0.13",
+    "@mikro-orm/postgresql": "^7.0.13",
     "@open-mercato/cache": "0.5.0",
     "dotenv": "^17.4.2",
     "rate-limiter-flexible": "^11.0.1",
