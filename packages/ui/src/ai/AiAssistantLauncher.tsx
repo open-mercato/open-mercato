@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { apiCall } from '../backend/utils/apiCall'
 import {
   Dialog,
   DialogContent,
@@ -199,24 +200,19 @@ export function AiAssistantLauncher({
   React.useEffect(() => {
     if (skipHealthCheck) return
     let cancelled = false
-    fetch(healthEndpoint, { credentials: 'same-origin' })
-      .then(async (response) => {
+    apiCall<HealthResponse>(healthEndpoint, { credentials: 'same-origin' })
+      .then((call) => {
         if (cancelled) return
-        if (!response.ok) {
+        if (!call.ok) {
           // Don't hide the launcher on 4xx/5xx — fall back to "unknown"
           // (treated as healthy below) and let the agents endpoint decide.
           setHealthy(true)
           return
         }
-        try {
-          const body = (await response.json()) as HealthResponse
-          if (cancelled) return
-          if (body && typeof body === 'object' && body.healthy === false) {
-            setHealthy(false)
-            return
-          }
-        } catch {
-          // Treat empty/unparseable bodies as healthy when status was 2xx.
+        const body = call.result
+        if (body && typeof body === 'object' && body.healthy === false) {
+          setHealthy(false)
+          return
         }
         setHealthy(true)
       })
@@ -240,24 +236,21 @@ export function AiAssistantLauncher({
   React.useEffect(() => {
     if (agentsLoaded) return
     let cancelled = false
-    fetch(agentsEndpoint, { credentials: 'same-origin' })
-      .then(async (response) => {
+    apiCall<AgentsResponse>(agentsEndpoint, { credentials: 'same-origin' })
+      .then((call) => {
         if (cancelled) return
-        if (!response.ok) {
+        if (!call.ok) {
           setAgents([])
-          setAgentsError(`agents endpoint returned ${response.status}`)
+          setAgentsError(`agents endpoint returned ${call.status}`)
           setAgentsLoaded(true)
           return
         }
-        try {
-          const body = (await response.json()) as AgentsResponse
-          if (cancelled) return
-          setAgents(normalizeAgents(body))
+        if (call.result) {
+          setAgents(normalizeAgents(call.result))
           setAgentsError(null)
-        } catch (error) {
-          if (cancelled) return
+        } else {
           setAgents([])
-          setAgentsError(error instanceof Error ? error.message : String(error))
+          setAgentsError('Empty agents response')
         }
         setAgentsLoaded(true)
       })

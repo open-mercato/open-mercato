@@ -130,6 +130,117 @@ function normalizeExecutionResult(
  * either throw from the handler and land in `executionResult.error` or
  * succeed cleanly).
  */
+/**
+ * Convert a thrown handler error into the structured shape we persist on
+ * `executionResult.error`. The previous implementation only kept
+ * `{ code: 'handler_error', message }` — for ZodError that flattened to
+ * the literal string "Invalid input", which was not enough context for
+ * the operator's "Fix with AI" retry to actually fix anything. This
+ * version preserves the original error name, Zod issues / fieldErrors,
+ * an `input` echo of the arguments the handler was called with, and any
+ * structured `cause` so the model can self-correct.
+ *
+ * Stack traces are deliberately gated behind `OM_AI_INCLUDE_HANDLER_STACK=1`
+ * — they're noise to the model and a leak risk in tenant-visible UI.
+ */
+function buildHandlerErrorFromThrown(
+  error: unknown,
+  input: unknown,
+): NonNullable<AiPendingActionExecutionResult['error']> {
+  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof Error ? error.name : undefined
+  const out: NonNullable<AiPendingActionExecutionResult['error']> = {
+    code: 'handler_error',
+    message: message || 'Tool handler threw an error.',
+  }
+  if (name) out.name = name
+
+  // Echo the input so the model can compare what it sent vs. what the
+  // schema expected. `normalizedInput` has already been Zod-parsed at
+  // prepareMutation time so the values are JSON-safe.
+  if (input !== undefined) {
+    try {
+      out.input = JSON.parse(JSON.stringify(input))
+    } catch {
+      // ignore — non-serializable input is rare and the model can still
+      // work from the message + Zod issues.
+    }
+  }
+
+  const details: Record<string, unknown> = {}
+
+  if (error && typeof error === 'object') {
+    const err = error as Record<string, unknown>
+    // ZodError: forward `issues[]` verbatim and a flat `fieldErrors`
+    // form so the model can locate the failing field by name even when
+    // the message has been collapsed to "Invalid input".
+    const issues = err.issues
+    if (Array.isArray(issues) && issues.length > 0) {
+      details.issues = issues.map((issue) => {
+        if (!issue || typeof issue !== 'object') return issue
+        const obj = issue as Record<string, unknown>
+        return {
+          path: Array.isArray(obj.path) ? obj.path : undefined,
+          message: typeof obj.message === 'string' ? obj.message : undefined,
+          code: typeof obj.code === 'string' ? obj.code : undefined,
+          ...(typeof obj.expected === 'string' ? { expected: obj.expected } : {}),
+          ...(typeof obj.received === 'string' ? { received: obj.received } : {}),
+        }
+      })
+      const fieldErrors: Record<string, string[]> = {}
+      for (const issue of issues as Array<Record<string, unknown>>) {
+        const path = Array.isArray(issue.path) ? issue.path.join('.') : ''
+        const msg = typeof issue.message === 'string' ? issue.message : null
+        if (!path || !msg) continue
+        if (!fieldErrors[path]) fieldErrors[path] = []
+        fieldErrors[path].push(msg)
+      }
+      if (Object.keys(fieldErrors).length > 0) {
+        details.fieldErrors = fieldErrors
+      }
+      if (out.code === 'handler_error') out.code = 'validation_error'
+    }
+    // Forward a known `code` if the handler error carries one.
+    if (typeof err.code === 'string' && err.code.length > 0) {
+      out.code = err.code
+    }
+    // Carry the cause when it is JSON-serializable (string, number, plain object).
+    if (err.cause !== undefined) {
+      try {
+        details.cause = JSON.parse(JSON.stringify(err.cause))
+      } catch {
+        if (err.cause instanceof Error) {
+          details.cause = { message: err.cause.message, name: err.cause.name }
+        }
+      }
+    }
+    // Pull through any other plain-object enumerable own props the handler
+    // attached (e.g. `expected`, `actual`, `target`).
+    for (const key of Object.keys(err)) {
+      if (key === 'issues' || key === 'cause' || key === 'code' || key === 'message' || key === 'name' || key === 'stack') continue
+      const value = err[key]
+      if (value === undefined) continue
+      try {
+        details[key] = JSON.parse(JSON.stringify(value))
+      } catch {
+        // skip non-serializable
+      }
+    }
+  }
+
+  if (Object.keys(details).length > 0) {
+    out.details = details
+  }
+
+  if (process.env.OM_AI_INCLUDE_HANDLER_STACK === '1' && error instanceof Error && error.stack) {
+    // Trim to the top frames so the persisted result stays bounded.
+    const lines = error.stack.split('\n').slice(0, 6)
+    out.stack = lines.join('\n')
+  }
+
+  return out
+}
+
 function extractHandlerFailedRecords(raw: unknown): AiPendingActionFailedRecord[] {
   if (!raw || typeof raw !== 'object') return []
   const source = raw as Record<string, unknown>
@@ -249,9 +360,8 @@ export async function executePendingActionConfirm(
   try {
     handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool))
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
     const failureResult: AiPendingActionExecutionResult = {
-      error: { code: 'handler_error', message },
+      error: buildHandlerErrorFromThrown(error, action.normalizedInput),
     }
     const failedRow = await repo.setStatus(executingRow.id, 'failed', scope, {
       executionResult: failureResult,

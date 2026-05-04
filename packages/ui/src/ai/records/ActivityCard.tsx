@@ -12,6 +12,7 @@ import {
   StickyNote,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ActivityRecordPayload } from './types'
 
@@ -37,6 +38,7 @@ function pickActivityIcon(type: string | null | undefined): LucideIcon {
 export interface ActivityCardProps extends ActivityRecordPayload {}
 
 export function ActivityCard(props: ActivityCardProps) {
+  const t = useT()
   const Icon = pickActivityIcon(props.type)
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
@@ -45,10 +47,10 @@ export function ActivityCard(props: ActivityCardProps) {
   const completedAt = formatDate(props.completedAt)
 
   const items = [
-    props.type ? { label: 'Type', value: props.type } : null,
+    props.type ? { label: t('ai_assistant.chat.records.fields.type', 'Type'), value: props.type } : null,
     dueDate
       ? {
-          label: 'Due',
+          label: t('ai_assistant.chat.records.fields.due', 'Due'),
           value: (
             <span className="inline-flex items-center gap-1">
               <CalendarClock className="size-3 text-muted-foreground" aria-hidden />
@@ -59,7 +61,7 @@ export function ActivityCard(props: ActivityCardProps) {
       : null,
     completedAt
       ? {
-          label: 'Completed',
+          label: t('ai_assistant.chat.records.fields.completed', 'Completed'),
           value: (
             <span className="inline-flex items-center gap-1">
               <CheckCircle2 className="size-3 text-status-success-icon" aria-hidden />
@@ -68,15 +70,15 @@ export function ActivityCard(props: ActivityCardProps) {
           ),
         }
       : null,
-    props.relatedTo ? { label: 'Related', value: props.relatedTo } : null,
-    props.ownerName ? { label: 'Owner', value: props.ownerName } : null,
+    props.relatedTo ? { label: t('ai_assistant.chat.records.fields.related', 'Related'), value: props.relatedTo } : null,
+    props.ownerName ? { label: t('ai_assistant.chat.records.fields.owner', 'Owner'), value: props.ownerName } : null,
   ].filter(Boolean) as { label: string; value: React.ReactNode }[]
 
   const subtitle = [props.type, props.relatedTo].filter(Boolean).join(' • ')
 
   return (
     <RecordCardShell
-      kindLabel="Activity"
+      kindLabel={t('ai_assistant.chat.records.kinds.activity', 'Activity')}
       kindIcon={<Icon className="size-4" aria-hidden />}
       title={props.title}
       subtitle={subtitle || undefined}

@@ -103,11 +103,14 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         code: mappedCode,
         message:
           handlerError?.message ??
-          'The mutation handler reported an error. Review the details and re-propose if needed.',
+          t(
+            'ai_assistant.chat.mutation_cards.preview.handlerError',
+            'The mutation handler reported an error. Review the details and re-propose if needed.',
+          ),
       })
     }
     await refresh()
-  }, [pendingActionId, phase, props.endpoint, refresh])
+  }, [pendingActionId, phase, props.endpoint, refresh, t])
 
   const handleCancel = React.useCallback(async () => {
     if (!pendingActionId) return

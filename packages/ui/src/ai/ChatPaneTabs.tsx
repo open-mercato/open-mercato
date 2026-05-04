@@ -17,6 +17,7 @@ import * as React from 'react'
 import { Clock, Pencil, Plus, X } from 'lucide-react'
 import { IconButton } from '../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   defaultSessionLabel,
   useAiChatSessions,
@@ -29,6 +30,7 @@ export interface ChatPaneTabsProps {
 }
 
 export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
+  const t = useT()
   const sessions = useAiChatSessions()
   const open = sessions.getOpenSessions(agentId)
   const closed = sessions.getClosedSessions(agentId)
@@ -78,7 +80,7 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
       >
       {open.length === 0 ? (
         <span className="px-2 py-1 text-xs text-muted-foreground" data-ai-chat-tabs-empty="">
-          No sessions
+          {t('ai_assistant.chat.tabs.noSessions', 'No sessions')}
         </span>
       ) : (
         open.map((session) => {
@@ -134,8 +136,8 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  aria-label="Rename session"
-                  title="Rename session"
+                  aria-label={t('ai_assistant.chat.tabs.rename', 'Rename')}
+                  title={t('ai_assistant.chat.tabs.rename', 'Rename')}
                   className="opacity-60 hover:opacity-100"
                   onClick={() => startRename(session)}
                   data-ai-chat-tab-rename=""
@@ -147,8 +149,8 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
                 type="button"
                 variant="ghost"
                 size="xs"
-                aria-label="Close session"
-                title="Close session"
+                aria-label={t('ai_assistant.chat.tabs.close', 'Close')}
+                title={t('ai_assistant.chat.tabs.close', 'Close')}
                 // Always rendered visible (a previous opacity-0 default
                 // hid the X on non-hover and made the active-tab close
                 // button look unreachable). Closing the very last open

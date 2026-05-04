@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Building2, Globe, Mail, MapPin, Phone } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar } from '../../primitives/avatar'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { CompanyRecordPayload } from './types'
@@ -17,6 +18,7 @@ function normalizeWebsite(value: string): { href: string; label: string } {
 }
 
 export function CompanyCard(props: CompanyCardProps) {
+  const t = useT()
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
@@ -25,10 +27,10 @@ export function CompanyCard(props: CompanyCardProps) {
   const location = [props.city, props.country].filter(Boolean).join(', ')
 
   const items = [
-    props.industry ? { label: 'Industry', value: props.industry } : null,
+    props.industry ? { label: t('ai_assistant.chat.records.fields.industry', 'Industry'), value: props.industry } : null,
     websiteEntry
       ? {
-          label: 'Website',
+          label: t('ai_assistant.chat.records.fields.website', 'Website'),
           value: (
             <a
               href={websiteEntry.href}
@@ -44,7 +46,7 @@ export function CompanyCard(props: CompanyCardProps) {
       : null,
     props.email
       ? {
-          label: 'Email',
+          label: t('ai_assistant.chat.records.fields.email', 'Email'),
           value: (
             <a
               href={`mailto:${props.email}`}
@@ -56,14 +58,14 @@ export function CompanyCard(props: CompanyCardProps) {
           ),
         }
       : null,
-    props.phone ? { label: 'Phone', value: props.phone } : null,
-    location ? { label: 'Location', value: location } : null,
-    props.ownerName ? { label: 'Owner', value: props.ownerName } : null,
+    props.phone ? { label: t('ai_assistant.chat.records.fields.phone', 'Phone'), value: props.phone } : null,
+    location ? { label: t('ai_assistant.chat.records.fields.location', 'Location'), value: location } : null,
+    props.ownerName ? { label: t('ai_assistant.chat.records.fields.owner', 'Owner'), value: props.ownerName } : null,
   ].filter(Boolean) as { label: string; value: React.ReactNode }[]
 
   return (
     <RecordCardShell
-      kindLabel="Company"
+      kindLabel={t('ai_assistant.chat.records.kinds.company', 'Company')}
       kindIcon={<Building2 className="size-4" aria-hidden />}
       leading={<Avatar label={props.name} src={props.logoUrl ?? undefined} size="md" variant="monochrome" />}
       title={props.name}

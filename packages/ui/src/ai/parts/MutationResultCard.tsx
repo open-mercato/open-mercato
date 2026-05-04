@@ -174,6 +174,10 @@ export function MutationResultCard(props: MutationResultCardProps) {
         'ai_assistant.chat.mutation_cards.result.failureBody',
         'The mutation could not be applied.',
       )
+    const errorObj = result?.error
+    const errorDetails = errorObj?.details
+    const errorInput = errorObj?.input
+    const errorName = errorObj?.name
     const onFixWithAi = () => {
       // Build a structured prompt that gives the agent enough context to
       // diagnose and retry without copy/paste from the operator. Keeping
@@ -183,18 +187,103 @@ export function MutationResultCard(props: MutationResultCardProps) {
       // active `pending` rows, so a fresh prepareMutation call after a
       // terminal failure always produces a new pending action — the
       // retry is never silently collapsed.
+      //
+      // The prompt now embeds the full structured failure context the
+      // server captured (Zod issues / fieldErrors, original arguments,
+      // failedRecords for batch tools, error name + cause). Without this
+      // the operator routinely saw "Invalid input" with no field path —
+      // the model literally could not fix what it could not see.
       const promptLines: string[] = [
         `The previous call to tool "${action.toolName}" failed.`,
         `Error: ${code} — ${message}.`,
       ]
+      if (errorName && errorName !== 'Error') {
+        promptLines.push(`Error class: ${errorName}.`)
+      }
       if (action.targetEntityType || action.targetRecordId) {
         promptLines.push(
           `Target: ${action.targetEntityType ?? '?'}${action.targetRecordId ? ' / ' + action.targetRecordId : ''}.`,
         )
       }
+
+      // Field-level validation issues (Zod, custom). Render as a bulleted
+      // list of `path: message` so the model can locate the offender by
+      // schema path instead of guessing from a generic message.
+      const issues = errorDetails?.issues ?? []
+      if (Array.isArray(issues) && issues.length > 0) {
+        promptLines.push('', 'Validation issues:')
+        for (const issue of issues) {
+          const path = Array.isArray(issue?.path) && issue.path.length > 0
+            ? issue.path.join('.')
+            : '(root)'
+          const msg = issue?.message ?? '(no message)'
+          const codeHint = issue?.code ? ` [${issue.code}]` : ''
+          const expHint =
+            issue?.expected || issue?.received
+              ? ` (expected ${issue?.expected ?? '?'}, got ${issue?.received ?? '?'})`
+              : ''
+          promptLines.push(`- ${path}: ${msg}${codeHint}${expHint}`)
+        }
+      } else if (errorDetails?.fieldErrors && typeof errorDetails.fieldErrors === 'object') {
+        const entries = Object.entries(errorDetails.fieldErrors)
+        if (entries.length > 0) {
+          promptLines.push('', 'Field errors:')
+          for (const [path, msgs] of entries) {
+            const list = Array.isArray(msgs) ? msgs.join('; ') : String(msgs)
+            promptLines.push(`- ${path}: ${list}`)
+          }
+        }
+      }
+
+      // Echo the arguments the handler was invoked with so the model can
+      // see exactly what it sent and change at least one parameter on
+      // retry. JSON-stringified inline for compactness; non-serializable
+      // values are dropped on the server side already.
+      if (errorInput !== undefined) {
+        try {
+          const json = JSON.stringify(errorInput, null, 2)
+          if (json && json !== '{}' && json.length <= 4000) {
+            promptLines.push('', 'Arguments you sent:', '```json', json, '```')
+          } else if (json && json.length > 4000) {
+            promptLines.push(
+              '',
+              'Arguments you sent (truncated):',
+              '```json',
+              json.slice(0, 4000) + '\n… [truncated]',
+              '```',
+            )
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Surface root-cause when the handler nested another error inside.
+      if (errorDetails?.cause !== undefined) {
+        try {
+          const causeJson = JSON.stringify(errorDetails.cause, null, 2)
+          if (causeJson && causeJson !== '{}' && causeJson.length <= 1500) {
+            promptLines.push('', 'Underlying cause:', '```json', causeJson, '```')
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Per-record failures from batch tools (Step 5.14). These usually
+      // carry the most actionable information for partial-success cases.
+      if (failedRecords && failedRecords.length > 0) {
+        promptLines.push('', 'Records that failed:')
+        for (const rec of failedRecords) {
+          promptLines.push(
+            `- ${rec.recordId} → ${rec.error.code}: ${rec.error.message}`,
+          )
+        }
+      }
+
       promptLines.push(
         '',
-        'Diagnose what went wrong (likely a schema, scope, or referenced-id issue), correct the arguments, and call the tool again. If the failure indicates missing prerequisites (e.g. a deal needs a linked person/company before commenting), tell me what to fix on the platform side instead of retrying blindly. Do not repeat the exact same arguments — you must change at least one parameter or stop and explain.',
+        'Diagnose what went wrong using the validation issues / cause / arguments above, correct the arguments, and call the tool again. If the failure indicates missing prerequisites (e.g. a deal needs a linked person/company before commenting), tell me what to fix on the platform side instead of retrying blindly. Do not repeat the exact same arguments — you must change at least one parameter or stop and explain.',
       )
       dispatchFixRequest({
         message: promptLines.join('\n'),
@@ -202,6 +291,9 @@ export function MutationResultCard(props: MutationResultCardProps) {
         pendingActionId: action.id,
       })
     }
+    const visibleIssues = Array.isArray(errorDetails?.issues)
+      ? errorDetails!.issues!.filter((entry) => entry && (entry.message || entry.path))
+      : []
     return (
       <Alert variant="destructive" data-ai-mutation-result="failure">
         <XCircle className="size-4" aria-hidden />
@@ -218,6 +310,28 @@ export function MutationResultCard(props: MutationResultCardProps) {
             </span>
             <span>{message}</span>
           </div>
+          {visibleIssues.length > 0 ? (
+            <ul
+              className="mt-2 list-disc space-y-0.5 pl-5 text-xs"
+              data-ai-mutation-result-issues
+            >
+              {visibleIssues.map((issue, index) => {
+                const path =
+                  Array.isArray(issue?.path) && issue.path.length > 0
+                    ? issue.path.join('.')
+                    : null
+                return (
+                  <li key={index}>
+                    {path ? (
+                      <span className="font-mono">{path}</span>
+                    ) : null}
+                    {path && issue?.message ? <span className="mx-1">—</span> : null}
+                    {issue?.message ? <span>{issue.message}</span> : null}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
           <div className="mt-2 flex items-center gap-2">
             <Button
               type="button"

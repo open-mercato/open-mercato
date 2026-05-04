@@ -85,10 +85,43 @@ export type AiPendingActionFieldDiff = {
   after: unknown
 }
 
+/**
+ * Structured error context the confirm-executor stamps on
+ * `executionResult.error` when a tool handler throws. Additive — every
+ * field is optional so older serialized snapshots remain valid.
+ *
+ *  - `details`: free-form structured payload extracted from the thrown
+ *    error (e.g. ZodError `issues`, `cause`, custom error properties).
+ *    Forwarded verbatim to the operator's "Fix with AI" prompt so the
+ *    model can correct the call instead of staring at "Invalid input".
+ *  - `input`: a JSON-serializable echo of the arguments the handler was
+ *    invoked with. Lets the model compare what it sent vs. what the
+ *    schema expected. PII-redaction is the caller's responsibility (the
+ *    confirm-executor passes through `normalizedInput` which has already
+ *    been Zod-parsed and stripped of unknown keys).
+ *  - `name`: the constructor name of the thrown error (e.g. `ZodError`,
+ *    `TypeError`) — useful when the message is generic.
+ *  - `stack`: short stack snippet for handler-side diagnostics. Kept off
+ *    by default (only populated when `OM_AI_INCLUDE_HANDLER_STACK=1`).
+ */
+export type AiPendingActionExecutionErrorDetails = {
+  issues?: Array<{ path?: (string | number)[]; message?: string; code?: string }>
+  fieldErrors?: Record<string, string[]>
+  cause?: unknown
+  [key: string]: unknown
+}
+
 export type AiPendingActionExecutionResult = {
   recordId?: string
   commandName?: string
-  error?: { code: string; message: string }
+  error?: {
+    code: string
+    message: string
+    name?: string
+    details?: AiPendingActionExecutionErrorDetails
+    input?: unknown
+    stack?: string
+  }
 }
 
 /**

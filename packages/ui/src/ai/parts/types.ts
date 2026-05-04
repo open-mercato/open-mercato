@@ -37,10 +37,30 @@ export type AiPendingActionCardFailedRecord = {
   error: { code: string; message: string }
 }
 
+export type AiPendingActionCardExecutionErrorDetails = {
+  issues?: Array<{
+    path?: (string | number)[]
+    message?: string
+    code?: string
+    expected?: string
+    received?: string
+  }>
+  fieldErrors?: Record<string, string[]>
+  cause?: unknown
+  [key: string]: unknown
+}
+
 export type AiPendingActionCardExecutionResult = {
   recordId?: string
   commandName?: string
-  error?: { code: string; message: string }
+  error?: {
+    code: string
+    message: string
+    name?: string
+    details?: AiPendingActionCardExecutionErrorDetails
+    input?: unknown
+    stack?: string
+  }
 }
 
 export interface AiPendingActionCardAction {

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Package, Tag as TagIcon } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ProductRecordPayload } from './types'
 
@@ -26,6 +27,7 @@ function formatPrice(price: string | number | null | undefined, currency?: strin
 export interface ProductCardProps extends ProductRecordPayload {}
 
 export function ProductCard(props: ProductCardProps) {
+  const t = useT()
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
@@ -47,14 +49,14 @@ export function ProductCard(props: ProductCardProps) {
   )
 
   const items = [
-    props.sku ? { label: 'SKU', value: <span className="font-mono text-[11px]">{props.sku}</span> } : null,
-    price ? { label: 'Price', value: <span className="font-medium">{price}</span> } : null,
-    props.category ? { label: 'Category', value: props.category } : null,
+    props.sku ? { label: t('ai_assistant.chat.records.fields.sku', 'SKU'), value: <span className="font-mono text-[11px]">{props.sku}</span> } : null,
+    price ? { label: t('ai_assistant.chat.records.fields.price', 'Price'), value: <span className="font-medium">{price}</span> } : null,
+    props.category ? { label: t('ai_assistant.chat.records.fields.category', 'Category'), value: props.category } : null,
   ].filter(Boolean) as { label: string; value: React.ReactNode }[]
 
   return (
     <RecordCardShell
-      kindLabel="Product"
+      kindLabel={t('ai_assistant.chat.records.kinds.product', 'Product')}
       kindIcon={<Package className="size-4" aria-hidden />}
       leading={leading}
       title={props.name}

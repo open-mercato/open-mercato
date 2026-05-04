@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Briefcase, Building2, CalendarDays, CircleDollarSign, User } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { DealRecordPayload } from './types'
 
@@ -33,6 +34,7 @@ function formatDate(value: string | null | undefined): string | null {
 export interface DealCardProps extends DealRecordPayload {}
 
 export function DealCard(props: DealCardProps) {
+  const t = useT()
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
@@ -41,12 +43,12 @@ export function DealCard(props: DealCardProps) {
   const closeDate = formatDate(props.closeDate)
 
   const items = [
-    stage ? { label: 'Stage', value: stage } : null,
-    amount ? { label: 'Amount', value: <span className="font-medium">{amount}</span> } : null,
-    closeDate ? { label: 'Close', value: closeDate } : null,
-    props.companyName ? { label: 'Company', value: props.companyName } : null,
-    props.personName ? { label: 'Contact', value: props.personName } : null,
-    props.ownerName ? { label: 'Owner', value: props.ownerName } : null,
+    stage ? { label: t('ai_assistant.chat.records.fields.stage', 'Stage'), value: stage } : null,
+    amount ? { label: t('ai_assistant.chat.records.fields.amount', 'Amount'), value: <span className="font-medium">{amount}</span> } : null,
+    closeDate ? { label: t('ai_assistant.chat.records.fields.close', 'Close'), value: closeDate } : null,
+    props.companyName ? { label: t('ai_assistant.chat.records.fields.company', 'Company'), value: props.companyName } : null,
+    props.personName ? { label: t('ai_assistant.chat.records.fields.contact', 'Contact'), value: props.personName } : null,
+    props.ownerName ? { label: t('ai_assistant.chat.records.fields.owner', 'Owner'), value: props.ownerName } : null,
   ].filter(Boolean) as { label: string; value: React.ReactNode }[]
 
   const subtitleParts: string[] = []
@@ -56,7 +58,7 @@ export function DealCard(props: DealCardProps) {
 
   return (
     <RecordCardShell
-      kindLabel="Deal"
+      kindLabel={t('ai_assistant.chat.records.kinds.deal', 'Deal')}
       kindIcon={<Briefcase className="size-4" aria-hidden />}
       title={props.title}
       subtitle={subtitleParts.join(' • ')}

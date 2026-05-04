@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ExternalLink } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Tag, type TagVariant } from '../../primitives/tag'
 
 export interface RecordCardShellProps {
@@ -32,6 +33,7 @@ export function RecordCardShell({
   className,
   dataKind,
 }: RecordCardShellProps) {
+  const t = useT()
   return (
     <div
       data-ai-record-card={dataKind ?? kindLabel.toLowerCase()}
@@ -82,7 +84,7 @@ export function RecordCardShell({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground"
-                aria-label={`Open ${kindLabel}`}
+                aria-label={t('ai_assistant.chat.records.openRecord', 'Open record')}
               >
                 <ExternalLink className="size-3.5" aria-hidden />
               </a>

@@ -461,9 +461,13 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       organizationId,
     }
     if (input.toPipelineStageId) {
-      const stage = await em.findOne(CustomerPipelineStage, { id: input.toPipelineStageId })
+      const stage = await em.findOne(CustomerPipelineStage, {
+        id: input.toPipelineStageId,
+        tenantId,
+        organizationId,
+      })
       if (!stage) {
-        throw new Error(`Pipeline stage "${input.toPipelineStageId}" not found.`)
+        throw new Error('Pipeline stage not found.')
       }
       body.pipelineStageId = input.toPipelineStageId
     } else if (input.toStage) {

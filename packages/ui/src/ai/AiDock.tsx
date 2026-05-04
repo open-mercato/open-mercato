@@ -286,8 +286,8 @@ function AiDockPanel({
             type="button"
             variant="ghost"
             size="sm"
-            aria-label="Expand AI dock"
-            title="Expand AI dock"
+            aria-label={t('ai_assistant.chat.dock.expand', 'Expand AI dock')}
+            title={t('ai_assistant.chat.dock.expand', 'Expand AI dock')}
             onClick={() => onCollapsedChange(false)}
           >
             <Maximize2 className="size-4" />
@@ -314,8 +314,8 @@ function AiDockPanel({
               type="button"
               variant="ghost"
               size="sm"
-              aria-label="Collapse AI dock"
-              title="Collapse AI dock"
+              aria-label={t('ai_assistant.chat.dock.collapse', 'Collapse AI dock')}
+              title={t('ai_assistant.chat.dock.collapse', 'Collapse AI dock')}
               onClick={() => onCollapsedChange(true)}
             >
               <Minimize2 className="size-4" />
@@ -324,8 +324,8 @@ function AiDockPanel({
               type="button"
               variant="ghost"
               size="sm"
-              aria-label="Close AI dock"
-              title="Close AI dock"
+              aria-label={t('ai_assistant.chat.dock.close', 'Close AI dock')}
+              title={t('ai_assistant.chat.dock.close', 'Close AI dock')}
               onClick={onClose}
               data-ai-dock-close=""
             >
