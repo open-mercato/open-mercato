@@ -2,6 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -726,20 +734,21 @@ export default function CheckoutDemoPage() {
           {fieldDescription && (
             <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
           )}
-          <select
-            id={fieldName}
-            value={formData[fieldName] || ''}
-            onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-            required={required}
-            className={inputClasses}
+          <Select
+            value={(formData[fieldName] as string) || undefined}
+            onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
-            <option value="">{t('workflows.checkoutDemo.formField.selectOption', '-- Select an option --')}</option>
-            {enumValues.map((value: any) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id={fieldName} className={inputClasses} aria-required={required}>
+              <SelectValue placeholder={t('workflows.checkoutDemo.formField.selectOption', '-- Select an option --')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: any) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     }
@@ -757,13 +766,12 @@ export default function CheckoutDemoPage() {
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
               )}
-              <input
+              <Input
                 type="email"
                 id={fieldName}
                 value={formData[fieldName] || ''}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
-                className={inputClasses}
               />
             </div>
           )
@@ -819,13 +827,12 @@ export default function CheckoutDemoPage() {
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={formData[fieldName] || ''}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -841,14 +848,13 @@ export default function CheckoutDemoPage() {
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="number"
               id={fieldName}
               value={formData[fieldName] || ''}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
-              className={inputClasses}
             />
           </div>
         )
@@ -885,13 +891,12 @@ export default function CheckoutDemoPage() {
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={formData[fieldName] || ''}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
             />
           </div>
         )
@@ -937,34 +942,39 @@ export default function CheckoutDemoPage() {
                     </div>
                   ) : (
                     <>
-                      <select
-                        id="customer-select"
-                        value={selectedCustomerId}
-                        onChange={(e) => setSelectedCustomerId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm"
+                      <Select
+                        value={selectedCustomerId || undefined}
+                        onValueChange={(value) => setSelectedCustomerId(value ?? '')}
                       >
-                        <option value="">{t('workflows.checkoutDemo.customer.selectPlaceholder', '-- Select a customer --')}</option>
-                        {customers.map((customer: any) => (
-                          <option key={customer.id} value={customer.id}>
-                            {customer.display_name || customer.id}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger id="customer-select">
+                          <SelectValue placeholder={t('workflows.checkoutDemo.customer.selectPlaceholder', '-- Select a customer --')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {customers.map((customer: any) => (
+                            <SelectItem key={customer.id} value={customer.id}>
+                              {customer.display_name || customer.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <div className="mt-2">
                         <label htmlFor="currency-select" className="block text-xs font-medium text-gray-600 mb-1">
                           {t('workflows.checkoutDemo.currency.label', 'Currency')}
                         </label>
-                        <select
-                          id="currency-select"
+                        <Select
                           value={selectedCurrency}
-                          onChange={(e) => setSelectedCurrency(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm"
+                          onValueChange={(value) => setSelectedCurrency(value)}
                         >
-                          <option value="USD">USD - US Dollar</option>
-                          <option value="EUR">EUR - Euro</option>
-                          <option value="GBP">GBP - British Pound</option>
-                          <option value="PLN">PLN - Polish Zloty</option>
-                        </select>
+                          <SelectTrigger id="currency-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="USD">USD - US Dollar</SelectItem>
+                            <SelectItem value="EUR">EUR - Euro</SelectItem>
+                            <SelectItem value="GBP">GBP - British Pound</SelectItem>
+                            <SelectItem value="PLN">PLN - Polish Zloty</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </>
                   )}
@@ -986,33 +996,34 @@ export default function CheckoutDemoPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <select
-                        id="product-select"
-                        onChange={(e) => {
-                          const product = products.find((p: any) => p.id === e.target.value)
+                      <Select
+                        value={undefined}
+                        onValueChange={(value) => {
+                          const product = products.find((p: any) => p.id === value)
                           if (product) {
                             addToCart({
                               id: product.id,
                               title: product.title || product.display_name || 'Untitled Product',
                               pricing: product.pricing || null,
                             })
-                            e.target.value = '' // Reset selection
                           }
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm"
-                        value=""
                       >
-                        <option value="">{t('workflows.checkoutDemo.product.selectPlaceholder', '-- Select a product to add --')}</option>
-                        {products.map((product: any) => {
-                          const basePrice = product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99
-                          const displayPrice = (basePrice * exchangeRate).toFixed(2)
-                          return (
-                            <option key={product.id} value={product.id}>
-                              {product.title || product.display_name || 'Untitled'} - {currencySymbol}{displayPrice}
-                            </option>
-                          )
-                        })}
-                      </select>
+                        <SelectTrigger id="product-select">
+                          <SelectValue placeholder={t('workflows.checkoutDemo.product.selectPlaceholder', '-- Select a product to add --')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((product: any) => {
+                            const basePrice = product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99
+                            const displayPrice = (basePrice * exchangeRate).toFixed(2)
+                            return (
+                              <SelectItem key={product.id} value={product.id}>
+                                {product.title || product.display_name || 'Untitled'} - {currencySymbol}{displayPrice}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
                       {cart.length === 0 && (
                         <p className="text-xs text-gray-500 mt-1">
                           {t('workflows.checkoutDemo.cart.selectHint', 'Select products from the dropdown to add them to your cart')}

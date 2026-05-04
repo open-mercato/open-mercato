@@ -9,7 +9,21 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)
 [![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?logo=next.js)](https://nextjs.org/)
 
-Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑grade CRMs, ERPs, and commerce backends. It’s modular, extensible, and designed so teams can mix their own modules, entities, and workflows while keeping the guardrails of a production-ready stack.
+**Open Mercato - the AI-Engineering Foundation Framework.**
+
+AI code assistants generate code. They don't decide _where_ it goes, _how_ it should be layered, or whether it stays consistent across 30 engineers.
+
+Open Mercato is the open-source foundation framework that solves it:
+- Architecture-aware AI harness - agents know where in the project to place code, not just how to write it, they are provided with autonomous skills for everything from adding data table, Design-System coherent forms to implementing whole features with unit and integration tests,
+- Spec-first development - specs ship with the repo, AI output becomes reproducible
+- Including AI harness and skills for human cooperation - code review, ticketing flow and debugging
+- Ready-made CRM/ERP domain modules - start at 80% done
+- Open-source, no lock-in - full code ownership, no per-seat pricing trap
+- Teachable - the whole team enters AI-assisted dev, not just 1–2 seniors
+
+End with „almost ready apps”. Ship it pro, ship it fast. We’ve got you!
+
+Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't enough. Built for developers who want to build the professional business apps and backends at no time without constantly checking their back.
 
 ## Start with 80% done.
 

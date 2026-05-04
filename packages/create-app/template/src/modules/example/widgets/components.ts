@@ -39,7 +39,7 @@ const checkoutTestComponentOverrides: ComponentOverride[] = [
         React.createElement(
           'div',
           {
-            className: 'rounded-xl border border-dashed border-blue-300 bg-blue-50/40 p-3',
+            className: 'rounded-2xl border border-dashed border-blue-300 bg-blue-50/40 p-3',
             'data-testid': 'example-checkout-summary-wrapper',
           },
           React.createElement(Original, props as object)
@@ -57,7 +57,7 @@ const checkoutTestComponentOverrides: ComponentOverride[] = [
         React.createElement(
           'div',
           {
-            className: 'rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-3',
+            className: 'rounded-2xl border border-dashed border-amber-300 bg-amber-50/40 p-3',
             'data-testid': 'example-checkout-help-wrapper',
           },
           React.createElement(Original, props as object)

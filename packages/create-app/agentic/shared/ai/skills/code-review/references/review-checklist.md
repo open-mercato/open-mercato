@@ -20,7 +20,7 @@
 
 ## 3. Data Integrity & ORM
 
-- [ ] No hand-written migrations — entities updated, `yarn db:generate` run
+- [ ] Migration workflow is coherent — `yarn db:generate` was used as the default probe, or scoped manual SQL is justified and paired with a matching `.snapshot-open-mercato.json` update
 - [ ] Migration scope matches PR intent (no unrelated schema churn)
 - [ ] UUID primary keys with standard columns (`id`, `created_at`, `updated_at`)
 - [ ] Soft delete via `deleted_at` where applicable

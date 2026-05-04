@@ -6,6 +6,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, InlineDateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
@@ -117,12 +125,12 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           >
             {t('dashboards.analytics.settings.limit', 'Number of items')}
           </label>
-          <input
+          <Input
             id="top-products-limit"
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="w-24"
             value={hydrated.limit}
             onChange={(e) => {
               const next = Number(e.target.value)
@@ -137,15 +145,18 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           >
             {t('dashboards.analytics.settings.chartLayout', 'Chart Layout')}
           </label>
-          <select
-            id="top-products-layout"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          <Select
             value={hydrated.layout}
-            onChange={(e) => onSettingsChange({ ...hydrated, layout: e.target.value as 'horizontal' | 'vertical' })}
+            onValueChange={(value) => onSettingsChange({ ...hydrated, layout: value as 'horizontal' | 'vertical' })}
           >
-            <option value="horizontal">{t('dashboards.analytics.settings.horizontal', 'Horizontal')}</option>
-            <option value="vertical">{t('dashboards.analytics.settings.vertical', 'Vertical')}</option>
-          </select>
+            <SelectTrigger id="top-products-layout" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="horizontal">{t('dashboards.analytics.settings.horizontal', 'Horizontal')}</SelectItem>
+              <SelectItem value="vertical">{t('dashboards.analytics.settings.vertical', 'Vertical')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     )

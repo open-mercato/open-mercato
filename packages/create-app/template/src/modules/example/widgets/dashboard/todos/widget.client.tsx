@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { hydrateTodoSettings, type TodoSettings } from './config'
@@ -138,12 +139,12 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
           <label htmlFor="todo-page-size" className="text-xs font-medium uppercase text-muted-foreground">
             {t('example.widgets.todo.settings.itemsLabel')}
           </label>
-          <input
+          <Input
             id="todo-page-size"
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="w-24"
             value={value.pageSize}
             onChange={(event) => onSettingsChange({ ...value, pageSize: Number(event.target.value) })}
           />
@@ -166,9 +167,9 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
-        <input
+        <Input
           type="text"
-          className="flex-1 rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex-1"
           placeholder={t('example.widgets.todo.input.placeholder')}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

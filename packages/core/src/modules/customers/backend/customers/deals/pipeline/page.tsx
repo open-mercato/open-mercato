@@ -4,6 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -399,9 +406,8 @@ export default function SalesPipelinePage(): React.ReactElement {
     event.stopPropagation()
   }, [])
 
-  const handleSortChange = React.useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value as SortOption
-    if (sortOptions.includes(value)) setSortBy(value)
+  const handleSortChange = React.useCallback((value: string) => {
+    if (sortOptions.includes(value as SortOption)) setSortBy(value as SortOption)
   }, [])
 
   const handleDragStart = React.useCallback((dealId: string) => {
@@ -478,15 +484,19 @@ export default function SalesPipelinePage(): React.ReactElement {
               {pipelinesQuery.data && pipelinesQuery.data.length > 0 ? (
                 <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <span>{translate('customers.deals.pipeline.switch.label', 'Pipeline')}</span>
-                  <select
-                    className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                    value={selectedPipelineId ?? ''}
-                    onChange={(e) => setSelectedPipelineId(e.target.value || null)}
+                  <Select
+                    value={selectedPipelineId || undefined}
+                    onValueChange={(value) => setSelectedPipelineId(value || null)}
                   >
-                    {pipelinesQuery.data.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-auto min-w-[12rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pipelinesQuery.data.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </label>
               ) : null}
               <Link
@@ -497,21 +507,22 @@ export default function SalesPipelinePage(): React.ReactElement {
               </Link>
               <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <span>{translate('customers.deals.pipeline.sort.label', 'Sort by')}</span>
-                <select
-                  className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  value={sortBy}
-                  onChange={handleSortChange}
-                >
-                  <option value="probability">
-                    {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
-                  </option>
-                  <option value="createdAt">
-                    {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
-                  </option>
-                  <option value="expectedCloseAt">
-                    {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
-                  </option>
-                </select>
+                <Select value={sortBy} onValueChange={handleSortChange}>
+                  <SelectTrigger className="w-auto min-w-[14rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="probability">
+                      {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
+                    </SelectItem>
+                    <SelectItem value="createdAt">
+                      {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
+                    </SelectItem>
+                    <SelectItem value="expectedCloseAt">
+                      {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
             </div>
           </div>

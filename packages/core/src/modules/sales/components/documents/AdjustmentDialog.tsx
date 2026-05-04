@@ -7,6 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -524,23 +531,28 @@ export function AdjustmentDialog({
           }
           return (
             <div className="flex items-center gap-2">
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={rateId ?? ''}
-                onChange={handleChange}
+              <Select
+                value={rateId || undefined}
+                onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!taxRates.length}
               >
-                <option value="">
-                  {taxRates.length
-                    ? t('sales.documents.adjustments.taxRate.placeholder', 'No tax class selected')
-                    : t('sales.documents.adjustments.taxRate.empty', 'No tax classes available')}
-                </option>
-                {taxRates.map((rate) => (
-                  <option key={rate.id} value={rate.id}>
-                    {formatTaxRateLabel(rate)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      taxRates.length
+                        ? t('sales.documents.adjustments.taxRate.placeholder', 'No tax class selected')
+                        : t('sales.documents.adjustments.taxRate.empty', 'No tax classes available')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {taxRates.map((rate) => (
+                    <SelectItem key={rate.id} value={rate.id}>
+                      {formatTaxRateLabel(rate)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="ghost"

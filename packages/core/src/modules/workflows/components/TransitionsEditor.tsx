@@ -4,6 +4,13 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -254,54 +261,61 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                   <Label htmlFor={`transition-${index}-from`} className="text-xs">
                     {t('workflows.transitions.fromStep')} *
                   </Label>
-                  <select
-                    id={`transition-${index}-from`}
-                    value={transition.fromStepId}
-                    onChange={(e) => updateTransition(index, 'fromStepId', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
+                  <Select
+                    value={transition.fromStepId || undefined}
+                    onValueChange={(value) => updateTransition(index, 'fromStepId', value ?? '')}
                   >
-                    <option value="">{t('workflows.form.selectStep')}</option>
-                    {steps.map((step: any) => (
-                      <option key={step.stepId} value={step.stepId}>
-                        {step.stepName || step.stepId}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id={`transition-${index}-from`} className="mt-1">
+                      <SelectValue placeholder={t('workflows.form.selectStep')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {steps.map((step: any) => (
+                        <SelectItem key={step.stepId} value={step.stepId}>
+                          {step.stepName || step.stepId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor={`transition-${index}-to`} className="text-xs">
                     {t('workflows.transitions.toStep')} *
                   </Label>
-                  <select
-                    id={`transition-${index}-to`}
-                    value={transition.toStepId}
-                    onChange={(e) => updateTransition(index, 'toStepId', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
+                  <Select
+                    value={transition.toStepId || undefined}
+                    onValueChange={(value) => updateTransition(index, 'toStepId', value ?? '')}
                   >
-                    <option value="">{t('workflows.form.selectStep')}</option>
-                    {steps.map((step: any) => (
-                      <option key={step.stepId} value={step.stepId}>
-                        {step.stepName || step.stepId}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id={`transition-${index}-to`} className="mt-1">
+                      <SelectValue placeholder={t('workflows.form.selectStep')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {steps.map((step: any) => (
+                        <SelectItem key={step.stepId} value={step.stepId}>
+                          {step.stepName || step.stepId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor={`transition-${index}-trigger`} className="text-xs">
                     {t('workflows.transitions.trigger')} *
                   </Label>
-                  <select
-                    id={`transition-${index}-trigger`}
+                  <Select
                     value={transition.trigger}
-                    onChange={(e) => updateTransition(index, 'trigger', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
+                    onValueChange={(value) => updateTransition(index, 'trigger', value)}
                   >
-                    {TRIGGER_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {t(`workflows.transitions.triggers.${type.value}`)}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id={`transition-${index}-trigger`} className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRIGGER_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {t(`workflows.transitions.triggers.${type.value}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -424,18 +438,21 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Label htmlFor={`activity-${index}-${activityIndex}-type`} className="text-xs">
                               {t('workflows.activities.activityType')} *
                             </Label>
-                            <select
-                              id={`activity-${index}-${activityIndex}-type`}
+                            <Select
                               value={activity.activityType}
-                              onChange={(e) => updateActivity(index, activityIndex, 'activityType', e.target.value)}
-                              className="mt-1 w-full px-2 py-1 border border-border rounded-md text-xs h-8"
+                              onValueChange={(value) => updateActivity(index, activityIndex, 'activityType', value)}
                             >
-                              {ACTIVITY_TYPES.map((type) => (
-                                <option key={type.value} value={type.value}>
-                                  {t(`workflows.activities.types.${type.value}`)}
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger id={`activity-${index}-${activityIndex}-type`} size="sm" className="mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ACTIVITY_TYPES.map((type) => (
+                                  <SelectItem key={type.value} value={type.value}>
+                                    {t(`workflows.activities.types.${type.value}`)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-timeout`} className="text-xs">

@@ -129,7 +129,7 @@ After all targeted phases are complete:
 3. **Build check**: `yarn build` — must pass
 4. **Unit test check**: `yarn test` — must pass
 5. **Integration test check**: run any new integration tests — must pass
-6. **Migration check**: `yarn mercato db generate` — if any entities changed (verify generated migration is scoped correctly)
+6. **Migration check**: `yarn db:generate` — if any entities changed (verify the resulting SQL is scoped correctly; manual SQL is acceptable only when avoiding unrelated churn, and the touched `.snapshot-open-mercato.json` must match)
 
 Report results to the user. If any check fails, fix and re-verify.
 
@@ -159,4 +159,4 @@ Report results to the user. If any check fails, fix and re-verify.
 - MUST keep subagents focused — one task per subagent, clear boundaries
 - MUST report blockers to the user immediately rather than working around them silently
 - MUST run `yarn generate` after creating or modifying module convention files
-- MUST run `yarn mercato db generate` after creating or modifying entities (and confirm migration with user before applying)
+- MUST run `yarn db:generate` after creating or modifying entities (and confirm migration with user before applying)

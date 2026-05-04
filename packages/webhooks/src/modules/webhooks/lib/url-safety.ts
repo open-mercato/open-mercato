@@ -2,7 +2,9 @@ import {
   assertSafeOutboundUrl,
   assertStaticallySafeOutboundUrl,
   parseOutboundUrl,
+  safeOutboundFetch,
   type HostLookup,
+  type SafeOutboundFetchOptions,
   type UrlSafetyReason,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -69,5 +71,32 @@ export async function assertSafeWebhookDeliveryUrl(
     subject: SUBJECT,
     allowPrivate,
     lookupHost: deps.lookupHost,
+  })
+}
+
+export type SafeWebhookFetchDeps = {
+  lookupHost?: HostLookup
+  allowPrivate?: boolean
+  fetchImpl?: SafeOutboundFetchOptions['fetchImpl']
+}
+
+/**
+ * Validates the webhook URL and performs a `fetch()` with the connection pinned to a
+ * pre-validated address — defeats DNS rebinding by ensuring the validation lookup and
+ * the connect lookup return the same IP. Always sets `redirect: 'manual'` unless the
+ * caller overrides it.
+ */
+export async function safeWebhookFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  deps: SafeWebhookFetchDeps = {},
+): Promise<Response> {
+  const allowPrivate = deps.allowPrivate ?? isAllowPrivateWebhookUrlsEnabled()
+  return safeOutboundFetch(rawUrl, init, {
+    errorFactory: webhookErrorFactory,
+    subject: SUBJECT,
+    allowPrivate,
+    lookupHost: deps.lookupHost,
+    fetchImpl: deps.fetchImpl,
   })
 }

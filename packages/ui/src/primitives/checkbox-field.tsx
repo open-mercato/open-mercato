@@ -38,13 +38,14 @@ export const CheckboxField = React.forwardRef<
   const reactId = React.useId()
   const id = idProp ?? `checkbox-field-${reactId}`
 
+  const hasMultiLine = Boolean(description || sublabel || link)
   const checkbox = (
     <Checkbox
       ref={ref}
       id={id}
       size={size}
       disabled={disabled}
-      className={cn("mt-0.5", className)}
+      className={cn(hasMultiLine && "mt-0.5", className)}
       {...checkboxProps}
     />
   )
@@ -76,7 +77,14 @@ export const CheckboxField = React.forwardRef<
   )
 
   return (
-    <div className={cn("flex items-start gap-2", flip && "flex-row-reverse", containerClassName)}>
+    <div
+      className={cn(
+        "flex gap-2",
+        hasMultiLine ? "items-start" : "items-center",
+        flip && "flex-row-reverse",
+        containerClassName
+      )}
+    >
       {flip ? content : checkbox}
       {flip ? checkbox : content}
     </div>

@@ -41,7 +41,7 @@ describe('PortalSignupPage', () => {
   it('submits the signup payload with tenant + organization scope on 202 success', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
 
-    const { getByLabelText, getByRole, findByText } = renderWithProviders(
+    const { getByLabelText, getByRole, findByRole } = renderWithProviders(
       <PortalSignupPage params={{ orgSlug: 'acme' }} />,
     )
     fillForm(getByLabelText)
@@ -63,8 +63,9 @@ describe('PortalSignupPage', () => {
         }),
       }),
     )
-    // Renders the post-success state with the sign-in CTA
-    await findByText(/account created/i)
+    // Renders the neutral post-success state for accepted registrations.
+    await findByRole('heading', { name: /check your email/i })
+    expect(getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/acme/portal/login')
   })
 
   it('treats non-202 responses as errors and renders the server message', async () => {
@@ -79,7 +80,7 @@ describe('PortalSignupPage', () => {
     })
 
     await findByText(/email already in use/i)
-    expect(queryByText(/account created/i)).toBeNull()
+    expect(queryByText(/check your email/i)).toBeNull()
   })
 
   it('shows the org-not-found guard when tenant scope is missing and never calls the API', async () => {

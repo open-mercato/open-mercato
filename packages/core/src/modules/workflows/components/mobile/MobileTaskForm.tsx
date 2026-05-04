@@ -7,6 +7,13 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -63,18 +70,19 @@ export function MobileTaskForm({
             {required && <span className="text-status-error-text ml-1">*</span>}
           </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
-          <select
-            id={fieldName}
-            value={fieldValue(fieldName)}
-            onChange={(e) => onFieldChange(fieldName, e.target.value)}
-            required={required}
-            className="w-full h-11 px-3 py-2 border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-base"
+          <Select
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
+            onValueChange={(value) => onFieldChange(fieldName, value ?? '')}
           >
-            <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
-            {enumValues.map((value: string) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
+            <SelectTrigger id={fieldName} size="lg" aria-required={required}>
+              <SelectValue placeholder={t('workflows.tasks.detail.form.selectOption')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: string) => (
+                <SelectItem key={value} value={value}>{value}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     }

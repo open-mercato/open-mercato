@@ -32,17 +32,17 @@ const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, {
 const optionalTrimmedString = z.preprocess(
   normalizeBlankString,
   z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable(),
-)
+).optional()
 const optionalUrlSchema = z.preprocess(
   normalizeBlankString,
   z.string().url('checkout.validation.common.invalidUrl').optional().nullable(),
-)
+).optional()
 const optionalFieldsetCodeSchema = z.preprocess(
   normalizeBlankString,
   z.string().regex(fieldsetCodeRegex, {
     message: 'checkout.validation.common.invalidFieldsetCode',
   }).optional().nullable(),
-)
+).optional()
 const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 
