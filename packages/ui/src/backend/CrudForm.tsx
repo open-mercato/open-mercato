@@ -779,7 +779,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // their own protection (or have none by design) keep their pre-existing behavior.
     if ((embedded && !trackDirtyWhenEmbedded) || !hasUnsavedChanges) return
     const beforeUnloadHandler = (event: BeforeUnloadEvent) => {
-      if (!isDirtyRef.current) return
+      if (!isDirtyRef.current || submitNavigationBypassRef.current) return
       event.preventDefault()
       event.returnValue = ''
     }
