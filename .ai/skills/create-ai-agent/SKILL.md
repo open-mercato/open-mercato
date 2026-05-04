@@ -515,29 +515,56 @@ When in doubt, add new — don't rename or remove.
 
 ## 13. Overriding Another Module's Agent or Tool
 
-Use this when the module you are working on needs to **replace** or **disable** an agent / tool that another module already shipped — for example, swapping `catalog.merchandising_assistant` for a tenant-specific variant or hiding `catalog.catalog_assistant` from the launcher.
+Use this when the module you are working on needs to **replace** or **disable** an agent / tool that another module already shipped — for example, swapping `catalog.merchandising_assistant` for a tenant-specific variant or hiding `catalog.catalog_assistant` from the launcher. There is no separate `<module>/ai-overrides.ts` file: overrides live alongside base contributions in the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts`.
 
-**Path A — `<module>/ai-overrides.ts` (per-module file, generator-driven):**
+**Path A — extra exports on `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module, generator-driven):**
 
 ```ts
-// src/modules/<module>/ai-overrides.ts
-import type { AiAgentOverrides } from '@open-mercato/ai-assistant'
-import myMerchandisingAgent from './ai-agents/my-merchandising-agent'
+// src/modules/<module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myMerchandisingAgent from './agents/my-merchandising-agent'
 
-export const aiOverrides: AiAgentOverrides = {
-  agents: {
-    'catalog.merchandising_assistant': myMerchandisingAgent, // replace
-    'catalog.catalog_assistant': null,                       // disable
-  },
-  tools: {
-    'inbox_ops_accept_action': null,                         // disable a default tool
-  },
+export const aiAgents: AiAgentDefinition[] = [/* ...your module's own agents */]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  'catalog.merchandising_assistant': myMerchandisingAgent, // replace
+  'catalog.catalog_assistant': null,                       // disable
 }
-
-export default aiOverrides
 ```
 
-**Path B — programmatic API (app-level / dynamic):**
+```ts
+// src/modules/<module>/ai-tools.ts
+import { defineAiTool, type AiToolOverridesMap } from '@open-mercato/ai-assistant'
+
+export const aiTools = [/* ...your module's own tools */]
+
+export const aiToolOverrides: AiToolOverridesMap = {
+  'inbox_ops_accept_action': null, // disable a default tool
+}
+```
+
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`):**
+
+```ts
+// apps/<app>/src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+  },
+},
+```
+
+`apps/mercato/src/bootstrap.ts` (and the `create-mercato-app` template) already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` to wire these up. Other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` — AI is Phase 1; subsequent domains roll out as focused PRs.
+
+**Path C — programmatic API (boot-time / dynamic):**
 
 ```ts
 import {
@@ -552,13 +579,13 @@ applyAiToolOverrides({ 'inbox_ops_accept_action': null })
 
 MUST rules:
 
-- MUST place `ai-overrides.ts` at the **module root**. Sub-files are not auto-discovered.
+- MUST keep override exports inside the existing `ai-agents.ts` / `ai-tools.ts` files (no separate `ai-overrides.ts` file is generated or scanned).
 - MUST keep map keys consistent with `value.id` (agent) / `value.name` (tool); mismatches log a warning and are skipped.
-- MUST NOT use overrides to patch your own module — author the canonical definition in `ai-agents.ts` / `ai-tools.ts` instead.
-- MUST run `yarn generate` after editing any `ai-overrides.ts` file.
+- MUST NOT use overrides to patch your own module — author the canonical definition in the same `aiAgents` / `aiTools` array instead.
+- MUST run `yarn generate` after editing any `aiAgentOverrides` / `aiToolOverrides` export.
 - MUST run `yarn mercato configs cache structural --all-tenants` after disabling an agent so existing tenants drop stale caches.
 
-Resolution order (highest precedence first): programmatic → file-based (`ai-overrides.ts`) → base (`ai-agents.ts` / `ai-tools.ts`). Last entry per id wins. `null` disables.
+Resolution order (highest precedence first): programmatic → `modules.ts` inline → file-based (`aiAgentOverrides` / `aiToolOverrides`) → base (`aiAgents` / `aiTools`). Last entry per id wins inside each tier. `null` disables.
 
 Full reference: `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 

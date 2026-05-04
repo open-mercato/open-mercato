@@ -3,17 +3,25 @@
  * way for downstream modules (or app-level code) to replace or disable
  * an AI agent / AI tool registered by another module — see spec
  * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ *
+ * The pipeline has three tiers (highest precedence first):
+ *   1. programmatic — `applyAiAgentOverrides` / `applyAiToolOverrides`
+ *   2. modules.ts — `applyAiOverridesFromEnabledModules`
+ *   3. file-based — `aiAgentOverrides` / `aiToolOverrides` exports from
+ *      `<module>/ai-agents.ts` / `<module>/ai-tools.ts`
  */
 import {
   applyAgentOverrideMap,
   applyAiAgentOverrides,
   applyAiToolOverrides,
+  applyAiOverridesFromEnabledModules,
   composeAgentOverrideMap,
   composeToolOverrideMap,
   applyToolOverrideMap,
   resetProgrammaticOverridesForTests,
   snapshotProgrammaticOverrides,
-  type AiOverrideConfigEntry,
+  type AiAgentOverrideConfigEntry,
+  type AiToolOverrideConfigEntry,
 } from '../ai-overrides'
 import {
   applyAgentOverrideEntriesForTests,
@@ -57,26 +65,43 @@ describe('composeAgentOverrideMap', () => {
   it('merges file-based entries in order, last wins', () => {
     const baseAgent = makeAgent('catalog.merchandising_assistant')
     const replacement = makeAgent('catalog.merchandising_assistant', { label: 'Replacement' })
-    const entries: AiOverrideConfigEntry[] = [
-      { moduleId: 'app', overrides: { agents: { 'catalog.merchandising_assistant': baseAgent } } },
-      { moduleId: 'app2', overrides: { agents: { 'catalog.merchandising_assistant': replacement } } },
+    const entries: AiAgentOverrideConfigEntry[] = [
+      { moduleId: 'app', overrides: { 'catalog.merchandising_assistant': baseAgent } },
+      { moduleId: 'app2', overrides: { 'catalog.merchandising_assistant': replacement } },
     ]
     const map = composeAgentOverrideMap(entries)
     expect(map['catalog.merchandising_assistant']).toBe(replacement)
   })
 
-  it('programmatic overrides supersede file-based entries', () => {
+  it('modules.ts overrides supersede file-based entries', () => {
     const fileAgent = makeAgent('catalog.merchandising_assistant', { label: 'File' })
+    const modulesAgent = makeAgent('catalog.merchandising_assistant', { label: 'Modules.ts' })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { agents: { 'catalog.merchandising_assistant': modulesAgent } } } },
+    ])
+    const entries: AiAgentOverrideConfigEntry[] = [
+      { moduleId: 'app', overrides: { 'catalog.merchandising_assistant': fileAgent } },
+    ]
+    const map = composeAgentOverrideMap(entries)
+    expect(map['catalog.merchandising_assistant']).toBe(modulesAgent)
+  })
+
+  it('programmatic overrides supersede modules.ts and file-based', () => {
+    const fileAgent = makeAgent('catalog.merchandising_assistant', { label: 'File' })
+    const modulesAgent = makeAgent('catalog.merchandising_assistant', { label: 'Modules.ts' })
     const programmaticAgent = makeAgent('catalog.merchandising_assistant', { label: 'Programmatic' })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { agents: { 'catalog.merchandising_assistant': modulesAgent } } } },
+    ])
     applyAiAgentOverrides({ 'catalog.merchandising_assistant': programmaticAgent })
-    const entries: AiOverrideConfigEntry[] = [
-      { moduleId: 'app', overrides: { agents: { 'catalog.merchandising_assistant': fileAgent } } },
+    const entries: AiAgentOverrideConfigEntry[] = [
+      { moduleId: 'app', overrides: { 'catalog.merchandising_assistant': fileAgent } },
     ]
     const map = composeAgentOverrideMap(entries)
     expect(map['catalog.merchandising_assistant']).toBe(programmaticAgent)
   })
 
-  it('null override propagates through both layers', () => {
+  it('null override propagates through every layer', () => {
     applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
     const map = composeAgentOverrideMap([])
     expect(map['catalog.catalog_assistant']).toBeNull()
@@ -146,7 +171,7 @@ describe('agent-registry override pipeline', () => {
       'catalog.merchandising_assistant',
     ])
     applyAgentOverrideEntriesForTests([
-      { moduleId: 'app', overrides: { agents: { 'catalog.catalog_assistant': null } } },
+      { moduleId: 'app', overrides: { 'catalog.catalog_assistant': null } },
     ])
     expect(listAgents().map((a) => a.id)).toEqual(['catalog.merchandising_assistant'])
   })
@@ -157,7 +182,7 @@ describe('agent-registry override pipeline', () => {
     ])
     const replacement = makeAgent('catalog.merchandising_assistant', { label: 'App-level Replacement' })
     applyAgentOverrideEntriesForTests([
-      { moduleId: 'app', overrides: { agents: { 'catalog.merchandising_assistant': replacement } } },
+      { moduleId: 'app', overrides: { 'catalog.merchandising_assistant': replacement } },
     ])
     const list = listAgents()
     expect(list).toHaveLength(1)
@@ -169,29 +194,51 @@ describe('agent-registry override pipeline', () => {
     const first = makeAgent('m.x', { label: 'First override' })
     const second = makeAgent('m.x', { label: 'Second override' })
     applyAgentOverrideEntriesForTests([
-      { moduleId: 'overrider1', overrides: { agents: { 'm.x': first } } },
-      { moduleId: 'overrider2', overrides: { agents: { 'm.x': second } } },
+      { moduleId: 'overrider1', overrides: { 'm.x': first } },
+      { moduleId: 'overrider2', overrides: { 'm.x': second } },
     ])
     expect(listAgents()[0].label).toBe('Second override')
   })
 
-  it('programmatic override beats file-based override', () => {
+  it('modules.ts override beats file-based override', () => {
     seedAgentRegistryForTests([makeAgent('m.x', { label: 'Original' })])
     const fileAgent = makeAgent('m.x', { label: 'File' })
+    const modulesAgent = makeAgent('m.x', { label: 'Modules.ts' })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { agents: { 'm.x': modulesAgent } } } },
+    ])
+    applyAgentOverrideEntriesForTests([
+      { moduleId: 'overrider', overrides: { 'm.x': fileAgent } },
+    ])
+    expect(listAgents()[0].label).toBe('Modules.ts')
+  })
+
+  it('programmatic override beats both modules.ts and file-based override', () => {
+    seedAgentRegistryForTests([makeAgent('m.x', { label: 'Original' })])
+    const fileAgent = makeAgent('m.x', { label: 'File' })
+    const modulesAgent = makeAgent('m.x', { label: 'Modules.ts' })
     const programmatic = makeAgent('m.x', { label: 'Programmatic' })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { agents: { 'm.x': modulesAgent } } } },
+    ])
     applyAiAgentOverrides({ 'm.x': programmatic })
     applyAgentOverrideEntriesForTests([
-      { moduleId: 'overrider', overrides: { agents: { 'm.x': fileAgent } } },
+      { moduleId: 'overrider', overrides: { 'm.x': fileAgent } },
     ])
     expect(listAgents()[0].label).toBe('Programmatic')
   })
 
   it('snapshotProgrammaticOverrides reflects the current state', () => {
     expect(snapshotProgrammaticOverrides().agents).toEqual({})
+    expect(snapshotProgrammaticOverrides().modulesConfigAgents).toEqual({})
     const replacement = makeAgent('m.x', { label: 'X' })
     applyAiAgentOverrides({ 'm.x': replacement, 'm.y': null })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { agents: { 'm.z': null } } } },
+    ])
     const snapshot = snapshotProgrammaticOverrides()
     expect(snapshot.agents).toEqual({ 'm.x': replacement, 'm.y': null })
+    expect(snapshot.modulesConfigAgents).toEqual({ 'm.z': null })
   })
 })
 
@@ -225,17 +272,35 @@ describe('tool override map', () => {
     warnSpy.mockRestore()
   })
 
-  it('composeToolOverrideMap: programmatic beats file-based', () => {
+  it('composeToolOverrideMap: programmatic beats modules.ts and file-based', () => {
     const fileTool = makeTool('m.x', { description: 'File' })
+    const modulesTool = makeTool('m.x', { description: 'Modules.ts' })
     const progTool = makeTool('m.x', { description: 'Programmatic' })
-    applyAiToolOverrides({ 'm.x': progTool })
-    const map = composeToolOverrideMap([
-      { moduleId: 'app', overrides: { tools: { 'm.x': fileTool } } },
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { tools: { 'm.x': modulesTool } } } },
     ])
+    applyAiToolOverrides({ 'm.x': progTool })
+    const entries: AiToolOverrideConfigEntry[] = [
+      { moduleId: 'app', overrides: { 'm.x': fileTool } },
+    ]
+    const map = composeToolOverrideMap(entries)
     expect(map['m.x']).toBe(progTool)
   })
 
-  it('composeToolOverrideMap: null disables across both layers', () => {
+  it('composeToolOverrideMap: modules.ts beats file-based', () => {
+    const fileTool = makeTool('m.x', { description: 'File' })
+    const modulesTool = makeTool('m.x', { description: 'Modules.ts' })
+    applyAiOverridesFromEnabledModules([
+      { id: 'app', overrides: { ai: { tools: { 'm.x': modulesTool } } } },
+    ])
+    const entries: AiToolOverrideConfigEntry[] = [
+      { moduleId: 'app', overrides: { 'm.x': fileTool } },
+    ]
+    const map = composeToolOverrideMap(entries)
+    expect(map['m.x']).toBe(modulesTool)
+  })
+
+  it('composeToolOverrideMap: null disables across every layer', () => {
     applyAiToolOverrides({ 'm.x': null })
     const map = composeToolOverrideMap([])
     expect(map['m.x']).toBeNull()

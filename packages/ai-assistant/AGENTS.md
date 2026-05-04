@@ -182,34 +182,60 @@ Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
 ### How to Override Another Module's Agent or Tool
 
-Modules can replace or disable any AI agent / AI tool that another module registered. Use this to swap the shipped `catalog.merchandising_assistant` for a custom variant, hide an agent your tenant does not need, or patch a tool to add side-effects. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+Modules can replace or disable any AI agent / AI tool that another module registered. Use this to swap the shipped `catalog.merchandising_assistant` for a custom variant, hide an agent your tenant does not need, or patch a tool to add side-effects. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 
-There are two paths.
+There are three paths.
 
-**Path A — `<module>/ai-overrides.ts` (per-module file).** The generator picks the file up automatically at `yarn generate` and emits a sibling `ai-overrides.generated.ts`. The runtime applies the entries in module load order after the base registries finish loading.
+**Path A — extra exports on `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module file).** No separate `<module>/ai-overrides.ts` file. The generator already scans the existing `ai-agents.ts` / `ai-tools.ts` files; it now also picks up the optional `aiAgentOverrides` / `aiToolOverrides` exports and emits them as sibling `aiAgentOverrideEntries` / `aiToolOverrideEntries` arrays inside the same generated files.
 
 ```ts
-// src/modules/<my-module>/ai-overrides.ts
-import type { AiAgentOverrides } from '@open-mercato/ai-assistant'
-import myCustomMerchandisingAgent from './ai-agents/my-merchandising-agent'
+// src/modules/<my-module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myCustomMerchandisingAgent from './agents/my-merchandising-agent'
 
-export const aiOverrides: AiAgentOverrides = {
-  agents: {
-    // Replace the default merchandising assistant with my variant.
-    'catalog.merchandising_assistant': myCustomMerchandisingAgent,
-    // Disable the default catalog explorer entirely.
-    'catalog.catalog_assistant': null,
-  },
-  tools: {
-    // Disable a tool the tenant does not use.
-    'inbox_ops_accept_action': null,
-  },
+export const aiAgents: AiAgentDefinition[] = [
+  // ...your module's own agents
+]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  // Replace the default merchandising assistant with my variant.
+  'catalog.merchandising_assistant': myCustomMerchandisingAgent,
+  // Disable the default catalog explorer entirely.
+  'catalog.catalog_assistant': null,
 }
-
-export default aiOverrides
 ```
 
-**Path B — programmatic API (app-level / dynamic).** Call from `src/bootstrap.ts` or any boot-time entry point. Programmatic overrides supersede file-based overrides for the same id and persist for the process lifetime.
+```ts
+// src/modules/<my-module>/ai-tools.ts
+import { defineAiTool, type AiToolOverridesMap } from '@open-mercato/ai-assistant'
+
+export const aiTools = [/* ...your module's own tools */]
+
+export const aiToolOverrides: AiToolOverridesMap = {
+  'inbox_ops_accept_action': null,
+}
+```
+
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (AI is Phase 1; other domains roll out as separate PRs). The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+
+```ts
+// apps/<app>/src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+  },
+},
+```
+
+**Path C — programmatic API (boot-time / dynamic).** Call from `src/bootstrap.ts` or any boot-time entry point. Programmatic overrides supersede both `modules.ts` and file-based overrides for the same id and persist for the process lifetime.
 
 ```ts
 import {
@@ -227,19 +253,21 @@ applyAiToolOverrides({
 
 MUST rules:
 
-- MUST place `ai-overrides.ts` at the **module root** alongside `ai-agents.ts` and `ai-tools.ts`. Sub-files are not auto-discovered.
+- MUST keep override exports inside the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` files (no separate `ai-overrides.ts` file is generated or scanned).
 - MUST keep override values consistent with their map key — the value's `id` (agent) or `name` (tool) MUST equal the key. Mismatches log a warning and are skipped.
-- MUST NOT use overrides to patch your own module's agent / tool — author the canonical definition in `ai-agents.ts` / `ai-tools.ts` instead. The convention is for **cross-module** replacement.
-- MUST run `yarn generate` after editing any `ai-overrides.ts` so the generated registry picks the file up.
+- MUST NOT use overrides to patch your own module's agent / tool — author the canonical definition in the same `ai-agents.ts` / `ai-tools.ts` `aiAgents` / `aiTools` array instead. The convention is for **cross-module** replacement.
+- MUST run `yarn generate` after editing any `aiAgentOverrides` / `aiToolOverrides` export so the generated registry picks the change up.
 - MUST run `yarn mercato configs cache structural --all-tenants` after disabling an agent so existing tenants flush stale nav/agent caches.
+- MUST call `applyModuleOverridesFromEnabledModules(enabledModules)` from the app's `bootstrap.ts` if you use Path B (already wired in `apps/mercato` and the `create-mercato-app` template). Importing `@open-mercato/ai-assistant` also runs the side-effect that registers the AI domain applier with the dispatcher.
 
 Resolution order (highest precedence first):
 
 1. Programmatic `applyAiAgentOverrides` / `applyAiToolOverrides` calls (last call per id wins).
-2. `<module>/ai-overrides.ts` file-based entries (last module load order wins).
-3. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
+2. `modules.ts` inline (`aiAgentOverrides` / `aiToolOverrides` on `ModuleEntry`; last entry per id wins).
+3. File-based `<module>/ai-agents.ts` / `<module>/ai-tools.ts` overrides (last module load order wins).
+4. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
 
-`null` always means "disable" — applies to both paths.
+`null` always means "disable" — applies to all three paths.
 
 ### How to Embed the Global Launcher
 

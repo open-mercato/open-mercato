@@ -6,17 +6,38 @@ import {
   binaryExpression,
   identifier,
   methodCall,
+  objectLiteral,
+  parenthesized,
   propertyAccess,
   writeValue,
 } from '../ast'
 import {
   emptyArray,
+  emptyObject,
   moduleEntry,
   namespaceFallback,
   namespaceImportSpec,
   renderGeneratedTsSource,
 } from './shared'
 
+/**
+ * Generator extension for `<module>/ai-agents.ts` files.
+ *
+ * Each module's `ai-agents.ts` may export both base agent contributions
+ * (`aiAgents`) AND cross-module override declarations
+ * (`aiAgentOverrides`). The generator scans the file once, emits the
+ * configuration entry with both fields, and produces two filtered
+ * exports inside `ai-agents.generated.ts`:
+ *
+ *   - `aiAgentConfigEntries` (entries that declare base agents)
+ *   - `aiAgentOverrideEntries` (entries that declare overrides)
+ *
+ * The runtime (`@open-mercato/ai-assistant`) reads
+ * `aiAgentConfigEntries` to populate the agent registry and
+ * `aiAgentOverrideEntries` to apply cross-module replacements after the
+ * base load. See spec
+ * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ */
 export function createAiAgentsExtension(): GeneratorExtension {
   const imports = [] as Array<ReturnType<typeof namespaceImportSpec>>
   const entries: WriterFunction[] = []
@@ -45,6 +66,15 @@ export function createAiAgentsExtension(): GeneratorExtension {
                 castType: 'unknown[]',
               }),
             },
+            {
+              name: 'overrides',
+              value: namespaceFallback({
+                importName,
+                members: ['aiAgentOverrides'],
+                fallback: emptyObject(),
+                castType: 'Record<string, unknown>',
+              }),
+            },
           ]),
       })
     },
@@ -55,7 +85,11 @@ export function createAiAgentsExtension(): GeneratorExtension {
         build(sourceFile) {
           sourceFile.addTypeAlias({
             name: 'AiAgentConfigEntry',
-            type: '{ moduleId: string; agents: unknown[] }',
+            type: '{ moduleId: string; agents: unknown[]; overrides: Record<string, unknown> }',
+          })
+          sourceFile.addTypeAlias({
+            name: 'AiAgentOverrideConfigEntry',
+            type: '{ moduleId: string; overrides: Record<string, unknown> }',
           })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
@@ -95,6 +129,45 @@ export function createAiAgentsExtension(): GeneratorExtension {
                     body: propertyAccess(identifier('entry'), 'agents'),
                   }),
                 ]),
+              },
+            ],
+          })
+          sourceFile.addVariableStatement({
+            declarationKind: VariableDeclarationKind.Const,
+            isExported: true,
+            declarations: [
+              {
+                name: 'aiAgentOverrideEntries',
+                type: 'AiAgentOverrideConfigEntry[]',
+                initializer: methodCall(
+                  methodCall(identifier('aiAgentConfigEntriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(
+                        propertyAccess(
+                          methodCall(identifier('Object'), 'keys', [
+                            propertyAccess(identifier('entry'), 'overrides'),
+                          ]),
+                          'length',
+                        ),
+                        '>',
+                        0,
+                      ),
+                    }),
+                  ]),
+                  'map',
+                  [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: parenthesized(
+                        objectLiteral([
+                          { name: 'moduleId', value: propertyAccess(identifier('entry'), 'moduleId') },
+                          { name: 'overrides', value: propertyAccess(identifier('entry'), 'overrides') },
+                        ]),
+                      ),
+                    }),
+                  ],
+                ),
               },
             ],
           })

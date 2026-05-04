@@ -109,7 +109,7 @@ Agents shipped in `packages/core` that whitelist any `isMutation: true` tool def
 
 ### Replacing or disabling a registered agent
 
-Modules can replace or disable an agent registered by another module via `<module>/ai-overrides.ts` or the programmatic `applyAiAgentOverrides({ ... })` API. `null` disables; a definition replaces. See [Overrides](./overrides) for the full contract, file layout, and resolution order.
+Modules can replace or disable an agent registered by another module via three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the module's existing `ai-agents.ts` / `ai-tools.ts`, inline on a `ModuleEntry` in `apps/<app>/src/modules.ts`, or programmatically via `applyAiAgentOverrides({ ... })` / `applyAiToolOverrides({ ... })` at boot. `null` disables; a definition replaces. See [Overrides](./overrides) for the full contract, file layout, and resolution order.
 
 Concretely:
 

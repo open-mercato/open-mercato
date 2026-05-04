@@ -90,18 +90,20 @@ export {
 // Tool loader
 export { loadAllModuleTools, indexToolsForSearch } from './modules/ai_assistant/lib/tool-loader'
 
-// AI Overrides — module-to-module + programmatic agent/tool replacement.
-// See `apps/docs/docs/framework/ai-assistant/agents.mdx` § Overrides.
+// AI Overrides — module-to-module + modules.ts + programmatic agent/tool replacement.
+// See `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 export {
   applyAiAgentOverrides,
   applyAiToolOverrides,
+  applyAiOverridesFromEnabledModules,
   resetProgrammaticOverridesForTests,
   type AiAgentOverride,
   type AiToolOverride,
   type AiAgentOverridesMap,
   type AiToolOverridesMap,
-  type AiAgentOverrides,
-  type AiOverrideConfigEntry,
+  type AiAgentOverrideConfigEntry,
+  type AiToolOverrideConfigEntry,
+  type EnabledModuleAiOverrides,
 } from './modules/ai_assistant/lib/ai-overrides'
 
 // Agent registry (Phase 1 WS-A — read-side lookup API, no policy / dispatch)

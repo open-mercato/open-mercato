@@ -4,7 +4,7 @@ import { registerMcpTool, getToolRegistry, toolRegistry, unregisterMcpTool } fro
 import {
   applyToolOverrideMap,
   composeToolOverrideMap,
-  type AiOverrideConfigEntry,
+  type AiToolOverrideConfigEntry,
 } from './ai-overrides'
 import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
@@ -111,17 +111,19 @@ export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): nu
 }
 
 /**
- * Apply a list of `<module>/ai-overrides.ts` entries to the live tool
- * registry. Tools named with `null` are unregistered; tools mapped to a
- * full definition replace the existing registration. Module load order
- * controls precedence — last entry wins. Programmatic overrides (set via
+ * Apply the list of `aiToolOverrides` exports collected by the generator
+ * (one entry per module) to the live tool registry. Tools mapped to
+ * `null` are unregistered; tools mapped to a full definition replace the
+ * existing registration. Module load order controls precedence — last
+ * entry wins. The `modules.ts`-tier and programmatic overrides (set via
+ * {@link applyAiOverridesFromEnabledModules} and
  * {@link applyAiToolOverrides}) supersede file-based entries.
  *
  * Safe to call when no override file is present (the entries array is
  * empty); it is a no-op then.
  */
 export function applyAiToolOverrideEntries(
-  entries: readonly AiOverrideConfigEntry[],
+  entries: readonly AiToolOverrideConfigEntry[],
 ): void {
   const overrideMap = composeToolOverrideMap(entries)
   if (Object.keys(overrideMap).length === 0) return
@@ -142,19 +144,19 @@ export function applyAiToolOverrideEntries(
 }
 
 /**
- * Load `ai-overrides.generated.ts` (sibling of `ai-tools.generated.ts`)
- * and apply its tool overrides. Safe to call when the file is missing
- * (pre-generate builds, tests) — applies only programmatic overrides in
- * that case.
+ * Read `aiToolOverrideEntries` from `ai-tools.generated.ts` and apply
+ * them on top of the live tool registry. Safe to call when the file is
+ * missing (pre-generate builds, tests) — applies only the
+ * `modules.ts`-tier and programmatic overrides in that case.
  */
 export async function loadGeneratedAiToolOverrides(): Promise<void> {
-  let entries: AiOverrideConfigEntry[] = []
+  let entries: AiToolOverrideConfigEntry[] = []
   try {
     const mod = (await import(
-      '@/.mercato/generated/ai-overrides.generated'
-    )) as { aiOverrideEntries?: unknown[] }
-    entries = Array.isArray(mod.aiOverrideEntries)
-      ? (mod.aiOverrideEntries as AiOverrideConfigEntry[])
+      '@/.mercato/generated/ai-tools.generated'
+    )) as { aiToolOverrideEntries?: unknown[] }
+    entries = Array.isArray(mod.aiToolOverrideEntries)
+      ? (mod.aiToolOverrideEntries as AiToolOverrideConfigEntry[])
       : []
   } catch {
     // No override file generated.

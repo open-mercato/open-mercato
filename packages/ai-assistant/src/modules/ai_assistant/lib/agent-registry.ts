@@ -2,7 +2,7 @@ import type { AiAgentDefinition } from './ai-agent-definition'
 import {
   applyAgentOverrideMap,
   composeAgentOverrideMap,
-  type AiOverrideConfigEntry,
+  type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
 
 const agentsById = new Map<string, AiAgentDefinition>()
@@ -34,28 +34,28 @@ function populateFromAgents(agents: unknown[]): void {
     const existing = agentsById.get(candidate.id)
     if (existing) {
       throw new Error(
-        `[AI Agents] Duplicate agent id "${candidate.id}" — already registered by module "${existing.moduleId}", conflicts with module "${candidate.moduleId}". Use \`<module>/ai-overrides.ts\` to override an agent across modules.`
+        `[AI Agents] Duplicate agent id "${candidate.id}" — already registered by module "${existing.moduleId}", conflicts with module "${candidate.moduleId}". Export \`aiAgentOverrides\` from your module's \`ai-agents.ts\` (or set it on the modules.ts entry) to replace an agent across modules.`
       )
     }
     agentsById.set(candidate.id, candidate)
   }
 }
 
-async function loadOverrideEntries(): Promise<AiOverrideConfigEntry[]> {
+async function loadOverrideEntries(): Promise<AiAgentOverrideConfigEntry[]> {
   try {
     const mod = (await import(
-      '@/.mercato/generated/ai-overrides.generated'
-    )) as { aiOverrideEntries?: unknown[] }
-    return Array.isArray(mod.aiOverrideEntries)
-      ? (mod.aiOverrideEntries as AiOverrideConfigEntry[])
+      '@/.mercato/generated/ai-agents.generated'
+    )) as { aiAgentOverrideEntries?: unknown[] }
+    return Array.isArray(mod.aiAgentOverrideEntries)
+      ? (mod.aiAgentOverrideEntries as AiAgentOverrideConfigEntry[])
       : []
   } catch {
-    // No override file — modules contributed no `ai-overrides.ts`.
+    // No generated file yet — pre-generate builds and tests fall through.
     return []
   }
 }
 
-function applyOverridesToRegistry(entries: readonly AiOverrideConfigEntry[]): void {
+function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]): void {
   const overrideMap = composeAgentOverrideMap(entries)
   if (Object.keys(overrideMap).length === 0) return
   const overridden = applyAgentOverrideMap(Array.from(agentsById.values()), overrideMap)
@@ -130,7 +130,7 @@ export function seedAgentRegistryForTests(agents: unknown[]): void {
  * generated file.
  */
 export function applyAgentOverrideEntriesForTests(
-  entries: readonly AiOverrideConfigEntry[],
+  entries: readonly AiAgentOverrideConfigEntry[],
 ): void {
   applyOverridesToRegistry(entries)
 }

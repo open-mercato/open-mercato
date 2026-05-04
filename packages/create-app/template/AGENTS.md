@@ -211,12 +211,48 @@ Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `
 
 - Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
 - Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.openmercato.dev/framework/ai-assistant/ui-parts).
-- Replace or disable an agent / tool that another module shipped via `<module>/ai-overrides.ts` (per-module file picked up by the generator) or the programmatic `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` API exported from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → file-based → base**.
+- Replace or disable an agent / tool that another module shipped through three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module), inline on a `ModuleEntry` in `src/modules.ts` (per-app), or programmatically via `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → modules.ts → file-based → base**.
 
-Example app-level overrides at boot:
+Example per-module override (preferred when the override should ship with a module):
 
 ```ts
-// src/bootstrap.ts
+// src/modules/<my_module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myAgent from './agents/my-merchandising-agent'
+
+export const aiAgents: AiAgentDefinition[] = [/* ...your module's own agents */]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  'catalog.merchandising_assistant': myAgent,  // replace
+  'catalog.catalog_assistant': null,           // disable
+}
+```
+
+Example `modules.ts` inline override (preferred for app-level decisions that don't deserve a fake module). AI lives at `overrides.ai.*`; other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md) — AI is Phase 1, other domains roll out as separate PRs:
+
+```ts
+// src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+  },
+},
+```
+
+The template's `src/bootstrap.ts` already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` for you. Importing `@open-mercato/ai-assistant` (also in bootstrap) runs the side-effect that registers the AI domain applier with the dispatcher.
+
+Example programmatic override at boot (env-driven or test-only):
+
+```ts
+// src/bootstrap.ts (extra)
 import {
   applyAiAgentOverrides,
   applyAiToolOverrides,
@@ -228,23 +264,7 @@ applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
 applyAiToolOverrides({ 'inbox_ops_accept_action': null })
 ```
 
-Or as a per-module file (preferred when the override should ship with a module):
-
-```ts
-// src/modules/<my_module>/ai-overrides.ts
-import type { AiAgentOverrides } from '@open-mercato/ai-assistant'
-import myAgent from './ai-agents/my-merchandising-agent'
-
-export const aiOverrides: AiAgentOverrides = {
-  agents: {
-    'catalog.merchandising_assistant': myAgent,  // replace
-    'catalog.catalog_assistant': null,           // disable
-  },
-}
-export default aiOverrides
-```
-
-After editing any `ai-overrides.ts`:
+After editing any `aiAgentOverrides` / `aiToolOverrides` export:
 
 ```bash
 yarn generate
