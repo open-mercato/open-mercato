@@ -200,7 +200,10 @@ export function AiAssistantLauncher({
   React.useEffect(() => {
     if (skipHealthCheck) return
     let cancelled = false
-    apiCall<HealthResponse>(healthEndpoint, { credentials: 'same-origin' })
+    apiCall<HealthResponse>(healthEndpoint, {
+      credentials: 'same-origin',
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    })
       .then((call) => {
         if (cancelled) return
         if (!call.ok) {
@@ -236,7 +239,10 @@ export function AiAssistantLauncher({
   React.useEffect(() => {
     if (agentsLoaded) return
     let cancelled = false
-    apiCall<AgentsResponse>(agentsEndpoint, { credentials: 'same-origin' })
+    apiCall<AgentsResponse>(agentsEndpoint, {
+      credentials: 'same-origin',
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    })
       .then((call) => {
         if (cancelled) return
         if (!call.ok) {
@@ -286,10 +292,16 @@ export function AiAssistantLauncher({
   }, [])
 
   const handleSelectAgent = React.useCallback((agent: AiAssistantLauncherAgent) => {
+    if (dock.state.assistant?.agent === agent.id) {
+      dock.dock(dock.state.assistant)
+      setPickerOpen(false)
+      setChatOpen(false)
+      return
+    }
     setActiveAgent(agent)
     setPickerOpen(false)
     setChatOpen(true)
-  }, [])
+  }, [dock])
 
   // Global Cmd/Ctrl+L — opens the picker. We bind on `keydown` at the
   // document level and ignore events from text-entry targets so it never

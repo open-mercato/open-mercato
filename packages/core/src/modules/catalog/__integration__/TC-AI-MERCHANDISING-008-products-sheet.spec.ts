@@ -45,8 +45,8 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     const agent = (payload.agents ?? []).find((entry) => entry?.id === MERCHANDISING_AGENT_ID);
     expect(agent, `Expected agent ${MERCHANDISING_AGENT_ID} in response`).toBeTruthy();
     expect(agent!.moduleId).toBe('catalog');
-    expect(agent!.readOnly).toBe(true);
-    expect(agent!.mutationPolicy).toBe('read-only');
+    expect(agent!.readOnly).toBe(false);
+    expect(agent!.mutationPolicy).toBe('confirm-required');
     const allowedTools = Array.isArray(agent!.allowedTools) ? (agent!.allowedTools as string[]) : [];
     // D18 read tools present.
     expect(allowedTools).toContain('catalog.search_products');

@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { listAgents, loadAgentRegistry } from '../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../lib/auth'
 import { toolRegistry } from '../../../lib/tool-registry'
@@ -53,6 +54,14 @@ export async function GET(req: NextRequest) {
       organizationId: auth.orgId,
     })
 
+    // No LLM provider configured (no API keys set). The launcher and any
+    // AI surface should hide silently rather than render an entry that fails
+    // the moment the operator clicks it.
+    const aiConfigured = llmProviderRegistry.resolveFirstConfigured() != null
+    if (!aiConfigured) {
+      return NextResponse.json({ agents: [], total: 0, aiConfigured: false })
+    }
+
     await loadAgentRegistry()
     const all = listAgents()
     const accessible = all.filter((agent) =>
@@ -87,7 +96,7 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ agents, total: agents.length })
+    return NextResponse.json({ agents, total: agents.length, aiConfigured: true })
   } catch (error) {
     console.error('[AI Agents] Failed to list agents:', error)
     return NextResponse.json(

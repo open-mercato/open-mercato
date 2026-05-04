@@ -57,8 +57,8 @@ test.describe('TC-AI-CUSTOMERS-006: customers.account_assistant agent', () => {
     const agent = (payload.agents ?? []).find((entry) => entry?.id === AGENT_ID);
     expect(agent, `Expected agent ${AGENT_ID} in response`).toBeTruthy();
     expect(agent!.moduleId).toBe('customers');
-    expect(agent!.readOnly).toBe(true);
-    expect(agent!.mutationPolicy).toBe('read-only');
+    expect(agent!.readOnly).toBe(false);
+    expect(agent!.mutationPolicy).toBe('confirm-required');
     const allowedTools = Array.isArray(agent!.allowedTools) ? (agent!.allowedTools as string[]) : [];
     expect(allowedTools).toContain('customers.list_people');
     expect(allowedTools).toContain('meta.describe_agent');
@@ -103,8 +103,8 @@ test.describe('TC-AI-CUSTOMERS-006: customers.account_assistant agent', () => {
     expect(payload.success).toBe(true);
     expect(payload.result?.agent).toBeTruthy();
     const agentDescription = payload.result!.agent!;
-    expect(agentDescription.readOnly).toBe(true);
-    expect(agentDescription.mutationPolicy).toBe('read-only');
+    expect(agentDescription.readOnly).toBe(false);
+    expect(agentDescription.mutationPolicy).toBe('confirm-required');
     const systemPrompt = agentDescription.prompt?.systemPrompt;
     expect(typeof systemPrompt).toBe('string');
     for (const header of EXPECTED_SECTION_HEADERS) {

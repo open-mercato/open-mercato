@@ -266,6 +266,11 @@ export function MerchandisingAssistantSheet({
     setActiveAgent(agentId)
     setLastAgent(agentId)
     setPopoverOpen(false)
+    if (dock.state.assistant?.agent === agentId) {
+      dock.dock(dock.state.assistant)
+      setOpen(false)
+      return
+    }
     setOpen(true)
   }
 

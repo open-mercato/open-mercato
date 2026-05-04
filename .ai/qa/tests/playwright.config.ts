@@ -16,6 +16,13 @@ const STATIC_TEST_IGNORES = [
   // otherwise pick those up and run them against the current dev server,
   // which produces thousands of false failures.
   `${normalizePath(path.join(projectRoot, '.ai', 'tmp'))}/**`,
+  // The create-app template ships specs that mirror apps/mercato/example.
+  // They are designed to run against a freshly scaffolded standalone app
+  // via `yarn test:create-app:integration`. Running them here against the
+  // monorepo's apps/mercato dev server duplicates the apps/mercato suite
+  // and produces cascading timeouts because the dev server is already
+  // serving the apps/mercato copies.
+  `${normalizePath(path.join(projectRoot, 'packages', 'create-app', 'template'))}/**`,
 ];
 // `.ai/qa/tests` is retained for the shared Playwright config only.
 // Executable specs must live in module-local `__integration__` folders.

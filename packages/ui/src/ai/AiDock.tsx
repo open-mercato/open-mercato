@@ -9,8 +9,9 @@
  * assistant from a transient dialog into the dock. The dock survives router
  * navigation because the provider is mounted at the layout root (AppShell).
  *
- * The panel renders only when something is docked. Its width is persisted in
- * localStorage and adjustable via the drag handle on its left edge.
+ * The panel renders only when something is docked. The docked assistant, its
+ * collapsed state, and its width are persisted in localStorage so refreshing
+ * the page restores the same open dock.
  */
 
 import * as React from 'react'
@@ -62,6 +63,29 @@ interface AiDockState {
   collapsed: boolean
 }
 
+interface PersistedAiChatSuggestion {
+  label: string
+  prompt: string
+}
+
+interface PersistedAiDockedAssistant {
+  agent: string
+  label: string
+  description?: string
+  pageContext?: Record<string, unknown>
+  placeholder?: string
+  welcomeTitle?: string
+  welcomeDescription?: string
+  suggestions?: PersistedAiChatSuggestion[]
+  contextItems?: AiChatContextItem[]
+}
+
+interface PersistedAiDockState {
+  assistant?: PersistedAiDockedAssistant | null
+  width?: number
+  collapsed?: boolean
+}
+
 interface AiDockApi {
   state: AiDockState
   /** Open / replace the docked assistant. */
@@ -76,26 +100,116 @@ const COLLAPSED_WIDTH = 48
 
 const AiDockContext = React.createContext<AiDockApi | null>(null)
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function readWidth(value: unknown): number {
+  return Math.min(
+    MAX_WIDTH,
+    Math.max(MIN_WIDTH, typeof value === 'number' ? value : DEFAULT_WIDTH),
+  )
+}
+
+function readPersistedSuggestions(value: unknown): PersistedAiChatSuggestion[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const suggestions = value
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+    .map((entry) => {
+      const label = readOptionalString(entry.label)
+      const prompt = readOptionalString(entry.prompt)
+      if (!label || !prompt) return null
+      return { label, prompt }
+    })
+    .filter((entry): entry is PersistedAiChatSuggestion => entry !== null)
+  return suggestions.length > 0 ? suggestions : undefined
+}
+
+function readPersistedContextItems(value: unknown): AiChatContextItem[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const contextItems = value
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+    .map((entry) => {
+      const label = readOptionalString(entry.label)
+      if (!label) return null
+      const detail = readOptionalString(entry.detail)
+      return detail ? { label, detail } : { label }
+    })
+    .filter((entry): entry is AiChatContextItem => entry !== null)
+  return contextItems.length > 0 ? contextItems : undefined
+}
+
+function readPersistedAssistant(value: unknown): AiDockedAssistant | null {
+  if (!isRecord(value)) return null
+  const agent = readOptionalString(value.agent)
+  const label = readOptionalString(value.label)
+  if (!agent || !label) return null
+
+  return {
+    agent,
+    label,
+    description: readOptionalString(value.description),
+    pageContext: isRecord(value.pageContext) ? value.pageContext : undefined,
+    placeholder: readOptionalString(value.placeholder),
+    welcomeTitle: readOptionalString(value.welcomeTitle),
+    welcomeDescription: readOptionalString(value.welcomeDescription),
+    suggestions: readPersistedSuggestions(value.suggestions),
+    contextItems: readPersistedContextItems(value.contextItems),
+  }
+}
+
+function serializeAssistant(assistant: AiDockedAssistant | null): PersistedAiDockedAssistant | null {
+  if (!assistant) return null
+  return {
+    agent: assistant.agent,
+    label: assistant.label,
+    description: assistant.description,
+    pageContext: assistant.pageContext,
+    placeholder: assistant.placeholder,
+    welcomeTitle: assistant.welcomeTitle,
+    welcomeDescription: assistant.welcomeDescription,
+    suggestions: assistant.suggestions?.map((suggestion) => ({
+      label: suggestion.label,
+      prompt: suggestion.prompt,
+    })),
+    contextItems: assistant.contextItems?.map((item) => ({
+      label: item.label,
+      detail: item.detail,
+    })),
+  }
+}
+
 function readPersisted(): AiDockState {
   if (typeof window === 'undefined') return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
-    const parsed = JSON.parse(raw) as Partial<AiDockState> | null
-    const width = Math.min(
-      MAX_WIDTH,
-      Math.max(MIN_WIDTH, Number(parsed?.width) || DEFAULT_WIDTH),
-    )
-    return { assistant: null, width, collapsed: false }
+    const parsed = JSON.parse(raw) as PersistedAiDockState | null
+    return {
+      assistant: readPersistedAssistant(parsed?.assistant),
+      width: readWidth(parsed?.width),
+      collapsed: parsed?.collapsed === true,
+    }
   } catch {
     return { assistant: null, width: DEFAULT_WIDTH, collapsed: false }
   }
 }
 
-function persistWidth(width: number) {
+function writePersisted(state: AiDockState) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ width }))
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        assistant: serializeAssistant(state.assistant),
+        width: state.width,
+        collapsed: state.collapsed,
+      } satisfies PersistedAiDockState),
+    )
   } catch {
     /* ignore */
   }
@@ -107,11 +221,18 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
     width: DEFAULT_WIDTH,
     collapsed: false,
   }))
+  const [hydrated, setHydrated] = React.useState(false)
 
   React.useEffect(() => {
     const persisted = readPersisted()
-    setState((prev) => ({ ...prev, width: persisted.width }))
+    setState(persisted)
+    setHydrated(true)
   }, [])
+
+  React.useEffect(() => {
+    if (!hydrated) return
+    writePersisted(state)
+  }, [hydrated, state])
 
   const dock = React.useCallback((assistant: AiDockedAssistant) => {
     // Always reset `collapsed` when (re)docking — the operator just clicked
@@ -133,7 +254,6 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
 
   const setWidth = React.useCallback((width: number) => {
     setState((prev) => ({ ...prev, width }))
-    persistWidth(width)
   }, [])
 
   const setCollapsed = React.useCallback((collapsed: boolean) => {

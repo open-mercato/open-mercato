@@ -290,8 +290,13 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
     setActiveAgent(agentId)
     setLastAgent(agentId)
     setPopoverOpen(false)
+    if (dock.state.assistant?.agent === agentId) {
+      dock.dock(dock.state.assistant)
+      setOpen(false)
+      return
+    }
     setOpen(true)
-  }, [])
+  }, [dock])
 
   const handleSelectAgent = React.useCallback((agentId: string) => {
     openAgent(agentId)
