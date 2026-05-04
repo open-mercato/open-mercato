@@ -4,7 +4,6 @@ import {
   Index,
   PrimaryKey,
   Property,
-  Unique,
 } from '@mikro-orm/decorators/legacy'
 import type {
   AiPendingActionExecutionResult,
@@ -29,9 +28,15 @@ import type {
  * section — overrides are append-only by contract.
  */
 @Entity({ tableName: 'ai_agent_prompt_overrides' })
-@Unique({
+@Index({
   name: 'ai_agent_prompt_overrides_tenant_org_agent_version_uq',
-  properties: ['tenantId', 'organizationId', 'agentId', 'version'],
+  expression:
+    'create unique index "ai_agent_prompt_overrides_tenant_org_agent_version_uq" on "ai_agent_prompt_overrides" ("tenant_id", "organization_id", "agent_id", "version") where "organization_id" is not null',
+})
+@Index({
+  name: 'ai_agent_prompt_overrides_tenant_agent_version_null_org_uq',
+  expression:
+    'create unique index "ai_agent_prompt_overrides_tenant_agent_version_null_org_uq" on "ai_agent_prompt_overrides" ("tenant_id", "agent_id", "version") where "organization_id" is null',
 })
 @Index({
   name: 'ai_agent_prompt_overrides_tenant_agent_idx',
@@ -96,9 +101,15 @@ export class AiAgentPromptOverride {
  * future encrypted columns (e.g. `normalizedInput`) are handled.
  */
 @Entity({ tableName: 'ai_pending_actions' })
-@Unique({
+@Index({
   name: 'ai_pending_actions_tenant_org_idempotency_uq',
-  properties: ['tenantId', 'organizationId', 'idempotencyKey'],
+  expression:
+    'create unique index "ai_pending_actions_tenant_org_idempotency_uq" on "ai_pending_actions" ("tenant_id", "organization_id", "idempotency_key") where "organization_id" is not null',
+})
+@Index({
+  name: 'ai_pending_actions_tenant_idem_null_org_uq',
+  expression:
+    'create unique index "ai_pending_actions_tenant_idem_null_org_uq" on "ai_pending_actions" ("tenant_id", "idempotency_key") where "organization_id" is null',
 })
 @Index({
   name: 'ai_pending_actions_tenant_org_status_expires_idx',
@@ -213,9 +224,15 @@ export class AiPendingAction {
  * code-declared policy.
  */
 @Entity({ tableName: 'ai_agent_mutation_policy_overrides' })
-@Unique({
+@Index({
   name: 'ai_agent_mutation_policy_overrides_tenant_org_agent_uq',
-  properties: ['tenantId', 'organizationId', 'agentId'],
+  expression:
+    'create unique index "ai_agent_mutation_policy_overrides_tenant_org_agent_uq" on "ai_agent_mutation_policy_overrides" ("tenant_id", "organization_id", "agent_id") where "organization_id" is not null',
+})
+@Index({
+  name: 'ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq',
+  expression:
+    'create unique index "ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq" on "ai_agent_mutation_policy_overrides" ("tenant_id", "agent_id") where "organization_id" is null',
 })
 @Index({
   name: 'ai_agent_mutation_policy_overrides_tenant_agent_idx',

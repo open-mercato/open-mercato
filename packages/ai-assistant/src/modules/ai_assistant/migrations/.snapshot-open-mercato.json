@@ -167,15 +167,21 @@
         },
         {
           "keyName": "ai_agent_mutation_policy_overrides_tenant_org_agent_uq",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "agent_id"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_org_agent_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\") where \"organization_id\" is not null"
+        },
+        {
+          "keyName": "ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"agent_id\") where \"organization_id\" is null"
         },
         {
           "keyName": "ai_agent_mutation_policy_overrides_pkey",
@@ -380,16 +386,21 @@
         },
         {
           "keyName": "ai_agent_prompt_overrides_tenant_org_agent_version_uq",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "agent_id",
-            "version"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_org_agent_version_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\", \"version\") where \"organization_id\" is not null"
+        },
+        {
+          "keyName": "ai_agent_prompt_overrides_tenant_agent_version_null_org_uq",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_agent_version_null_org_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"agent_id\", \"version\") where \"organization_id\" is null"
         },
         {
           "keyName": "ai_agent_prompt_overrides_pkey",
@@ -824,15 +835,21 @@
         },
         {
           "keyName": "ai_pending_actions_tenant_org_idempotency_uq",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "idempotency_key"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"ai_pending_actions_tenant_org_idempotency_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"organization_id\", \"idempotency_key\") where \"organization_id\" is not null"
+        },
+        {
+          "keyName": "ai_pending_actions_tenant_idem_null_org_uq",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_pending_actions_tenant_idem_null_org_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"idempotency_key\") where \"organization_id\" is null"
         },
         {
           "keyName": "ai_pending_actions_pkey",

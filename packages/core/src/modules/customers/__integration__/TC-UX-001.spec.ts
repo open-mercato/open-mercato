@@ -8,9 +8,9 @@
  * - Click expand restores group content
  */
 import { test, expect } from '@playwright/test'
-import { login } from '-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken } from '-mercato/core/modules/core/__integration__/helpers/api'
-import { createCompanyFixture, deleteEntityIfExists } from '-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 test.describe('TC-UX-001: Collapsible CrudForm Groups', () => {
   test('should collapse and expand groups', async ({ page, request }) => {

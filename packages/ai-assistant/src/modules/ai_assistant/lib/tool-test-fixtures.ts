@@ -115,12 +115,13 @@ export const toolFixtures: Record<string, ToolFixture> = {
   'catalog.list_media': f({ idFrom: 'catalog.list_products', bindAs: 'productId' }),
   'catalog.list_tags': f({ input: { limit: 10 } }),
   'catalog.get_configuration': f({ input: {} }),
-  // Authoring/structured-output tools — they call the LLM, skip in test mode.
-  'catalog.draft_description': f({ skip: true, note: 'LLM-backed authoring tool.' }),
-  'catalog.extract_attributes': f({ skip: true, note: 'LLM-backed authoring tool.' }),
-  'catalog.suggest_titles': f({ skip: true, note: 'LLM-backed authoring tool.' }),
+  // Authoring/structured-output tools — they call the LLM, skip in test mode
+  // so TC-INT-AI-TOOLS still passes in CI without provider API keys.
+  'catalog.draft_description_from_attributes': f({ skip: true, note: 'LLM-backed authoring tool.' }),
+  'catalog.extract_attributes_from_description': f({ skip: true, note: 'LLM-backed authoring tool.' }),
+  'catalog.draft_description_from_media': f({ skip: true, note: 'LLM-backed authoring tool.' }),
+  'catalog.suggest_title_variants': f({ skip: true, note: 'LLM-backed authoring tool.' }),
   'catalog.suggest_price_adjustment': f({ skip: true, note: 'LLM-backed authoring tool.' }),
-  'catalog.draft_media_descriptions': f({ skip: true, note: 'LLM-backed authoring tool.' }),
   // Mutation tools — exercised via prepareMutation only.
   'catalog.update_product': f({
     idFrom: 'catalog.list_products',

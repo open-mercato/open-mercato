@@ -8,9 +8,9 @@
  * - "Add role" button visibility
  */
 import { test, expect } from '@playwright/test'
-import { login } from '-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken, apiRequest } from '-mercato/core/modules/core/__integration__/helpers/api'
-import { createCompanyFixture, deleteEntityIfExists } from '-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 test.describe('TC-UX-003: Multi-Role Assignment', () => {
   test('should show roles section and manage roles via API', async ({ page, request }) => {

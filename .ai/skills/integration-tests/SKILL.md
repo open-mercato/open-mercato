@@ -115,7 +115,8 @@ Metadata for conditional test enablement:
 
 - Folder-level metadata:
   - Add `meta.ts` or `index.ts` anywhere under `__integration__/`.
-  - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`.
+  - Supported module keys: `dependsOnModules`, `requiredModules`, `requiresModules`.
+  - Supported env keys: `requiredEnvVars`, `requiresEnvVars`, `requiredAnyEnvVars`, `requiresAnyEnvVars`.
   - Example:
 
 ```ts
@@ -138,6 +139,9 @@ export const integrationMeta = {
 - Evaluation model:
   - Dependencies inherit from `__integration__/` root through nested subfolders and then per-test metadata is applied.
   - If any required module is not enabled in the app, matching tests are skipped automatically (excluded from discovery/run).
+  - If any `requiredEnvVars` entry is missing or blank, matching tests are skipped automatically (excluded from discovery/run).
+  - If `requiredAnyEnvVars` is set and none of the listed env vars is configured, matching tests are skipped automatically.
+  - Only env-gate tests that truly require external services. If an AI/LLM flow can be stubbed or can skip only the live model-backed subcase, keep the test runnable without secrets.
 
 ### Phase 6 — Optionally Write the Markdown Scenario
 

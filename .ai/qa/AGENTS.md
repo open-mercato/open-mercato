@@ -265,17 +265,21 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-fil
 
 ### Conditional Metadata (Folder + Test)
 
-Use optional metadata to skip tests when required modules are not enabled.
+Use optional metadata to skip tests when required modules or external environment variables are not enabled.
 
 - Folder-level metadata:
   - Add `meta.ts` or `index.ts` under any `__integration__/` subfolder
-  - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`
+  - Supported module keys: `dependsOnModules`, `requiredModules`, `requiresModules`
+  - Supported env keys: `requiredEnvVars`, `requiresEnvVars`, `requiredAnyEnvVars`, `requiresAnyEnvVars`
 - Per-test metadata:
   - Add the same keys inside the `.spec.ts` file, or create sibling `TC-*.meta.ts`
 - Inheritance:
   - Metadata is inherited from `__integration__/` root through nested subfolders, then test-level metadata is applied
 - Behavior:
   - If any declared dependency module is not enabled, that folder/test is excluded from discovery and run
+  - If any `requiredEnvVars` entry is missing or blank, that folder/test is excluded from discovery and run
+  - If `requiredAnyEnvVars` is set and all listed env vars are missing or blank, that folder/test is excluded from discovery and run
+  - Only use env metadata for tests that genuinely require external services. If the behavior can be stubbed or the model-backed subcase can be skipped inside the test, keep the test runnable without secrets.
 
 Example folder metadata:
 
@@ -283,6 +287,15 @@ Example folder metadata:
 export const integrationMeta = {
   description: 'Sales flows requiring currencies module',
   dependsOnModules: ['sales', 'currencies'],
+}
+```
+
+Example env-gated metadata for a truly live LLM test:
+
+```ts
+export const integrationMeta = {
+  description: 'Live AI provider smoke',
+  requiredAnyEnvVars: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
 }
 ```
 
