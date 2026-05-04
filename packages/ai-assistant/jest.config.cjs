@@ -3,6 +3,7 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
+  maxWorkers: 4,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/src/$1',
