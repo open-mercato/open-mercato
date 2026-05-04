@@ -769,10 +769,19 @@ export function AiChat({
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
 
-  // While we're awaiting the first stream chunk, the assistant message is
-  // already in the transcript but has no text, no tool calls, and no
-  // reasoning to render — surface a "Thinking..." placeholder so the chat
-  // does not look frozen between request submit and the first delta.
+  // Surface a "Thinking..." placeholder so the chat does not look frozen.
+  // Visible whenever ANY of the following is true while a turn is in flight:
+  //   (a) we're still in the submit phase before the first stream chunk
+  //   (b) streaming, but no content / reasoning / tool calls have arrived yet
+  //   (c) streaming, and at least one tool call is still in `pending` state
+  //       (the model is waiting on a tool result — the previous version
+  //        treated `toolCalls.length > 0` as "has content" and hid the
+  //        indicator the moment the first tool started, even though the
+  //        model had not produced any user-visible output yet)
+  //   (d) streaming, and the last visible event was a finished tool call
+  //       — the model is reasoning about the result before emitting more
+  //       text or kicking off the next tool
+  //   (e) streaming, but no delta has landed in the last ~300 ms (idle gap)
   const lastAssistant = React.useMemo(() => {
     for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
       const candidate = chat.messages[index]
@@ -780,15 +789,66 @@ export function AiChat({
     }
     return null
   }, [chat.messages])
-  const lastAssistantHasContent = !!(
-    lastAssistant &&
-    (
-      lastAssistant.content?.trim() ||
-      (lastAssistant.toolCalls && lastAssistant.toolCalls.length > 0) ||
-      (lastAssistant.reasoning && lastAssistant.reasoning.length > 0)
-    )
+
+  const trimmedContent = lastAssistant?.content?.trim() ?? ''
+  const hasReasoning = !!(lastAssistant?.reasoning && lastAssistant.reasoning.length > 0)
+  const toolCalls = lastAssistant?.toolCalls ?? []
+  const hasPendingToolCall = toolCalls.some((call) => call.state === 'pending')
+  const hasCompletedToolCall = toolCalls.some(
+    (call) => call.state === 'complete' || call.state === 'error',
   )
-  const showThinkingIndicator = isSubmitting || (isStreaming && !lastAssistantHasContent)
+  const hasAnyVisibleSignal = !!(
+    trimmedContent || hasReasoning || toolCalls.length > 0
+  )
+
+  const assistantStreamSnapshot = React.useMemo(() => {
+    if (!lastAssistant) return ''
+    const toolSig = toolCalls
+      .map((call) => `${call.id}:${call.state}:${call.output != null ? 1 : 0}`)
+      .join('|')
+    return [
+      lastAssistant.id,
+      lastAssistant.content?.length ?? 0,
+      lastAssistant.reasoning?.length ?? 0,
+      lastAssistant.reasoningStreaming ? 1 : 0,
+      toolSig,
+    ].join('#')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAssistant])
+
+  const lastStreamUpdateRef = React.useRef<number>(Date.now())
+  const lastSnapshotRef = React.useRef<string>('')
+  const [, setStreamTick] = React.useState(0)
+
+  React.useEffect(() => {
+    if (assistantStreamSnapshot !== lastSnapshotRef.current) {
+      lastSnapshotRef.current = assistantStreamSnapshot
+      lastStreamUpdateRef.current = Date.now()
+      setStreamTick((value) => value + 1)
+    }
+  }, [assistantStreamSnapshot])
+
+  React.useEffect(() => {
+    if (!isStreaming && !isSubmitting) return
+    const interval = window.setInterval(() => {
+      setStreamTick((value) => value + 1)
+    }, 200)
+    return () => window.clearInterval(interval)
+  }, [isStreaming, isSubmitting])
+
+  const idleDuringStream =
+    isStreaming && Date.now() - lastStreamUpdateRef.current >= 300
+
+  const showThinkingIndicator =
+    isSubmitting ||
+    (isStreaming &&
+      (
+        !hasAnyVisibleSignal ||
+        hasPendingToolCall ||
+        // Tool just returned and the model hasn't started speaking yet.
+        (hasCompletedToolCall && !trimmedContent) ||
+        idleDuringStream
+      ))
 
   const activeRegistry = registry ?? defaultAiUiPartRegistry
 
