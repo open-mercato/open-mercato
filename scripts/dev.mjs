@@ -26,6 +26,10 @@ import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import {
+  resolveDevBaseUrl,
+  resolveSplashUrl as resolveSplashAccessUrl,
+} from './dev-splash-url.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -153,20 +157,6 @@ function shouldRetrySplashServerWithRandomPort(error) {
   if (splashPortConfig.port === 0) return false
   if (!error || typeof error !== 'object') return false
   return error.code === 'EADDRINUSE'
-}
-
-function normalizePublicBaseUrl(value) {
-  if (typeof value !== 'string' || value.trim().length === 0) return null
-
-  try {
-    const parsed = new URL(value)
-    parsed.pathname = ''
-    parsed.search = ''
-    parsed.hash = ''
-    return parsed.toString().replace(/\/$/, '')
-  } catch {
-    return null
-  }
 }
 
 function isEnabledEnvFlag(value) {
@@ -303,9 +293,7 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return normalizePublicBaseUrl(process.env.APP_URL)
-    ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
-    ?? `http://localhost:${parsePortNumber(process.env.PORT) ?? 3000}`
+  return resolveDevBaseUrl(process.env).url
 }
 
 function resolveExpectedBackendUrl() {
@@ -924,7 +912,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = `http://localhost:${address.port}`
+  splashUrl = resolveSplashAccessUrl(process.env, address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }

@@ -17,7 +17,8 @@ Migrate custom module code to MikroORM v7. The platform core is already migrated
 6. [ORM Configuration](#6-orm-configuration)
 7. [Jest / Test Setup](#7-jest--test-setup)
 8. [count() Casting](#8-count-casting)
-9. [Verification](#9-verification)
+9. [Migration Files And Snapshots](#9-migration-files-and-snapshots)
+10. [Verification](#10-verification)
 
 ---
 
@@ -362,7 +363,32 @@ Note: MikroORM's own `em.count()` and QueryBuilder `.getCount()` return proper n
 
 ---
 
-## 9. Verification
+## 9. Migration Files And Snapshots
+
+MikroORM migration generation is module-scoped, but stale module snapshots can still make `yarn db:generate` emit unrelated migrations. Treat generation as a diff probe, not as an instruction to commit everything it writes.
+
+### Scoped workflow for agents
+
+1. Update only the intended entity files.
+2. Run `yarn db:generate` to inspect the SQL MikroORM wants to produce.
+3. Keep only the migration for the intended module/entity change. Delete unrelated generated migrations from the diff.
+4. If `yarn db:generate` keeps producing unrelated SQL because another module's `.snapshot-open-mercato.json` is stale, fix that snapshot separately or leave it out of the PR unless it is the bug you are addressing.
+5. When you keep or manually write a scoped migration, update the same module's `migrations/.snapshot-open-mercato.json` to the post-change schema. This file is the generator's baseline; missing snapshot updates cause duplicate migrations in standalone apps.
+6. Re-run `yarn db:generate`. The touched module should report `no changes`; if it does not, the migration or snapshot is incomplete.
+
+Do not run `yarn db:migrate` unless the user explicitly asks to apply migrations to the local database. Migration PRs should contain SQL files plus snapshots, not local DB state.
+
+### Manual SQL exception
+
+The default rule remains: prefer MikroORM-generated migrations. A coding agent may write the SQL migration itself only when generation produces unrelated churn and the intended change is small and additive. In that case:
+
+- Copy the existing migration style in the module.
+- Include only the intended `create table`, `alter table add column`, index, or constraint statements.
+- Avoid destructive SQL unless the spec and backward-compatibility review explicitly require it.
+- Update `.snapshot-open-mercato.json` in the same commit.
+- Run `yarn db:generate` afterward to prove the module is clean.
+
+## 10. Verification
 
 After migrating, run the full validation:
 

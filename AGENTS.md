@@ -329,7 +329,8 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Validate all inputs with zod; place validators in `data/validators.ts`
 -   Derive TypeScript types from zod via `z.infer<typeof schema>`
 -   Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
--   Never hand-write migrations — update ORM entities, run `yarn db:generate`
+-   Default migration workflow: update ORM entities, run `yarn db:generate`, and review the generated SQL plus `migrations/.snapshot-open-mercato.json`
+-   Coding-agent exception: if `yarn db:generate` emits unrelated migrations, delete the unrelated output, keep or write only the intended SQL migration for this entity change, and update the affected module's `.snapshot-open-mercato.json`. Never run `yarn db:migrate` just to make the generator quiet.
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
 -   RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead
