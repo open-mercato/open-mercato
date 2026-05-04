@@ -9,9 +9,9 @@
  * - Click Lost → closure dialog with loss reason
  */
 import { test, expect } from '@playwright/test'
-import { login } from '../helpers/auth'
-import { getAuthToken } from '../helpers/api'
-import { createSalesOrderFixture, deleteSalesEntityIfExists } from '../helpers/salesFixtures'
+import { login } from '-mercato/core/modules/core/__integration__/helpers/auth'
+import { getAuthToken } from '-mercato/core/modules/core/__integration__/helpers/api'
+import { createSalesOrderFixture, deleteSalesEntityIfExists } from '-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 
 test.describe('TC-UX-004: Deal Stage Progress Bar', () => {
   test('should show stage bar and closure buttons on order detail', async ({ page, request }) => {

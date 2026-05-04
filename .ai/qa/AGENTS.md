@@ -42,11 +42,8 @@ Discovery troubleshooting:
 │   ├── TC-AUTH-001-*.md         #   Human-readable, used as input for test generation
 │   ├── TC-CAT-001-*.md         #   NOT required — tests can be generated directly
 │   └── ...
-├── tests/                       # Playwright config/helpers + legacy test location
+├── tests/                       # Playwright config only — do not place specs here
 │   ├── playwright.config.ts
-│   ├── helpers/
-│   │   ├── auth.ts              # Login helper
-│   │   └── api.ts               # API call helper
 └── ...
 
 packages/<package>/src/modules/<module>/__integration__/   # Preferred test location
@@ -103,7 +100,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 
 ### 1. Executable Tests (Playwright TypeScript) — Preferred
 
-Pre-written tests discovered from module `__integration__` folders (with legacy `.ai/qa/tests/` support) run headlessly via `yarn test:integration`. Zero token cost, CI-ready.
+Pre-written tests discovered from module `__integration__` folders run headlessly via `yarn test:integration`. Zero token cost, CI-ready. Do not add executable `.spec.ts` files under `.ai/qa/tests`; that directory is reserved for the shared Playwright config.
 
 ```bash
 yarn test:integration

@@ -39,8 +39,7 @@ const REPORT_BEGIN = '---TOOL_TEST_REPORT_BEGIN---'
 const REPORT_END = '---TOOL_TEST_REPORT_END---'
 
 function findRepoRoot(): string {
-  // .ai/qa/tests/integration → go up four levels to hit the repo root.
-  return path.resolve(__dirname, '..', '..', '..', '..')
+  return path.resolve(__dirname, '..', '..', '..', '..', '..', '..')
 }
 
 function findAppRoot(): string {

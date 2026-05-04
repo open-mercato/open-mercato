@@ -819,3 +819,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: API route handlers must not contain raw SQL. Extract DB reads/writes into a named helper in the module's `lib/` (for simple lookups) or a service in `services/` (for stateful or multi-step logic), and import the helper from the route. The helper is the single place where the predicate is defined, audited, and regression-tested. MikroORM entity calls (`findOneWithDecryption`, repository methods) are acceptable in routes when they are single-liner lookups by stable primary keys; anything with a custom `WHERE`, `JOIN`, or raw `execute(...)` belongs in a helper.
 
 **Applies to**: All API route files under `packages/**/api/**` and `apps/**/api/**`. When moving existing inline SQL out of a route, keep the regression test pointed at the helper source so the predicate stays pinned even after the relocation.
+
+## Keep executable integration tests module-local
+
+**Context**: Legacy Playwright specs were still stored under `.ai/qa/tests/`, including AI-tool and UX regression specs that belonged to concrete modules.
+
+**Problem**: Tests under `.ai` are detached from the module that owns the behavior, so affected-test discovery, module gating, package ownership, and review context all become weaker.
+
+**Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
+
+**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/integration-tests/SKILL.md`.

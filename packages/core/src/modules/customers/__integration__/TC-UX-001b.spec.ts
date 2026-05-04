@@ -8,9 +8,9 @@
  * - Click expand: Zone 1 restores
  */
 import { test, expect } from '@playwright/test'
-import { login } from '../helpers/auth'
-import { getAuthToken } from '../helpers/api'
-import { createCompanyFixture, deleteEntityIfExists } from '../helpers/crmFixtures'
+import { login } from '-mercato/core/modules/core/__integration__/helpers/auth'
+import { getAuthToken } from '-mercato/core/modules/core/__integration__/helpers/api'
+import { createCompanyFixture, deleteEntityIfExists } from '-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 test.describe('TC-UX-001b: Collapsible Zone 1 Panel', () => {
   test('should collapse and expand Zone 1', async ({ page, request }) => {

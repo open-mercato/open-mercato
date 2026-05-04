@@ -9,9 +9,9 @@
  * - Cancel collapses the composer
  */
 import { test, expect } from '@playwright/test'
-import { login } from '../helpers/auth'
-import { getAuthToken } from '../helpers/api'
-import { createPersonFixture, deleteEntityIfExists } from '../helpers/crmFixtures'
+import { login } from '-mercato/core/modules/core/__integration__/helpers/auth'
+import { getAuthToken } from '-mercato/core/modules/core/__integration__/helpers/api'
+import { createPersonFixture, deleteEntityIfExists } from '-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 test.describe('TC-UX-002: Inline Activity Composer', () => {
   test('should show activity composer with type selection and cancel', async ({ page, request }) => {

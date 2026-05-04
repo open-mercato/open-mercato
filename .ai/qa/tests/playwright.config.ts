@@ -17,11 +17,14 @@ const STATIC_TEST_IGNORES = [
   // which produces thousands of false failures.
   `${normalizePath(path.join(projectRoot, '.ai', 'tmp'))}/**`,
 ];
-const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, path.join(projectRoot, '.ai', 'qa', 'tests'));
+// `.ai/qa/tests` is retained for the shared Playwright config only.
+// Executable specs must live in module-local `__integration__` folders.
+const disabledLegacyIntegrationRoot = path.join(projectRoot, '.ai', 'qa', 'tests', '__legacy_disabled__');
+const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, disabledLegacyIntegrationRoot);
 
 // Affected-only: when OM_INTEGRATION_MODULES is set, restrict to those modules.
 // A spec is included if its moduleName is in the set, or any of its requiredModules is.
-// Specs with moduleName === null (legacy .ai/qa/tests/ root specs) are always included.
+// Specs with moduleName === null are always included.
 const affectedModules = process.env.OM_INTEGRATION_MODULES
     ? new Set(
           process.env.OM_INTEGRATION_MODULES.split(',')

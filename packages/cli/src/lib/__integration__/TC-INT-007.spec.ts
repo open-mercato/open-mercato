@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
+const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..')
 const cliBin = path.join(repoRoot, 'packages', 'cli', 'dist', 'bin.js')
 const fixtureModulePackage = path.join(
   repoRoot,
