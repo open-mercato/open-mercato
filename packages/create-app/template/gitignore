@@ -71,8 +71,8 @@ src/generated/
 
 # uploads and app data
 public/uploads/*
-storage/
-data/
+/storage/
+/data/
 
 # local package managers
 package-lock.json

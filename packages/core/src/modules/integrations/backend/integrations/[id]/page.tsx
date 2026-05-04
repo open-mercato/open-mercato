@@ -11,6 +11,13 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -1185,18 +1192,20 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="relative inline-flex">
-                <select
-                  className="h-11 min-w-40 appearance-none rounded-xl border border-border bg-card pl-4 pr-11 text-sm font-medium text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                  value={logLevel}
-                  onChange={(event) => setLogLevel(event.target.value)}
+              <div className="inline-flex">
+                <Select
+                  value={logLevel || undefined}
+                  onValueChange={(value) => setLogLevel(value ?? '')}
                 >
-                  <option value="">{t('integrations.detail.logs.level.all')}</option>
-                  <option value="info">{t('integrations.detail.logs.level.info')}</option>
-                  <option value="warn">{t('integrations.detail.logs.level.warn')}</option>
-                  <option value="error">{t('integrations.detail.logs.level.error')}</option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <SelectTrigger size="lg" className="min-w-40">
+                    <SelectValue placeholder={t('integrations.detail.logs.level.all')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="info">{t('integrations.detail.logs.level.info')}</SelectItem>
+                    <SelectItem value="warn">{t('integrations.detail.logs.level.warn')}</SelectItem>
+                    <SelectItem value="error">{t('integrations.detail.logs.level.error')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             {isLoadingLogs ? (

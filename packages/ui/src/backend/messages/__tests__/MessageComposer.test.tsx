@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { MessageComposer } from '../MessageComposer'
 import { apiCall } from '../../utils/apiCall'
@@ -119,6 +119,107 @@ describe('MessageComposer draft flow', () => {
     const payload = JSON.parse(composeRequest?.[1]?.body ?? '{}') as Record<string, unknown>
     expect(payload.isDraft).toBe(true)
     expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
+  })
+
+  it('keeps the send action disabled after a successful compose submit until the composer resets', async () => {
+    let resolveMessagePost!: (value: {
+      ok: boolean
+      status: number
+      result: { id: string }
+      response: { status: number }
+    }) => void
+
+    ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string, body?: string }) => {
+      if (url.startsWith('/api/messages/types')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              type: 'default',
+              module: 'messages',
+              labelKey: 'messages.types.default',
+              icon: 'mail',
+              allowReply: true,
+              allowForward: true,
+            }],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url === '/api/messages' && options?.method === 'POST') {
+        return new Promise((resolve) => {
+          resolveMessagePost = resolve
+        })
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        result: { items: [] },
+        response: { status: 200 },
+      })
+    })
+
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Send lock test',
+          body: 'Send lock body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    await waitFor(() => {
+      expect((apiCall as jest.Mock).mock.calls.some((call) => call[0] === '/api/messages/types')).toBe(true)
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const sendButton = await screen.findByRole('button', { name: /^send$/i })
+    fireEvent.click(sendButton)
+
+    await waitFor(() => {
+      const messagePostCalls = (apiCall as jest.Mock).mock.calls.filter(
+        (call) => call[0] === '/api/messages' && call[1]?.method === 'POST',
+      )
+      expect(messagePostCalls).toHaveLength(1)
+    })
+
+    await waitFor(() => {
+      expect(sendButton).toBeDisabled()
+    })
+
+    await act(async () => {
+      resolveMessagePost({
+        ok: true,
+        status: 201,
+        result: { id: 'message-1' },
+        response: { status: 201 },
+      })
+    })
+
+    await waitFor(() => {
+      expect(flash).toHaveBeenCalledWith('Message sent.', 'success')
+    })
+
+    expect(sendButton).toBeDisabled()
+
+    fireEvent.click(sendButton)
+
+    await waitFor(() => {
+      const messagePostCalls = (apiCall as jest.Mock).mock.calls.filter(
+        (call) => call[0] === '/api/messages' && call[1]?.method === 'POST',
+      )
+      expect(messagePostCalls).toHaveLength(1)
+    })
   })
 
   it('cancels dialog composer without saving draft', async () => {

@@ -23,6 +23,13 @@ import {
 } from "@open-mercato/ui/primitives/dialog";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { DollarSign, Settings } from "lucide-react";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
 import {
@@ -1969,22 +1976,25 @@ export function LineItemDialog({
                   onChange={(event) => setValue(event.target.value)}
                   placeholder="0.00"
                 />
-                <select
-                  className="w-32 rounded border px-2 text-sm"
+                <Select
                   value={mode}
-                  onChange={(event) => {
-                    const nextMode =
-                      event.target.value === "net" ? "net" : "gross";
+                  onValueChange={(value) => {
+                    const nextMode = value === "net" ? "net" : "gross";
                     setFormValue?.("priceMode", nextMode);
                   }}
                 >
-                  <option value="gross">
-                    {t("sales.documents.items.priceGross", "Gross")}
-                  </option>
-                  <option value="net">
-                    {t("sales.documents.items.priceNet", "Net")}
-                  </option>
-                </select>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gross">
+                      {t("sales.documents.items.priceGross", "Gross")}
+                    </SelectItem>
+                    <SelectItem value="net">
+                      {t("sales.documents.items.priceNet", "Net")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {isCatalogLine && selectedPrice && quantityUnitCode && baseUnitCode ? (
                 unitFactor !== null && convertedAmount !== null ? (
@@ -2048,31 +2058,36 @@ export function LineItemDialog({
           };
           return (
             <div className="flex items-center gap-2">
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={resolvedValue ?? ""}
-                onChange={handleChange}
+              <Select
+                value={resolvedValue || undefined}
+                onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!taxRates.length}
               >
-                <option value="">
-                  {taxRates.length
-                    ? t(
-                        "sales.documents.items.taxRate.none",
-                        "No tax class selected",
-                      )
-                    : t(
-                        "sales.documents.items.taxRate.empty",
-                        "No tax classes available",
-                      )}
-                </option>
-                {taxRates.map((rate) => (
-                  <option key={rate.id} value={rate.id}>
-                    {rate.name}
-                    {rate.code ? ` • ${rate.code.toUpperCase()}` : ""}
-                    {Number.isFinite(rate.rate) ? ` • ${rate.rate}%` : ""}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      taxRates.length
+                        ? t(
+                            "sales.documents.items.taxRate.none",
+                            "No tax class selected",
+                          )
+                        : t(
+                            "sales.documents.items.taxRate.empty",
+                            "No tax classes available",
+                          )
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {taxRates.map((rate) => (
+                    <SelectItem key={rate.id} value={rate.id}>
+                      {rate.name}
+                      {rate.code ? ` • ${rate.code.toUpperCase()}` : ""}
+                      {Number.isFinite(rate.rate) ? ` • ${rate.rate}%` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="ghost"
@@ -2120,11 +2135,10 @@ export function LineItemDialog({
             );
           }
           return (
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={typeof value === "string" ? value : ""}
-              onChange={(event) => {
-                const nextValue = event.target.value || null;
+            <Select
+              value={typeof value === "string" && value ? value : undefined}
+              onValueChange={(next) => {
+                const nextValue = next || null;
                 const nextUnitPrice = convertUnitPriceForUnitChange(
                   values?.unitPrice,
                   typeof value === "string" ? value : null,
@@ -2172,17 +2186,21 @@ export function LineItemDialog({
               }}
               disabled={!productId}
             >
-              <option value="">
-                {t("sales.documents.items.quantityUnitSelect", "Select unit")}
-              </option>
-              {unitOptions.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.isBase
-                    ? `${option.code} (${t("sales.documents.items.baseUnitTag", "base")})`
-                    : option.code}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={t("sales.documents.items.quantityUnitSelect", "Select unit")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {unitOptions.map((option) => (
+                  <SelectItem key={option.code} value={option.code}>
+                    {option.isBase
+                      ? `${option.code} (${t("sales.documents.items.baseUnitTag", "base")})`
+                      : option.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           );
         },
       } satisfies CrudField,

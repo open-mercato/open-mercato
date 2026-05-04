@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TopNTable, type TopNTableColumn } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopCustomersSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencySafe } from '../../../lib/formatters'
@@ -130,12 +131,12 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
           >
             {t('dashboards.analytics.settings.limit', 'Number of items')}
           </label>
-          <input
+          <Input
             id="top-customers-limit"
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="w-24"
             value={hydrated.limit}
             onChange={(e) => {
               const next = Number(e.target.value)

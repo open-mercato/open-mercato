@@ -788,6 +788,7 @@
   "ui.forms.richtext.placeholder": "Markdown schreiben...",
   "ui.forms.richtext.sampleText": "Text",
   "ui.forms.richtext.underline": "Unterstrichen",
+  "ui.forms.select.clearOption": "— Zurücksetzen —",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Speichern…",
   "ui.inputs.tagsInput.placeholder": "Tag hinzufügen und Enter drücken",

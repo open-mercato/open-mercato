@@ -9,7 +9,14 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
@@ -903,26 +910,27 @@ export function SalesDocumentAddressesSection({
     onChange: (next: string | null) => void,
     disabled: boolean
   ) => (
-    <select
-      className="w-full rounded border px-2 py-2 text-sm"
-      value={value}
-      onChange={(evt) => onChange(evt.target.value || null)}
-      disabled={disabled}
-    >
-      <option value="">
-        {addressesLoading
-          ? t('sales.documents.form.address.loading', 'Loading addresses…')
-          : t('sales.documents.form.address.placeholder', 'Select address')}
-      </option>
-      {options.map((addr) => {
-        const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-        return (
-          <option key={addr.id} value={addr.id}>
-            {optionLabel}
-          </option>
-        )
-      })}
-    </select>
+    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
+      <SelectTrigger>
+        <SelectValue
+          placeholder={
+            addressesLoading
+              ? t('sales.documents.form.address.loading', 'Loading addresses…')
+              : t('sales.documents.form.address.placeholder', 'Select address')
+          }
+        />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((addr) => {
+          const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+          return (
+            <SelectItem key={addr.id} value={addr.id}>
+              {optionLabel}
+            </SelectItem>
+          )
+        })}
+      </SelectContent>
+    </Select>
   )
 
   return (
@@ -962,14 +970,13 @@ export function SalesDocumentAddressesSection({
                   : t('sales.documents.form.shipping.hint', 'Select an address or define a new one.')}
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                checked={useCustomShipping}
-                onCheckedChange={(checked) => setUseCustomShipping(checked)}
-                disabled={customerRequired || locked}
-              />
-              <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-            </label>
+            <SwitchField
+              label={t('sales.documents.form.shipping.custom', 'Define new address')}
+              flip
+              checked={useCustomShipping}
+              onCheckedChange={(checked) => setUseCustomShipping(checked)}
+              disabled={customerRequired || locked}
+            />
           </div>
           {!useCustomShipping
             ? renderAddressSelect(
@@ -988,14 +995,13 @@ export function SalesDocumentAddressesSection({
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
               />
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={saveShippingAddress && !customerRequired}
-                  onCheckedChange={(checked) => setSaveShippingAddress(checked)}
-                  disabled={customerRequired || locked}
-                />
-                {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                flip
+                checked={saveShippingAddress && !customerRequired}
+                onCheckedChange={(checked) => setSaveShippingAddress(checked)}
+                disabled={customerRequired || locked}
+              />
             </div>
           ) : null}
         </div>
@@ -1013,21 +1019,20 @@ export function SalesDocumentAddressesSection({
                   : t('sales.documents.form.billing.hint', 'Select an address or define a new one.')}
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                checked={sameAsShipping}
-                onCheckedChange={(checked) => {
-                  setSameAsShipping(checked)
-                  if (checked) {
-                    setUseCustomBilling(useCustomShipping)
-                    setBillingAddressId(useCustomShipping ? null : shippingAddressIdState)
-                    setBillingDraft(useCustomShipping ? shippingDraft : emptyDraft)
-                  }
-                }}
-                disabled={locked}
-              />
-              <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}</span>
-            </label>
+            <SwitchField
+              label={t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}
+              flip
+              checked={sameAsShipping}
+              onCheckedChange={(checked) => {
+                setSameAsShipping(checked)
+                if (checked) {
+                  setUseCustomBilling(useCustomShipping)
+                  setBillingAddressId(useCustomShipping ? null : shippingAddressIdState)
+                  setBillingDraft(useCustomShipping ? shippingDraft : emptyDraft)
+                }
+              }}
+              disabled={locked}
+            />
           </div>
 
           {!sameAsShipping ? (
@@ -1040,14 +1045,13 @@ export function SalesDocumentAddressesSection({
                     addressesLoading || customerRequired || locked
                   )
                 : null}
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={useCustomBilling}
-                  onCheckedChange={(checked) => setUseCustomBilling(checked)}
-                  disabled={customerRequired || locked}
-                />
-                <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-              </label>
+              <SwitchField
+                label={t('sales.documents.form.shipping.custom', 'Define new address')}
+                flip
+                checked={useCustomBilling}
+                onCheckedChange={(checked) => setUseCustomBilling(checked)}
+                disabled={customerRequired || locked}
+              />
 
               {useCustomBilling ? (
                 <div className="space-y-3">
@@ -1058,14 +1062,13 @@ export function SalesDocumentAddressesSection({
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
                   />
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={saveBillingAddress && !customerRequired}
-                      onCheckedChange={(checked) => setSaveBillingAddress(checked)}
-                      disabled={customerRequired || locked}
-                    />
-                    {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
-                  </label>
+                  <SwitchField
+                    label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                    flip
+                    checked={saveBillingAddress && !customerRequired}
+                    onCheckedChange={(checked) => setSaveBillingAddress(checked)}
+                    disabled={customerRequired || locked}
+                  />
                 </div>
               ) : null}
             </>
@@ -1252,14 +1255,13 @@ export function SalesDocumentAddressesSection({
               </Button>
             </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                checked={additionalUseCustom}
-                onCheckedChange={(checked) => setAdditionalUseCustom(checked)}
-                disabled={customerRequired || locked}
-              />
-              <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
-            </label>
+            <SwitchField
+              label={t('sales.documents.form.shipping.custom', 'Define new address')}
+              flip
+              checked={additionalUseCustom}
+              onCheckedChange={(checked) => setAdditionalUseCustom(checked)}
+              disabled={customerRequired || locked}
+            />
 
             {!additionalUseCustom
               ? renderAddressSelect(

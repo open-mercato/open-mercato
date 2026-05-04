@@ -208,6 +208,10 @@ export function ComboboxInput({
 
   return (
     <div className="relative w-full">
+      {/* Use raw <input> here instead of the DS Input primitive: ComboboxInput's
+          focus / suggestions-popup interplay relies on the trigger being a plain
+          input element. The DS wrapper introduces a <div> that desyncs autocomplete
+          on this specific surface. Keeps the rest of the form on Input primitive. */}
       <input
         ref={inputRef}
         type="text"

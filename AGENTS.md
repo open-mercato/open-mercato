@@ -274,6 +274,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Every module with guarded routes or pages MUST declare features in `acl.ts` — never ship an empty `acl.ts` with `requireRoles` guards
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
+- Detail/read-model APIs that expose `customFields` MUST normalize response keys to bare field names via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Reserve `cf_` / `cf:` prefixes for request payloads, query-engine selectors, and form wiring.
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
@@ -328,7 +329,8 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Validate all inputs with zod; place validators in `data/validators.ts`
 -   Derive TypeScript types from zod via `z.infer<typeof schema>`
 -   Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
--   Never hand-write migrations — update ORM entities, run `yarn db:generate`
+-   Default migration workflow: update ORM entities, run `yarn db:generate`, and review the generated SQL plus `migrations/.snapshot-open-mercato.json`
+-   Coding-agent exception: if `yarn db:generate` emits unrelated migrations, delete the unrelated output, keep or write only the intended SQL migration for this entity change, and update the affected module's `.snapshot-open-mercato.json`. Never run `yarn db:migrate` just to make the generator quiet.
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
 -   RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead

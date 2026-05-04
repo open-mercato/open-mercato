@@ -7,7 +7,7 @@ description: Design and implement consistent backend/backoffice interfaces using
 
 Guide for creating consistent, production-grade backend interfaces using the `@open-mercato/ui` component library. All implementations must use existing components for visual and behavioral consistency.
 
-For complete component API reference, see `references/ui-components.md`.
+For complete component API reference, see `references/ui-components.md`. Pair this skill with `.ai/guides/ui.md` when present and with the standalone `AGENTS.md` rules for DataTable hosts, design-system primitives, and backend page conventions.
 
 ## Design Principles
 
@@ -16,6 +16,7 @@ For complete component API reference, see `references/ui-components.md`.
 3. **Data Density**: Admin users need information-rich interfaces. Optimize for scanning.
 4. **Keyboard Navigation**: `Cmd/Ctrl+Enter` for primary actions, `Escape` to cancel.
 5. **Clear Hierarchy**: Page → Section → Content. Use `PageHeader`, `PageBody`, consistent spacing.
+6. **Design System Discipline**: Use semantic status tokens plus shared primitives like `StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, and `EmptyState`. No hardcoded status colors or arbitrary text sizes.
 
 ## Required Component Library
 
@@ -49,6 +50,26 @@ Column patterns:
 - Boolean: `BooleanIcon`
 - Status/enum: `EnumBadge` with severity presets
 - Actions: `RowActions` for context menus
+
+### Preferred DataTable Host Pattern
+
+For standard CRUD lists, prefer the built-in host pattern instead of manually fetching and shaping rows:
+
+```tsx
+<DataTable
+  entityId="tickets.ticket"
+  apiPath="tickets/tickets"
+  extensionTableId="tickets.ticket"
+  columns={columns}
+  createHref="/backend/tickets/tickets/new"
+  emptyState={{
+    title: t('tickets.list.empty.title'),
+    description: t('tickets.list.empty.description'),
+  }}
+/>
+```
+
+Keep `extensionTableId` stable so DataTable injections remain backward-compatible.
 
 ### DataTable Pagination
 
@@ -182,6 +203,8 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 - [ ] Loading states use `LoadingMessage` or `DataLoader`
 - [ ] Error states use `ErrorMessage`, `ErrorNotice`, or `Notice variant="error"`
 - [ ] Empty states use `EmptyState`
+- [ ] Status displays use `StatusBadge` or `EnumBadge`, not hardcoded colors
+- [ ] Standalone inputs use `FormField`; detail sections use `SectionHeader` / `CollapsibleSection` when applicable
 - [ ] Column truncation uses `meta.truncate` and `meta.maxWidth`
 - [ ] Boolean values use `BooleanIcon`
 - [ ] Status/enum values use `EnumBadge`
@@ -194,7 +217,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 2. Manual table markup — use `DataTable`
 3. Custom toast/notification — use `flash()`
 4. Inline styles — use Tailwind classes
-5. Hardcoded colors — use theme variables
+5. Hardcoded colors or status classes — use theme variables and semantic status tokens
 6. Missing loading states — every async operation needs feedback
 7. Missing error handling — every failure needs messaging
 8. Missing keyboard shortcuts — all dialogs need `Cmd+Enter` and `Escape`

@@ -122,6 +122,19 @@ Follow the customers module API patterns (CRUD factory + query engine):
 - Set `indexer: { entityType }` in `makeCrudRoute`
 - Reference: `src/modules/customers/api/people/route.ts`
 
+### Entity Schema And Migration Workflow
+
+When adding or changing a MikroORM entity, coding agents MUST read this section, the customers reference module guide, and `packages/cli/AGENTS.md` before editing.
+
+1. Update `data/entities.ts` using MikroORM v7 imports: decorators from `@mikro-orm/decorators/legacy`, types from `@mikro-orm/core`.
+2. Run `yarn generate` when module structure or entity discovery changed.
+3. Treat `yarn db:generate` as a schema-diff probe. Review every generated file before keeping it.
+4. Keep only SQL for the intended module/entity change. If the generator emits unrelated migrations because another module's snapshot is stale, remove those files from the diff instead of committing them.
+5. If you author a scoped SQL migration yourself to avoid unrelated generated churn, base it on the entity metadata and existing module migration style, then update that module's `migrations/.snapshot-open-mercato.json` to the post-change schema in the same commit.
+6. Do not run `yarn db:migrate` unless the user explicitly asks to apply migrations. PRs should normally contain the migration file and snapshot, not local DB state.
+
+For new CRUD modules, use `packages/core/src/modules/customers/AGENTS.md` as the file-structure reference and copy the command/API patterns before inventing new ones.
+
 ## Module Setup Convention
 
 Every module participating in tenant initialization must declare `setup.ts`. The generator auto-discovers these files.
@@ -463,7 +476,8 @@ await emitCrudSideEffects({ ... })
 - Module-scoped with MikroORM: files live in `src/modules/<module>/migrations/`
 - Generate: `yarn db:generate` (iterates all modules)
 - Apply: `yarn db:migrate` (ordered, directory first)
-- **Never hand-write migration files.** Update ORM entities, let `yarn db:generate` emit SQL.
+- Default: update ORM entities and let `yarn db:generate` emit SQL.
+- Exception: when generated output includes unrelated snapshot drift, keep or write only the intended SQL and update that module's `.snapshot-open-mercato.json` in the same change.
 
 ## Database Entities
 

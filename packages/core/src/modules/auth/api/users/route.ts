@@ -15,6 +15,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { sql } from 'kysely'
@@ -156,14 +157,15 @@ export async function GET(req: Request) {
     console.error('users: failed to resolve rbac', err)
   }
   const { id, page, pageSize, search, organizationId, roleIds } = parsed.data
-  const where: any = { deletedAt: null }
+  const filters: any[] = [{ deletedAt: null }]
+  const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   if (!isSuperAdmin) {
-    if (!auth.tenantId) {
+    if (!actorTenantId) {
       return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     }
-    where.tenantId = auth.tenantId
+    filters.push({ tenantId: actorTenantId })
   }
-  if (organizationId) where.organizationId = organizationId
+  if (organizationId) filters.push({ organizationId })
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
@@ -183,33 +185,81 @@ export async function GET(req: Request) {
     }
     if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   }
-  if (search) {
-    // Email is encrypted at rest, so $ilike on the column cannot match plaintext input.
-    // Resolve candidate users via search_tokens (tokens are built from the decrypted index doc).
+  const trimmedSearch = typeof search === 'string' ? search.trim() : ''
+  if (trimmedSearch) {
+    // Email is encrypted at rest, so plaintext search must go through search_tokens.
     const tenantScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
-    const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, search, tenantScope)
-    if (matchedIds !== null) {
-      if (matchedIds.length === 0) {
-        return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
-      }
-      const matchedSet = new Set(matchedIds)
-      if (idFilter) {
-        for (const uid of Array.from(idFilter)) {
-          if (!matchedSet.has(uid)) idFilter.delete(uid)
-        }
-        if (idFilter.size === 0) {
-          return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
-        }
-      } else {
-        idFilter = matchedSet
+    const searchFilters: any[] = []
+
+    const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedSearch, tenantScope)
+    if (matchedIds && matchedIds.length) {
+      searchFilters.push({ id: { $in: matchedIds as any } })
+    }
+
+    const searchPattern = `%${escapeLikePattern(trimmedSearch)}%`
+    const organizationSearchFilters: any[] = [
+      { deletedAt: null },
+      { name: { $ilike: searchPattern } },
+    ]
+    if (tenantScope) {
+      organizationSearchFilters.push({ tenant: tenantScope })
+    }
+    const matchingOrganizations = await em.find(
+      Organization,
+      organizationSearchFilters.length > 1 ? { $and: organizationSearchFilters } : organizationSearchFilters[0],
+    )
+    const matchingOrganizationIds = matchingOrganizations
+      .map((org) => (org?.id ? String(org.id) : null))
+      .filter((orgId): orgId is string => typeof orgId === 'string' && orgId.length > 0)
+    if (matchingOrganizationIds.length) {
+      searchFilters.push({ organizationId: { $in: matchingOrganizationIds as any } })
+    }
+
+    const roleSearchFilters: any[] = [
+      { deletedAt: null },
+      { name: { $ilike: searchPattern } },
+    ]
+    if (tenantScope) {
+      roleSearchFilters.push({ $or: [{ tenantId: tenantScope }, { tenantId: null }] })
+    }
+    const matchingRoles = await em.find(
+      Role,
+      roleSearchFilters.length > 1 ? { $and: roleSearchFilters } : roleSearchFilters[0],
+    )
+    const matchingRoleIds = matchingRoles
+      .map((role) => (role?.id ? String(role.id) : null))
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    if (matchingRoleIds.length) {
+      const roleSearchLinks = await em.find(
+        UserRole,
+        { role: { $in: matchingRoleIds as any } } as any,
+      )
+      const matchingRoleUserIds = Array.from(new Set(
+        roleSearchLinks
+          .map((link) => {
+            const userRef = (link as any).user
+            const userId = userRef?.id ?? userRef
+            return userId ? String(userId) : null
+          })
+          .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0),
+      ))
+      if (matchingRoleUserIds.length) {
+        searchFilters.push({ id: { $in: matchingRoleUserIds as any } })
       }
     }
+
+    if (!searchFilters.length) {
+      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+    }
+
+    filters.push(searchFilters.length > 1 ? { $or: searchFilters } : searchFilters[0])
   }
   if (idFilter && idFilter.size) {
-    where.id = { $in: Array.from(idFilter) as any }
+    filters.push({ id: { $in: Array.from(idFilter) as any } })
   } else if (id) {
-    where.id = id
+    filters.push({ id })
   }
+  const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
   const links = userIds.length
@@ -402,7 +452,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the current tenant. Super administrators may scope the response via organization or role filters.',
+        'Returns users for the current tenant. Search matches email, organization name, and role name. Super administrators may scope the response via organization or role filters.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

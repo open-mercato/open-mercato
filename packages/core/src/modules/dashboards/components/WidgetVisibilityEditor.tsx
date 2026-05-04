@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -279,28 +281,21 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       )}
 
       {kind === 'user' && (
-        <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="widgetOverride"
-              value="inherit"
-              checked={mode === 'inherit'}
-              onChange={() => setMode('inherit')}
-            />
-            {t('dashboards.widgets.mode.inherit', 'Inherit from roles')}
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="widgetOverride"
-              value="override"
-              checked={mode === 'override'}
-              onChange={() => setMode('override')}
-            />
-            {t('dashboards.widgets.mode.override', 'Override for this user')}
-          </label>
-        </div>
+        <RadioGroup
+          className="flex flex-row items-center gap-3 rounded-md border bg-muted/30 px-3 py-2"
+          name="widgetOverride"
+          value={mode}
+          onValueChange={(next) => setMode(next as 'inherit' | 'override')}
+        >
+          <RadioField
+            value="inherit"
+            label={t('dashboards.widgets.mode.inherit', 'Inherit from roles')}
+          />
+          <RadioField
+            value="override"
+            label={t('dashboards.widgets.mode.override', 'Override for this user')}
+          />
+        </RadioGroup>
       )}
 
       {kind === 'user' && mode === 'inherit' && (
