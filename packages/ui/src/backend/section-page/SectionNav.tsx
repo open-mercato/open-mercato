@@ -53,22 +53,25 @@ export function SectionNav({
   const renderItem = (item: SectionNavItem) => {
     const isActive = activePath === item.href || activePath.startsWith(item.href + '/')
     const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+    const base = collapsed ? 'w-10 h-10 justify-center' : 'w-full py-2 gap-2'
+    const spacingStyle = !collapsed ? { paddingLeft: '12px', paddingRight: '12px' } : undefined
 
     return (
       <Link
         key={item.id}
         href={item.href}
-        className={`relative text-sm rounded px-3 py-1.5 flex items-center gap-2 transition-colors ${
+        className={`relative text-sm font-medium rounded-lg inline-flex items-center transition-colors ${base} ${
           isActive
-            ? 'bg-background border shadow-sm font-medium'
-            : 'hover:bg-accent hover:text-accent-foreground'
+            ? 'bg-muted text-foreground'
+            : 'text-muted-foreground hover:bg-muted'
         }`}
+        style={spacingStyle}
         title={collapsed ? label : undefined}
       >
         {isActive && (
-          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+          <span aria-hidden className={`absolute ${collapsed ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
         )}
-        <span className="flex items-center justify-center shrink-0 text-muted-foreground">
+        <span className="flex items-center justify-center shrink-0">
           {item.icon ?? DefaultIcon}
         </span>
         {!collapsed && <span className="truncate">{label}</span>}
@@ -103,11 +106,13 @@ export function SectionNav({
     return (
       <div key={section.id} className="flex flex-col gap-1">
         {!collapsed && (
-          <div className="px-3 py-1.5 text-xs uppercase text-muted-foreground/80 font-medium">
+          <div className="w-full px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
             {sectionLabel}
           </div>
         )}
-        {sortedItems.map(renderItem)}
+        <div className={`flex flex-col ${collapsed ? 'items-center' : ''} gap-1`}>
+          {sortedItems.map(renderItem)}
+        </div>
       </div>
     )
   }
@@ -115,7 +120,7 @@ export function SectionNav({
   const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
   return (
-    <nav className={`flex flex-col gap-4 p-3 ${collapsed ? 'items-center' : ''}`}>
+    <nav className={`flex flex-col gap-3 ${collapsed ? 'items-center' : ''}`}>
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-2`}>
         {!collapsed && (
           <span className="text-sm font-medium truncate">{resolvedTitle}</span>
@@ -131,8 +136,7 @@ export function SectionNav({
           {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
         </IconButton>
       </div>
-      <div className="border-t" />
-      <div className={`flex flex-col gap-4 ${collapsed ? 'items-center' : ''}`}>
+      <div className={`flex flex-col gap-2 ${collapsed ? 'items-center' : ''}`}>
         {sortedSections.map(renderSection)}
       </div>
     </nav>
