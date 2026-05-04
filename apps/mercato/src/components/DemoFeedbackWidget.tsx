@@ -214,14 +214,14 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   if (otherModalOpen && !open) return null
 
-  // Hide the floating button while the AI dock is mounted — the dock panel
-  // anchors to `top-0 right-0 h-svh` on the right side, and the bottom-right
-  // feedback FAB would sit ON TOP of the chat surface (covering input,
-  // suggestions, etc). Hiding is preferable to nudging the FAB left because
-  // the dock width is user-resizable and the FAB has no good fallback slot.
-  // The dialog itself remains reachable through any other mount point that
-  // already opened it (e.g. the inactivity auto-popup, which is also gated
-  // off above while the dock is active).
+  // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
+  // z-banner / text-foreground tokens (no z-[60] / text-white) so it stays
+  // DS-compliant while keeping the bespoke 135deg / 0-50-100 gradient that
+  // the marketing visual depends on. The `om-demo-feedback-floating` class
+  // hooks into `body[data-ai-chat-open="true"] .om-demo-feedback-floating`
+  // in globals.css so the FAB hides while the AI dock surface is open
+  // (anchored on the right edge of the viewport); the same `aiDockActive`
+  // gate hides the FAB outright when the dock is mounted in this app shell.
   const floatingButton = aiDockActive ? null : (
     <button
       type="button"

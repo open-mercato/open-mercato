@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { createAiApiOperationRunner, type AiToolExecutionContext } from '../ai-api-operation-runner'
+import { createAiApiOperationRunner, normalizePath, type AiToolExecutionContext } from '../ai-api-operation-runner'
 import type { ApiRouteManifestEntry } from '@open-mercato/shared/modules/registry'
 import {
   TRUSTED_AUTH_CONTEXT_SYMBOL,
@@ -377,5 +377,56 @@ describe('createAiApiOperationRunner', () => {
 
     expect(result.success).toBe(true)
     expect(legacyHandler).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('normalizePath (CodeQL js/polynomial-redos regression)', () => {
+  it('returns "/" for empty / non-string input', () => {
+    expect(normalizePath('')).toBe('/')
+    // Defensive: the type system says string-only, but agent inputs are JSON.
+    expect(normalizePath(undefined as unknown as string)).toBe('/')
+    expect(normalizePath(null as unknown as string)).toBe('/')
+  })
+
+  it('preserves a path that already starts with "/" and has no trailing slash', () => {
+    expect(normalizePath('/api/customers/people')).toBe('/api/customers/people')
+  })
+
+  it('prepends "/" when the input does not start with one', () => {
+    expect(normalizePath('api/foo')).toBe('/api/foo')
+  })
+
+  it('strips a single trailing slash', () => {
+    expect(normalizePath('/api/foo/')).toBe('/api/foo')
+  })
+
+  it('strips multiple trailing slashes', () => {
+    expect(normalizePath('/api/foo///')).toBe('/api/foo')
+    expect(normalizePath('/a/b/c////')).toBe('/a/b/c')
+  })
+
+  it('returns "/" for the all-slashes edge case (matches the previous regex behavior)', () => {
+    expect(normalizePath('/')).toBe('/')
+    expect(normalizePath('//')).toBe('/')
+    expect(normalizePath('////')).toBe('/')
+  })
+
+  it('runs in linear time on long runs of trailing slashes (no polynomial backtracking)', () => {
+    // The previous implementation `trimmed.replace(/\/+$/, '')` was flagged by
+    // CodeQL js/polynomial-redos. A 1M-character all-slash input must complete
+    // in a small bounded budget — anything in the multi-second range would
+    // indicate the regex regression has crept back in.
+    const huge = '/'.repeat(1_000_000)
+    const start = Date.now()
+    const out = normalizePath(huge)
+    const elapsed = Date.now() - start
+    expect(out).toBe('/')
+    // 200ms is generous; the linear scan typically finishes in <20ms.
+    expect(elapsed).toBeLessThan(200)
+  })
+
+  it('only strips trailing slashes — never internal ones', () => {
+    expect(normalizePath('/api//customers//people')).toBe('/api//customers//people')
+    expect(normalizePath('/api//customers//people///')).toBe('/api//customers//people')
   })
 })
