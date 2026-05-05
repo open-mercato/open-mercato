@@ -20,7 +20,7 @@ Target preset sizes:
 | Preset | Enabled modules |
 |--------|-----------------|
 | `classic` | current default set |
-| `empty` | `auth`, `directory`, `configs`, `entities`, `query_index`, `api_docs` |
+| `empty` | `auth`, `directory`, `configs`, `entities`, `query_index`, `api_docs`, `audit_logs` |
 | `crm` | `empty` + `customers`, `dictionaries`, `feature_toggles`, `notifications`, `dashboards`, `events` |
 
 This work MUST NOT remove or rename any public module, route, event, feature ID, CLI command, or import path. The change is additive: keep `classic` as the default, introduce preset-based scaffolding, and harden existing hidden module couplings so disabled modules do not crash bootstrap, init, or page rendering.
@@ -113,6 +113,7 @@ Enabled modules:
 - `entities`
 - `query_index`
 - `api_docs`
+- `audit_logs`
 
 Rationale:
 
@@ -121,6 +122,7 @@ Rationale:
 - `configs` gives settings surfaces
 - `entities` + `query_index` keep the app ready for extension/custom entities
 - `api_docs` keeps the starter inspectable for builders and integrators
+- `audit_logs` keeps CRUD access logging and basic operational observability available without requiring the demo/business module set
 
 #### Preset `crm`
 
@@ -267,6 +269,7 @@ const starterPresets = {
         { id: 'entities', from: '@open-mercato/core' },
         { id: 'query_index', from: '@open-mercato/core' },
         { id: 'api_docs', from: '@open-mercato/core' },
+        { id: 'audit_logs', from: '@open-mercato/core' },
       ],
     },
     ui: {
@@ -511,8 +514,8 @@ This spec is explicitly BC-preserving.
 | Scenario | Type |
 |----------|------|
 | `create-mercato-app my-app` still produces current scaffold | Integration |
-| `create-mercato-app my-app --preset empty` produces the 6-module baseline | Integration |
-| `create-mercato-app my-app --preset crm` produces the 12-module baseline | Integration |
+| `create-mercato-app my-app --preset empty` produces the 7-module baseline | Integration |
+| `create-mercato-app my-app --preset crm` produces the 13-module baseline | Integration |
 | preset resolver merges `crm -> empty` inheritance correctly | Unit |
 | preset validator rejects duplicate module IDs or unresolved preset parents before filesystem writes | Unit |
 | `empty` scaffold: `yarn generate` succeeds | Integration |
@@ -549,3 +552,4 @@ This spec is explicitly BC-preserving.
 - 2026-04-22: Expanded the spec with a declarative preset manifest contract, resolver/applier split, example preset definitions, and extensibility rules for future built-in presets.
 - 2026-04-23: Implemented Phase 1 preset plumbing — `packages/create-app/src/lib/starter-presets.ts` (data-only manifest), `packages/create-app/src/lib/apply-starter-preset.ts` (resolver/applier with inheritance, validation, and filesystem mutations), unit tests in `apply-starter-preset.test.ts` (9 tests, all passing), and `--preset` flag wiring in `packages/create-app/src/index.ts` with mutual-exclusion guard against `--app`/`--app-url`.
 - 2026-04-23: Hardened example-module decoupling on starter surfaces by making home-page quick links module-aware in both `apps/mercato` and `packages/create-app/template`, added app coverage for no-example quick links, extended preset tests so `classic` explicitly keeps `example`, and manually verified direct scaffolds for `classic`, `empty`, and `crm`.
+- 2026-05-05: Promoted `audit_logs` into the `empty` baseline because CRUD access logging is platform observability, not demo/business functionality.

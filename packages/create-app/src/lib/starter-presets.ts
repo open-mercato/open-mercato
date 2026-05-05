@@ -27,6 +27,7 @@ const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'entities', from: CORE },
   { id: 'query_index', from: CORE },
   { id: 'api_docs', from: CORE },
+  { id: 'audit_logs', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
