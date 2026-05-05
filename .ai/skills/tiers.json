@@ -1,0 +1,49 @@
+{
+  "$schema": "./tiers.schema.json",
+  "default": ["core"],
+  "tiers": {
+    "core": {
+      "description": "Daily-driver skills installed by default.",
+      "skills": [
+        "code-review",
+        "ds-guardian",
+        "backend-ui-design",
+        "check-and-commit",
+        "spec-writing",
+        "implement-spec",
+        "pre-implement-spec",
+        "integration-tests",
+        "smart-test",
+        "create-agents-md",
+        "skill-creator",
+        "fix-specs"
+      ]
+    },
+    "automation": {
+      "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
+      "skills": [
+        "auto-create-pr",
+        "auto-continue-pr",
+        "auto-review-pr",
+        "auto-fix-github",
+        "review-prs",
+        "merge-buddy",
+        "sync-merged-pr-issues",
+        "auto-update-changelog",
+        "auto-qa-scenarios"
+      ]
+    },
+    "security": {
+      "description": "Security audit skills. Opt-in.",
+      "skills": ["auto-sec-report", "auto-sec-report-pr"]
+    },
+    "migration": {
+      "description": "One-shot, version-pinned migrations. Install only when needed.",
+      "skills": ["auto-upgrade-0.4.10-to-0.5.0", "migrate-mikro-orm"]
+    },
+    "infra": {
+      "description": "Rare, special-case skills.",
+      "skills": ["dev-container-maintenance", "integration-builder"]
+    }
+  }
+}
