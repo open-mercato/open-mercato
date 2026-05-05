@@ -297,14 +297,14 @@ Do this in the same change where you disable the module — otherwise `/backend`
 
 Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also:
 
-1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so admin and superadmin roles receive it on every new tenant setup:
+1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so the admin role and any other appropriate default roles receive it on every new tenant setup:
 
    ```ts
    // src/modules/<module>/setup.ts
    export const setup = {
      defaultRoleFeatures: {
-       admin:      ['my_module.view', 'my_module.manage'],
-       superadmin: ['my_module.view', 'my_module.manage'],
+       admin: ['my_module.view', 'my_module.manage'],
+       employee: ['my_module.view'],
      },
      // ...
    }
@@ -313,10 +313,10 @@ Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) 
 2. **Reconcile existing tenants** by running the ACL sync command so existing installs pick up the new feature without a reinstall:
 
    ```bash
-   yarn mercato auth sync-role-acls --all-tenants
+   yarn mercato auth sync-role-acls
    ```
 
-Do this automatically unless the user has explicitly said otherwise. If the current user is an admin or superadmin, they should see the feature you just built — not stare at a blank admin because their role is missing the grant.
+Do this automatically unless the user has explicitly said otherwise. If the current user has a default role that should access the module, they should see the feature you just built — not stare at a blank admin because their role is missing the grant. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 Feature IDs are FROZEN once shipped (they are stored in the DB as `role_features.feature_id`). If a rename is required, add the new ID, grant it, and keep the old one alongside as a deprecated alias until downstream data can be migrated.
 
