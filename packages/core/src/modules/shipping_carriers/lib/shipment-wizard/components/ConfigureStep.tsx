@@ -2,6 +2,14 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -106,13 +114,14 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
-                <input
-                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${senderContactErrors.phone ? 'border-destructive' : ''}`}
+                <Input
                   type="tel"
+                  size="sm"
                   value={senderContact.phone}
                   onChange={(e) => onSenderContactChange({ ...senderContact, phone: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. 500000000"
+                  aria-invalid={senderContactErrors.phone ? true : undefined}
                 />
                 {senderContactErrors.phone ? (
                   <p className="text-xs text-destructive">{senderContactErrors.phone}</p>
@@ -122,13 +131,14 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
-                <input
-                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${senderContactErrors.email ? 'border-destructive' : ''}`}
+                <Input
                   type="email"
+                  size="sm"
                   value={senderContact.email}
                   onChange={(e) => onSenderContactChange({ ...senderContact, email: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. sender@example.com"
+                  aria-invalid={senderContactErrors.email ? true : undefined}
                 />
                 {senderContactErrors.email ? (
                   <p className="text-xs text-destructive">{senderContactErrors.email}</p>
@@ -150,13 +160,14 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
-                <input
-                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${receiverContactErrors.phone ? 'border-destructive' : ''}`}
+                <Input
                   type="tel"
+                  size="sm"
                   value={receiverContact.phone}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, phone: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. 500000000"
+                  aria-invalid={receiverContactErrors.phone ? true : undefined}
                 />
                 {receiverContactErrors.phone ? (
                   <p className="text-xs text-destructive">{receiverContactErrors.phone}</p>
@@ -166,13 +177,14 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
-                <input
-                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${receiverContactErrors.email ? 'border-destructive' : ''}`}
+                <Input
                   type="email"
+                  size="sm"
                   value={receiverContact.email}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, email: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. receiver@example.com"
+                  aria-invalid={receiverContactErrors.email ? true : undefined}
                 />
                 {receiverContactErrors.email ? (
                   <p className="text-xs text-destructive">{receiverContactErrors.email}</p>
@@ -194,17 +206,20 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
             <label className="text-xs font-medium text-muted-foreground">
               {t('shipping_carriers.create.field.c2cSendingMethod', 'Sending method (applies to courier_c2c service only)')}
             </label>
-            <select
-              className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-              value={c2cSendingMethod}
-              onChange={(e) => onC2cSendingMethodChange(e.target.value)}
+            <Select
+              value={c2cSendingMethod || undefined}
+              onValueChange={(value) => onC2cSendingMethodChange(value ?? '')}
               disabled={isFetchingRates}
             >
-              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')}</option>
-              <option value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
-              <option value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
-              <option value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</option>
-            </select>
+              <SelectTrigger size="sm">
+                <SelectValue placeholder={t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</SelectItem>
+                <SelectItem value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</SelectItem>
+                <SelectItem value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -237,8 +252,9 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
             )}
 
             <div className="flex gap-2">
-              <input
-                className="flex-1 rounded border bg-background px-2 py-1.5 text-sm"
+              <Input
+                size="sm"
+                className="flex-1"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => {

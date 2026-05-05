@@ -41,7 +41,7 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 | Task | Load |
 |---|---|
-| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn mercato db generate` |
+| Add/modify an entity, create migration | `.ai/skills/data-model-design/SKILL.md`, `.ai/guides/core.md` → Module Files, then `yarn db:generate` |
 | Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
 | Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
 | Configure sidebar navigation, page groups, settings pages | `.ai/skills/module-scaffold/references/navigation-patterns.md` |
@@ -135,11 +135,12 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 
 ## CRITICAL rules — always follow without exception
 
-1. **After editing any entity file**: run `yarn mercato db generate` (never hand-write migrations)
+1. **Entity classes live in `src/modules/<module>/data/entities.ts` and MUST import decorators from `@mikro-orm/decorators/legacy`.** Start there for every schema change.
 2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
 3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
-4. **Confirm migrations with user** before running `yarn mercato db migrate`
-5. **API route files MUST export `metadata`.** Every `src/modules/<module>/api/**/route.ts` that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth, otherwise the generator emits the warning `[generate] ⚠ Route file exports handlers but no metadata — auth will default to required` and every method silently falls back to "authentication required". Use the per-method shape:
+4. **After editing `src/modules/<module>/data/entities.ts`**: run `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for your module and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
+5. **Confirm migrations with user** before running `yarn db:migrate`
+6. **API route files MUST export `metadata`.** Every `src/modules/<module>/api/**/route.ts` that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth, otherwise the generator emits the warning `[generate] ⚠ Route file exports handlers but no metadata — auth will default to required` and every method silently falls back to "authentication required". Use the per-method shape:
    ```ts
    export const metadata = {
      GET: { requireAuth: true, requireFeatures: ['mymodule.view'] },
@@ -147,13 +148,13 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
    }
    ```
    For public endpoints, opt out explicitly with `{ requireAuth: false }`. Do not use the legacy top-level `export const requireAuth` / `export const requireFeatures` — they are no longer recognised.
-6. **Write migrations in one shot.** `yarn dev` auto-applies pending migrations at startup by default (`OM_DEV_AUTO_MIGRATE=1`). Once a generated migration has been run, editing the same migration file has no effect — the next migrate pass skips it as already-applied. If you truly need to iterate, either (a) disable auto-migrate (`OM_DEV_AUTO_MIGRATE=0`) and roll back with `yarn db:migrate --down` between edits, or (b) ship the correction as a **new** migration file. Never hand-edit a historical migration that has already been applied in any environment.
-7. **After the user adds a new module, offer to trim classic mode.** A fresh `create-mercato-app` scaffold enables every built-in module (classic mode). Once the user has added their own custom module, the defaults are usually dead weight. **Ask the user** (via a short `AskUserQuestion`) whether they want to disable built-in modules that are not needed for their project. If they say yes, invoke the `trim-unused-modules` skill — do NOT hand-craft the slimdown inside the AGENTS.md reading flow. If they say no, preserve classic mode silently.
+7. **Write migrations in one shot.** `yarn dev` auto-applies pending migrations at startup by default (`OM_DEV_AUTO_MIGRATE=1`). Once a migration has been applied, editing the same file usually has no effect — the next migrate pass skips it as already-applied. If `yarn db:generate` shows unrelated churn, manual SQL for the intended module is allowed, but you MUST also update that module's `.snapshot-open-mercato.json`. Never hand-edit a historical migration that has already shipped; add a **new** migration instead.
+8. **After the user adds a new module, offer to trim classic mode.** A fresh `create-mercato-app` scaffold enables every built-in module (classic mode). Once the user has added their own custom module, the defaults are usually dead weight. **Ask the user** (via a short `AskUserQuestion`) whether they want to disable built-in modules that are not needed for their project. If they say yes, invoke the `trim-unused-modules` skill — do NOT hand-craft the slimdown inside the AGENTS.md reading flow. If they say no, preserve classic mode silently.
 
    **Dashboards fallback rule.** When the user (or the `trim-unused-modules` skill) disables the `dashboards` module, you MUST update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the dashboard render with a `redirect(...)` to the first enabled backend page for the current user — preferring pages already registered in the main sidebar group and respecting the admin/superadmin role of the caller. Otherwise `/backend` will crash at build or request time because the removed module no longer ships `DashboardScreen`. Always fall back to `/backend/profile` only if no other backend page is available.
-8. **New features MUST be visible to admin/superadmin immediately.** Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also (a) add that feature to `defaultRoleFeatures` in the same module's `setup.ts` so the admin and superadmin roles get it on every tenant setup; and (b) run `yarn mercato auth sync-role-acls --all-tenants` so existing tenants pick up the new feature without a reinstall. Do this automatically unless the user has explicitly said otherwise — the user should see the features you are building, not stare at a blank admin because their role is missing a grant. Feature IDs are FROZEN once shipped; if a rename is required, add the new ID alongside, grant it, and keep the old one as a deprecated alias.
-9. **Strict Design System alignment for every UI change.** Any UI you add or edit MUST use the Open Mercato design system components and tokens. No hardcoded Tailwind status colors (`text-red-500`, `bg-green-100`, etc.) — use semantic tokens (`text-status-error-text`, `bg-status-success-bg`, …). No arbitrary text sizes (`text-[11px]`, `text-[13px]`) — use the Tailwind scale (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`) or the `text-overline` token for 11px uppercase labels. In PAGE BODY UI, use `lucide-react` icons (never inline `<svg>`); but in `page.meta.ts` files specifically, the `icon` field MUST be built with `React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: '...' }))` — see the reference pattern in `node_modules/@open-mercato/core/dist/modules/customers/backend/customers/people/page.meta.js` or mirror `packages/core/src/modules/customers/backend/customers/people/page.meta.ts` in the monorepo. Do NOT `import { IconName } from 'lucide-react'` inside meta files — after the lucide-react major upgrade, direct imports in meta files break page-metadata serialization. Grab the `d="..."` from the lucide icon you want and inline it via `React.createElement`. Use `StatusBadge` for entity status, `Alert` for inline feedback, `FormField` for standalone form inputs, `SectionHeader` for detail-page section headings, `CollapsibleSection` for collapsible regions, `LoadingMessage`/`Spinner`/`DataLoader` for async states, and `EmptyState` (or DataTable's `emptyState` prop) for empty lists. Every dialog MUST support `Cmd/Ctrl+Enter` to submit and `Escape` to cancel. Every icon-only button MUST have an `aria-label`. These rules apply to `src/modules/<module>/backend/**` and `src/modules/<module>/frontend/**` alike.
-7. **BEFORE writing ANY code**, you MUST:
+9. **New features MUST be visible to default roles immediately.** Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also (a) add that feature to `defaultRoleFeatures` in the same module's `setup.ts` so the admin role and any other appropriate default roles get it on every tenant setup; and (b) run `yarn mercato auth sync-role-acls` so existing tenants pick up the new feature without a reinstall. Use `--tenant <tenantId>` only when the user asks to target one tenant. Do this automatically unless the user has explicitly said otherwise — the user should see the features you are building, not stare at a blank admin because their role is missing a grant. Feature IDs are FROZEN once shipped; if a rename is required, add the new ID alongside, grant it, and keep the old one as a deprecated alias.
+10. **Strict Design System alignment for every UI change.** Any UI you add or edit MUST use the Open Mercato design system components and tokens. No hardcoded Tailwind status colors (`text-red-500`, `bg-green-100`, etc.) — use semantic tokens (`text-status-error-text`, `bg-status-success-bg`, …). No arbitrary text sizes (`text-[11px]`, `text-[13px]`) — use the Tailwind scale (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`) or the `text-overline` token for 11px uppercase labels. In PAGE BODY UI, use `lucide-react` icons (never inline `<svg>`). Use `StatusBadge` for entity status, `Alert` for inline feedback, `FormField` for standalone form inputs, `SectionHeader` for detail-page section headings, `CollapsibleSection` for collapsible regions, `LoadingMessage`/`Spinner`/`DataLoader` for async states, and `EmptyState` (or DataTable's `emptyState` prop) for empty lists. For list pages, follow `.ai/skills/backend-ui-design/SKILL.md` and prefer the `DataTable` host pattern shown there (`entityId`, `apiPath`, stable `extensionTableId`, and explicit pagination props when you own the data source). Every dialog MUST support `Cmd/Ctrl+Enter` to submit and `Escape` to cancel. Every icon-only button MUST have an `aria-label`. These rules apply to `src/modules/<module>/backend/**` and `src/modules/<module>/frontend/**` alike.
+11. **BEFORE writing ANY code**, you MUST:
    - Match your task against the **Task → Context Map** above
    - `Read` every file listed in the "Load" column for your task type
    - Only then proceed to implementation
@@ -163,13 +164,15 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## Additional Conventions
 
 - Custom modules use `from: '@app'` in `src/modules.ts`
+- Entity classes belong in `src/modules/<module>/data/entities.ts` and use decorators from `@mikro-orm/decorators/legacy`
 - Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
 - `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
+- Detail/read-model APIs that expose `customFields` MUST return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 - Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
 - `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping
 - Settings pages MUST use `pageContext: 'settings' as const` with `navHidden: true`
 - All related pages within a module MUST share the same `pageGroupKey`
-- DataTable MUST wire pagination props (`page`, `pageSize`, `totalCount`, `onPageChange`)
+- DataTable hosts MUST keep `extensionTableId` stable; when you own pagination state, wire `page`, `pageSize`, `totalCount`, and `onPageChange`
 
 ## Naming Conventions
 
@@ -226,8 +229,8 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn generate` | Regenerate `.mercato/generated/` |
 | `yarn mercato configs cache structural --all-tenants` | Manually purge structural navigation/sidebar cache entries |
 | `yarn mercato module add <package>` | Install and enable an official module package |
-| `yarn mercato db generate` | Create migration for entity changes |
-| `yarn mercato db migrate` | Apply pending migrations |
+| `yarn db:generate` | Probe/create migration SQL for entity changes |
+| `yarn db:migrate` | Apply pending migrations after user confirmation |
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |

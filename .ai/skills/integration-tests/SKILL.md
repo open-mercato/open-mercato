@@ -18,7 +18,7 @@ This skill generates executable Playwright tests in module-local `__integration_
 | Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
 | Run standalone create-app integration parity from monorepo | `yarn test:create-app:integration` |
 | View report | `yarn test:integration:report` |
-| Test files location | `<module>/__integration__/TC-XXX.spec.ts` (legacy `.ai/qa/tests` still supported) |
+| Test files location | `<module>/__integration__/TC-XXX.spec.ts` |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
 | Reusable env state file | `.ai/qa/ephemeral-env.json` |
 
@@ -57,7 +57,7 @@ List existing test cases in the target category to determine the next sequential
 
 ```bash
 ls .ai/qa/scenarios/TC-{CATEGORY}-*.md 2>/dev/null | sort | tail -1
-find apps packages .ai/qa/tests -type f -name "TC-{CATEGORY}-*.spec.ts" 2>/dev/null | sort | tail -1
+find apps packages -type f -path "*/__integration__/*" -name "TC-{CATEGORY}-*.spec.ts" 2>/dev/null | sort | tail -1
 ```
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
@@ -115,7 +115,8 @@ Metadata for conditional test enablement:
 
 - Folder-level metadata:
   - Add `meta.ts` or `index.ts` anywhere under `__integration__/`.
-  - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`.
+  - Supported module keys: `dependsOnModules`, `requiredModules`, `requiresModules`.
+  - Supported env keys: `requiredEnvVars`, `requiresEnvVars`, `requiredAnyEnvVars`, `requiresAnyEnvVars`.
   - Example:
 
 ```ts
@@ -138,6 +139,9 @@ export const integrationMeta = {
 - Evaluation model:
   - Dependencies inherit from `__integration__/` root through nested subfolders and then per-test metadata is applied.
   - If any required module is not enabled in the app, matching tests are skipped automatically (excluded from discovery/run).
+  - If any `requiredEnvVars` entry is missing or blank, matching tests are skipped automatically (excluded from discovery/run).
+  - If `requiredAnyEnvVars` is set and none of the listed env vars is configured, matching tests are skipped automatically.
+  - Only env-gate tests that truly require external services. If an AI/LLM flow can be stubbed or can skip only the live model-backed subcase, keep the test runnable without secrets.
 
 ### Phase 6 — Optionally Write the Markdown Scenario
 
@@ -264,7 +268,7 @@ If the run fails, apply the shared failure-analysis section above.
 - MUST analyze failed test artifacts (`stdout`, `error-context.md`, screenshots/report) before reporting failures
 - MUST report failures in a per-test table that includes reason, evidence, and suggested owner
 - MUST apply the same failure-analysis and table-reporting rules when only running existing tests after implementation work
-- MUST place new tests in module-local `__integration__` directories; use legacy `.ai/qa/tests/` only when there is no module context
+- MUST place executable tests in module-local `__integration__` directories; never add `.spec.ts` files under `.ai/qa/tests/`
 - MUST keep module-specific helper utilities next to tests under `<module>/__integration__/helpers/`; for shared/cross-module helpers, import from `@open-mercato/core/helpers/integration/*`
 - MUST treat `packages/enterprise/modules/<module>/__integration__/` as an optional overlay and keep base code independent from enterprise
 - MUST use `meta.ts` or `index.ts` dependency metadata for module-gated folders and per-test `.meta.ts` (or in-file metadata) for individual gating
@@ -322,7 +326,7 @@ yarn test:integration:ephemeral:interactive
 
 When converting multiple scenarios at once:
 
-1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs discovered `**/__integration__/**/*.spec.ts` (plus legacy `.ai/qa/tests/**/*.spec.ts`)
+1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs discovered `**/__integration__/**/*.spec.ts`
 2. Convert one category at a time
 3. Run the full suite after each category to catch cross-test issues
 4. Report summary: total converted, passed, failed

@@ -373,6 +373,16 @@ export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
   return _frontendRouteManifests ?? []
 }
 
+let _apiRouteManifests: ApiRouteManifestEntry[] | null = null
+
+export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
+  _apiRouteManifests = routes
+}
+
+export function getApiRouteManifests(): ApiRouteManifestEntry[] {
+  return _apiRouteManifests ?? []
+}
+
 // CLI modules registry - shared between CLI and module workers
 let _cliModules: Module[] | null = null
 

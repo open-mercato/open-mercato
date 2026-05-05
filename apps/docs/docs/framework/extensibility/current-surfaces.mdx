@@ -72,6 +72,8 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Vector DB backends (current set) | Use built-in driver IDs: `pgvector`, `qdrant`, `chromadb` | [Hybrid search](/framework/database/hybrid-search) |
 | Cache backends | Configure cache strategy (`memory`, `redis`, `sqlite`, `jsonfile`) | [Cache management](/user-guide/cache-management) |
 | AI tools (MCP) | Add `ai-tools.ts`, register tools via ai-assistant contracts | [AI assistant package guide](/framework/modules/overview) |
+| AI agents and tool packs | Add `ai-agents.ts` at module root; define tools with `defineAiTool` (packs: `search`, `attachments`, `meta`, customers, catalog) | [AI Agents](/framework/ai-assistant/agents), [AI Framework Overview](/framework/ai-assistant/overview) |
+| `<AiChat>` embed injection | Render `<AiChat agent="module.agent_id">` on backend pages; forwards `pageContext` into the dispatcher | [AI Agents](/framework/ai-assistant/agents), [Mutation Approvals](/framework/ai-assistant/mutation-approvals) |
 
 ## Notifications, messages, and domain integrations
 

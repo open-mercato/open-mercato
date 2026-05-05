@@ -8,6 +8,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -442,18 +449,21 @@ export function AttachmentPartitionSettings() {
                 <Label htmlFor="partition-ocr-model">
                   {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
                 </Label>
-                <select
-                  id="partition-ocr-model"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.ocrModel}
-                  onChange={(event) => setForm((prev) => ({ ...prev, ocrModel: event.target.value }))}
+                <Select
+                  value={form.ocrModel || undefined}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, ocrModel: value ?? '' }))}
                 >
-                  {OCR_MODEL_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {t(`attachments.partitions.form.ocrModelOptions.${option.value || 'default'}`, option.label)}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="partition-ocr-model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OCR_MODEL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(`attachments.partitions.form.ocrModelOptions.${option.value || 'default'}`, option.label)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">
                   {t(
                     'attachments.partitions.form.ocrModelHelp',

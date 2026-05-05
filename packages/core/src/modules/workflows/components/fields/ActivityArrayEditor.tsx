@@ -6,6 +6,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
@@ -216,21 +223,24 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       <Label htmlFor={`${id}-${index}-activityType`} className="text-xs font-medium mb-1">
                         {t('workflows.fieldEditors.activities.activityType')} *
                       </Label>
-                      <select
-                        id={`${id}-${index}-activityType`}
+                      <Select
                         value={activity.activityType}
-                        onChange={(e) => updateActivity(index, 'activityType', e.target.value)}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onValueChange={(value) => updateActivity(index, 'activityType', value)}
                         disabled={disabled}
                       >
-                        <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
-                        <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
-                        <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
-                        <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
-                        <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
-                        <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
-                        <option value="WAIT">{t('workflows.activities.types.WAIT')}</option>
-                      </select>
+                        <SelectTrigger id={`${id}-${index}-activityType`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
+                          <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
+                          <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
+                          <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
+                          <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
+                          <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
+                          <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/* Timeout */}

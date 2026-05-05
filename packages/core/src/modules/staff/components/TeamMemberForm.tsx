@@ -8,6 +8,13 @@ import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fiel
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { AttachmentsSection, TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -292,12 +299,11 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                   {translate('staff.teamMembers.form.actions.createTeam', 'Create new team')}
                 </Button>
               </div>
-              <select
-                className="w-full h-9 rounded border px-2 text-sm"
-                value={currentValue}
-                onChange={(event) => {
-                  const nextValue = event.target.value || undefined
-                  const nextTeamId = event.target.value || null
+              <Select
+                value={currentValue || undefined}
+                onValueChange={(value) => {
+                  const nextValue = value || undefined
+                  const nextTeamId = value || null
                   setValue(nextValue)
                   setSelectedTeamId(nextTeamId)
                   if (!setFormValue) return
@@ -310,16 +316,19 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                     setFormValue('roleIds', nextRoleIds)
                   }
                 }}
-                data-crud-focus-target=""
                 disabled={disabled}
               >
-                <option value="">{translate('ui.forms.select.emptyOption', '—')}</option>
-                {teamOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger data-crud-focus-target="">
+                  <SelectValue placeholder={translate('ui.forms.select.emptyOption', '—')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )
         },

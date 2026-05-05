@@ -1,3 +1,45 @@
+# Unreleased
+
+## Highlights
+**AI Framework Unification** 🧠 (#1593) — single contract for agent-oriented surfaces across the platform, from typed agent definitions to mutation approval. Implements the full [`2026-04-11-unified-ai-tooling-and-subagents`](.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md) spec (Phases 0–3). OpenCode Code Mode stays unchanged — the new framework runs alongside it.
+
+## ✨ Features
+
+### 🧠 AI agent runtime
+- `AiAgentDefinition` + `defineAiTool()`, `ai-agents.generated.ts` discovery, `agent-registry.ts` loader, runtime policy gate, and `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` dispatcher route. (#1593) *(@peter)*
+
+### 🧰 AI SDK helpers
+- `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText`, `runAiAgentObject` plus chat-mode / object-mode parity tests. (#1593) *(@peter)*
+
+### 📎 Attachment bridge
+- Typed resolved-attachment parts (`bytes` / `signed-url` / `text` / `metadata-only`), UI-part contract, and structured prompt-composition primitives. (#1593) *(@peter)*
+
+### 🧩 Tool packs
+- General (`search.*`, `attachments.*`, `meta.*`), customers, and catalog packs plus D18 merchandising read + AI-authoring tools. (#1593) *(@peter)*
+
+### 🛍️ D18 merchandising demo
+- `catalog.merchandising_assistant` with selection-aware `pageContext`; four bulk-edit use cases flow through `bulk_update_products` with single `[Confirm All]` approval, per-record `catalog.product.updated` events, DataTable refresh via DOM bridge, and `partialSuccess` handling. (#1593) *(@peter)*
+
+### 🎛️ Playground + settings UI
+- `<AiChat>` component, backend playground (`/backend/config/ai-assistant/playground`), and agent settings page (`/backend/config/ai-assistant/agents`) with versioned prompt overrides and feature-gated `mutationPolicy`. (#1593) *(@peter)*
+
+### 🛡️ Mutation approval gate (D16)
+- New additive table `ai_pending_actions` with three routes (`GET`/`confirm`/`cancel`), `prepareMutation` runtime wrapper, four new UI parts, typed `ai.action.{confirmed,cancelled,expired}` events, cleanup worker, and the first mutation-capable agent flow (`customers.account_assistant`). (#1593) *(@peter)*
+
+## 🛠️ Improvements
+
+- Shared model factory extracted from `inbox_ops/lib/llmProvider.ts` with caller-override / `<MODULE>_AI_MODEL` env / agent-default / provider-default resolution; original API preserved via a thin shim (no call-site churn). New env var `AI_PENDING_ACTION_TTL_SECONDS` (default `900`). (#1593) *(@peter)*
+
+## 📝 Specs & Documentation
+
+- Spec moved to [`.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`](.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md) (history preserved via `git mv`); AI Assistant `AGENTS.md` gains an **Upgrading / Operator rollout notes** section with env vars, new tables, cleanup worker registration, and OpenCode coexistence guidance. (#1593) *(@peter)*
+
+## 👥 Contributors
+
+- @peter
+
+---
+
 # 0.5.0 (2026-04-21)
 
 ## Highlights

@@ -42,7 +42,11 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../../lib/personCompanyLinkTable'
+import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -702,15 +706,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       },
       'customers.companies.GET',
     )
-    const companyLinks = await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      companyLinkWhere,
-      {
-        populate: ['person', 'person.personProfile'],
-        orderBy: { isPrimary: 'desc', createdAt: 'asc' },
-      },
-      peopleDecryptionScope,
+    const companyLinks = filterActivePersonCompanyLinks(
+      await findWithDecryption(
+        em,
+        CustomerPersonCompanyLink,
+        companyLinkWhere,
+        {
+          populate: ['person', 'person.personProfile'],
+          orderBy: { isPrimary: 'desc', createdAt: 'asc' },
+        },
+        peopleDecryptionScope,
+      ),
     )
     companyLinks.forEach((link) => {
       const entity = typeof link.person === 'string' ? null : link.person
@@ -778,10 +784,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const routing = await resolveCompanyCustomFieldRouting(em, company.tenantId ?? null, company.organizationId ?? null)
-  const customFields = mergeCompanyCustomFieldValues(
-    routing,
-    entityCustomFieldValues?.[company.id] ?? {},
-    profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+  const customFields = normalizeCustomerDetailCustomFields(
+    mergeCompanyCustomFieldValues(
+      routing,
+      entityCustomFieldValues?.[company.id] ?? {},
+      profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+    ),
   )
 
   const activityCount = await em.count(CustomerInteraction, {
@@ -826,18 +834,23 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       })
   const peopleCount = includePeople
     ? relatedPeople.length
-    : await em.count(
-        CustomerPersonCompanyLink,
-        await withActiveCustomerPersonCompanyLinkFilter(
+    : filterActivePersonCompanyLinks(
+        await findWithDecryption(
           em,
-          {
-            company: company.id,
-            organizationId: company.organizationId,
-            tenantId: company.tenantId,
-          },
-          'customers.companies.GET',
+          CustomerPersonCompanyLink,
+          await withActiveCustomerPersonCompanyLinkFilter(
+            em,
+            {
+              company: company.id,
+              organizationId: company.organizationId,
+              tenantId: company.tenantId,
+            },
+            'customers.companies.GET',
+          ),
+          {},
+          { tenantId: company.tenantId, organizationId: company.organizationId },
         ),
-      )
+      ).length
   const kpiInteractionRows = canonicalActiveInteractions.length
     ? canonicalActiveInteractions
     : await findWithDecryption(

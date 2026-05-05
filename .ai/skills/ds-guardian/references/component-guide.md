@@ -18,6 +18,17 @@
 | Build a CRUD form | `<CrudForm fields={...} onSubmit={...} />` | `@open-mercato/ui/backend/CrudForm` |
 | Add a metadata badge (count, tag) | `<Badge variant="secondary">` | `@open-mercato/ui/primitives/badge` |
 | Use an icon | `<IconName className="size-4" />` from lucide-react | `lucide-react` |
+| Render text input (text/email/password/number/tel/url/search) | `<Input leftIcon={...} rightIcon={...} size="sm\|default\|lg" />` | `@open-mercato/ui/primitives/input` |
+| Render multi-line text with optional char counter | `<Textarea showCount maxLength={...} />` | `@open-mercato/ui/primitives/textarea` |
+| Render dropdown / single-select | `<Select><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>...</SelectContent></Select>` | `@open-mercato/ui/primitives/select` |
+| Render checkbox (binary toggle inside form) | `<Checkbox checked={...} onCheckedChange={...} />` | `@open-mercato/ui/primitives/checkbox` |
+| Render checkbox with label + description | `<CheckboxField label="..." description="..." />` | `@open-mercato/ui/primitives/checkbox-field` |
+| Render binary toggle (immediate effect, e.g. setting on/off) | `<Switch />` or `<SwitchField label="..." />` | `@open-mercato/ui/primitives/switch` / `@open-mercato/ui/primitives/switch-field` |
+| Render mutually-exclusive choice | `<RadioGroup><Radio value="..." />...</RadioGroup>` or `<RadioField label="..." />` | `@open-mercato/ui/primitives/radio` / `@open-mercato/ui/primitives/radio-field` |
+| Show hover hint with arrow | `<SimpleTooltip content="..." arrow>` | `@open-mercato/ui/primitives/tooltip` |
+| Show inline link styled as button | `<LinkButton variant="..." />` | `@open-mercato/ui/primitives/link-button` |
+| Show OAuth/social sign-in button | `<SocialButton brand="apple\|github\|google\|x\|facebook\|dropbox\|linkedin" />` | `@open-mercato/ui/primitives/social-button` |
+| Show marketing CTA with brand gradient | `<FancyButton intent="..." />` | `@open-mercato/ui/primitives/fancy-button` |
 
 ## FormField
 
@@ -167,6 +178,236 @@ Rule 1-1-N: Max 1 `default`, max 1 `destructive`, any number of others per secti
 | `size-6` | 24px | Large icons, empty states |
 
 Always use `lucide-react`. Never inline `<svg>`. Icon-only buttons MUST have `aria-label`.
+
+## Form Primitives — Raw HTML → DS Replacement
+
+NEVER use raw HTML form controls. Always use the DS primitive equivalent.
+
+| Raw HTML | Use this | Why |
+|---|---|---|
+| `<input type="text\|email\|password\|number\|tel\|url\|search">` | `<Input>` | Token-driven focus/disabled, icon slots, FormField error pickup |
+| `<input type="checkbox">` | `<Checkbox>` (or `<CheckboxField>`) | Indeterminate, indigo selection, focus halo |
+| `<input type="radio">` | `<Radio>` inside `<RadioGroup>` (or `<RadioField>`) | Group keyboard nav, indigo selection, focus halo |
+| `<select>` | `<Select>` family | Themed popper, scroll on long lists, no empty-string items |
+| `<textarea>` | `<Textarea>` | Token disabled/focus, optional `showCount` |
+| Custom `role="switch"` button | `<Switch>` (or `<SwitchField>`) | Figma-aligned 28×16 track, indigo on, hit area 32×20 |
+
+## Input
+
+Single-line text input (text, email, password, number, tel, url, search).
+
+```typescript
+type InputProps = {
+  size?: 'sm' | 'default' | 'lg'      // h-8 / h-9 / h-10
+  leftIcon?: ReactNode                 // size-4 lucide icon
+  rightIcon?: ReactNode
+  className?: string                   // wrapper
+  inputClassName?: string              // inner <input>
+} & React.InputHTMLAttributes<HTMLInputElement>
+```
+
+**Example:**
+```tsx
+<FormField label="Email" required error={errors.email}>
+  <Input
+    type="email"
+    leftIcon={<Mail />}
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+  />
+</FormField>
+```
+
+**Rules:**
+- NEVER pass width/height/border/radius/padding/text-size in `className` — DS scales handle them
+- For error styling: do NOT add `border-red-*` — set `aria-invalid={!!error}` (FormField does this automatically)
+- Convert absolute-positioned input icons to `leftIcon` / `rightIcon` slots
+- Do NOT add `disabled:opacity-50` — primitive uses `--bg-disabled` / `--text-disabled` / `--border-disabled` tokens
+
+## Textarea
+
+Multi-line text input.
+
+```typescript
+type TextareaProps = {
+  showCount?: boolean         // shows aria-live counter under field
+  maxLength?: number          // bounds counter, no typing past max
+} & React.TextareaHTMLAttributes<HTMLTextAreaElement>
+```
+
+**Example:**
+```tsx
+<FormField label="Notes">
+  <Textarea showCount maxLength={500} rows={4} />
+</FormField>
+```
+
+**Rules:**
+- Default `min-h-[80px]`, `resize-y` — do NOT override unless layout demands it
+- Counter renders below field, switches to `text-destructive` when over max
+- For CrudForm fields, set `maxLength` and `showCount` directly on the `CrudField` definition
+
+## Select
+
+Dropdown / single-select. Built on Radix Select.
+
+```tsx
+import {
+  Select, SelectGroup, SelectValue, SelectTrigger,
+  SelectContent, SelectLabel, SelectItem, SelectSeparator,
+} from '@open-mercato/ui/primitives/select'
+
+<Select value={status || undefined} onValueChange={setStatus}>
+  <SelectTrigger size="sm">
+    <SelectValue placeholder={t('module.status.placeholder', 'Select status')} />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectGroup>
+      <SelectLabel>{t('module.status.label', 'Status')}</SelectLabel>
+      <SelectItem value="active">Active</SelectItem>
+      <SelectItem value="inactive">Inactive</SelectItem>
+      <SelectSeparator />
+      <SelectItem value="archived">Archived</SelectItem>
+    </SelectGroup>
+  </SelectContent>
+</Select>
+```
+
+**Rules:**
+- NEVER use `<SelectItem value="">` — Radix forbids empty values. Use `placeholder` on `SelectValue` instead.
+- For optional fields with controlled state, pass `value={x || undefined}` so placeholder shows when empty.
+- Trigger sizes match `<Input>`: `sm` (h-8), default (h-9), `lg` (h-10).
+- Long lists scroll automatically — do NOT add `max-h` or `overflow` overrides on `SelectContent`.
+
+## Checkbox / CheckboxField
+
+Binary toggle inside a form (state visible only on submit, not immediate effect).
+
+```typescript
+type CheckboxFieldProps = {
+  label: ReactNode
+  sublabel?: ReactNode
+  description?: ReactNode
+  badge?: ReactNode
+  link?: ReactNode
+  flip?: boolean                  // checkbox on right (default: left)
+} & CheckboxProps
+```
+
+**Example:**
+```tsx
+<CheckboxField
+  label={t('settings.notifications.label', 'Email notifications')}
+  description={t('settings.notifications.help', 'Receive updates about your account')}
+  checked={notify}
+  onCheckedChange={setNotify}
+/>
+```
+
+**Rules:**
+- ON state uses `--accent-indigo` (#6366f1). NEVER override with `data-[state=checked]:bg-primary`.
+- Use `<CheckboxField>` whenever the checkbox has a label — it handles `htmlFor`, alignment, and disabled propagation.
+- For indeterminate state, pass `checked="indeterminate"`.
+
+## Switch / SwitchField
+
+Binary toggle with **immediate effect** (e.g., feature flag, sync on/off).
+
+```typescript
+type SwitchFieldProps = {
+  label: ReactNode
+  sublabel?: ReactNode
+  description?: ReactNode
+  badge?: ReactNode
+  link?: ReactNode
+  flip?: boolean                  // switch on left (default: switch on right)
+} & SwitchProps
+```
+
+**Example:**
+```tsx
+<SwitchField
+  label={t('users.active.label', 'Active')}
+  description={t('users.active.help', 'Disable to revoke access immediately')}
+  checked={isActive}
+  onCheckedChange={toggleActive}
+/>
+```
+
+**Decision: Switch vs Checkbox**
+- **Switch** — immediate effect (toggle a setting that changes behavior right now)
+- **Checkbox** — deferred state (collected on form submit)
+
+**Rules:**
+- ON state uses `--accent-indigo` (color contract with Checkbox/Radio).
+- Track is 28×16, thumb 12px — do NOT override sizing.
+- `<SwitchField>` defaults to label-LEFT, switch-RIGHT (preference style). Use `flip` to swap.
+
+## Radio / RadioGroup / RadioField
+
+Mutually-exclusive choice from a list. Built on Radix RadioGroup.
+
+```tsx
+import { RadioGroup, Radio } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
+
+// Pattern A — manual layout (cards, table rows)
+<RadioGroup value={mode} onValueChange={setMode}>
+  <label className="flex items-center gap-2">
+    <Radio value="auto" />
+    <span>{t('settings.mode.auto', 'Automatic')}</span>
+  </label>
+</RadioGroup>
+
+// Pattern B — labeled list
+<RadioGroup value={mode} onValueChange={setMode}>
+  <RadioField value="inherit" label={t('users.role.inherit', 'Inherit from roles')} />
+  <RadioField value="override" label={t('users.role.override', 'Override for this user')} description={...} />
+</RadioGroup>
+```
+
+**Rules:**
+- ON state uses `--accent-indigo` (color contract).
+- Always wrap `<Radio>` in `<RadioGroup>` — provides keyboard navigation and shared name.
+- For card-style selectors with selected highlighting, use Pattern A and keep custom card styling.
+
+## Tooltip / SimpleTooltip
+
+Hover hint with optional arrow.
+
+```tsx
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
+
+<SimpleTooltip content={t('actions.delete.help', 'Permanently delete this item')} arrow>
+  <IconButton aria-label={t('common.delete', 'Delete')}>
+    <Trash />
+  </IconButton>
+</SimpleTooltip>
+```
+
+**Variants:**
+- `default` (dark, high contrast — like iOS) — most use cases
+- `light` (white with border) — when dark conflicts with surrounding context
+
+**Sizes:** `sm` (table cells, icon buttons), `default`, `lg` (multi-line / rich content)
+
+**Rules:**
+- `arrow` defaults to `true` — keep it on for clarity unless the tooltip is multi-element popover-style.
+- Wrap `<IconButton>` in `<SimpleTooltip>` to surface its `aria-label` visually on hover.
+
+## LinkButton / SocialButton / FancyButton
+
+Specialized button primitives.
+
+| Primitive | Use case |
+|---|---|
+| `<LinkButton>` | Inline text link styled like a button (in body copy, footers, table cells) |
+| `<SocialButton brand="...">` | OAuth sign-in (Google / Apple / GitHub / X / Facebook / Dropbox / LinkedIn) |
+| `<FancyButton intent="...">` | Marketing CTA with brand-violet/lime gradient (NOT for backend admin) |
+
+**Rules:**
+- Brand colors come from `--brand-*` tokens. NEVER hardcode `#1877F2` etc.
+- `<FancyButton>` is theme-invariant by design — no `dark:` overrides needed.
 
 ## Typography Scale
 

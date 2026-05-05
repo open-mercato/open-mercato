@@ -49,6 +49,13 @@ export default function PortalLoginPage({ params }: Props) {
 
         if (result.status === 423) {
           setError(t('portal.login.error.locked', 'Account locked. Try again later.'))
+        } else if (result.status === 401 && result.result?.error === 'Account is deactivated') {
+          setError(
+            t(
+              'portal.login.error.inactive',
+              'Your account is not active yet. An administrator must activate it before you can log in.',
+            ),
+          )
         } else if (result.status === 401) {
           setError(t('portal.login.error.invalidCredentials', 'Invalid email or password.'))
         } else {

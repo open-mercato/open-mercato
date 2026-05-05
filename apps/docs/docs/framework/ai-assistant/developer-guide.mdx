@@ -1,0 +1,339 @@
+---
+title: Developer Guide
+description: End-to-end walkthrough — declare an agent, register typed tools, ship a custom UI part, gate mutations through the approval card, and embed the chat in a page.
+---
+
+# Developer Guide
+
+This page walks through everything a coding agent needs to add a fully-working AI assistant to a module: agent definition, typed tool packs, ACL grants, mutation approvals, custom UI parts, embedding, and the verification checklist.
+
+It mirrors the [`create-ai-agent` skill](https://github.com/) at `.ai/skills/create-ai-agent/SKILL.md` for use during pull-request review and one-shot generation.
+
+## Prerequisites
+
+1. The module exists (`acl.ts`, `setup.ts`, `index.ts`) — if not, scaffold it first via the core module guide.
+2. At least one provider key is set: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`.
+3. The user has `ai_assistant.view` granted in `setup.ts` `defaultRoleFeatures`.
+
+Decide up front:
+
+- **Execution mode** — `chat` (default, multi-turn UI) vs `object` (single-shot validated JSON).
+- **Mutation posture** — `read-only` (default) vs `confirm-required` (every write goes through the approval card) vs `destructive-confirm-required` (only deletes + bulk cascades trigger the card).
+- **Whether the agent ships any `isMutation: true` tools** — if yes, set `readOnly: false` AND a non-`read-only` `mutationPolicy` from day one. Per-tenant overrides can downgrade later but not escalate.
+
+## File layout
+
+```
+packages/<pkg>/src/modules/<module>/         (or apps/<app>/src/modules/<module>/)
+├── ai-agents.ts                              # Agent definitions — REQUIRED
+├── ai-tools.ts                               # Tool pack registry — REQUIRED
+├── ai-agents-context.ts                      # Optional: resolvePageContext implementation
+├── ai-tools/                                 # Optional: split big tool packs
+│   ├── types.ts
+│   └── <surface>-pack.ts
+├── widgets/ai-parts/                         # Optional: custom UI parts (record cards / server parts)
+├── acl.ts                                    # MUST list every requiredFeatures id
+└── setup.ts                                  # MUST grant features in defaultRoleFeatures
+```
+
+`ai-agents.ts` and `ai-tools.ts` MUST live at the module root. The generator only scans those two filenames.
+
+## Step 1 — declare typed tools
+
+Tools are typed handlers registered with `defineAiTool`. Every tool that reads or writes tenant data MUST declare `requiredFeatures` and use a Zod `inputSchema`.
+
+```ts
+// src/modules/<module>/ai-tools/things-pack.ts
+import { defineAiTool } from '@open-mercato/ai-assistant'
+import { z } from 'zod'
+
+export const listThings = defineAiTool({
+  name: '<module>.list_things',
+  description: 'Search things by name. Returns up to `limit` records scoped to the caller tenant.',
+  isMutation: false,
+  requiredFeatures: ['<module>.thing.view'],
+  inputSchema: z.object({
+    q: z.string().optional(),
+    limit: z.number().int().min(1).max(100).default(20),
+  }),
+  async handler(args, ctx) {
+    // ctx: { container, tenantId, organizationId, userId, userFeatures, isSuperAdmin, tool }
+    const em = ctx.container.resolve('em')
+    // ...load tenant-scoped, return a serializable object
+    return { records: [] }
+  },
+})
+
+export default [listThings]
+```
+
+Re-export the union from the module root:
+
+```ts
+// src/modules/<module>/ai-tools.ts
+import thingsPack from './ai-tools/things-pack'
+export const aiTools = [...thingsPack]
+export default aiTools
+```
+
+### MUST rules
+
+- MUST set `requiredFeatures` for every data-touching tool.
+- MUST use Zod for `inputSchema`. Never raw JSON Schema.
+- MUST set `isMutation: true` on any write tool. The runtime strips these from `readOnly: true` agents and from tenant overrides resolving to `read-only`.
+- MUST keep handler results serializable (no class instances, no functions).
+- MUST use the in-process API operation runner (`createAiApiOperationRunner`) when reusing existing API routes — never inline `fetch` calls back into your own app.
+
+## Step 2 — declare the agent
+
+```ts
+// src/modules/<module>/ai-agents.ts
+import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
+
+const accountAssistant: AiAgentDefinition = {
+  id: '<module>.<agent>',                    // <moduleId>.<snake_case_name>
+  moduleId: '<module>',
+  label: 'Account Assistant',
+  description: 'Read-only assistant exploring people, companies, deals.',
+  systemPrompt: '...',                       // compose from PromptTemplate sections
+  allowedTools: [
+    '<module>.list_things',
+    '<module>.get_thing',
+    'search.hybrid_search',
+    'search.get_record_context',
+    'attachments.list_record_attachments',
+    'attachments.read_attachment',
+    'meta.describe_agent',
+  ],
+  executionMode: 'chat',
+  readOnly: true,                            // hard-filters isMutation tools when true
+  mutationPolicy: 'read-only',               // pair with readOnly above
+  requiredFeatures: ['<module>.thing.view'],
+  acceptedMediaTypes: ['image', 'pdf', 'file'],
+  defaultModel: 'claude-haiku-4-5',          // optional
+  domain: '<module>',
+  keywords: ['<module>', '...'],
+  // resolvePageContext: optional; see "Page context" below
+}
+
+export const aiAgents: AiAgentDefinition[] = [accountAssistant]
+export default aiAgents
+```
+
+### Structured `PromptTemplate` (recommended)
+
+Mirror `packages/core/src/modules/customers/ai-agents.ts`: declare a `PromptTemplate` with the seven named sections (`role`, `scope`, `data`, `tools`, `attachments`, `mutationPolicy`, `responseStyle`) and compile it into `systemPrompt`. This lets the [Settings UI](./settings) address sections by name and append per-tenant overrides without rewriting the agent.
+
+### Page context
+
+When `<AiChat>` is mounted with `pageContext={{ entityType, recordId }}`, the runtime calls `resolvePageContext` and appends the returned string to `systemPrompt`. Use it to hydrate record-specific context:
+
+```ts
+async function resolvePageContext(input) {
+  // delegate to a helper in ai-agents-context.ts; swallow errors and return null
+  return hydrateAccountContext(input)
+}
+```
+
+### Object-mode agents
+
+Set `executionMode: 'object'` and declare a Zod `output.schema` for one-shot extraction:
+
+```ts
+import { z } from 'zod'
+
+const extractor: AiAgentDefinition = {
+  id: '<module>.attribute_extractor',
+  moduleId: '<module>',
+  // ...
+  executionMode: 'object',
+  output: {
+    schemaName: '<Module>AttributeExtraction',
+    schema: z.object({
+      recordId: z.string().uuid(),
+      attributes: z.array(z.object({ key: z.string(), value: z.string() })),
+    }),
+  },
+}
+```
+
+Reference: `packages/core/src/modules/catalog/ai-agents.ts` (mixed chat + object).
+
+## Step 3 — wire ACL + setup
+
+Every feature listed in `requiredFeatures` (agent or tool) MUST exist in `acl.ts` and be granted in `setup.ts`.
+
+```ts
+// src/modules/<module>/acl.ts
+export const features = [
+  { id: '<module>.thing.view',   label: '<Module>: View things' },
+  { id: '<module>.thing.update', label: '<Module>: Update things' },
+]
+
+// src/modules/<module>/setup.ts
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['<module>.*'],
+    admin: ['<module>.*'],
+    employee: ['<module>.thing.view'],
+  },
+}
+```
+
+If you skip this the dispatcher returns `403` for every caller, including the playground.
+
+## Step 4 — gate mutations through the approval card
+
+For agents that ship any `isMutation: true` tool:
+
+1. Set `readOnly: false` AND a non-`read-only` `mutationPolicy` on the agent.
+2. The runtime intercepts the tool call automatically — do **not** write directly inside the handler. The handler is invoked only after the operator confirms.
+3. The mutation tool MUST declare `loadBeforeRecord` (single-record) or `loadBeforeRecords` (bulk) so the approval card can show a real diff.
+
+```ts
+const updateThingStatus = defineAiTool({
+  name: '<module>.update_thing_status',
+  description: 'Move a thing between statuses. Goes through the approval card.',
+  isMutation: true,
+  requiredFeatures: ['<module>.thing.update'],
+  inputSchema: z.object({
+    id: z.string().uuid(),
+    status: z.enum(['open', 'closed']),
+  }),
+  loadBeforeRecord: async (input, ctx) => {
+    const em = ctx.container.resolve('em')
+    const thing = await loadThingForScope(em, ctx, input.id)
+    if (!thing) return null
+    return {
+      recordId: thing.id,
+      entityType: '<module>.thing',
+      recordVersion: thing.updatedAt?.toISOString() ?? null,
+      before: { status: thing.status ?? null },
+    }
+  },
+  async handler(input, ctx) {
+    // The runtime only reaches here AFTER the user confirms the approval card.
+    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
+    const response = await runner.run({
+      method: 'PUT',
+      path: '/<module>/things',
+      body: { id: input.id, status: input.status },
+    })
+    if (!response.success) throw new Error(response.error ?? 'Failed to update')
+    return { recordId: input.id, before: { status: 'open' }, after: { status: input.status } }
+  },
+})
+```
+
+The full lifecycle (state machine, `failed_records`, stale-version recheck, TTL worker, the three FROZEN events) lives in [Mutation Approvals](./mutation-approvals).
+
+### Default policy for write-capable agents
+
+Write-capable agents in this codebase ship with **`mutationPolicy: 'confirm-required'`** by default. `read-only` is for agents that whitelist no mutation tools at all. The intent is "mutations are allowed but every one needs explicit user approval, every time" — the per-tenant override can downgrade back to `read-only` for safety, never escalate.
+
+## Step 5 — ship UI parts (optional)
+
+If your tools want to render typed inline widgets (cards, diffs, custom interactions), see [UI Parts](./ui-parts).
+
+The cheapest path is **record cards**: have the model emit a fenced Markdown block whose info string is `open-mercato:<kind>` and whose body is one JSON object. The client-side parser replaces the fence with a typed React component. Five kinds ship out of the box (`product`, `deal`, `person`, `company`, `activity`).
+
+For richer parts (server-only state, action handlers), register a custom component id with `registerAiUiPart('<module>:<kind>', Component)` and push the part from your tool's handler.
+
+## Step 6 — generate + cache refresh
+
+After adding or changing `ai-agents.ts` / `ai-tools.ts`:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+The generator aggregates contributions into:
+
+- `apps/<app>/.mercato/generated/ai-agents.generated.ts`
+- `apps/<app>/.mercato/generated/ai-tools.generated.ts`
+
+The cache refresh propagates new ACL features to existing tenants.
+
+## Step 7 — embed the chat
+
+### Per-page injection (preferred)
+
+Use widget injection so the page doesn't import the trigger directly. Reference: `packages/core/src/modules/customers/widgets/injection/ai-assistant-trigger/`.
+
+| Spot ID | When to use |
+|---------|-------------|
+| `data-table:<module>.<entity>.list:search-trailing` | Compact icon trigger next to the list search input |
+| `data-table:<module>.<entity>.list:header` | Toolbar trigger above the list |
+| `detail:<module>.<entity>:header` | Detail page header trigger |
+
+### Inline embed
+
+```tsx
+import { AiChat } from '@open-mercato/ui/ai'
+
+<AiChat
+  agent="<module>.<agent>"
+  pageContext={{ entityType: '<module>:thing', recordId: id }}
+  suggestions={[{ label: 'Summarize', prompt: 'Give me a summary' }]}
+  contextItems={[{ label: 'Active record', detail: id }]}
+/>
+```
+
+### Global launcher (always-on)
+
+The topbar `<AiAssistantLauncher>` already lists every agent the caller is allowed to launch. You don't need to register the agent anywhere extra — once it lands in `ai-agents.generated.ts` and the user has its `requiredFeatures`, it appears in the **Cmd/Ctrl+L** dialog automatically.
+
+See [Global Launcher](./launcher) for the full surface.
+
+## Step 8 — verify
+
+Run through this list before opening the PR:
+
+- `ai-agents.ts` and `ai-tools.ts` exist at the module root.
+- Every tool has `requiredFeatures`, a Zod `inputSchema`, and the right `isMutation` flag.
+- Every mutation tool declares `loadBeforeRecord(s)` AND its handler runs through `createAiApiOperationRunner` (or another guarded write path).
+- `acl.ts` lists every feature referenced by the agent or its tools.
+- `setup.ts` grants those features in `defaultRoleFeatures` for the appropriate roles.
+- `yarn generate` runs cleanly; the agent appears in `apps/<app>/.mercato/generated/ai-agents.generated.ts`.
+- `yarn mercato configs cache structural --all-tenants` ran.
+- At least one provider env var is set; the playground returns a real response.
+- Mutation flow: the approval card renders and the post-approval result reflects the actual DB change.
+- `<AiChat>` is embedded once and uses a stable injection spot id.
+- The agent appears in the global launcher dialog (Cmd/Ctrl+L).
+
+## Common pitfalls
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Agent missing from playground / launcher | `yarn generate` not run, or files not at module root | Move to root; rerun `yarn generate` |
+| Tool never appears to model | Not in agent's `allowedTools`, or tool name typo | Whitelist explicitly; tool names are case-sensitive |
+| 403 at dispatcher | `requiredFeatures` not in user's ACL | Add to `acl.ts` + grant in `setup.ts`, then refresh structural cache |
+| Mutation tool stripped silently | Agent has `readOnly: true` or `mutationPolicy: 'read-only'` | Set `readOnly: false` AND a non-`read-only` policy |
+| Mutation runs without approval card | Handler wrote directly bypassing the approval gate | Make the handler delegate to an existing API route via `createAiApiOperationRunner`; let the runtime intercept the call |
+| Tool shows "Read" badge in agent settings UI | `isMutation: true` not declared on the tool definition | Set the flag on the `defineAiTool` call |
+| `Cannot read properties of undefined (reading 'requiredFeatures')` | Handler did not get `tool` injected into ctx | Update is in `tool-executor` / `pending-action-executor` / `tool-test-runner` — runtime now injects `tool` automatically; ensure your tools are registered through `defineAiTool` |
+| `AiModelFactoryError code: 'no_provider_configured'` | No provider env var set | Set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` |
+| Standalone app doesn't pick up package agent | `dist/modules/<module>/ai-agents.js` not emitted | `yarn build:packages && yarn generate` from app root |
+
+## Reference implementations
+
+| What | Where |
+|------|-------|
+| Read + curated single mutation, structured `PromptTemplate`, page context resolver | `packages/core/src/modules/customers/ai-agents.ts` + `ai-tools/*-pack.ts` |
+| Mixed read + multiple mutations + bulk + media + price suggestion | `packages/core/src/modules/catalog/ai-agents.ts` + `ai-tools.ts` |
+| Object-mode (structured output) | `packages/core/src/modules/catalog/ai-agents.ts` (catalog merchandising attribute extractor) |
+| `<AiChat>` embed in list header | `packages/core/src/modules/customers/widgets/injection/ai-assistant-trigger/` |
+| `<AiChat>` embed in detail page | `packages/core/src/modules/customers/widgets/injection/ai-deal-detail-trigger/` |
+| Custom inline trigger sheet | `packages/core/src/modules/catalog/backend/catalog/products/MerchandisingAssistantSheet.tsx` |
+
+## See also
+
+- [AI Agents](./agents) — agent contract reference
+- [UI Parts](./ui-parts) — record cards + custom inline widgets
+- [Mutation Approvals](./mutation-approvals) — full approval lifecycle
+- [Settings](./settings) — per-tenant prompt + policy overrides
+- [Playground](./playground) — interactive smoke-test surface
+- [Global Launcher](./launcher) — topbar + Cmd/Ctrl+L
+- [Architecture](./architecture) — system map and request flow
+- The `create-ai-agent` skill at `.ai/skills/create-ai-agent/SKILL.md` (consumed by Claude Code agents)

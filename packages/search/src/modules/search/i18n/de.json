@@ -25,7 +25,7 @@
   "search.dialog.actions.openGlobalSearch": "Globale Suche öffnen",
   "search.dialog.actions.openSelected": "Öffnen (Enter)",
   "search.dialog.actions.search": "Suchen",
-  "search.dialog.empty.hint": "Mindestens zwei Zeichen eingeben, um in indizierten Datensätzen zu suchen.",
+  "search.dialog.empty.hint": "Mindestens {{count}} Zeichen eingeben, um in indizierten Datensätzen zu suchen.",
   "search.dialog.empty.none": "Keine Ergebnisse gefunden.",
   "search.dialog.errors.noPermission": "Sie haben keine Berechtigung, die globale Suche zu verwenden.",
   "search.dialog.errors.searchFailed": "Suche ist fehlgeschlagen.",

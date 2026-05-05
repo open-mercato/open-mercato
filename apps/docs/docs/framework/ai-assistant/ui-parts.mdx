@@ -1,0 +1,254 @@
+---
+title: UI Parts
+description: Inline interactive widgets the AI streams into the chat — record cards, mutation approval cards, and how to register your own.
+---
+
+# UI Parts
+
+A **UI part** is a typed component the agent can stream into the chat transcript. The chat composer renders cards, diffs, confirmations, and custom widgets the same way it renders text — from the same SSE stream — so the agent never needs to ask the operator to copy/paste an id.
+
+There are two kinds of UI parts:
+
+| Kind | Rendered from | Examples |
+|------|---------------|----------|
+| **Record cards** | Fenced code blocks the agent emits as plain text (parsed client-side) | `open-mercato:product`, `open-mercato:deal`, `open-mercato:person`, `open-mercato:company`, `open-mercato:activity` |
+| **Server-emitted parts** | `AiUiPart` objects pushed onto the runtime's UI-part queue and streamed as `data-aiui` | `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`, plus your own |
+
+## Record cards (the easy path)
+
+Record cards are the cheapest way to get a typed widget into the chat. The agent emits a fenced Markdown block whose info string starts with `open-mercato:<kind>` and whose body is one JSON object. The client-side parser (`parseAiContentSegments`) replaces the fence with a typed React component.
+
+```ts title="Agent prompt"
+'When you reference a specific product, embed an interactive PRODUCT CARD instead of plain text. Cards render inline and link back to the backoffice. Emit them as fenced code blocks like:',
+'```open-mercato:product',
+'{ "id": "<uuid>", "name": "Wireless Headphones", "sku": "WH-001",',
+'  "price": 199, "currency": "USD",',
+'  "imageUrl": "/api/attachments/image/<media-id>",',
+'  "href": "/backend/catalog/catalog/products/<uuid>" }',
+'```',
+```
+
+The chat composer turns that fence into a `<ProductCard>` with photo, price, status badge, and a click-through to the backoffice.
+
+### Shipped record-card kinds
+
+| Kind | Component | Required field | Notable optional fields |
+|------|-----------|----------------|-------------------------|
+| `product` | `ProductCard` | `name` | `imageUrl`, `sku`, `price`, `currency`, `status`, `category`, `description`, `tags`, `href` |
+| `deal` | `DealCard` | `title` | `status`, `stage`, `amount`, `currency`, `closeDate`, `personName`, `companyName`, `tags`, `href` |
+| `person` | `PersonCard` | `name` | `title`, `email`, `phone`, `companyName`, `avatarUrl`, `tags`, `href` |
+| `company` | `CompanyCard` | `name` | `industry`, `website`, `email`, `city`, `country`, `logoUrl`, `tags`, `href` |
+| `activity` | `ActivityCard` | `title` | `type`, `dueDate`, `relatedTo`, `description`, `tags`, `href` |
+
+Full payload shapes live in `packages/ui/src/ai/records/types.ts`. Always:
+
+- include `id` so the card can carry a `data-record-id` attribute (test selectors use it);
+- include `href` so the card is clickable;
+- omit a field rather than send `null` — the cards skip undefined/empty values gracefully.
+
+### Wiring records into the agent
+
+There is **no registration step** for the shipped kinds — `<AiChat>` always parses them. Two things to do per agent:
+
+1. **Make the prompt teach the model the schema.** Include a `responseStyle` section with the example fence and a "use cards instead of plain text" rule. Reference: `packages/core/src/modules/customers/ai-agents.ts`, `packages/core/src/modules/catalog/ai-agents.ts`.
+2. **Return tool data with card-friendly field names.** For example, the catalog `list_products` tool exposes both `defaultMediaUrl` (the canonical column) and an `imageUrl` alias keyed exactly the way the card payload expects, so the model can pass the field through verbatim.
+
+### Adding a new record-card kind
+
+If you ship a new domain entity that deserves a card:
+
+1. Add the payload type to `packages/ui/src/ai/records/types.ts` and the `RecordCardKind` union.
+2. Implement the component (copy `ProductCard.tsx` as a starting point; reuse `RecordCardShell` for header + leading + meta consistency).
+3. Wire it into `packages/ui/src/ai/records/registry.tsx` so `RecordCard` resolves the new kind.
+4. Document the schema in your agent's prompt and adjust your tool's response shape so the model can fill it without rephrasing.
+5. Add an integration spec under `__tests__` that asserts `<AiMessageContent>` renders the new kind from a fenced sample.
+
+## Server-emitted parts (`AiUiPart`)
+
+Record cards are stateless and inline. **Server-emitted parts** carry props that the server alone can compute (a pending-action id, an attachment binding, a one-time signed URL) and arrive as discrete chunks on the SSE stream.
+
+```ts
+import type { AiUiPart } from '@open-mercato/ai-assistant'
+
+const part: AiUiPart = {
+  componentId: 'mutation-preview-card',
+  props: {
+    pendingActionId: pendingAction.id,
+    expiresAt: pendingAction.expiresAt.toISOString(),
+    fieldDiff: [{ field: 'status', before: 'open', after: 'won' }],
+  },
+}
+```
+
+The runtime queues parts (`AiUiPartQueue`) inside `resolveAiAgentTools` and the chat dispatcher drains them between `streamText` chunks. Each part lands as a `data-aiui` SSE chunk; `useAiChat` deserializes them into `AiChatMessageUiPart[]` and the chat resolves the `componentId` against the **UI-part registry**.
+
+### The four built-in mutation approval cards
+
+| Component ID | File | Rendered when |
+|--------------|------|---------------|
+| `mutation-preview-card` | `parts/MutationPreviewCard.tsx` | `prepareMutation` returns. Shows tool name, agent id, target, diff summary, [Confirm All] / [Cancel] |
+| `field-diff-card` | `parts/FieldDiffCard.tsx` | Nested inside the preview, one per record on bulk mutations |
+| `confirmation-card` | `parts/ConfirmationCard.tsx` | Stand-alone confirm/cancel UI for proposals without a diff |
+| `mutation-result-card` | `parts/MutationResultCard.tsx` | After confirm returns. Renders success rows + `failedRecords` mixed outcomes |
+
+The canonical map lives in `packages/ui/src/ai/parts/approval-cards-map.ts`:
+
+```ts
+import { AI_MUTATION_APPROVAL_CARDS, defaultAiUiPartRegistry } from '@open-mercato/ui/ai'
+
+<AiChat
+  agent="catalog.merchandising_assistant"
+  registry={{ ...defaultAiUiPartRegistry, ...AI_MUTATION_APPROVAL_CARDS }}
+/>
+```
+
+The `defaultAiUiPartRegistry` is a singleton that already includes the approval cards. You only need to extend it when you ship custom parts.
+
+### Registering a custom UI part
+
+Use a custom part for things the model cannot author from a fenced JSON block — anything that needs server-only state, an action handler, or rich interaction (a chart, an inline document signer, a "send a Slack reply" button).
+
+#### 1. Define the component
+
+```tsx
+// packages/<pkg>/src/modules/<module>/widgets/ai-parts/SalesSnapshotCard.tsx
+'use client'
+
+import * as React from 'react'
+
+export interface SalesSnapshotCardProps {
+  totalRevenue: number
+  currency: string
+  topProducts: Array<{ id: string; name: string; revenue: number }>
+}
+
+export function SalesSnapshotCard(props: SalesSnapshotCardProps) {
+  return (
+    <div data-ai-part="sales:snapshot-card" className="rounded-lg border bg-card p-3 text-sm">
+      <div className="text-muted-foreground text-xs uppercase tracking-wide">Snapshot</div>
+      <div className="text-base font-semibold">
+        {new Intl.NumberFormat(undefined, { style: 'currency', currency: props.currency })
+          .format(props.totalRevenue)}
+      </div>
+      <ul className="mt-2 space-y-1">
+        {props.topProducts.map((p) => (
+          <li key={p.id} className="flex justify-between">
+            <span className="truncate">{p.name}</span>
+            <span className="font-mono">{p.revenue}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+```
+
+#### 2. Register the component id
+
+Pick a stable, namespaced id (`<module>:<kind>`). Reserved ids live in `RESERVED_AI_UI_PART_IDS` and are owned by the framework — never reuse them.
+
+```ts
+// packages/<pkg>/src/modules/<module>/widgets/ai-parts/index.ts
+import { registerAiUiPart } from '@open-mercato/ui/ai'
+import { SalesSnapshotCard } from './SalesSnapshotCard'
+
+registerAiUiPart('sales:snapshot-card', SalesSnapshotCard)
+```
+
+The default registry is global. If you embed multiple `<AiChat>` instances that should not share registrations (playground, tests), build a scoped registry:
+
+```ts
+import { createAiUiPartRegistry } from '@open-mercato/ui/ai'
+
+const registry = createAiUiPartRegistry()
+registry.register('sales:snapshot-card', SalesSnapshotCard)
+
+<AiChat agent="..." registry={registry} />
+```
+
+#### 3. Push the part from a tool
+
+In a read tool, return the part inline as part of your handler's response — the runtime will queue it onto the next SSE chunk:
+
+```ts
+import { defineAiTool } from '@open-mercato/ai-assistant'
+
+export const showSalesSnapshot = defineAiTool({
+  name: 'sales.show_snapshot',
+  description: 'Render an inline sales snapshot card for the current tenant.',
+  isMutation: false,
+  requiredFeatures: ['sales.view'],
+  inputSchema: z.object({ from: z.string(), to: z.string() }),
+  async handler(args, ctx) {
+    const totals = await loadSalesSnapshot(ctx, args)
+    // Tools may emit one or more AiUiParts via the queue available on ctx.
+    // The dispatcher drains the queue between streamText chunks.
+    ctx.uiParts?.enqueue({
+      componentId: 'sales:snapshot-card',
+      props: {
+        totalRevenue: totals.revenue,
+        currency: totals.currency,
+        topProducts: totals.topProducts,
+      },
+    })
+    return { ok: true, summary: 'Snapshot rendered' }
+  },
+})
+```
+
+For mutation tools, push the part from inside `prepareMutation({ uiPart: ... })` so it travels with the pending action — see [Mutation Approvals](./mutation-approvals).
+
+#### 4. Make sure the agent's prompt mentions it
+
+Include a `responseStyle` rule like:
+
+> When the operator asks for a sales overview / "how are we doing", call `sales.show_snapshot` — it returns an inline snapshot card the operator can read at a glance. Always call the tool; never paraphrase the data in prose.
+
+Without a prompt rule the model will route around the tool and quote numbers in plain text.
+
+## SSE chunk shapes
+
+For reference when debugging the network panel:
+
+```
+data: {"type":"text-delta","delta":"Sure, here is..."}
+data: {"type":"reasoning-delta","delta":"Considering catalog..."}
+data: {"type":"tool-input-start","toolCallId":"...","toolName":"catalog.list_products"}
+data: {"type":"tool-input-available","toolCallId":"...","input":{...}}
+data: {"type":"tool-output-available","toolCallId":"...","output":"..."}
+data: {"type":"data-aiui","payload":{"componentId":"mutation-preview-card","props":{...}}}
+data: [DONE]
+```
+
+`useAiChat` consumes the stream and routes each chunk to the right slot on the assistant message:
+
+| Chunk | Lands on |
+|-------|----------|
+| `text-delta` | `message.content` |
+| `reasoning-delta` | `message.reasoning` (rendered in the collapsible Reasoning panel) |
+| `tool-input-*` / `tool-output-*` | `message.toolCalls[]` |
+| `data-aiui` | `message.uiParts[]` resolved by the registry |
+
+## Testing UI parts
+
+Use the playground (`/backend/config/ai-assistant/playground`) for manual smoke tests. Tools that emit UI parts should also have a unit test that:
+
+1. Calls the tool handler with a synthetic `McpToolContext`.
+2. Asserts the queue has the expected `componentId` + props shape.
+3. Optionally asserts the registry resolves the component when given that id.
+
+Reference: `packages/ui/src/ai/__tests__/AiChat.registry.test.tsx` covers the registry resolution path.
+
+## MUST rules
+
+- MUST register a stable, namespaced `componentId`. Renaming or removing a registered id is a breaking change.
+- MUST keep part props serializable. Functions, class instances, and circular references are dropped by the SSE encoder.
+- MUST gate any privileged action inside the part behind the same ACL features as the originating tool — never trust ids carried in the part payload alone.
+- MUST keep prompt instructions in sync with the tool: if the model does not know the part exists, it will not emit it.
+
+## See also
+
+- [AI Agents](./agents) — agent contract + `defineAiTool`
+- [Mutation Approvals](./mutation-approvals) — built-in approval cards in detail
+- [Architecture](./architecture) — where UI parts sit in the request flow
+- [Global Launcher](./launcher) — the topbar surface that hosts every agent

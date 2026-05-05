@@ -23,6 +23,14 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Marketing CTA with brand gradient | `FancyButton` | `@open-mercato/ui/primitives/fancy-button` |
 | Checkbox primitive (with indeterminate) | `Checkbox` | `@open-mercato/ui/primitives/checkbox` |
 | Checkbox with label + description | `CheckboxField` | `@open-mercato/ui/primitives/checkbox-field` |
+| Text input (text/email/password/number/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Multi-line text input (with optional char counter) | `Textarea` | `@open-mercato/ui/primitives/textarea` |
+| Dropdown / select | `Select` (with `SelectTrigger` / `SelectContent` / `SelectItem`) | `@open-mercato/ui/primitives/select` |
+| Tooltip on hover (with arrow, dark/light) | `SimpleTooltip` (or `Tooltip`+`TooltipTrigger`+`TooltipContent`) | `@open-mercato/ui/primitives/tooltip` |
+| Toggle switch (binary on/off preference) | `Switch` | `@open-mercato/ui/primitives/switch` |
+| Switch with label + description (preference row) | `SwitchField` | `@open-mercato/ui/primitives/switch-field` |
+| Radio button (single primitive) | `Radio` (inside `RadioGroup`) | `@open-mercato/ui/primitives/radio` |
+| Radio with label + description (form row) | `RadioField` | `@open-mercato/ui/primitives/radio-field` |
 | User / entity avatar | `Avatar`, `AvatarStack` | `@open-mercato/ui/primitives/avatar` |
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
@@ -213,7 +221,8 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 
 - Use `DataTable` as the default list view.
 - For wide list views where rightmost `rowActions` can scroll out of view, enable `stickyActionsColumn` on the host `DataTable`; keep it opt-in instead of making all actions columns sticky by default.
-- DataTable extension spots include: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters` (in addition to `:header`/`:footer`).
+- DataTable extension spots include: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:search-trailing`, `:toolbar` (in addition to `:header`/`:footer`).
+- `:search-trailing` renders inside `FilterBar`, immediately to the right of the search input on the same row. Reserve it for **compact triggers** (AI assistants, saved-view shortcuts, focus-mode toggles) — full-width / multi-action toolbars belong in `:toolbar` or `:header`. The slot is suppressed automatically when the host DataTable does not render a search input. Use `Button variant="outline"` (default size, h-9, `rounded-md`) with a single leading icon plus a short caption (e.g. `AI`) so the trigger matches the search input's `h-9` row height and the rest of the toolbar's rounded-rectangle button radius. Resolve the spot ID via `DataTableInjectionSpots.searchTrailing(tableId)` from `@open-mercato/ui/backend/injection/spotIds`.
 - Populate `columns` with explicit renderers and set `meta.truncate`/`meta.maxWidth` where truncation is needed.
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.

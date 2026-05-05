@@ -66,7 +66,7 @@ yarn generate
 yarn mercato configs cache structural --all-tenants
 
 # Database operations
-yarn db:generate    # Generate migrations
+yarn db:generate    # Generate/probe migrations; keep or write only scoped SQL and update the touched snapshot
 yarn db:migrate     # Run migrations
 yarn db:greenfield  # Reset and recreate database
 
@@ -148,6 +148,12 @@ Custom modules go in `src/modules/`. Each module can define:
 Add new modules to `src/modules.ts` with `from: '@app'`.
 Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
 
+### Data Entities
+
+- Define module entities in `src/modules/<module>/data/entities.ts`.
+- Import entity decorators from `@mikro-orm/decorators/legacy`, not `@mikro-orm/core`.
+- Treat `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for the module you are changing and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
+
 ### API Route Files MUST Export `metadata`
 
 Every `src/modules/<module>/api/**/route.ts` file that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth requirements. Omitting it triggers the generator warning:
@@ -188,12 +194,84 @@ Legacy top-level `export const requireAuth` / `export const requireFeatures` exp
 Practical consequences:
 
 - Prefer writing migration files in **one shot** — generate them with `yarn db:generate`, review, commit, move on.
+- Treat `yarn db:generate` as a schema-diff probe. If it creates migrations for unrelated modules, delete that unrelated output and fix the stale snapshot instead of committing noise.
+- Manual SQL is allowed when it is the only clean way to avoid unrelated churn, but the touched module's `.snapshot-open-mercato.json` MUST be updated to the post-change schema in the same change.
+- For the specific entity change you are making, keep or write only the intended SQL migration and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` to the post-change schema in the same change.
+- Do not run `yarn db:migrate` unless the user explicitly asks you to apply migrations. A code change should carry migration files and snapshots; applying them is local database state.
 - Editing an already-applied migration is risky: the next `yarn dev` / `yarn db:migrate` will skip the file (it is already marked applied), so your edits will not land in the database. If iteration is truly unavoidable:
   1. Set `OM_DEV_AUTO_MIGRATE=0` in `.env.local` to stop auto-apply.
   2. Roll back the migration (`yarn db:migrate --down` or reset the dev DB).
   3. Edit the migration file.
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
+
+## AI Assistant — adding agents, tools, UI parts, and overrides
+
+Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
+
+- Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
+- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.openmercato.dev/framework/ai-assistant/ui-parts).
+- Replace or disable an agent / tool that another module shipped through three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module), inline on a `ModuleEntry` in `src/modules.ts` (per-app), or programmatically via `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → modules.ts → file-based → base**.
+
+Example per-module override (preferred when the override should ship with a module):
+
+```ts
+// src/modules/<my_module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myAgent from './agents/my-merchandising-agent'
+
+export const aiAgents: AiAgentDefinition[] = [/* ...your module's own agents */]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  'catalog.merchandising_assistant': myAgent,  // replace
+  'catalog.catalog_assistant': null,           // disable
+}
+```
+
+Example `modules.ts` inline override (preferred for app-level decisions that don't deserve a fake module). AI lives at `overrides.ai.*`; other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md) — AI is Phase 1, other domains roll out as separate PRs:
+
+```ts
+// src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+  },
+},
+```
+
+The template's `src/bootstrap.ts` already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` for you. Importing `@open-mercato/ai-assistant` (also in bootstrap) runs the side-effect that registers the AI domain applier with the dispatcher.
+
+Example programmatic override at boot (env-driven or test-only):
+
+```ts
+// src/bootstrap.ts (extra)
+import {
+  applyAiAgentOverrides,
+  applyAiToolOverrides,
+} from '@open-mercato/ai-assistant'
+
+// Disable an agent provided by the assistant module by default.
+applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
+// Disable a default tool we do not use.
+applyAiToolOverrides({ 'inbox_ops_accept_action': null })
+```
+
+After editing any `aiAgentOverrides` / `aiToolOverrides` export:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
 
 ## Disabling the Dashboards Module: Update /backend
 
@@ -219,14 +297,14 @@ Do this in the same change where you disable the module — otherwise `/backend`
 
 Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also:
 
-1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so admin and superadmin roles receive it on every new tenant setup:
+1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so the admin role and any other appropriate default roles receive it on every new tenant setup:
 
    ```ts
    // src/modules/<module>/setup.ts
    export const setup = {
      defaultRoleFeatures: {
-       admin:      ['my_module.view', 'my_module.manage'],
-       superadmin: ['my_module.view', 'my_module.manage'],
+       admin: ['my_module.view', 'my_module.manage'],
+       employee: ['my_module.view'],
      },
      // ...
    }
@@ -235,10 +313,10 @@ Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) 
 2. **Reconcile existing tenants** by running the ACL sync command so existing installs pick up the new feature without a reinstall:
 
    ```bash
-   yarn mercato auth sync-role-acls --all-tenants
+   yarn mercato auth sync-role-acls
    ```
 
-Do this automatically unless the user has explicitly said otherwise. If the current user is an admin or superadmin, they should see the feature you just built — not stare at a blank admin because their role is missing the grant.
+Do this automatically unless the user has explicitly said otherwise. If the current user has a default role that should access the module, they should see the feature you just built — not stare at a blank admin because their role is missing the grant. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 Feature IDs are FROZEN once shipped (they are stored in the DB as `role_features.feature_id`). If a rename is required, add the new ID, grant it, and keep the old one alongside as a deprecated alias until downstream data can be migrated.
 
@@ -322,6 +400,8 @@ Notes:
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
+
+Detail/read-model APIs that expose `customFields` must return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 
 ### Path Aliases
 

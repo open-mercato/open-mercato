@@ -1,6 +1,6 @@
 ---
 name: auto-sec-report
-description: Driver that runs `auto-sec-report-pr` across a window of units of work and aggregates the findings into a single docs-only PR. Accepts a window spec that can be a date (PRs merged on or after it), a PR number floor (PRs whose number is >= it), a branch name (analyze the branch diff as a single unit), a spec path (analyze one spec as a single unit), or nothing (defaults to the last 7 days of merged PRs). Loops `auto-sec-report-pr` per unit in sub-unit mode, concatenates the markdown fragments, renders a combined markdown + HTML report under `.ai/analysis/`, carries forward each unit's "Next steps — go deeper" into a consolidated drill-deeper list at the top of the report, and opens a PR against `develop` (never merges). Uses `auto-create-pr` for branch/worktree/commit/label discipline and hands off to `auto-continue-pr` when the run cannot finish in one pass.
+description: Run `auto-sec-report-pr` across a date window, PR-number floor, branch diff, or single spec, then aggregate the results into one docs-only security report PR. Writes combined markdown and HTML under `.ai/analysis/`, carries forward deeper follow-up scopes, uses the `auto-create-pr` workflow for branch and label discipline, and hands off to `auto-continue-pr` if the run cannot finish in one pass.
 ---
 
 # Auto Security Report — Driver

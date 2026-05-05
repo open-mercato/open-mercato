@@ -17,6 +17,13 @@ export type FilterBarProps = {
   className?: string
   leadingItems?: React.ReactNode
   trailingItems?: React.ReactNode
+  /**
+   * Items rendered immediately after the search input on the same row.
+   * Intended for compact, icon-sized triggers (AI assistants, saved view
+   * shortcuts). Stays adjacent to the search input regardless of
+   * `searchAlign` and is suppressed when no search input is rendered.
+   */
+  searchTrailing?: React.ReactNode
   layout?: 'stacked' | 'inline'
   filtersExtraContent?: React.ReactNode
 }
@@ -33,6 +40,7 @@ export function FilterBar({
   className,
   leadingItems,
   trailingItems,
+  searchTrailing,
   layout = 'stacked',
   filtersExtraContent,
 }: FilterBarProps) {
@@ -72,20 +80,25 @@ export function FilterBar({
   }, [values])
 
   const containerClass = `flex flex-col ${layout === 'inline' ? 'gap-1 sm:gap-2' : 'gap-2'} w-full`
-  const searchInput = onSearchChange ? (
-    <div className={`relative w-full sm:w-72 lg:w-80 ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
-      <input
-        value={searchDraft}
-        onChange={(e) => setSearchDraft(e.target.value)}
-        placeholder={resolvedSearchPlaceholder}
-        className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-        suppressHydrationWarning
-      />
-      <Search aria-hidden="true" className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+  const searchBlock = onSearchChange ? (
+    <div className={`flex items-center gap-2 ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
+      <div className="relative w-full sm:w-72 lg:w-80">
+        <input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={resolvedSearchPlaceholder}
+          className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          suppressHydrationWarning
+        />
+        <Search aria-hidden="true" className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      </div>
+      {searchTrailing ? (
+        <div className="flex items-center gap-1">{searchTrailing}</div>
+      ) : null}
     </div>
   ) : null
   const controls = (
-    <div className={`flex flex-wrap items-center gap-2 ${searchAlign === 'left' && searchInput ? 'sm:ml-auto' : ''}`}>
+    <div className={`flex flex-wrap items-center gap-2 ${searchAlign === 'left' && searchBlock ? 'sm:ml-auto' : ''}`}>
       {filters.length > 0 && (
         <Button variant="outline" onClick={() => setOpen(true)}>
           <ListFilter aria-hidden="true" className="size-4 opacity-80" />
@@ -103,9 +116,9 @@ export function FilterBar({
   return (
     <div className={`${containerClass} ${className ?? ''}`}>
       <div className="flex flex-wrap items-center gap-2 w-full">
-        {searchAlign === 'left' ? searchInput : null}
+        {searchAlign === 'left' ? searchBlock : null}
         {controls}
-        {searchAlign === 'right' ? searchInput : null}
+        {searchAlign === 'right' ? searchBlock : null}
       </div>
       {/* Active filter chips */}
       {filters.length > 0 && activeCount > 0 && (

@@ -8,6 +8,13 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -214,16 +221,19 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                     {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
                   </label>
                   {field.type === 'select' && field.options ? (
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                      value={(credValues[field.key] as string) ?? ''}
-                      onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                    <Select
+                      value={(credValues[field.key] as string) || undefined}
+                      onValueChange={(value) => setCredValues((prev) => ({ ...prev, [field.key]: value ?? '' }))}
                     >
-                      <option value="">—</option>
-                      {field.options.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : field.type === 'boolean' ? (
                     <Switch
                       checked={Boolean(credValues[field.key])}

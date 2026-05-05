@@ -3,7 +3,7 @@
 **Date:** 2026-04-13
 **Status:** Analysis
 **Source:** [PR #1222](https://github.com/open-mercato/open-mercato/pull/1222) (closed — superseded by the official spec)
-**Official Spec:** [`2026-04-11-unified-ai-tooling-and-subagents.md`](./2026-04-11-unified-ai-tooling-and-subagents.md)
+**Official Spec:** [`2026-04-11-unified-ai-tooling-and-subagents.md`](./implemented/2026-04-11-unified-ai-tooling-and-subagents.md)
 
 ## Context
 

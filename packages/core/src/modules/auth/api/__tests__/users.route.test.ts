@@ -172,10 +172,12 @@ describe('GET /api/auth/users', () => {
       return params.some((p) => p && typeof p === 'object' && 'value' in p && p.value === tenantId)
     })
     expect(tenantScopeCall).toBeDefined()
-    const where = mockEm.findAndCount.mock.calls[0][1] as { id?: { $in: string[] }; email?: unknown; tenantId?: string }
-    expect(where.id?.$in).toEqual([matchedUserId])
-    expect(where.tenantId).toBe(tenantId)
-    expect(where.email).toBeUndefined()
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+      { id: { $in: [matchedUserId] } },
+    ]))
     expect(body.total).toBe(1)
     expect(body.items).toHaveLength(1)
     expect(body.items[0]).toMatchObject({
@@ -184,6 +186,46 @@ describe('GET /api/auth/users', () => {
       organizationId,
     })
     expect(body.isSuperAdmin).toBe(false)
+  })
+
+  test('includes matching organization names in the unified search clause', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([{ id: organizationId }])
+      .mockResolvedValueOnce([])
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest('/api/auth/users?search=Acme&page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+      { organizationId: { $in: [organizationId] } },
+    ]))
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+  })
+
+  test('includes users whose role names match the unified search term', async () => {
+    const matchedUserId = '523e4567-e89b-12d3-a456-426614174055'
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: roleId, name: 'admin', tenantId }])
+      .mockResolvedValueOnce([{ user: { id: matchedUserId }, role: { id: roleId } }])
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest('/api/auth/users?search=admin&page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+      { id: { $in: [matchedUserId] } },
+    ]))
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
   })
 
   test('returns empty result when search_tokens yield no matches', async () => {
@@ -245,8 +287,11 @@ describe('GET /api/auth/users', () => {
     const response = await GET(makeRequest(`/api/auth/users?roleId=${roleId}&search=match`))
     const body = await response.json()
 
-    const where = mockEm.findAndCount.mock.calls[0][1] as { id?: { $in: string[] } }
-    expect(where.id?.$in).toEqual([secondUserId])
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { id: { $in: [firstUserId, secondUserId] } },
+      { id: { $in: [secondUserId] } },
+    ]))
     expect(body.total).toBe(1)
     expect(body.items[0].id).toBe(secondUserId)
   })
@@ -273,8 +318,10 @@ describe('GET /api/auth/users', () => {
     const response = await GET(makeRequest(`/api/auth/users?roleId=${roleId}`))
     const body = await response.json()
 
-    const where = mockEm.findAndCount.mock.calls[0][1] as { id?: { $in: string[] } }
-    expect(where.id?.$in).toEqual([matchedUserId])
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { id: { $in: [matchedUserId] } },
+    ]))
     expect(body.total).toBe(1)
     expect(body.items).toHaveLength(1)
     expect(body.items[0].email).toBe('role-filtered@example.com')
@@ -306,9 +353,13 @@ describe('GET /api/auth/users', () => {
     expect(roleFilter.role?.$in).toEqual(expect.arrayContaining([roleId, secondRoleId]))
     expect(roleFilter.role?.$in).toHaveLength(2)
 
-    const where = mockEm.findAndCount.mock.calls[0][1] as { id?: { $in: string[] } }
-    expect(where.id?.$in).toEqual(expect.arrayContaining([firstUserId, secondUserId]))
-    expect(where.id?.$in).toHaveLength(2)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    const idClause = where.$and.find((clause) => {
+      const value = (clause as { id?: { $in?: string[] } }).id
+      return Array.isArray(value?.$in)
+    }) as { id: { $in: string[] } }
+    expect(idClause.id.$in).toEqual(expect.arrayContaining([firstUserId, secondUserId]))
+    expect(idClause.id.$in).toHaveLength(2)
     expect(body.total).toBe(2)
     expect(body.items).toHaveLength(2)
   })
@@ -328,9 +379,13 @@ describe('GET /api/auth/users', () => {
     )
     const body = await response.json()
 
-    const where = mockEm.findAndCount.mock.calls[0][1] as Record<string, unknown>
-    expect(where.organizationId).toBe(secondaryOrganizationId)
-    expect(where).not.toHaveProperty('tenantId')
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { organizationId: secondaryOrganizationId },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { tenantId },
+    ]))
     expect(body.isSuperAdmin).toBe(true)
   })
 })

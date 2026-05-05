@@ -227,9 +227,9 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.0.10",
-    "@mikro-orm/decorators": "^7.0.10",
-    "@mikro-orm/postgresql": "^7.0.10",
+    "@mikro-orm/core": "^7.0.13",
+    "@mikro-orm/decorators": "^7.0.13",
+    "@mikro-orm/postgresql": "^7.0.13",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.168",
     "date-fns": "^4.1.0",
@@ -241,9 +241,11 @@
     "ts-pattern": "^5.0.0"
   },
   "peerDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

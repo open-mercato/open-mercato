@@ -4,6 +4,7 @@ import { Search, GripVertical, X, ChevronRight } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Switch } from '../../primitives/switch'
+import { Input } from '../../primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   DndContext,
@@ -167,16 +168,14 @@ export function ColumnChooserSection({
   return (
     <div className="flex flex-col">
       <div className="px-4 py-3 border-t">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            className="w-full rounded border bg-background pl-8 pr-2 py-2 text-sm"
-            placeholder={t('ui.columnChooser.search', 'Search columns...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+        <Input
+          type="text"
+          size="sm"
+          leftIcon={<Search />}
+          placeholder={t('ui.columnChooser.search', 'Search columns...')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       <div>

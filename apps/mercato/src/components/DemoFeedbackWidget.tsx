@@ -7,8 +7,10 @@ import { MessageCircle, Send } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useAiDock } from '@open-mercato/ui/ai'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -40,6 +42,8 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error'
 
 export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
+  const aiDock = useAiDock()
+  const aiDockActive = Boolean(aiDock.state.assistant)
   const [open, setOpen] = useState(false)
   const [captionIndex, setCaptionIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
@@ -57,8 +61,30 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoShownRef = useRef(false)
+  const [otherModalOpen, setOtherModalOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Track whether another Radix Dialog or native <dialog> modal is currently open.
+  // The floating button + auto-popup must defer while the user is mid-task in another modal —
+  // stacking the feedback dialog on top deactivates the underlying dialog (Radix DismissableLayer)
+  // and leaves it with pointer-events:none, which the user perceives as a frozen page.
+  useEffect(() => {
+    if (!mounted || open) {
+      setOtherModalOpen(false)
+      return
+    }
+    const check = () => {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
+    setOtherModalOpen(check())
+    const observer = new MutationObserver(() => setOtherModalOpen(check()))
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-state', 'open'], childList: true })
+    return () => observer.disconnect()
+  }, [mounted, open])
 
   // Caption rotation animation
   useEffect(() => {
@@ -68,20 +94,34 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     return () => clearInterval(interval)
   }, [])
 
-  // Auto-popup after 30s inactivity (once per day, unless suppressed)
+  // Auto-popup after 30s inactivity (once per day, unless suppressed).
+  // Skip the inactivity prompt entirely while the AI dock is open — the
+  // operator is mid-conversation with an assistant and a popup would be
+  // disruptive on top of (or competing with) the dock surface.
   useEffect(() => {
     if (!demoModeEnabled || !mounted) return
+    if (aiDockActive) return
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
+
+    function isAnotherModalOpen() {
+      if (typeof document === 'undefined') return false
+      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
+      if (document.querySelector('dialog[open]')) return true
+      return false
+    }
 
     function resetTimer() {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
       inactivityTimer.current = setTimeout(() => {
-        if (!autoShownRef.current) {
-          autoShownRef.current = true
-          setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
-          setOpen(true)
+        if (autoShownRef.current) return
+        if (isAnotherModalOpen()) {
+          inactivityTimer.current = setTimeout(resetTimer, 5_000)
+          return
         }
+        autoShownRef.current = true
+        setCookie(SHOWN_TODAY_COOKIE, todayKey(), 1)
+        setOpen(true)
       }, 30_000)
     }
 
@@ -93,7 +133,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       events.forEach((ev) => window.removeEventListener(ev, resetTimer))
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
-  }, [demoModeEnabled, mounted])
+  }, [demoModeEnabled, mounted, aiDockActive])
 
   const handleSubmit = useCallback(async () => {
     setFieldErrors({})
@@ -172,14 +212,27 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)
 
-  const floatingButton = (
+  if (otherModalOpen && !open) return null
+
+  // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
+  // z-banner so it stays DS-compliant while keeping the bespoke 135deg /
+  // 0-50-100 gradient that the marketing visual depends on. The text is
+  // pinned to `text-black` because the gradient (lime → yellow → violet)
+  // is a fixed light surface in BOTH themes — `text-foreground` flips to
+  // near-white in dark mode and disappears against the pale gradient.
+  // Mirrors the `FancyButton` primitive's `text-white` precedent on its
+  // fixed dark gradient. The `om-demo-feedback-floating` class hooks into
+  // `body[data-ai-chat-open="true"] .om-demo-feedback-floating` in
+  // globals.css so the FAB hides while the AI dock surface is open
+  // (anchored on the right edge of the viewport); the same `aiDockActive`
+  // gate hides the FAB outright when the dock is mounted in this app shell.
+  const floatingButton = aiDockActive ? null : (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
-        background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
-        color: '#1B1B1B',
+        backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
       aria-label={t('demoFeedback.button.ariaLabel', 'Open feedback form')}
     >
@@ -195,7 +248,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   return (
     <>
-      {createPortal(floatingButton, document.body)}
+      {floatingButton ? createPortal(floatingButton, document.body) : null}
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
           <DialogHeader className="items-center gap-3">
@@ -209,18 +262,18 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
           </DialogHeader>
 
           {submitState === 'sent' ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-6 text-center dark:border-emerald-900 dark:bg-emerald-950/40">
-              <p className="font-medium text-emerald-800 dark:text-emerald-200">
+            <div className="rounded-lg border border-status-success-border bg-status-success-bg px-4 py-6 text-center">
+              <p className="font-medium text-status-success-text">
                 {t('demoFeedback.dialog.successTitle', 'Thank you!')}
               </p>
-              <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+              <p className="mt-1 text-sm text-status-success-text">
                 {t('demoFeedback.dialog.successBody', 'We\u2019ll get back to you shortly.')}
               </p>
             </div>
           ) : (
             <div className="grid gap-3">
               {submitError && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
                   {submitError}
                 </div>
               )}
@@ -234,19 +287,19 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={submitState === 'sending'}
                   aria-invalid={Boolean(fieldErrors.email)}
-                  className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
+                  className={fieldErrors.email ? 'border-status-error-border aria-invalid:ring-destructive' : undefined}
                 />
-                {fieldErrors.email && <p className="text-xs text-red-600">{fieldErrors.email}</p>}
+                {fieldErrors.email && <p className="text-xs text-status-error-text">{fieldErrors.email}</p>}
               </div>
 
-              <textarea
+              <Textarea
                 id="feedback-message"
                 rows={3}
                 placeholder={t('demoFeedback.form.message', 'Your message (optional)')}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 disabled={submitState === 'sending'}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                className="resize-none"
               />
 
               <label className="flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
@@ -270,7 +323,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                     {t('demoFeedback.form.privacyLink', 'Privacy Policy')}
                   </a>
                   {fieldErrors.termsAccepted && (
-                    <span className="mt-0.5 block text-red-600">{fieldErrors.termsAccepted}</span>
+                    <span className="mt-0.5 block text-status-error-text">{fieldErrors.termsAccepted}</span>
                   )}
                 </span>
               </label>
@@ -326,12 +379,16 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
               <Button
                 type="button"
-                className="mt-1 w-full gap-2"
+                className="mt-1 w-full gap-2 text-black"
                 disabled={submitState === 'sending'}
                 onClick={handleSubmit}
                 style={{
-                  background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)',
-                  color: '#1B1B1B',
+                  // Same brand-gradient as the floating CTA (135deg / 0-50-100,
+                  // brand vars instead of hex literals to satisfy DS rules).
+                  // Pin text to `text-black` — the gradient is a fixed light
+                  // surface in both themes; `text-foreground` would flip white
+                  // in dark mode and vanish against the pale gradient.
+                  backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
                 }}
               >
                 {submitState === 'sending' ? (

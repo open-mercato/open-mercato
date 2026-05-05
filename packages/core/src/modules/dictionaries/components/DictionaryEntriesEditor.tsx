@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, Languages } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -362,7 +363,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                 {t('dictionaries.config.entries.dialog.valueLabel', 'Value')}
                 <span className="ml-1 text-destructive">*</span>
               </label>
-              <input
+              <Input
                 type="text"
                 value={formState.value}
                 onChange={(event) => {
@@ -372,7 +373,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                     setErrors((prev) => ({ ...prev, value: undefined }))
                   }
                 }}
-                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${errors.value ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 aria-invalid={errors.value ? 'true' : 'false'}
                 aria-describedby="dictionary-entry-value-error"
               />
@@ -386,12 +386,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               <label className="text-sm font-medium">
                 {t('dictionaries.config.entries.dialog.labelLabel', 'Label')}
               </label>
-              <input
+              <Input
                 type="text"
                 value={formState.label}
                 onChange={(event) => setFormState((prev) => ({ ...prev, label: event.target.value }))}
                 placeholder={t('dictionaries.config.entries.dialog.labelPlaceholder', 'Display name shown in UI')}
-                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
             <AppearanceSelector

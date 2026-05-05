@@ -2,6 +2,39 @@ import type { EntityManager } from '@mikro-orm/core'
 import { encryptWithAesGcm, decryptWithAesGcm } from './aes'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
 
+/**
+ * Custom field kinds that ALWAYS round-trip as a string. The encrypt path
+ * stores raw strings unwrapped, so blindly running `JSON.parse` on the
+ * decrypted payload coerces text values like `"123"` or `"true"` back into
+ * numbers/booleans (issue #1734). For these kinds, callers MUST pass the
+ * `kind` option so we keep the decrypted value as a string.
+ *
+ * Numeric (`integer`/`float`) and `boolean` kinds rely on JSON round-trip
+ * because the encrypt path JSON-stringifies the typed value before storage.
+ * Omitting the kind preserves legacy round-trip behavior for backward
+ * compatibility.
+ */
+const STRING_TYPED_CUSTOM_FIELD_KINDS = new Set([
+  'text',
+  'multiline',
+  'select',
+  'currency',
+  'dictionary',
+  'email',
+  'url',
+  'string',
+])
+
+export type DecryptCustomFieldOptions = {
+  /** Field kind, e.g. from `CustomFieldDef.kind`. When string-typed, the helper preserves the decrypted string verbatim. */
+  kind?: string | null
+}
+
+function shouldPreserveAsString(kind: string | null | undefined): boolean {
+  if (!kind) return false
+  return STRING_TYPED_CUSTOM_FIELD_KINDS.has(kind)
+}
+
 const serviceCache = new WeakMap<EntityManager, TenantDataEncryptionService>()
 
 export function resolveTenantEncryptionService(
@@ -53,12 +86,14 @@ export async function decryptCustomFieldValue(
   tenantId: string | null | undefined,
   service: TenantDataEncryptionService | null,
   cache?: Map<string | null, string | null>,
+  options?: DecryptCustomFieldOptions,
 ): Promise<unknown> {
   if (value === undefined || value === null || typeof value !== 'string') return value
   const key = await resolveDekKey(service, tenantId, cache)
   if (!key) return value
   const decrypted = decryptWithAesGcm(value, key)
   if (decrypted === null) return value
+  if (shouldPreserveAsString(options?.kind ?? null)) return decrypted
   try {
     return JSON.parse(decrypted)
   } catch {

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, registerBackendRouteManifests, registerFrontendRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, registerApiRouteManifests, registerBackendRouteManifests, registerFrontendRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
 import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
@@ -11,6 +11,7 @@ import { bootstrap } from '@/bootstrap'
 bootstrap()
 registerBackendRouteManifests(backendRoutes)
 registerFrontendRouteManifests(frontendRoutes)
+registerApiRouteManifests(apiRoutes)
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'

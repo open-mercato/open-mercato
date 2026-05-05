@@ -1,6 +1,6 @@
 ---
 name: ds-guardian
-description: "Design System Guardian for Open Mercato. Enforces DS compliance, migrates hardcoded colors and typography, scaffolds DS-compliant pages, and reviews code against design principles. Activates on: 'design system', 'DS', 'migrate colors', 'fix colors', 'hardcoded colors', 'semantic tokens', 'scaffold page', 'new page', 'create page', 'DS review', 'DS check', 'DS health', 'health check', 'design system compliance', 'StatusBadge', 'FormField', 'SectionHeader', 'text-red-', 'bg-green-', 'text-[11px]', 'arbitrary text', 'empty state', 'loading state', or when a developer is building UI, creating new modules, reviewing PRs, or fixing DS violations in Open Mercato. Always use this skill when working on frontend UI in Open Mercato — it ensures every change follows the design system."
+description: "Design System Guardian for Open Mercato. Use for frontend UI work, design-system compliance reviews, semantic token migration, hardcoded color or typography cleanup, DS-compliant page scaffolding, and common DS violations such as arbitrary text sizes, raw color classes, or missing shared states. Prefer this skill whenever you are building or reviewing Open Mercato UI."
 ---
 
 # DS Guardian — Design System Enforcement Agent
@@ -52,6 +52,42 @@ grep -rn '<svg' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/nu
 
 echo "--- Missing aria-labels ---"
 grep -rn 'size="icon"' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null | grep -v 'aria-label'
+
+echo "--- Raw <input type='text|email|password|number|tel|url|search'> (use <Input>) ---"
+grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+  | xargs grep -l 'type=["'\'']\(text\|email\|password\|number\|tel\|url\|search\)["'\'']' 2>/dev/null
+
+echo "--- Raw <input type='checkbox'> (use <Checkbox> / <CheckboxField>) ---"
+grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+  | xargs grep -l 'type=["'\'']checkbox["'\'']' 2>/dev/null
+
+echo "--- Raw <input type='radio'> (use <Radio> + <RadioGroup>) ---"
+grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+  | xargs grep -l 'type=["'\'']radio["'\'']' 2>/dev/null
+
+echo "--- Raw <select> (use <Select> family) ---"
+grep -rn '<select' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- Raw <textarea> (use <Textarea>) ---"
+grep -rn '<textarea' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- Custom role='switch' or role='radio' (use Switch / Radio primitives) ---"
+grep -rn 'role=["'\'']switch["'\'']\|role=["'\'']radio["'\'']' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- disabled:opacity-50 (use --bg-disabled / --text-disabled tokens) ---"
+grep -rn 'disabled:opacity-50\|disabled.*opacity-50' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- Hardcoded brand colors (use --brand-* tokens) ---"
+grep -rn '#1877F2\|#0A66C2\|#0061FF\|#181717\|#BC9AFF\|#D4F372\|bg-\[#[0-9A-Fa-f]\{3,6\}\]' \
+  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- Old focus ring (use shadow-focus token) ---"
+grep -rn 'focus.*ring-2.*ring-offset-2\|focus:ring-2 focus:ring-blue-' \
+  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+
+echo "--- bg-primary on selection controls (use bg-accent-indigo) ---"
+grep -rn 'data-\[state=checked\]:bg-primary\|state=checked.*bg-primary' \
+  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
 ```
 
 Present results as a structured report:
@@ -74,8 +110,8 @@ Summary: N files, N violations. Estimated migration: ~Xh
 ```
 
 Severity rules:
-- **CRITICAL**: Hardcoded status colors (broken dark mode), missing loading/empty states
-- **WARNING**: Arbitrary text sizes, deprecated Notice usage, missing aria-labels
+- **CRITICAL**: Hardcoded status colors (broken dark mode), missing loading/empty states, raw `<input>` / `<select>` / `<textarea>` (skips DS focus/disabled/error patterns), `data-[state=checked]:bg-primary` on selection controls (wrong color contract)
+- **WARNING**: Arbitrary text sizes, deprecated Notice usage, missing aria-labels, `disabled:opacity-50` (use disabled tokens), hardcoded brand hex (`#1877F2`, `#0A66C2`, etc.), custom `role="switch"` / `role="radio"` (use Switch / Radio primitive), old focus rings (`focus:ring-2 ring-offset-2`)
 - **INFO**: Inline SVG, non-standard spacing, minor inconsistencies
 
 ---
@@ -140,6 +176,21 @@ For complex cases, open each file and replace using the mapping table from `refe
 | Solid background for buttons (`bg-red-600`) | Use `bg-destructive`, not `bg-status-error-bg` |
 | `text-emerald-300` in dark context | Use `text-status-success-icon` (lighter variant) |
 
+**Mode C: Raw HTML form controls → DS primitives**
+
+Use the recipes in `references/token-mapping.md` ("Raw HTML → DS Primitive" section). Rules per type:
+
+| Raw HTML | Replace with | Critical migration rules |
+|----------|--------------|--------------------------|
+| `<input type="text\|email\|password\|number\|tel\|url\|search">` | `<Input>` | Drop width/height/border/radius/padding classes; map `h-8`→`size="sm"` / `h-10`→`size="lg"`; convert absolute icons to `leftIcon` / `rightIcon`; replace `border-red-*` with `aria-invalid={...}`; drop `disabled:opacity-50` |
+| `<input type="checkbox">` | `<Checkbox>` or `<CheckboxField>` | Use `<CheckboxField>` whenever there's a label; ON state is `--accent-indigo`, never `bg-primary` |
+| `<input type="radio">` | `<Radio>` inside `<RadioGroup>` (or `<RadioField>`) | RadioGroup provides keyboard nav and shared name; for card-style selectors keep custom styling but wrap in `<RadioGroup>` |
+| `<select>` | `<Select>` family | NEVER use `<SelectItem value="">` (Radix forbids); move empty label to `<SelectValue placeholder="...">`; pass `value={x \|\| undefined}` for optional; `<optgroup>` → `<SelectGroup><SelectLabel>` |
+| `<textarea>` | `<Textarea>` | Drop hardcoded styling; for character counters set `maxLength` + `showCount` |
+| Custom `role="switch"` button | `<Switch>` or `<SwitchField>` | Track is 28×16 — do not override sizing; ON state is `--accent-indigo` |
+
+Skip when: forwardRef-bound `<select>` with consumer tests asserting native `getByRole('option')` (Tenant/Organization/Category selects). Migration requires updating consumers + tests — escalate to a separate task.
+
 **After EVERY migration:**
 ```bash
 # Verify zero remaining violations
@@ -195,6 +246,11 @@ Review code (file, PR diff, or staged changes) against DS principles. Check thes
 | Colors | Hardcoded `text-red-*`, `bg-green-*`, etc. | Use semantic tokens (`text-status-error-text`) |
 | Typography | `text-[Npx]` arbitrary sizes | Use scale (`text-xs`, `text-sm`) or `text-overline` |
 | Components | Raw `<table>`, custom error div, hardcoded status badge | Use `DataTable`, `Alert`, `StatusBadge` |
+| Form controls | Raw `<input>` / `<select>` / `<textarea>` / `<input type=checkbox\|radio>` / custom `role="switch"` | Use `<Input>` / `<Select>` / `<Textarea>` / `<Checkbox>` / `<Radio>+<RadioGroup>` / `<Switch>` |
+| Selection color | `data-[state=checked]:bg-primary` on Checkbox/Radio/Switch | Use `bg-accent-indigo` (color contract) |
+| Disabled state | `disabled:opacity-50` | Use `disabled:bg-bg-disabled disabled:text-text-disabled disabled:border-border-disabled` |
+| Focus ring | `focus:ring-2 ring-offset-2` | Use `focus-visible:outline-none focus-visible:shadow-focus` |
+| Brand colors | Hardcoded brand hex (`#1877F2`, `#0A66C2`, `#181717`, etc.) | Use `bg-brand-*` tokens or `<SocialButton>` |
 | Feedback | Missing empty state on list page, missing loading state | Add `EmptyState`, `LoadingMessage` |
 | Accessibility | IconButton without `aria-label`, color as only info carrier | Add `aria-label`, add text/icon alongside color |
 | Forms | Input without label, FormField not used in standalone form | Add `<Label>`, wrap in `<FormField>` |

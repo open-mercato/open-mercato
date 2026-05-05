@@ -17,6 +17,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { E } from '#generated/entities.ids.generated'
 import { ProductImageCell } from './ProductImageCell'
 
@@ -139,7 +140,31 @@ function renderPrice(pricing: PricingInfo | undefined, currency?: string | null,
   )
 }
 
-export default function ProductsDataTable() {
+export type ProductsDataTableSnapshot = {
+  search: string
+  filterValues: FilterValues
+  total: number
+}
+
+export type ProductsDataTableProps = {
+  /**
+   * Extra actions rendered alongside the built-in Create button in the
+   * DataTable header. Used by the Step 4.9 AI merchandising sheet
+   * trigger without coupling DataTable to the AI module.
+   */
+  extraActions?: React.ReactNode
+  /**
+   * Optional callback invoked whenever the table's search / filter /
+   * total-matching snapshot changes. Used by the Step 4.9 AI merchandising
+   * sheet to form a selection-aware pageContext per spec §10.1.
+   */
+  onSnapshotChange?: (snapshot: ProductsDataTableSnapshot) => void
+}
+
+export default function ProductsDataTable({
+  extraActions,
+  onSnapshotChange,
+}: ProductsDataTableProps = {}) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
@@ -153,6 +178,15 @@ export default function ProductsDataTable() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  // Step 5.18 (spec §10 line 836, D18 demo): refresh the list when a
+  // catalog.product.* event arrives via the DOM event bridge. Confirmed
+  // AI bulk mutations (one `ai.action.confirmed` + one
+  // `catalog.product.updated` per record) and direct API writes both
+  // surface here so the table reflects the new state without a manual
+  // reload.
+  useAppEvent('catalog.product.*', () => {
+    setReloadToken((token) => token + 1)
+  })
   const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
   const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
     keyExtras: [scopeVersion, reloadToken],
@@ -599,6 +633,11 @@ export default function ProductsDataTable() {
     }
   }, [confirm, t])
 
+  React.useEffect(() => {
+    if (!onSnapshotChange) return
+    onSnapshotChange({ search, filterValues, total })
+  }, [onSnapshotChange, search, filterValues, total])
+
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
 
   const exportConfig = React.useMemo(() => ({
@@ -624,11 +663,14 @@ export default function ProductsDataTable() {
           isRefreshing: isLoading,
         }}
         actions={(
-          <Button asChild>
-            <Link href="/backend/catalog/products/create">
-              {t('catalog.products.actions.create', 'Create')}
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {extraActions}
+            <Button asChild>
+              <Link href="/backend/catalog/products/create">
+                {t('catalog.products.actions.create', 'Create')}
+              </Link>
+            </Button>
+          </div>
         )}
         columns={columns}
         data={rows}
@@ -649,6 +691,12 @@ export default function ProductsDataTable() {
           page,
           sorting,
           scopeVersion,
+          // Step 5.15: surface `total` so the merchandising AI widget
+          // (rendered in `data-table:catalog.products:header`) can build
+          // a selection-aware pageContext per spec §10.1 without taking a
+          // dependency on the host page.
+          total,
+          totalMatching: total,
         }}
         pagination={{
           page,

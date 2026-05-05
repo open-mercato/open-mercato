@@ -80,7 +80,9 @@ export function DateTimeFields({
         </div>
         {showStartTime && (
           <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">{t('customers.schedule.start', 'Start')}</label>
+            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+              {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
+            </label>
             <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
               <Clock className="size-3.5 text-muted-foreground" />
               <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={allDay} className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50" />
@@ -89,7 +91,9 @@ export function DateTimeFields({
         )}
         {showDuration && (
           <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">{t('customers.schedule.duration', 'Duration')}</label>
+            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+              {getFieldLabel(activityType, 'duration', t, 'customers.schedule.duration', 'Duration')}
+            </label>
             <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
               <select
                 value={duration}

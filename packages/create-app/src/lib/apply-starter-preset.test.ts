@@ -18,21 +18,33 @@ test('resolvePreset: classic returns isClassic=true and empty modules', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: empty returns 6-module list', () => {
+test('resolvePreset: empty returns 10-module list', () => {
   const result = resolvePreset('empty')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 6)
+  assert.equal(result.modules.length, 10)
   const ids = result.modules.map((m) => m.id)
-  assert.deepEqual(ids, ['auth', 'directory', 'configs', 'entities', 'query_index', 'api_docs'])
-  assert.ok(result.modules.every((m) => m.from === '@open-mercato/core'))
+  assert.deepEqual(ids, [
+    'auth',
+    'directory',
+    'configs',
+    'entities',
+    'query_index',
+    'api_docs',
+    'audit_logs',
+    'notifications',
+    'dashboards',
+    'events',
+  ])
+  assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
+  assert.ok(result.modules.filter((m) => m.id !== 'events').every((m) => m.from === '@open-mercato/core'))
   assert.ok(result.filesToRemove.includes('src/modules/example'))
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
 })
 
-test('resolvePreset: crm returns 9-module list extending empty', () => {
+test('resolvePreset: crm returns 13-module list extending empty', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 9)
+  assert.equal(result.modules.length, 13)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -40,9 +52,13 @@ test('resolvePreset: crm returns 9-module list extending empty', () => {
   assert.ok(ids.includes('entities'))
   assert.ok(ids.includes('query_index'))
   assert.ok(ids.includes('api_docs'))
+  assert.ok(ids.includes('audit_logs'))
   assert.ok(ids.includes('customers'))
   assert.ok(ids.includes('dictionaries'))
   assert.ok(ids.includes('feature_toggles'))
+  assert.ok(ids.includes('notifications'))
+  assert.ok(ids.includes('dashboards'))
+  assert.ok(ids.includes('events'))
   // Inherits filesToRemove from empty
   assert.ok(result.filesToRemove.includes('src/modules/example'))
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
@@ -58,18 +74,16 @@ test('resolvePreset: unknown preset throws', () => {
 // generateModulesTs tests
 
 test('generateModulesTs: produces valid content for empty modules', () => {
-  const emptyModules = [
-    { id: 'auth', from: '@open-mercato/core' },
-    { id: 'directory', from: '@open-mercato/core' },
-    { id: 'configs', from: '@open-mercato/core' },
-    { id: 'entities', from: '@open-mercato/core' },
-    { id: 'query_index', from: '@open-mercato/core' },
-    { id: 'api_docs', from: '@open-mercato/core' },
-  ]
+  const emptyModules = resolvePreset('empty').modules
   const content = generateModulesTs(emptyModules)
   assert.ok(content.includes('parseBooleanWithDefault'))
   assert.ok(content.includes("id: 'auth'"))
   assert.ok(content.includes("id: 'api_docs'"))
+  assert.ok(content.includes("id: 'audit_logs'"))
+  assert.ok(content.includes("id: 'notifications'"))
+  assert.ok(content.includes("id: 'dashboards'"))
+  assert.ok(content.includes("id: 'events'"))
+  assert.ok(content.includes("from: '@open-mercato/events'"))
   assert.ok(content.includes('enterpriseModulesEnabled'))
   assert.ok(!content.includes('example_customers_sync'))
   assert.ok(!content.includes("id: 'example'"))
@@ -83,6 +97,9 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'customers'"))
   assert.ok(content.includes("id: 'feature_toggles'"))
   assert.ok(content.includes("id: 'dictionaries'"))
+  assert.ok(content.includes("id: 'notifications'"))
+  assert.ok(content.includes("id: 'dashboards'"))
+  assert.ok(content.includes("id: 'events'"))
   assert.ok(!content.includes('example_customers_sync'))
 })
 
@@ -111,13 +128,17 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 6-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: empty writes 10-module modules.ts and removes example dirs', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
     const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
     assert.ok(content.includes("id: 'auth'"))
     assert.ok(content.includes("id: 'api_docs'"))
+    assert.ok(content.includes("id: 'audit_logs'"))
+    assert.ok(content.includes("id: 'notifications'"))
+    assert.ok(content.includes("id: 'dashboards'"))
+    assert.ok(content.includes("id: 'events'"))
     assert.ok(!content.includes("id: 'customers'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))
@@ -130,7 +151,7 @@ test('applyStarterPreset: empty writes 6-module modules.ts and removes example d
   }
 })
 
-test('applyStarterPreset: crm writes 9-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: crm writes 13-module modules.ts and removes example dirs', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -139,6 +160,9 @@ test('applyStarterPreset: crm writes 9-module modules.ts and removes example dir
     assert.ok(content.includes("id: 'customers'"))
     assert.ok(content.includes("id: 'dictionaries'"))
     assert.ok(content.includes("id: 'feature_toggles'"))
+    assert.ok(content.includes("id: 'notifications'"))
+    assert.ok(content.includes("id: 'dashboards'"))
+    assert.ok(content.includes("id: 'events'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))

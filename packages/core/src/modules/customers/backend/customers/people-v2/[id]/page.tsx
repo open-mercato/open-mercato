@@ -23,18 +23,17 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { ActivitiesCard } from '../../../../components/detail/ActivitiesCard'
+import type { ActivityKind } from '../../../../components/detail/ActivitiesAddNewMenu'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
-import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
-import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
-import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
   buildPersonEditPayload,
@@ -45,6 +44,7 @@ import {
   type PersonEditFormValues,
   type PersonOverview,
 } from '../../../../components/formConfig'
+import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -59,7 +59,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
-  const groups = React.useMemo(() => createPersonPersonalDataGroups(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -96,10 +95,23 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const personName =
-    data?.person?.displayName && data.person.displayName.trim().length
-      ? data.person.displayName
-      : t('customers.people.list.deleteFallbackName', 'this person')
+  const personDisplayName = coerceDisplayName(data?.person?.displayName)
+  const personName = personDisplayName.trim().length
+    ? personDisplayName
+    : t('customers.people.list.deleteFallbackName', 'this person')
+
+  const personDisplayNameForGroups = personDisplayName.trim().length
+    ? personDisplayName.trim()
+    : null
+
+  const scheduleDialogCompanyName = coerceDisplayNameOrNull(
+    data?.company?.displayName ?? data?.companies?.[0]?.displayName ?? null,
+  )
+
+  const groups = React.useMemo(
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
+    [t, personDisplayNameForGroups],
+  )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
     { id: 'personalData', icon: User, label: t('customers.people.form.groups.personalData', 'Personal data') },
@@ -177,11 +189,26 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     [injectionContext, runMutation],
   )
 
-  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
-    runMutationWithContext,
-    onAfterChange: handleActivityCreated,
-    logContext: 'customers.people-v2',
-  })
+  const handleAddActivity = React.useCallback((kind: ActivityKind) => {
+    setScheduleEditData({
+      id: '',
+      interactionType: kind,
+      title: null,
+      body: null,
+      scheduledAt: null,
+      durationMinutes: null,
+      location: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      reminderMinutes: null,
+      visibility: null,
+      linkedEntities: null,
+      guestPermissions: null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
     const raw = activity as Record<string, unknown>
@@ -249,7 +276,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
+    setSectionAction((prev) => (action !== null ? action : prev))
   }, [])
 
   React.useEffect(() => {
@@ -424,6 +451,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 dealsCount={dealCount}
                 companiesCount={companyCount}
                 tasksCount={todoCount}
+                sectionAction={sectionAction}
               >
                 <div className="min-w-0">
                 {(() => {
@@ -434,20 +462,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   if (activeTab === 'activities') {
                     return (
                       <div className="space-y-4">
-                        <InlineActivityComposer
-                          entityType="person"
+                        <ActivitiesCard
                           entityId={personId}
-                          onActivityCreated={handleActivityCreated}
-                          runGuardedMutation={runMutationWithContext}
-                          onScheduleRequested={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
-                          useCanonicalInteractions={useCanonicalInteractions}
-                        />
-                        <PlannedActivitiesSection
-                          activities={plannedActivities}
-                          onComplete={handleMarkDone}
-                          onSchedule={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
-                          onEdit={handleEditActivity}
-                          onCancel={handleCancelActivity}
+                          plannedActivities={plannedActivities}
+                          refreshKey={activityRefreshKey}
+                          onAddNew={handleAddActivity}
+                          onEditActivity={handleEditActivity}
+                          entityCompanyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
                         />
                         <ActivitiesSection
                           entityId={personId}
@@ -569,7 +590,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
             entityName={personName}
-            companyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
+            companyName={scheduleDialogCompanyName}
             entityType="person"
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}
