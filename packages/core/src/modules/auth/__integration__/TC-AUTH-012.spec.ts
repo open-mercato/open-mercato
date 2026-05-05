@@ -22,7 +22,7 @@ test.describe('TC-AUTH-012: Create New Role', () => {
       await page.getByRole('button', { name: 'Create' }).first().click();
 
       await expect(page).toHaveURL(/\/backend\/roles(?:\?.*)?$/);
-      await page.getByRole('textbox', { name: 'Search' }).fill(roleName);
+      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(roleName);
       await expect(page.getByRole('row', { name: new RegExp(roleName, 'i') })).toBeVisible();
       await page.getByRole('row', { name: new RegExp(roleName, 'i') }).click();
       await expect(page).toHaveURL(/\/backend\/roles\/[0-9a-f-]{36}\/edit$/i);

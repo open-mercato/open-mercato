@@ -56,9 +56,10 @@ import {
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
+import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/config'
 import { fetchGlobalSearchResults } from '../utils'
 
-const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = resolveSearchMinTokenLength()
 
 /** Default strategies used when none are configured */
 const DEFAULT_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
@@ -387,7 +388,7 @@ export function GlobalSearchDialog({
             {results.length === 0 && !loading && !error ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {query.trim().length < MIN_QUERY_LENGTH
-                  ? t('search.dialog.empty.hint')
+                  ? t('search.dialog.empty.hint', { count: MIN_QUERY_LENGTH })
                   : t('search.dialog.empty.none')}
               </div>
             ) : null}

@@ -139,6 +139,9 @@ TODO: Fix that latter to have reference by the package names
 
   /* Figma button focus: 2px white inner + 4px slate-alpha-16 outer */
   --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
+
+  /* Switch thumb: thin drop shadow + hairline outline (matches Figma switch spec). */
+  --shadow-switch-thumb: 0 1px 2px rgb(10 13 20 / 0.10), 0 0 0 0.5px rgb(10 13 20 / 0.04);
 }
 
 :root {
@@ -264,6 +267,9 @@ TODO: Fix that latter to have reference by the package names
   --shadow-lg:  0 12px 32px rgb(0 0 0 / 0.60);
   --shadow-xl:  0 20px 40px rgb(0 0 0 / 0.70);
   --shadow-2xl: 0 25px 50px rgb(0 0 0 / 0.80);
+
+  /* Switch thumb: brighter outline in dark mode for visibility against the muted track. */
+  --shadow-switch-thumb: 0 1px 2px rgb(0 0 0 / 0.40), 0 0 0 0.5px rgb(0 0 0 / 0.30);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -537,4 +543,13 @@ TODO: Fix that latter to have reference by the package names
 /* Hide floating demo feedback button while the column chooser panel is open */
 body[data-column-chooser-open="true"] .om-demo-feedback-floating {
   display: none !important;
+}
+
+/* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

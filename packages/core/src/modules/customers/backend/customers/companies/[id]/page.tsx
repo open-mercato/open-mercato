@@ -35,6 +35,7 @@ import { CompanyHighlights } from '../../../../components/detail/CompanyHighligh
 import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
 import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
+import { coerceDisplayName } from '../../../../lib/displayName'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
@@ -117,10 +118,10 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const currentCompanyId = data?.company?.id ?? null
-  const companyName =
-    data?.company?.displayName && data.company.displayName.trim().length
-      ? data.company.displayName
-      : t('customers.companies.list.deleteFallbackName', 'this company')
+  const companyDisplayName = coerceDisplayName(data?.company?.displayName)
+  const companyName = companyDisplayName.trim().length
+    ? companyDisplayName
+    : t('customers.companies.list.deleteFallbackName', 'this company')
   const translateCompanyDetail = React.useCallback(
     (key: string, fallback?: string, params?: Record<string, string | number>) => {
       const mappedKey = key.startsWith('customers.people.detail.')

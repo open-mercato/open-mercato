@@ -15,7 +15,10 @@ import {
   deriveActionLogProjection,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 let validationWarningLogged = false
@@ -123,11 +126,7 @@ export class ActionLogService {
         if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
           const decrypted = decryptWithAesGcm(value, dek.key)
           if (decrypted === null) return value
-          try {
-            return JSON.parse(decrypted)
-          } catch {
-            return decrypted
-          }
+          return parseDecryptedFieldValue(decrypted)
         }
         if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))
         if (value && typeof value === 'object') {

@@ -29,7 +29,7 @@ test.describe('TC-AUTH-011: Delete User Account', () => {
       await confirmDialog.getByRole('button', { name: /^Delete$/i }).first().click();
     }
 
-    await page.getByRole('textbox', { name: 'Search' }).fill(email);
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill(email);
     await expect(page.getByRole('row', { name: new RegExp(email, 'i') })).toHaveCount(0);
   });
 });

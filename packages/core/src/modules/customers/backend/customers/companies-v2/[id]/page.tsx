@@ -25,6 +25,7 @@ import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
+import { coerceDisplayName } from '../../../../lib/displayName'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
@@ -103,10 +104,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const companyName =
-    data?.company?.displayName && data.company.displayName.trim().length
-      ? data.company.displayName
-      : t('customers.companies.list.deleteFallbackName', 'this company')
+  const companyDisplayName = coerceDisplayName(data?.company?.displayName)
+  const companyName = companyDisplayName.trim().length
+    ? companyDisplayName
+    : t('customers.companies.list.deleteFallbackName', 'this company')
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)
@@ -446,7 +447,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 {activeTab === 'people' && (
                   <CompanyPeopleSection
                     companyId={companyId}
-                    companyName={data.company?.displayName ?? ''}
+                    companyName={companyDisplayName}
                     initialPeople={[]}
                     addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
                     emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}

@@ -39,6 +39,12 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
       return next
     }),
   })),
+  parseDecryptedFieldValue: (decrypted: string) => {
+    if (decrypted.length === 0) return decrypted
+    const first = decrypted[0]
+    if (first !== '{' && first !== '[') return decrypted
+    try { return JSON.parse(decrypted) } catch { return decrypted }
+  },
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

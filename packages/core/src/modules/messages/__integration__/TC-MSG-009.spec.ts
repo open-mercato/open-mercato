@@ -8,12 +8,15 @@ import {
 } from './helpers';
 
 /**
- * CI shard 9 (TC-MSG-009 retry trace): keyboard.type races React state commit
- * when the inline composer mounts and applies effects in parallel, so the
- * typed value sometimes lands and is then dropped before submit. Use
- * locator.fill — atomic native value set + dispatched input event —
- * followed by a hard toHaveValue gate to ensure the controlled state has
- * committed before the caller proceeds to click submit.
+ * Workaround for the DS v2 Input/Textarea primitive focus race that breaks Playwright
+ * `.fill()` on controlled CrudForm fields. Click forces focus, an explicit clear handles
+ * existing values, and `locator.fill` provides an atomic native value set plus dispatched
+ * input event so the controlled state commits deterministically.
+ *
+ * Extra safety against CI shard load (TC-MSG-009 retry trace, shard 9): explicitly wait
+ * for the input to be visible and enabled before interacting (slow renders / state-syncing
+ * mounts can leave the input temporarily blocked), follow with a hard `toHaveValue` gate
+ * extended to 60s so a busy parallel shard does not time out before React commits.
  */
 async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
   await expect(locator).toBeVisible({ timeout: 10_000 });
@@ -50,6 +53,10 @@ async function openReplyFromHeader(page: Page): Promise<void> {
  */
 test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', () => {
   test('should compose inline below conversation, switch modes, close with escape, and submit forward/reply', async ({ page, request }) => {
+    // Multiple safeFill chains plus waitForResponse on submit; under CI shard 9
+    // parallel load each chain may consume ~10–80s of the default 20s budget.
+    test.setTimeout(180_000);
+
     let rootMessageId: string | null = null;
     let threadReplyMessageId: string | null = null;
     let forwardedMessageId: string | null = null;

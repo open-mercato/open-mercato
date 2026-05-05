@@ -49,7 +49,11 @@ yarn db:generate   # Generate migrations for all modules (writes to src/modules/
 yarn db:migrate    # Apply all pending migrations (ordered, directory first)
 ```
 
-**Never hand-write migration files.** Update ORM entities in `data/entities.ts`, then run `yarn db:generate` to emit SQL and keep snapshots in sync.
+Default workflow: update ORM entities in `data/entities.ts`, then run `yarn db:generate` to emit SQL and keep `.snapshot-open-mercato.json` in sync.
+
+Coding-agent exception: if `yarn db:generate` emits unrelated migrations because another module's snapshot is stale, do not commit the noise. Delete unrelated generated files, keep or write only the SQL for the intended entity change, and update the affected module's `migrations/.snapshot-open-mercato.json` to the post-change schema. The snapshot update is mandatory; without it, standalone apps will regenerate already-committed migrations.
+
+Do not run `yarn db:migrate` as part of generation unless the user explicitly asks to apply migrations. A PR should normally include the migration file plus snapshot, not depend on local DB state.
 
 ## Standalone App Considerations
 

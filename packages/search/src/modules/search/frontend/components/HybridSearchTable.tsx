@@ -17,6 +17,7 @@ import {
 } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
+import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/config'
 import { fetchHybridSearchResults } from '../utils'
 
 type Row = {
@@ -30,7 +31,7 @@ type Row = {
   metadata: Record<string, unknown> | null
 }
 
-const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = resolveSearchMinTokenLength()
 const ALL_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
 
 type Translator = (

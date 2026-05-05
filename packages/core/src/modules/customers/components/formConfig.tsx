@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
+import { coerceDisplayName, deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   Dialog,
   DialogContent,
@@ -1952,7 +1952,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
-    displayName: overview.company.displayName,
+    displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
     status: overview.company.status ?? '',
@@ -1975,7 +1975,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
-    displayName: overview.person.displayName,
+    displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',
