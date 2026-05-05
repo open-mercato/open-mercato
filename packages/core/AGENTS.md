@@ -361,9 +361,29 @@ Always reference generated ids (`E.<module>.<entity>`) so system entities stay a
 
 ### Helpers
 
-- **Shared helpers**: `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse` from `@open-mercato/shared`
+- **Shared helpers**: `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`, `applyCustomFieldsNormalization` from `@open-mercato/shared`
 - **Form collection**: `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - **Command undo**: capture custom field snapshots in `before`/`after` payloads (`snapshot.custom`), restore via `buildCustomFieldResetMap(before.custom, after.custom)`
+
+### Response Shape
+
+`makeCrudRoute` already extracts custom field values into `customValues` (bare keys, e.g. `{ priority: 3 }`) and `customFields` (definition array) when `list.decorateCustomFields` is configured.
+
+To opt into the canonical single-source response shape (no top-level `cf_*`/`cf:*` redundancy — the standardization requested in #1769), set `stripPrefixedKeys: true`:
+
+```typescript
+list: {
+  // ...
+  decorateCustomFields: {
+    entityIds: E.example.todo,
+    stripPrefixedKeys: true,
+  },
+}
+```
+
+For non-CRUD routes (custom detail GETs, ad-hoc handlers), call `applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })` to get the same shape.
+
+The flag is opt-in to keep the existing wire format stable for callers that read `cf_*` from the top level — turn it on for new modules and migrate existing modules deliberately, with a deprecation note for any external consumer that still reads the prefixed keys.
 
 ### DSL Helpers
 
