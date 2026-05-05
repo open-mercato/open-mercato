@@ -12,7 +12,7 @@ import {
   validateSlug,
 } from './lib/ready-apps.js'
 import { applyStarterPreset } from './lib/apply-starter-preset.js'
-import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { DEFAULT_PRESET_ID, STARTER_PRESETS, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -44,7 +44,7 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
-  --preset <id>      Starter preset: classic (default), empty, or crm
+  --preset <id>      Starter preset: classic, empty, or crm (omit to choose interactively)
   --skip-agentic-setup  Skip the interactive agentic setup wizard
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
@@ -53,6 +53,7 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-store --preset classic
   npx create-mercato-app my-store --preset empty
   npx create-mercato-app my-store --preset crm
   npx create-mercato-app my-prm --app prm
@@ -117,6 +118,84 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   }
 
   return { appName, options }
+}
+
+type Ask = (question: string) => Promise<string>
+
+const PRESET_PROMPT_OPTIONS = [
+  { number: '1', id: 'classic', hint: 'full demo-ready starter' },
+  { number: '2', id: 'empty', hint: 'minimal builder-ready baseline' },
+  { number: '3', id: 'crm', hint: 'minimal CRM starter' },
+] as const
+
+export function normalizePresetAnswer(answer: string): string {
+  const normalized = answer.trim().toLowerCase()
+
+  if (!normalized) return DEFAULT_PRESET_ID
+
+  const selected = PRESET_PROMPT_OPTIONS.find((option) => (
+    option.number === normalized || option.id === normalized
+  ))
+
+  if (!selected) {
+    throw new Error(`Unknown preset "${answer}". Choose classic, empty, or crm.`)
+  }
+
+  return selected.id
+}
+
+async function promptForStarterPreset(ask: Ask): Promise<string> {
+  console.log(pc.bold('Which starter module set do you want?'))
+  for (const option of PRESET_PROMPT_OPTIONS) {
+    const preset = STARTER_PRESETS[option.id]
+    const suffix = option.id === DEFAULT_PRESET_ID ? ' (default)' : ''
+    console.log(`  ${option.number}. ${preset.label}${suffix} ${pc.dim(`- ${option.hint}`)}`)
+  }
+  console.log('')
+
+  while (true) {
+    const answer = await ask(`Select starter preset (${DEFAULT_PRESET_ID}): `)
+
+    try {
+      return normalizePresetAnswer(answer)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.log(pc.yellow(message))
+    }
+  }
+}
+
+async function resolveStarterPresetId(options: Options, readyAppSource: ReadyAppSource | null): Promise<string> {
+  if (options.preset) {
+    if (!VALID_PRESET_IDS.includes(options.preset)) {
+      throw new Error(`Unknown preset "${options.preset}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
+    }
+    if (options.preset !== DEFAULT_PRESET_ID && readyAppSource) {
+      throw new Error(
+        `--preset ${options.preset} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
+      )
+    }
+
+    return options.preset
+  }
+
+  if (readyAppSource) return DEFAULT_PRESET_ID
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log(pc.dim(`No starter preset selected; using ${DEFAULT_PRESET_ID}.`))
+    console.log('')
+    return DEFAULT_PRESET_ID
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (question: string) =>
+    new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+
+  try {
+    return await promptForStarterPreset(ask)
+  } finally {
+    rl.close()
+  }
 }
 
 function buildRegistryConfig(registryUrl: string): string {
@@ -319,15 +398,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
 
-  const presetId = options.preset ?? DEFAULT_PRESET_ID
-  if (!VALID_PRESET_IDS.includes(presetId)) {
-    throw new Error(`Unknown preset "${presetId}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
-  }
-  if (presetId !== DEFAULT_PRESET_ID && readyAppSource) {
-    throw new Error(
-      `--preset ${presetId} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
-    )
-  }
+  const presetId = await resolveStarterPresetId(options, readyAppSource)
 
   const registryConfig = options.verdaccio
     ? buildRegistryConfig('http://localhost:4873')
