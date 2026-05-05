@@ -379,7 +379,7 @@ This feature changes the development lifecycle in a bounded way:
    - `*.property.test.ts` suites are excluded from `yarn test` by design.
 
 2. **Risk-targeted local validation**
-   - When changing risky logic such as pricing, totals, RBAC helpers, query narrowing, or workflow execution, developers are expected to run targeted property suites locally with `yarn test:properties --scope <package-or-module>`.
+   - When changing risky logic such as pricing, totals, RBAC helpers, query narrowing, or workflow execution, developers are expected to run targeted property suites locally with `yarn test:properties --scope <package | module | file>` (see API Contracts → `--scope` accepted shapes).
    - A property failure should be replayed with the emitted `--seed` command before any fix is attempted.
 
 3. **Counterexample handling**
