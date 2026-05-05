@@ -230,6 +230,8 @@
   "dashboard.action.done": "Done",
   "dashboard.addWidget": "Add a widget",
   "dashboard.empty.configurable": "No widgets selected yet. Use \"Add a widget\" to start building your dashboard.",
+  "dashboard.empty.noWidgets.description": "Dashboard widgets will appear here after you add the first module that exposes them.",
+  "dashboard.empty.noWidgets.title": "No dashboard widgets yet",
   "dashboard.empty.readonly": "No widgets are available for your account yet.",
   "dashboard.error.partial": "Some changes were not saved",
   "dashboard.error.reload": "Reload data",

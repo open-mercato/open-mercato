@@ -471,11 +471,11 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     }
     update()
     target.addEventListener('scroll', update, { passive: true })
-    const ro = new ResizeObserver(update)
-    ro.observe(target)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    ro?.observe(target)
     return () => {
       target.removeEventListener('scroll', update)
-      ro.disconnect()
+      ro?.disconnect()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, effectiveCollapsed])
@@ -1306,4 +1306,3 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     </HeaderContext.Provider>
   )
 }
-

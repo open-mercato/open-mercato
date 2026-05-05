@@ -230,6 +230,8 @@
   "dashboard.action.done": "Listo",
   "dashboard.addWidget": "Agregar widget",
   "dashboard.empty.configurable": "Aún no has seleccionado widgets. Usa \"Agregar widget\" para construir tu panel.",
+  "dashboard.empty.noWidgets.description": "Los widgets del panel aparecerán aquí cuando agregues el primer módulo que los exponga.",
+  "dashboard.empty.noWidgets.title": "Aún no hay widgets del panel",
   "dashboard.empty.readonly": "Todavía no hay widgets disponibles para tu cuenta.",
   "dashboard.error.partial": "Algunos cambios no se guardaron",
   "dashboard.error.reload": "Recargar datos",
