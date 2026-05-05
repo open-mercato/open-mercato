@@ -33,6 +33,51 @@ const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ classNa
   { type: 'email', icon: Mail, labelKey: 'customers.schedule.types.email', fallback: 'Email' },
 ]
 
+type DialogChrome = { titleKey: string; titleFallback: string; subtitleKey: string; subtitleFallback: string; saveKey: string; saveFallback: string; saveIcon: React.ComponentType<{ className?: string }> }
+
+const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
+  meeting: {
+    titleKey: 'customers.schedule.meeting.title', titleFallback: 'New meeting',
+    subtitleKey: 'customers.schedule.meeting.subtitle', subtitleFallback: 'Block time on the calendar with attendees',
+    saveKey: 'customers.schedule.meeting.save', saveFallback: 'Save activity', saveIcon: Calendar,
+  },
+  call: {
+    titleKey: 'customers.schedule.call.title', titleFallback: 'Log call',
+    subtitleKey: 'customers.schedule.call.subtitle', subtitleFallback: 'Log a call you just had or schedule one',
+    saveKey: 'customers.schedule.call.save', saveFallback: 'Log call', saveIcon: Phone,
+  },
+  task: {
+    titleKey: 'customers.schedule.task.title', titleFallback: 'New task',
+    subtitleKey: 'customers.schedule.task.subtitle', subtitleFallback: 'Capture something to follow up on',
+    saveKey: 'customers.schedule.task.save', saveFallback: 'Save task', saveIcon: Check,
+  },
+  email: {
+    titleKey: 'customers.schedule.email.title', titleFallback: 'Compose email',
+    subtitleKey: 'customers.schedule.email.subtitle', subtitleFallback: 'Compose and send a tracked email',
+    saveKey: 'customers.schedule.email.save', saveFallback: 'Send email', saveIcon: Mail,
+  },
+}
+
+const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; labelFallback: string; dot: string }> = [
+  { key: 'outbound', labelKey: 'customers.schedule.call.direction.outbound', labelFallback: 'Outbound', dot: 'bg-status-info-icon' },
+  { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', dot: 'bg-status-success-icon' },
+]
+
+const CALL_OUTCOMES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
+  { key: 'connected', labelKey: 'customers.schedule.call.outcome.connected', labelFallback: 'Connected', dot: 'bg-status-success-icon' },
+  { key: 'voicemail', labelKey: 'customers.schedule.call.outcome.voicemail', labelFallback: 'Voicemail', dot: 'bg-status-warning-icon' },
+  { key: 'noanswer', labelKey: 'customers.schedule.call.outcome.noAnswer', labelFallback: 'No answer', dot: 'bg-muted-foreground' },
+  { key: 'busy', labelKey: 'customers.schedule.call.outcome.busy', labelFallback: 'Busy', dot: 'bg-status-warning-icon' },
+  { key: 'badnumber', labelKey: 'customers.schedule.call.outcome.badNumber', labelFallback: 'Bad number', dot: 'bg-status-error-icon' },
+]
+
+const TASK_PRIORITIES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
+  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-muted-foreground' },
+  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-status-info-icon' },
+  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-warning-icon' },
+  { key: 'urgent', labelKey: 'customers.schedule.task.priority.urgent', labelFallback: 'Urgent', dot: 'bg-status-error-icon' },
+]
+
 interface ScheduleActivityDialogProps {
   open: boolean
   onClose: () => void
@@ -61,6 +106,33 @@ export function ScheduleActivityDialog({
   const state = useScheduleFormState({ open, editData: editData ?? null })
   const visibleFields = FIELD_VISIBILITY[state.activityType]
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const isEditing = Boolean(editData?.id)
+  const chrome = TYPE_CHROME[state.activityType]
+  const SaveIcon = chrome.saveIcon
+  const [callDirection, setCallDirection] = React.useState<'outbound' | 'inbound'>('outbound')
+  const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
+  const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
+  const [taskPriority, setTaskPriority] = React.useState<string>('medium')
+
+  React.useEffect(() => {
+    if (!open) return
+    const raw = editData as (Record<string, unknown> & { customValues?: unknown }) | null | undefined
+    const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
+    setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
+    setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
+    setCallPhoneNumber(typeof cv?.callPhoneNumber === 'string' ? cv.callPhoneNumber : '')
+    setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
+  }, [open, editData])
+
+  // Reset per-type chip state when the user switches activity type in create mode.
+  // In edit mode, the persisted customValues should win, so we skip the reset.
+  React.useEffect(() => {
+    if (!open || isEditing) return
+    setCallDirection('outbound')
+    setCallOutcome(null)
+    setCallPhoneNumber('')
+    setTaskPriority('medium')
+  }, [state.activityType, open, isEditing])
 
   const formSnapshot = React.useMemo(() => JSON.stringify({
     activityType: state.activityType,
@@ -224,9 +296,18 @@ export function ScheduleActivityDialog({
         ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, state.recurrenceCount, state.recurrenceEndDate)
         : null
 
-      const isEditing = Boolean(editData?.id)
+      const isSaveEdit = Boolean(editData?.id)
+      const customValues: Record<string, unknown> = {}
+      if (state.activityType === 'call') {
+        customValues.callDirection = callDirection
+        if (callOutcome) customValues.callOutcome = callOutcome
+        if (callPhoneNumber.trim()) customValues.callPhoneNumber = callPhoneNumber.trim()
+      }
+      if (state.activityType === 'task') {
+        customValues.taskPriority = taskPriority
+      }
       const payload = {
-        ...(isEditing ? { id: editData!.id } : {}),
+        ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId,
         dealId,
         interactionType: state.activityType,
@@ -250,16 +331,17 @@ export function ScheduleActivityDialog({
           : null,
         reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : null,
         visibility: visibleFields.has('visibility') ? state.visibility : null,
+        ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
         () =>
           apiCallOrThrow('/api/customers/interactions', {
-            method: isEditing ? 'PUT' : 'POST',
+            method: isSaveEdit ? 'PUT' : 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload),
           }),
         {
-          operation: isEditing ? 'updateActivity' : 'createActivity',
+          operation: isSaveEdit ? 'updateActivity' : 'createActivity',
           interactionId: editData?.id ?? null,
           interactionType: state.activityType,
         },
@@ -285,26 +367,26 @@ export function ScheduleActivityDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
       {ConfirmDialogElement}
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[680px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
         <VisuallyHidden>
-          <DialogTitle>{editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}</DialogTitle>
+          <DialogTitle>{isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}</DialogTitle>
         </VisuallyHidden>
 
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-background px-6 py-5">
-          <div className="flex flex-col gap-1.5">
-            <h2 className="text-lg font-bold leading-tight text-foreground">
-              {editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">
+              {isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}
             </h2>
-            {entityName && (
-              <div className="flex items-center gap-1.5">
-                <span className="inline-block size-3.5 rounded-full bg-status-success-icon shrink-0" />
-                <span className="text-xs text-muted-foreground">
-                  {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
-                  {companyName && ` · ${companyName}`}
-                </span>
-              </div>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {t(chrome.subtitleKey, chrome.subtitleFallback)}
+            </p>
+            {entityName ? (
+              <p className="mt-0.5 text-xs text-muted-foreground/80">
+                {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
+                {companyName ? ` · ${companyName}` : ''}
+              </p>
+            ) : null}
           </div>
           <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
             <X className="size-4 text-muted-foreground" />
@@ -325,27 +407,26 @@ export function ScheduleActivityDialog({
           </Alert>
         )}
 
-        {/* Type tabs */}
-        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-1">
+        {/* Type tabs — large rectangular tiles per Figma */}
+        <div className="grid grid-cols-4 gap-2">
           {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => {
             const isActive = state.activityType === type
             return (
-              <Button
+              <button
                 key={type}
                 type="button"
-                variant="ghost"
-                size="sm"
                 onClick={() => state.setActivityType(type)}
+                aria-pressed={isActive}
                 className={cn(
-                  'h-auto flex items-center gap-2 rounded-md px-3.5 py-2 text-sm transition-colors',
+                  'flex h-[80px] flex-col items-center justify-center gap-2 rounded-md border text-[14px] font-semibold transition-colors',
                   isActive
-                    ? 'bg-background font-semibold text-foreground shadow-sm'
-                    : 'bg-transparent font-normal text-muted-foreground',
+                    ? 'border-transparent bg-foreground text-background'
+                    : 'border-border bg-card text-muted-foreground hover:border-foreground/40 hover:text-foreground',
                 )}
               >
-                <Icon className="size-3.5" />
+                <Icon className="size-[18px]" />
                 {t(labelKey, fallback)}
-              </Button>
+              </button>
             )
           })}
         </div>
@@ -359,13 +440,18 @@ export function ScheduleActivityDialog({
             type="text"
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
-            placeholder={t('customers.schedule.titlePlaceholder', 'Activity title...')}
+            placeholder={
+              state.activityType === 'email'
+                ? t('customers.schedule.subjectPlaceholder', 'Subject...')
+                : t('customers.schedule.titlePlaceholder', 'Activity title...')
+            }
             className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-foreground"
             autoFocus
           />
         </div>
 
-        {/* Date/Time/Duration */}
+        {/* Date/Time/Duration — placed before per-type chip rows so the call/task
+            workflows match Figma 829:50 / 790:280 (date row first, then status chips). */}
         <DateTimeFields
           visible={visibleFields}
           activityType={state.activityType}
@@ -389,6 +475,97 @@ export function ScheduleActivityDialog({
           setRecurrenceEndDate={state.setRecurrenceEndDate}
         />
 
+        {/* Call: Direction + Outcome chips */}
+        {state.activityType === 'call' && (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+                {t('customers.schedule.call.directionLabel', 'Direction')}
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {CALL_DIRECTIONS.map((opt) => {
+                  const isActive = callDirection === opt.key
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setCallDirection(opt.key)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'border-transparent bg-foreground text-background'
+                          : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
+                      )}
+                    >
+                      <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
+                      {t(opt.labelKey, opt.labelFallback)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+                {t('customers.schedule.call.outcomeLabel', 'Outcome')}
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {CALL_OUTCOMES.map((opt) => {
+                  const isActive = callOutcome === opt.key
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setCallOutcome(isActive ? null : opt.key)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'border-transparent bg-foreground text-background'
+                          : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
+                      )}
+                    >
+                      <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
+                      {t(opt.labelKey, opt.labelFallback)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Task: Priority chips */}
+        {state.activityType === 'task' && (
+          <div>
+            <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+              {t('customers.schedule.task.priorityLabel', 'Priority')}
+            </label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {TASK_PRIORITIES.map((opt) => {
+                const isActive = taskPriority === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setTaskPriority(opt.key)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'border-transparent bg-foreground text-background'
+                        : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
+                    )}
+                  >
+                    <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
+                    {t(opt.labelKey, opt.labelFallback)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Participants */}
         <ParticipantsField
           visible={visibleFields}
@@ -400,13 +577,28 @@ export function ScheduleActivityDialog({
           setGuestPermissions={state.setGuestPermissions}
         />
 
-        {/* Location */}
-        <LocationField
-          visible={visibleFields}
-          activityType={state.activityType}
-          location={state.location}
-          setLocation={state.setLocation}
-        />
+        {/* Location (or phone number for calls) */}
+        {state.activityType === 'call' ? (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+              {t('customers.schedule.call.phoneLabel', 'Phone number')}
+            </label>
+            <input
+              type="tel"
+              value={callPhoneNumber}
+              onChange={(e) => setCallPhoneNumber(e.target.value)}
+              placeholder={t('customers.schedule.call.phonePlaceholder', '+1 555 000 0000')}
+              className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-foreground"
+            />
+          </div>
+        ) : (
+          <LocationField
+            visible={visibleFields}
+            activityType={state.activityType}
+            location={state.location}
+            setLocation={state.setLocation}
+          />
+        )}
 
         {/* Linked Entities */}
         <LinkedEntitiesField
@@ -450,13 +642,13 @@ export function ScheduleActivityDialog({
           <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-md border border-input bg-background px-5 py-3 text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">
-            <Calendar className="size-3.5" />
+          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
+            <SaveIcon className="size-3.5" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')
-              : editData
+              : isEditing
                 ? t('customers.schedule.update', 'Update activity')
-                : t('customers.schedule.save', 'Save activity')}
+                : t(chrome.saveKey, chrome.saveFallback)}
           </Button>
         </div>
       </DialogContent>

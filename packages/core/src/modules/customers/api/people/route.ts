@@ -29,7 +29,10 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../lib/personCompanyLinkTable'
 import { normalizeProfilePayload } from './payload'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -221,12 +224,14 @@ const crud = makeCrudRoute({
             { company: query.excludeLinkedCompanyId },
             'customers.people.GET',
           )
-          const links = await findWithDecryption(
-            em,
-            CustomerPersonCompanyLink,
-            linkWhere,
-            { populate: ['person'] },
-            decryptionScope,
+          const links = filterActivePersonCompanyLinks(
+            await findWithDecryption(
+              em,
+              CustomerPersonCompanyLink,
+              linkWhere,
+              { populate: ['person'] },
+              decryptionScope,
+            ),
           )
           links.forEach((link) => {
             const personId = link.person?.id

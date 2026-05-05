@@ -44,6 +44,18 @@ export const PARTICIPANT_COLORS = [
   'bg-chart-teal',
 ]
 
+// Per-Figma defaults for the Reminder dropdown when the user picks an activity
+// type. Meeting/email keep the standard 15 min; tasks default to 1 day (1440 min)
+// because they're plan-ahead artefacts; calls default to 5 min as a stand-in for
+// the Figma "After call ends" treatment (which would need a non-numeric sentinel
+// in the API contract — tracked as a follow-up).
+const DEFAULT_REMINDER_MINUTES: Record<ActivityType, number> = {
+  meeting: 15,
+  call: 5,
+  task: 1440,
+  email: 15,
+}
+
 interface UseScheduleFormStateParams {
   open: boolean
   editData: ScheduleActivityEditData | null | undefined
@@ -76,7 +88,8 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     if (open) {
       if (editData) {
         // Edit mode: populate from existing interaction
-        setActivityType((editData.interactionType as ActivityType) ?? 'meeting')
+        const resolvedType = (editData.interactionType as ActivityType) ?? 'meeting'
+        setActivityType(resolvedType)
         setTitle(editData.title ?? '')
         const scheduledDate = editData.scheduledAt ? new Date(editData.scheduledAt) : new Date()
         setDate(scheduledDate.toISOString().slice(0, 10))
@@ -85,7 +98,9 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')
         setLocation(editData.location ?? '')
-        setReminderMinutes(editData.reminderMinutes ?? 15)
+        // Use per-type default when the editData omits an explicit reminder
+        // (the menu-driven "New X" flow opens the dialog with `reminderMinutes: null`).
+        setReminderMinutes(editData.reminderMinutes ?? DEFAULT_REMINDER_MINUTES[resolvedType])
         setVisibility(editData.visibility ?? 'team')
         setParticipants(
           Array.isArray(editData.participants)
@@ -145,7 +160,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         setAllDay(false)
         setDescription('')
         setLocation('')
-        setReminderMinutes(15)
+        setReminderMinutes(DEFAULT_REMINDER_MINUTES.meeting)
         setVisibility('team')
         setParticipants([])
         setLinkedEntities([])
@@ -159,6 +174,20 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
       document.body.style.removeProperty('pointer-events')
     }
   }, [open, editData])
+
+  // Update the Reminder default when the activity type changes in create mode.
+  // Skipped in edit mode (the persisted value wins), and gated by `open` to
+  // avoid flipping the default in a closed-but-mounted dialog.
+  const lastReminderTypeRef = React.useRef<ActivityType>('meeting')
+  React.useEffect(() => {
+    if (!open || editData) {
+      lastReminderTypeRef.current = activityType
+      return
+    }
+    if (lastReminderTypeRef.current === activityType) return
+    lastReminderTypeRef.current = activityType
+    setReminderMinutes(DEFAULT_REMINDER_MINUTES[activityType])
+  }, [activityType, editData, open])
 
   const removeParticipant = React.useCallback((userId: string) => {
     setParticipants((prev) => prev.filter((p) => p.userId !== userId))
