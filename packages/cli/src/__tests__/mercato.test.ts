@@ -572,6 +572,7 @@ describe('server dev managed process exits', () => {
   afterEach(() => {
     jest.dontMock('child_process')
     jest.dontMock('node:fs')
+    jest.dontMock('../lib/dev-env-reload')
     jest.dontMock('../lib/generators')
     jest.dontMock('../lib/resolver')
     jest.resetModules()
@@ -677,6 +678,117 @@ describe('server dev managed process exits', () => {
       '💥 Failed: [server] Queue worker exited unexpectedly with exit code 0.',
     )
 
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('restarts the managed dev runtime when an app env file changes', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    let envChangeCallback: ((filePath: string) => void) | null = null
+    let reloadCount = 0
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/dev-env-reload', () => ({
+      createDevEnvReloader: () => ({
+        reload: jest.fn(() => {
+          reloadCount += 1
+          process.env.RESTART_TOKEN = reloadCount === 1 ? 'initial' : 'changed'
+        }),
+        getWatchedFiles: () => ['/tmp/test-app/.env'],
+      }),
+      watchDevEnvFiles: jest.fn((_appDir: string, onChange: (filePath: string) => void) => {
+        envChangeCallback = onChange
+        return jest.fn()
+      }),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+      let nextSpawnCount = 0
+
+      const createChild = (
+        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
+      ) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
+          child.killed = true
+          if (child.exitCode !== null || child.signalCode !== null) {
+            return true
+          }
+          child.signalCode = signal
+          queueMicrotask(() => {
+            child.emit('exit', null, signal)
+          })
+          return true
+        })
+
+        if (autoExit) {
+          queueMicrotask(() => {
+            if (child.exitCode !== null || child.signalCode !== null) return
+            child.exitCode = autoExit.code
+            child.signalCode = autoExit.signal ?? null
+            child.emit('exit', child.exitCode, child.signalCode)
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (args[0]?.includes('next/dist/bin/next')) {
+            nextSpawnCount += 1
+            if (nextSpawnCount === 1) {
+              queueMicrotask(() => envChangeCallback?.('/tmp/test-app/.env'))
+              return createChild()
+            }
+            return createChild({ code: null, signal: 'SIGTERM' })
+          }
+          return createChild()
+        }),
+      }
+    })
+
+    const mercado = await import('../mercato')
+    const exitCode = await mercado.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      call[1]?.[0]?.includes('next/dist/bin/next'),
+    )
+
+    expect(exitCode).toBe(0)
+    expect(nextSpawns).toHaveLength(2)
+    expect(nextSpawns[0][2].env.RESTART_TOKEN).toBe('initial')
+    expect(nextSpawns[1][2].env.RESTART_TOKEN).toBe('changed')
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[server] Detected environment file change (.env). Restarting app runtime...',
+    )
+
+    delete process.env.RESTART_TOKEN
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })

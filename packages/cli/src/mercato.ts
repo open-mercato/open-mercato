@@ -12,6 +12,7 @@ import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -19,6 +20,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let envLoaded = false
+const initialProcessEnvironmentEntries = Object.entries(process.env)
 
 async function runWithCapturedExitCode(action: () => Promise<void>): Promise<number> {
   const previousExitCode = process.exitCode
@@ -311,6 +313,14 @@ type ManagedProcessExitResult = {
   signal: NodeJS.Signals | null
 }
 
+type DevServerRestartResult = {
+  label: string
+  restart: true
+  filePath: string
+}
+
+type DevServerExitResult = ManagedProcessExitResult | DevServerRestartResult
+
 function waitForManagedProcessExit(proc: ChildProcess, label: string): Promise<ManagedProcessExitResult> {
   return new Promise((resolve) => {
     proc.on('exit', (code, signal) => {
@@ -335,6 +345,10 @@ function formatManagedProcessExitStatus(result: ManagedProcessExitResult): strin
 
 function createManagedProcessExitError(result: ManagedProcessExitResult): Error {
   return new Error(`[server] ${result.label} exited unexpectedly with ${formatManagedProcessExitStatus(result)}.`)
+}
+
+function isDevServerRestartResult(result: DevServerExitResult): result is DevServerRestartResult {
+  return 'restart' in result && result.restart === true
 }
 
 function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
@@ -1599,12 +1613,11 @@ export async function run(argv = process.argv) {
           const appDir = env.appDir
           const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
-          const processes: ChildProcess[] = []
-          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
-          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
-          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-          const runtimeEnv = buildServerProcessEnvironment(process.env)
+          let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let stopping = false
+          let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
+          const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1622,7 +1635,7 @@ export async function run(argv = process.argv) {
               processes.map(
                 (proc) =>
                   new Promise<void>((resolve) => {
-                    if (proc.exitCode !== null) return resolve()
+                    if (proc.exitCode !== null || proc.signalCode !== null) return resolve()
                     proc.on('exit', () => resolve())
                   })
               )
@@ -1634,10 +1647,17 @@ export async function run(argv = process.argv) {
             } catch {
               // Lock file may already be removed by Next.js — ignore
             }
+            processes = []
           }
 
-          process.on('SIGTERM', cleanup)
-          process.on('SIGINT', cleanup)
+          process.on('SIGTERM', () => {
+            stopping = true
+            cleanup()
+          })
+          process.on('SIGINT', () => {
+            stopping = true
+            cleanup()
+          })
 
           console.log('[server] Starting Open Mercato in dev mode...')
 
@@ -1649,7 +1669,20 @@ export async function run(argv = process.argv) {
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
-          const startNextDev = (): Promise<ManagedProcessExitResult> =>
+          const stopEnvWatcher = watchDevEnvFiles(appDir, (filePath) => {
+            envChangePromiseResolve?.({
+              label: 'Environment file change',
+              restart: true,
+              filePath,
+            })
+          })
+
+          const waitForEnvChange = (): Promise<DevServerRestartResult> =>
+            new Promise((resolve) => {
+              envChangePromiseResolve = resolve
+            })
+
+          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
             new Promise((resolve) => {
               const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
                 stdio: ['inherit', 'pipe', 'pipe'],
@@ -1682,7 +1715,7 @@ export async function run(argv = process.argv) {
                   didRetryCorruptedTurbopackCache = true
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
-                  return resolve(await startNextDev())
+                  return resolve(await startNextDev(runtimeEnv))
                 }
                 resolve({
                   label: 'Next.js dev server',
@@ -1692,43 +1725,63 @@ export async function run(argv = process.argv) {
               })
             })
 
-          const nextExitPromise = startNextDev()
-          const managedExitPromises: Promise<ManagedProcessExitResult>[] = [nextExitPromise]
+          try {
+            while (!stopping) {
+              envReloader.reload()
+              const runtimeEnv = buildServerProcessEnvironment(process.env)
+              const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+              const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              const managedExitPromises: Promise<DevServerExitResult>[] = [
+                startNextDev(runtimeEnv),
+                waitForEnvChange(),
+              ]
 
-          // Start workers if enabled
-          if (autoSpawnWorkers) {
-            const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
-            if (discoveredWorkerQueues.length === 0) {
-              console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
-            } else {
-              console.log('[server] Starting workers for all queues...')
-              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-                stdio: 'inherit',
-                env: runtimeEnv,
-                cwd: appDir,
-              })
-              processes.push(workerProcess)
-              managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
+              // Start workers if enabled
+              if (autoSpawnWorkers) {
+                const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+                if (discoveredWorkerQueues.length === 0) {
+                  console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                } else {
+                  console.log('[server] Starting workers for all queues...')
+                  const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                    stdio: 'inherit',
+                    env: runtimeEnv,
+                    cwd: appDir,
+                  })
+                  processes.push(workerProcess)
+                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
+                }
+              }
+
+              if (autoSpawnScheduler && queueStrategy === 'local') {
+                console.log('[server] Starting scheduler polling engine...')
+                const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                  stdio: 'inherit',
+                  env: runtimeEnv,
+                  cwd: appDir,
+                })
+                processes.push(schedulerProcess)
+                managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+              }
+
+              const firstExit = await Promise.race(managedExitPromises)
+              await cleanupAndWait()
+              envChangePromiseResolve = null
+
+              if (isDevServerRestartResult(firstExit)) {
+                console.log(`[server] Detected environment file change (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
+                continue
+              }
+
+              if (!isExpectedManagedExitSignal(firstExit.signal)) {
+                throw createManagedProcessExitError(firstExit)
+              }
+
+              stopping = true
             }
-          }
-
-          if (autoSpawnScheduler && queueStrategy === 'local') {
-            console.log('[server] Starting scheduler polling engine...')
-            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-              stdio: 'inherit',
-              env: runtimeEnv,
-              cwd: appDir,
-            })
-            processes.push(schedulerProcess)
-            managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
-          }
-
-          const firstExit = await Promise.race(managedExitPromises)
-
-          await cleanupAndWait()
-
-          if (!isExpectedManagedExitSignal(firstExit.signal)) {
-            throw createManagedProcessExitError(firstExit)
+          } finally {
+            stopEnvWatcher()
           }
         },
       },
