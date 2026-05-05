@@ -120,6 +120,7 @@
   "backend.nav.developers": "Desarrolladores",
   "backend.nav.profile": "Perfil",
   "backend.nav.security": "Seguridad",
+  "backend.nav.settings": "Configuración",
   "backend.selectModule": "Selecciona un módulo en el panel.",
   "backend.title": "Panel de administración",
   "bodyPlaceholder": "Enter details",

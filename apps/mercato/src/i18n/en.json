@@ -120,6 +120,7 @@
   "backend.nav.developers": "Developers",
   "backend.nav.profile": "Profile",
   "backend.nav.security": "Security",
+  "backend.nav.settings": "Settings",
   "backend.selectModule": "Select a module in the backend.",
   "backend.title": "Backend",
   "bodyPlaceholder": "Enter details",
