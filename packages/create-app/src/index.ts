@@ -12,7 +12,7 @@ import {
   validateSlug,
 } from './lib/ready-apps.js'
 import { applyStarterPreset } from './lib/apply-starter-preset.js'
-import { DEFAULT_PRESET_ID, STARTER_PRESETS, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -123,9 +123,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
 type Ask = (question: string) => Promise<string>
 
 const PRESET_PROMPT_OPTIONS = [
-  { number: '1', id: 'classic', hint: 'full demo-ready starter' },
-  { number: '2', id: 'empty', hint: 'minimal builder-ready baseline' },
-  { number: '3', id: 'crm', hint: 'minimal CRM starter' },
+  { number: '1', id: 'classic', label: 'Classic     (default)', hint: 'full demo-ready starter' },
+  { number: '2', id: 'empty', label: 'Empty', hint: 'minimal builder-ready baseline' },
+  { number: '3', id: 'crm', label: 'CRM', hint: 'minimal CRM starter' },
 ] as const
 
 export function normalizePresetAnswer(answer: string): string {
@@ -145,22 +145,24 @@ export function normalizePresetAnswer(answer: string): string {
 }
 
 async function promptForStarterPreset(ask: Ask): Promise<string> {
-  console.log(pc.bold('Which starter module set do you want?'))
+  console.log('')
+  console.log('🧩  Starter module setup')
+  console.log('')
+  console.log('   Which starter module set do you want?')
+  console.log('')
   for (const option of PRESET_PROMPT_OPTIONS) {
-    const preset = STARTER_PRESETS[option.id]
-    const suffix = option.id === DEFAULT_PRESET_ID ? ' (default)' : ''
-    console.log(`  ${option.number}. ${preset.label}${suffix} ${pc.dim(`- ${option.hint}`)}`)
+    console.log(`   ${option.number}. ${option.label} - ${option.hint}`)
   }
   console.log('')
 
   while (true) {
-    const answer = await ask(`Select starter preset (${DEFAULT_PRESET_ID}): `)
+    const answer = await ask('   Enter number [1]: ')
 
     try {
       return normalizePresetAnswer(answer)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.log(pc.yellow(message))
+      console.log(pc.yellow(`   ${message}`))
     }
   }
 }
