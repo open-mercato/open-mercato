@@ -124,6 +124,15 @@ export async function POST(
     // Look up the original code definition before deleting
     const codeDef = getCodeWorkflow(definition.codeWorkflowId)
 
+    // Snapshot identifying fields before remove() detaches the entity
+    const removedSnapshot = {
+      id: String(definition.id),
+      workflowId: definition.workflowId,
+      codeWorkflowId: definition.codeWorkflowId,
+      tenantId: definition.tenantId,
+      organizationId: definition.organizationId,
+    }
+
     // Hard-delete the DB override row
     em.remove(definition)
     await em.flush()
@@ -134,12 +143,38 @@ export async function POST(
         organizationId: organizationId ?? null,
         userId: auth.sub ?? '',
         resourceKind: 'workflows.definition',
-        resourceId: String(definition.id),
+        resourceId: removedSnapshot.id,
         operation: 'custom',
         requestMethod: 'POST',
         requestHeaders: request.headers,
         metadata: guardResult.metadata,
       })
+    }
+
+    try {
+      const eventBus = container.resolve('eventBus') as
+        | { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> }
+        | undefined
+      if (eventBus && typeof eventBus.emitEvent === 'function') {
+        await eventBus.emitEvent(
+          'workflows.definition.reset_to_code',
+          {
+            id: removedSnapshot.id,
+            workflowId: removedSnapshot.workflowId,
+            codeWorkflowId: removedSnapshot.codeWorkflowId,
+            tenantId: removedSnapshot.tenantId,
+            organizationId: removedSnapshot.organizationId,
+            userId: auth.sub ?? null,
+          },
+          {
+            tenantId: removedSnapshot.tenantId,
+            organizationId: removedSnapshot.organizationId,
+            persistent: true,
+          },
+        )
+      }
+    } catch (eventError) {
+      console.error('Failed to emit workflows.definition.reset_to_code event:', eventError)
     }
 
     if (!codeDef) {

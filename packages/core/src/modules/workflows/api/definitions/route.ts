@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
             await em.find(
               WorkflowDefinition,
               { ...where, workflowId: { $in: allCodeIds } },
-              { fields: ['workflowId'] as any },
+              { fields: ['workflowId'] as const },
             )
           ).map((d: WorkflowDefinition) => d.workflowId),
         )

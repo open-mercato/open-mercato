@@ -481,6 +481,7 @@ describe('Workflow Definitions API', () => {
         deletedAt: null,
         source: 'user',
         isCodeBased: false,
+        codeModuleId: null,
       })
       expect(mockEm.findOne).toHaveBeenCalledWith(
         WorkflowDefinition,

@@ -13,6 +13,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import {
   workflowDefinitionFormSchema,
   createFormGroups,
@@ -74,39 +75,73 @@ export default function EditWorkflowDefinitionPage() {
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
+  const mutationContextId = React.useMemo(
+    () => `workflows.definitions.detail:${definitionId ?? 'unknown'}`,
+    [definitionId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
+
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
 
-    const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    await runMutation({
+      operation: async () => {
+        const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          const errorBody = await readJsonSafe<{ error?: string }>(response, null)
+          throw new Error(errorBody?.error || t('workflows.errors.updateFailed'))
+        }
+        return response
+      },
+      mutationPayload: { resourceId: definitionId, operation: 'update' },
+      context: {
+        formId: mutationContextId,
+        resourceKind: 'workflows.definition',
+        resourceId: definitionId,
+        operation: 'update',
+        retryLastMutation,
+      },
     })
-
-    if (!response.ok) {
-      const error = await readJsonSafe<{ error?: string }>(response, null)
-      throw new Error(error?.error || t('workflows.errors.updateFailed'))
-    }
 
     router.push('/backend/definitions')
     router.refresh()
   }
 
   const handleCustomize = async () => {
-    const response = await apiFetch(`/api/workflows/definitions/${definitionId}/customize`, {
-      method: 'POST',
-    })
-
-    if (!response.ok) {
-      const error = await readJsonSafe<{ error?: string }>(response, null)
-      flash(error?.error || t('workflows.errors.updateFailed'), 'error')
-      return
-    }
-
-    const result = await readJsonSafe<{ data?: { id?: string } }>(response, null)
-    if (result?.data?.id) {
-      router.push(`/backend/definitions/${result.data.id}`)
-      router.refresh()
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const response = await apiFetch(`/api/workflows/definitions/${definitionId}/customize`, {
+            method: 'POST',
+          })
+          if (!response.ok) {
+            const errorBody = await readJsonSafe<{ error?: string }>(response, null)
+            throw new Error(errorBody?.error || t('workflows.errors.updateFailed'))
+          }
+          return readJsonSafe<{ data?: { id?: string } }>(response, null)
+        },
+        mutationPayload: { resourceId: definitionId, operation: 'customize' },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'workflows.definition',
+          resourceId: definitionId,
+          operation: 'customize',
+          retryLastMutation,
+        },
+      })
+      if (result?.data?.id) {
+        router.push(`/backend/definitions/${result.data.id}`)
+        router.refresh()
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('workflows.errors.updateFailed')
+      flash(message, 'error')
     }
   }
 
@@ -119,17 +154,32 @@ export default function EditWorkflowDefinitionPage() {
     })
     if (!confirmed) return
 
-    const response = await apiFetch(`/api/workflows/definitions/${definitionId}/reset-to-code`, {
-      method: 'POST',
-    })
-
-    if (response.ok) {
-      const result = await readJsonSafe<{ data?: { id?: string } }>(response, null)
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const response = await apiFetch(`/api/workflows/definitions/${definitionId}/reset-to-code`, {
+            method: 'POST',
+          })
+          if (!response.ok) {
+            const errorBody = await readJsonSafe<{ error?: string }>(response, null)
+            throw new Error(errorBody?.error || t('workflows.messages.updateFailed'))
+          }
+          return readJsonSafe<{ data?: { id?: string } }>(response, null)
+        },
+        mutationPayload: { resourceId: definitionId, operation: 'reset-to-code' },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'workflows.definition',
+          resourceId: definitionId,
+          operation: 'reset-to-code',
+          retryLastMutation,
+        },
+      })
       flash(t('workflows.messages.updated'), 'success')
       const codeId = result?.data?.id || `code:${definition?.workflowId}`
       router.push(`/backend/definitions/${codeId}`)
       router.refresh()
-    } else {
+    } catch {
       flash(t('workflows.messages.updateFailed'), 'error')
     }
   }

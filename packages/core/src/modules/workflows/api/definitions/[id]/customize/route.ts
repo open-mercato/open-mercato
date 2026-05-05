@@ -44,16 +44,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const tenantId = auth.tenantId
     const organizationId = scope?.selectedId ?? auth.orgId
 
-    const rbacService = container.resolve('rbacService')
-    const hasPermission = await rbacService.userHasAllFeatures(
-      auth.sub,
-      ['workflows.definitions.edit'],
-      { tenantId, organizationId },
-    )
-    if (!hasPermission) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
-    }
-
     if (!params.id.startsWith('code:')) {
       return NextResponse.json(
         { error: 'Customize is only supported for code-based workflow definitions' },
@@ -134,6 +124,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
         requestHeaders: request.headers,
         metadata: guardResult.metadata,
       })
+    }
+
+    try {
+      const eventBus = container.resolve('eventBus') as
+        | { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> }
+        | undefined
+      if (eventBus && typeof eventBus.emitEvent === 'function') {
+        await eventBus.emitEvent(
+          'workflows.definition.customized',
+          {
+            id: saved.id,
+            workflowId: saved.workflowId,
+            codeWorkflowId: saved.codeWorkflowId ?? null,
+            tenantId: saved.tenantId,
+            organizationId: saved.organizationId,
+            userId: auth.sub ?? null,
+          },
+          { tenantId: saved.tenantId, organizationId: saved.organizationId, persistent: true },
+        )
+      }
+    } catch (eventError) {
+      console.error('Failed to emit workflows.definition.customized event:', eventError)
     }
 
     return NextResponse.json({

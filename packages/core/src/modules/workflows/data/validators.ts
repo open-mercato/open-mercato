@@ -285,7 +285,7 @@ const dateOrNull = z.preprocess((value) => {
 
 // Full schema for database entities (includes tenant fields)
 export const createWorkflowDefinitionSchema = z.object({
-  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
   workflowName: z.string().min(1).max(255),
   description: z.string().max(2000).optional().nullable(),
   version: z.number().int().positive().default(1),
@@ -303,7 +303,7 @@ export type CreateWorkflowDefinitionInput = z.infer<typeof createWorkflowDefinit
 
 // API input schema (omits tenant fields - injected from auth context)
 export const createWorkflowDefinitionInputSchema = z.object({
-  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
   workflowName: z.string().min(1).max(255),
   description: z.string().max(2000).optional().nullable(),
   version: z.number().int().positive().default(1),

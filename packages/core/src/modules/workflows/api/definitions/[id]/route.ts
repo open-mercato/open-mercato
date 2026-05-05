@@ -169,6 +169,7 @@ export async function PUT(
         tenantId,
       })
 
+      let savedOverride: WorkflowDefinition
       if (existingOverride) {
         // Revive if soft-deleted, then apply updates
         existingOverride.deletedAt = null
@@ -182,36 +183,55 @@ export async function PUT(
         existingOverride.updatedBy = auth.sub
         existingOverride.updatedAt = new Date()
         await em.flush()
-
-        return NextResponse.json({
-          data: serializeWorkflowDefinition(existingOverride),
-          message: 'Workflow definition customized successfully',
+        savedOverride = existingOverride
+      } else {
+        // Create DB override row from code definition + user changes
+        const override = em.create(WorkflowDefinition, {
+          workflowId: codeDef.workflowId,
+          workflowName: codeDef.workflowName,
+          description: codeDef.description,
+          version: codeDef.version,
+          definition: input.definition ?? codeDef.definition,
+          metadata: codeDef.metadata,
+          enabled: input.enabled ?? codeDef.enabled,
+          codeWorkflowId: codeDef.workflowId,
+          tenantId,
+          organizationId,
+          createdBy: auth.sub,
+          updatedBy: auth.sub,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
+
+        em.persist(override)
+        await em.flush()
+        savedOverride = override
       }
 
-      // Create DB override row from code definition + user changes
-      const override = em.create(WorkflowDefinition, {
-        workflowId: codeDef.workflowId,
-        workflowName: codeDef.workflowName,
-        description: codeDef.description,
-        version: codeDef.version,
-        definition: input.definition ?? codeDef.definition,
-        metadata: codeDef.metadata,
-        enabled: input.enabled ?? codeDef.enabled,
-        codeWorkflowId: codeDef.workflowId,
-        tenantId,
-        organizationId,
-        createdBy: auth.sub,
-        updatedBy: auth.sub,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-
-      em.persist(override)
-      await em.flush()
+      try {
+        const eventBus = container.resolve('eventBus') as
+          | { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> }
+          | undefined
+        if (eventBus && typeof eventBus.emitEvent === 'function') {
+          await eventBus.emitEvent(
+            'workflows.definition.customized',
+            {
+              id: savedOverride.id,
+              workflowId: savedOverride.workflowId,
+              codeWorkflowId: savedOverride.codeWorkflowId ?? null,
+              tenantId: savedOverride.tenantId,
+              organizationId: savedOverride.organizationId,
+              userId: auth.sub ?? null,
+            },
+            { tenantId: savedOverride.tenantId, organizationId: savedOverride.organizationId, persistent: true },
+          )
+        }
+      } catch (eventError) {
+        console.error('Failed to emit workflows.definition.customized event:', eventError)
+      }
 
       return NextResponse.json({
-        data: serializeWorkflowDefinition(override),
+        data: serializeWorkflowDefinition(savedOverride),
         message: 'Workflow definition customized successfully',
       })
     }

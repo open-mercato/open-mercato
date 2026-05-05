@@ -2,12 +2,16 @@
  * Unit tests for workflow definition serializers.
  */
 
-import { describe, test, expect } from '@jest/globals'
+import { describe, test, expect, afterEach } from '@jest/globals'
 import { WorkflowDefinition } from '../../data/entities'
 import {
   serializeWorkflowDefinition,
   serializeCodeWorkflowDefinition,
 } from '../definitions/serialize'
+import {
+  clearCodeWorkflowRegistry,
+  registerCodeWorkflows,
+} from '../../lib/code-registry'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,51 @@ describe('serializeWorkflowDefinition()', () => {
     const def = makeWorkflowDefinition({ codeWorkflowId: 'sales.order-approval' })
     const result = serializeWorkflowDefinition(def)
     expect(result.isCodeBased).toBe(true)
+  })
+
+  describe('codeModuleId resolution', () => {
+    afterEach(() => {
+      clearCodeWorkflowRegistry()
+    })
+
+    test('returns codeModuleId: null for a user-only definition', () => {
+      const def = makeWorkflowDefinition({ codeWorkflowId: null })
+      const result = serializeWorkflowDefinition(def)
+      expect(result.codeModuleId).toBeNull()
+    })
+
+    test('looks up codeModuleId from the registry for a code_override', () => {
+      registerCodeWorkflows([
+        {
+          workflowId: 'sales.order-approval',
+          workflowName: 'Order Approval',
+          description: null,
+          version: 1,
+          enabled: true,
+          metadata: null,
+          moduleId: 'my_sales_module',
+          definition: {
+            steps: [
+              { stepId: 'start', stepName: 'Start', stepType: 'START' },
+              { stepId: 'end', stepName: 'End', stepType: 'END' },
+            ],
+            transitions: [
+              { transitionId: 't1', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+            ],
+          },
+        },
+      ])
+
+      const def = makeWorkflowDefinition({ codeWorkflowId: 'sales.order-approval' })
+      const result = serializeWorkflowDefinition(def)
+      expect(result.codeModuleId).toBe('my_sales_module')
+    })
+
+    test('returns codeModuleId: null when registry has no matching code workflow', () => {
+      const def = makeWorkflowDefinition({ codeWorkflowId: 'sales.order-approval' })
+      const result = serializeWorkflowDefinition(def)
+      expect(result.codeModuleId).toBeNull()
+    })
   })
 
   test('passes through entity fields correctly', () => {
