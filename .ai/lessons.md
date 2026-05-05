@@ -839,3 +839,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When building or changing `useNotificationEffect`-style APIs, subscribe directly to the DOM Event Bridge notification-created event where possible and dedupe with dispatcher delivery. Keep notification panel/bell state hooks as UI consumers, not the sole delivery path for component-scoped side effects.
 
 **Applies to**: `packages/ui/src/backend/notifications/useNotificationEffect.ts`, notification dispatcher hooks, backend pages that use `useNotificationEffect`, and integration tests covering reactive notification behavior.
+
+## Header-gated module features need setup grants
+
+**Context**: The empty starter preset enabled the `notifications` module, but the notification bell stayed hidden because the module declared `notifications.view` in `acl.ts` without a matching `setup.ts` grant for default roles.
+
+**Problem**: Enabling a module is not enough for feature-gated header chrome. `BackendHeaderChrome` and similar runtime surfaces check effective ACL grants, so a missing `defaultRoleFeatures` entry makes enabled module UI look absent after tenant initialization.
+
+**Rule**: Any module with header, sidebar, page, API, or runtime UI gated by `requireFeatures` / `hasFeature` must declare those feature grants in `setup.ts` for the default roles that should see the surface. Add ACL setup tests for visible shell features such as topbar icons.
+
+**Applies to**: Module `acl.ts` / `setup.ts` pairs, starter presets, `BackendHeaderChrome`, notification/message/search/AI shell buttons, and tenant initialization ACL tests.
