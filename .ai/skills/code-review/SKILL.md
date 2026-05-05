@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review code changes for Open Mercato compliance with architecture, security, conventions, and quality rules. Use this skill when reviewing pull requests, reviewing code changes, performing code review, auditing code quality, or when asked to review files, diffs, or commits. Covers module structure, naming conventions, data security, UI patterns, event/cache/queue rules, and anti-patterns.
+description: Review code changes for Open Mercato compliance with architecture, security, conventions, and quality rules. Covers module structure, naming, data security, UI patterns, event/cache/queue rules, and anti-patterns. Use for reviewing PRs, diffs, or commits.
 ---
 
 # Code Review

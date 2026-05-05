@@ -1,6 +1,6 @@
 ---
 name: sync-merged-pr-issues
-description: Iterate recently merged (and recently closed-but-not-merged) pull requests and reconcile them with the GitHub issue tracker — auto-close the open issues they actually fix (via `fixes`/`closes`/`resolves` keywords or GitHub's own `closingIssuesReferences`), and post informational comments on issues whose PRs were closed without merging. Use this for post-merge housekeeping, release prep, and keeping the issue backlog honest. Respects claim locks so two automation runs cannot double-close.
+description: Reconcile recently merged (and recently closed-but-not-merged) PRs with the GitHub issue tracker — auto-close issues they authoritatively fix via `fixes`/`closes`/`resolves` keywords or `closingIssuesReferences`, and post informational comments on issues whose PRs were closed without merging. Use for post-merge housekeeping and release prep. Respects claim locks.
 ---
 
 # Sync Merged PR ↔ Issue Tracker

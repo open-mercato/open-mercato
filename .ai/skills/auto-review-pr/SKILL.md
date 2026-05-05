@@ -1,6 +1,6 @@
 ---
 name: auto-review-pr
-description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /auto-review-pr <PR-number>
+description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
 ---
 
 # Auto Review PR
