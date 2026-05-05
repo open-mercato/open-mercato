@@ -219,6 +219,27 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setScheduleDialogOpen(true)
   }, [])
 
+  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email') => {
+    setScheduleEditData({
+      id: '',
+      interactionType: kind,
+      title: null,
+      body: null,
+      scheduledAt: null,
+      durationMinutes: null,
+      location: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      reminderMinutes: null,
+      visibility: null,
+      linkedEntities: null,
+      guestPermissions: null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
+
   // Injected tabs from UMES
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.company:tabs', {
     context: injectionContext,
@@ -473,6 +494,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     plannedActivities={plannedActivities}
                     onActivityCreated={handleActivityCreated}
                     onScheduleRequested={openNewScheduleDialog}
+                    onAddActivity={handleAddActivity}
                     onMarkDone={handleMarkDone}
                     onEditActivity={handleEditActivity}
                     onCancelActivity={handleCancelActivity}

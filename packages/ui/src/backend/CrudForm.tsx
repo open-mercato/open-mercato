@@ -796,6 +796,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const target = resolveInternalNavigationTarget(href)
       if (!target) return
       if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
+      const baselineSnapshot = dirtyBaselineSnapshotRef.current
+      if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+        isDirtyRef.current = false
+        setHasUnsavedChanges(false)
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       if (navigationConfirmPendingRef.current) return

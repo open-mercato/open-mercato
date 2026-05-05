@@ -321,6 +321,16 @@ type DevServerRestartResult = {
 
 type DevServerExitResult = ManagedProcessExitResult | DevServerRestartResult
 
+type ModuleCommandLookupResult =
+  | {
+      status: 'ok'
+      module: Module
+      command: NonNullable<Module['cli']>[number]
+    }
+  | {
+      status: 'missing-module' | 'missing-cli' | 'missing-command'
+    }
+
 function waitForManagedProcessExit(proc: ChildProcess, label: string): Promise<ManagedProcessExitResult> {
   return new Promise((resolve) => {
     proc.on('exit', (code, signal) => {
@@ -349,6 +359,50 @@ function createManagedProcessExitError(result: ManagedProcessExitResult): Error 
 
 function isDevServerRestartResult(result: DevServerExitResult): result is DevServerRestartResult {
   return 'restart' in result && result.restart === true
+}
+
+function formatQueueWorkerLabel(queueNames: string[]): string {
+  if (queueNames.length === 0) return 'Queue worker'
+  const sorted = [...queueNames].sort((a, b) => a.localeCompare(b))
+  const preview = sorted.length > 4 ? `${sorted.slice(0, 4).join(', ')}, +${sorted.length - 4} more` : sorted.join(', ')
+  return `Queue worker (${preview})`
+}
+
+function lookupModuleCommand(
+  allModules: Module[],
+  moduleName: string,
+  commandName: string,
+): ModuleCommandLookupResult {
+  const mod = allModules.find((entry) => entry.id === moduleName)
+  if (!mod) {
+    return { status: 'missing-module' }
+  }
+
+  if (!mod.cli || mod.cli.length === 0) {
+    return { status: 'missing-cli' }
+  }
+
+  const command = mod.cli.find((entry) => entry.command === commandName)
+  if (!command) {
+    return { status: 'missing-command' }
+  }
+
+  return {
+    status: 'ok',
+    module: mod,
+    command,
+  }
+}
+
+function describeMissingModuleCommand(result: Exclude<ModuleCommandLookupResult, { status: 'ok' }>): string {
+  switch (result.status) {
+    case 'missing-module':
+      return 'module not enabled'
+    case 'missing-cli':
+      return 'module has no CLI commands'
+    case 'missing-command':
+      return 'command not found'
+  }
 }
 
 function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
@@ -418,36 +472,25 @@ async function runModuleCommand(
   args: string[] = [],
   options: { optional?: boolean; silentOptional?: boolean } = {},
 ): Promise<boolean> {
-  const mod = allModules.find((m) => m.id === moduleName)
-  if (!mod) {
+  const resolved = lookupModuleCommand(allModules, moduleName, commandName)
+  if (resolved.status !== 'ok') {
     if (options.optional) {
       if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — ${describeMissingModuleCommand(resolved)}`)
       }
       return false
     }
-    throw new Error(`Module not found: "${moduleName}"`)
-  }
-  if (!mod.cli || mod.cli.length === 0) {
-    if (options.optional) {
-      if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
-      }
-      return false
+    switch (resolved.status) {
+      case 'missing-module':
+        throw new Error(`Module not found: "${moduleName}"`)
+      case 'missing-cli':
+        throw new Error(`Module "${moduleName}" has no CLI commands`)
+      case 'missing-command':
+        throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
     }
-    throw new Error(`Module "${moduleName}" has no CLI commands`)
   }
-  const cmd = mod.cli.find((c) => c.command === commandName)
-  if (!cmd) {
-    if (options.optional) {
-      if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
-      }
-      return false
-    }
-    throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
-  }
-  await cmd.run(args)
+
+  await resolved.command.run(args)
   return true
 }
 
@@ -1732,6 +1775,7 @@ export async function run(argv = process.argv) {
               const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
               const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
               const managedExitPromises: Promise<DevServerExitResult>[] = [
                 startNextDev(runtimeEnv),
                 waitForEnvChange(),
@@ -1750,19 +1794,23 @@ export async function run(argv = process.argv) {
                     cwd: appDir,
                   })
                   processes.push(workerProcess)
-                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
+                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
                 }
               }
 
               if (autoSpawnScheduler && queueStrategy === 'local') {
-                console.log('[server] Starting scheduler polling engine...')
-                const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-                  stdio: 'inherit',
-                  env: runtimeEnv,
-                  cwd: appDir,
-                })
-                processes.push(schedulerProcess)
-                managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+                if (schedulerCommand.status !== 'ok') {
+                  console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                } else {
+                  console.log('[server] Starting scheduler polling engine...')
+                  const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                    stdio: 'inherit',
+                    env: runtimeEnv,
+                    cwd: appDir,
+                  })
+                  processes.push(schedulerProcess)
+                  managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+                }
               }
 
               const firstExit = await Promise.race(managedExitPromises)
@@ -1799,6 +1847,7 @@ export async function run(argv = process.argv) {
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
           })
@@ -1806,7 +1855,7 @@ export async function run(argv = process.argv) {
           function cleanup() {
             console.log('[server] Shutting down...')
             for (const proc of processes) {
-              if (!proc.killed) {
+              if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
             }
@@ -1818,7 +1867,7 @@ export async function run(argv = process.argv) {
               processes.map(
                 (proc) =>
                   new Promise<void>((resolve) => {
-                    if (proc.exitCode !== null) return resolve()
+                    if (proc.exitCode !== null || proc.signalCode !== null) return resolve()
                     proc.on('exit', () => resolve())
                   })
               )
@@ -1842,6 +1891,9 @@ export async function run(argv = process.argv) {
               cwd: appDir,
             })
             processes.push(nextProcess)
+            const managedExitPromises: Promise<ManagedProcessExitResult>[] = [
+              waitForManagedProcessExit(nextProcess, 'Next.js production server'),
+            ]
 
             // Start workers if enabled
             if (autoSpawnWorkers) {
@@ -1856,30 +1908,32 @@ export async function run(argv = process.argv) {
                   cwd: appDir,
                 })
                 processes.push(workerProcess)
+                managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
               }
             }
 
             if (autoSpawnScheduler && queueStrategy === 'local') {
-              console.log('[server] Starting scheduler polling engine...')
-              const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-                stdio: 'inherit',
-                env: runtimeEnv,
-                cwd: appDir,
-              })
-              processes.push(schedulerProcess)
+              if (schedulerCommand.status !== 'ok') {
+                console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+              } else {
+                console.log('[server] Starting scheduler polling engine...')
+                const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                  stdio: 'inherit',
+                  env: runtimeEnv,
+                  cwd: appDir,
+                })
+                processes.push(schedulerProcess)
+                managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+              }
             }
 
-            // Wait for any process to exit
-            await Promise.race(
-              processes.map(
-                (proc) =>
-                  new Promise<void>((resolve) => {
-                    proc.on('exit', () => resolve())
-                  })
-              )
-            )
+            const firstExit = await Promise.race(managedExitPromises)
 
             await cleanupAndWait()
+
+            if (!isExpectedManagedExitSignal(firstExit.signal)) {
+              throw createManagedProcessExitError(firstExit)
+            }
           } finally {
             serverStartLock.release()
           }

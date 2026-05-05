@@ -29,10 +29,10 @@ test('resolvePreset: empty returns 6-module list', () => {
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
 })
 
-test('resolvePreset: crm returns 9-module list extending empty', () => {
+test('resolvePreset: crm returns 12-module list extending empty', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 9)
+  assert.equal(result.modules.length, 12)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -43,6 +43,9 @@ test('resolvePreset: crm returns 9-module list extending empty', () => {
   assert.ok(ids.includes('customers'))
   assert.ok(ids.includes('dictionaries'))
   assert.ok(ids.includes('feature_toggles'))
+  assert.ok(ids.includes('notifications'))
+  assert.ok(ids.includes('dashboards'))
+  assert.ok(ids.includes('events'))
   // Inherits filesToRemove from empty
   assert.ok(result.filesToRemove.includes('src/modules/example'))
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
@@ -83,6 +86,9 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'customers'"))
   assert.ok(content.includes("id: 'feature_toggles'"))
   assert.ok(content.includes("id: 'dictionaries'"))
+  assert.ok(content.includes("id: 'notifications'"))
+  assert.ok(content.includes("id: 'dashboards'"))
+  assert.ok(content.includes("id: 'events'"))
   assert.ok(!content.includes('example_customers_sync'))
 })
 
@@ -130,7 +136,7 @@ test('applyStarterPreset: empty writes 6-module modules.ts and removes example d
   }
 })
 
-test('applyStarterPreset: crm writes 9-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: crm writes 12-module modules.ts and removes example dirs', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -139,6 +145,9 @@ test('applyStarterPreset: crm writes 9-module modules.ts and removes example dir
     assert.ok(content.includes("id: 'customers'"))
     assert.ok(content.includes("id: 'dictionaries'"))
     assert.ok(content.includes("id: 'feature_toggles'"))
+    assert.ok(content.includes("id: 'notifications'"))
+    assert.ok(content.includes("id: 'dashboards'"))
+    assert.ok(content.includes("id: 'events'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))

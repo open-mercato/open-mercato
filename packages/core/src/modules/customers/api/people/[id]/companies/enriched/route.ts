@@ -20,7 +20,10 @@ import {
   CustomerDeal,
   CustomerInteraction,
 } from '../../../../../data/entities'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../../../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../../../../lib/personCompanyLinkTable'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -187,12 +190,14 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       },
       'customers.people.companiesEnriched.GET',
     )
-    const links = await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      linkWhere,
-      { populate: ['company'] },
-      entityScope,
+    const links = filterActivePersonCompanyLinks(
+      await findWithDecryption(
+        em,
+        CustomerPersonCompanyLink,
+        linkWhere,
+        { populate: ['company'] },
+        entityScope,
+      ),
     )
 
     const companyIds = links.map((link) => (link.company as CustomerEntity).id)
