@@ -1039,7 +1039,7 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId])
   const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
-  const resolvedInjectionContext = React.useMemo(
+  const baseInjectionContext = React.useMemo(
     () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
     [injectionContext, perspective?.tableId, title]
   )
@@ -1049,6 +1049,10 @@ export function DataTable<T>({
   )
   const toolbarInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    [resolvedInjectionSpotId]
+  )
+  const searchTrailingInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
     [resolvedInjectionSpotId]
   )
   const footerInjectionSpotId = React.useMemo(
@@ -1340,6 +1344,15 @@ export function DataTable<T>({
     if (Object.keys(rowSelection).length === 0) return
     setRowSelection({})
   }, [hasInjectedBulkActions, rowSelection])
+  const resolvedInjectionContext = React.useMemo(
+    () => {
+      if (!hasInjectedBulkActions) return baseInjectionContext
+      const selectedIds = Object.keys(rowSelection).filter((key) => rowSelection[key])
+      if (selectedIds.length === 0) return baseInjectionContext
+      return { ...baseInjectionContext, _selectedRowIds: selectedIds, _selectedCount: selectedIds.length }
+    },
+    [baseInjectionContext, hasInjectedBulkActions, rowSelection],
+  )
   React.useEffect(() => {
     const ids = table.getAllLeafColumns().map((column) => column.id)
     if (!ids.length) return
@@ -2180,6 +2193,9 @@ export function DataTable<T>({
         }) : null}
       </div>
     ) : null
+    const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
+      <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
+    ) : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -2192,6 +2208,7 @@ export function DataTable<T>({
         onClear={onFiltersClear}
         leadingItems={leadingItems}
         trailingItems={trailingItems}
+        searchTrailing={searchTrailingNode}
         filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
@@ -2224,6 +2241,8 @@ export function DataTable<T>({
     selectedRows,
     runBulkAction,
     runPropBulkAction,
+    searchTrailingInjectionSpotId,
+    resolvedInjectionContext,
   ])
 
   const hasTitle = title != null

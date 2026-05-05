@@ -230,6 +230,8 @@
   "dashboard.action.done": "Fertig",
   "dashboard.addWidget": "Widget hinzufügen",
   "dashboard.empty.configurable": "Noch keine Widgets ausgewählt. Verwende \"Widget hinzufügen\", um dein Dashboard zu gestalten.",
+  "dashboard.empty.noWidgets.description": "Dashboard-Widgets erscheinen hier, sobald du das erste Modul hinzufügst, das sie bereitstellt.",
+  "dashboard.empty.noWidgets.title": "Noch keine Dashboard-Widgets",
   "dashboard.empty.readonly": "Für dein Konto sind noch keine Widgets verfügbar.",
   "dashboard.error.partial": "Einige Änderungen wurden nicht gespeichert",
   "dashboard.error.reload": "Daten neu laden",

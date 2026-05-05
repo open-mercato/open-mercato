@@ -10,6 +10,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useAiDock } from '@open-mercato/ui/ai'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -41,6 +42,8 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error'
 
 export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
+  const aiDock = useAiDock()
+  const aiDockActive = Boolean(aiDock.state.assistant)
   const [open, setOpen] = useState(false)
   const [captionIndex, setCaptionIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
@@ -91,9 +94,13 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     return () => clearInterval(interval)
   }, [])
 
-  // Auto-popup after 30s inactivity (once per day, unless suppressed)
+  // Auto-popup after 30s inactivity (once per day, unless suppressed).
+  // Skip the inactivity prompt entirely while the AI dock is open — the
+  // operator is mid-conversation with an assistant and a popup would be
+  // disruptive on top of (or competing with) the dock surface.
   useEffect(() => {
     if (!demoModeEnabled || !mounted) return
+    if (aiDockActive) return
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
 
@@ -126,7 +133,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       events.forEach((ev) => window.removeEventListener(ev, resetTimer))
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
-  }, [demoModeEnabled, mounted])
+  }, [demoModeEnabled, mounted, aiDockActive])
 
   const handleSubmit = useCallback(async () => {
     setFieldErrors({})
@@ -208,15 +215,22 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   if (otherModalOpen && !open) return null
 
   // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
-  // z-banner token (no z-[60]) so it stays DS-compliant while keeping the
-  // bespoke 135deg / 0-50-100 gradient that the marketing visual depends on
-  // (FancyButton's primary variant uses 161.7deg / 0-35.36-70.72 which
-  // truncates the violet-to-end transition and looks banded).
-  const floatingButton = (
+  // z-banner so it stays DS-compliant while keeping the bespoke 135deg /
+  // 0-50-100 gradient that the marketing visual depends on. The text is
+  // pinned to `text-black` because the gradient (lime → yellow → violet)
+  // is a fixed light surface in BOTH themes — `text-foreground` flips to
+  // near-white in dark mode and disappears against the pale gradient.
+  // Mirrors the `FancyButton` primitive's `text-white` precedent on its
+  // fixed dark gradient. The `om-demo-feedback-floating` class hooks into
+  // `body[data-ai-chat-open="true"] .om-demo-feedback-floating` in
+  // globals.css so the FAB hides while the AI dock surface is open
+  // (anchored on the right edge of the viewport); the same `aiDockActive`
+  // gate hides the FAB outright when the dock is mounted in this app shell.
+  const floatingButton = aiDockActive ? null : (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-foreground shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
@@ -234,7 +248,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   return (
     <>
-      {createPortal(floatingButton, document.body)}
+      {floatingButton ? createPortal(floatingButton, document.body) : null}
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
           <DialogHeader className="items-center gap-3">
@@ -365,12 +379,15 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
               <Button
                 type="button"
-                className="mt-1 w-full gap-2 text-foreground"
+                className="mt-1 w-full gap-2 text-black"
                 disabled={submitState === 'sending'}
                 onClick={handleSubmit}
                 style={{
                   // Same brand-gradient as the floating CTA (135deg / 0-50-100,
                   // brand vars instead of hex literals to satisfy DS rules).
+                  // Pin text to `text-black` — the gradient is a fixed light
+                  // surface in both themes; `text-foreground` would flip white
+                  // in dark mode and vanish against the pale gradient.
                   backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
                 }}
               >

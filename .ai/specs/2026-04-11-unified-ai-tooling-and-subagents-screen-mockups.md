@@ -1,7 +1,7 @@
 # Unified AI Tooling and Subagents - Screen Mockups
 
 Companion to:
-- `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`
+- `.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`
 
 Purpose:
 - keep implementation-oriented ASCII screen mockups outside the main spec

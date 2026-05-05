@@ -98,7 +98,6 @@ export default async function BackendLayout({
   return (
     <I18nProvider locale={locale} dict={dict}>
       <AppShell
-        key={path}
         productName={productName}
         email={auth?.email}
         groups={[]}

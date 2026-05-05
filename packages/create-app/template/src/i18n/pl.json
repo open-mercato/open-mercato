@@ -194,6 +194,8 @@
   "dashboard.action.done": "Gotowe",
   "dashboard.addWidget": "Dodaj widżet",
   "dashboard.empty.configurable": "Nie wybrano jeszcze żadnych widżetów. Użyj \"Dodaj widżet\", aby zbudować pulpit.",
+  "dashboard.empty.noWidgets.description": "Widżety pulpitu pojawią się tutaj po dodaniu pierwszego modułu, który je udostępnia.",
+  "dashboard.empty.noWidgets.title": "Brak widżetów pulpitu",
   "dashboard.empty.readonly": "Brak dostępnych widżetów dla Twojego konta.",
   "dashboard.error.partial": "Niektóre zmiany nie zostały zapisane",
   "dashboard.error.reload": "Ponownie wczytaj dane",

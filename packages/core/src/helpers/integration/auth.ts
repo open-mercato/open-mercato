@@ -153,12 +153,19 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const apiLoginForm = new URLSearchParams();
   apiLoginForm.set('email', creds.email);
   apiLoginForm.set('password', creds.password);
-  const apiLoginResponse = await page.request.post('/api/auth/login', {
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    data: apiLoginForm.toString(),
-  }).catch(() => null);
+  // Retry-on-429 against the auth rate limit (5/60s per email). Capped
+  // exponential backoff: 1s, 2s, 4s — worst-case ~7s.
+  let apiLoginResponse: Awaited<ReturnType<typeof page.request.post>> | null = null;
+  for (let retry = 0; retry < 4; retry += 1) {
+    apiLoginResponse = await page.request.post('/api/auth/login', {
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      data: apiLoginForm.toString(),
+    }).catch(() => null);
+    if (!apiLoginResponse || apiLoginResponse.status() !== 429) break;
+    await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** retry));
+  }
   if (apiLoginResponse?.ok()) {
     const apiLoginBody = (await apiLoginResponse.json().catch(() => null)) as { token?: string } | null;
     const claims = typeof apiLoginBody?.token === 'string' ? decodeJwtClaims(apiLoginBody.token) : null;

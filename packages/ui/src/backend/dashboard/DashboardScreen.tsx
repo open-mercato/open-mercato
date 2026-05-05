@@ -5,11 +5,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { loadDashboardWidgetModule } from './widgetRegistry'
+import { getDashboardWidgets, loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { GripVertical, Info, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '../injection/InjectionSpot'
 
@@ -93,6 +94,7 @@ export function DashboardScreen() {
   const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [hasRegisteredWidgets, setHasRegisteredWidgets] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [layout, setLayout] = React.useState<LayoutItem[]>([])
   const [widgetCatalog, setWidgetCatalog] = React.useState<WidgetMeta[]>([])
@@ -119,9 +121,11 @@ export function DashboardScreen() {
         throw new Error(`Failed with status ${call.status}`)
       }
       const data = call.result
+      const registeredWidgetCount = getDashboardWidgets().length
       const normalizedLayout = sortLayout(data.layout?.items ?? [])
       setLayout(normalizedLayout)
       setWidgetCatalog(data.widgets ?? [])
+      setHasRegisteredWidgets(registeredWidgetCount > 0 || (data.widgets ?? []).length > 0)
       setAllowedWidgetIds(data.allowedWidgetIds ?? [])
       setCanConfigure(!!data.canConfigure)
       if (data.context) {
@@ -142,6 +146,17 @@ export function DashboardScreen() {
       }
     } catch (err) {
       console.error('Failed to load dashboard layout', err)
+      if (getDashboardWidgets().length === 0) {
+        setHasRegisteredWidgets(false)
+        setLayout([])
+        setWidgetCatalog([])
+        setAllowedWidgetIds([])
+        setCanConfigure(false)
+        setContext(null)
+        setEditing(false)
+        setSettingsId(null)
+        return
+      }
       setError(t('dashboard.loadError'))
     } finally {
       setLoading(false)
@@ -345,6 +360,21 @@ export function DashboardScreen() {
     )
   }
 
+  if (!hasRegisteredWidgets && layout.length === 0) {
+    return (
+      <Alert variant="info">
+        <Info className="h-4 w-4" aria-hidden />
+        <AlertTitle>{t('dashboard.empty.noWidgets.title', 'No dashboard widgets yet')}</AlertTitle>
+        <AlertDescription>
+          {t(
+            'dashboard.empty.noWidgets.description',
+            'After you add the first module that exposes dashboard widgets, they will appear here.',
+          )}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -464,7 +494,12 @@ export function DashboardScreen() {
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
-          {canConfigure ? t('dashboard.empty.configurable') : t('dashboard.empty.readonly')}
+          {!hasRegisteredWidgets
+            ? t(
+              'dashboard.empty.noWidgets.description',
+              'After you add the first module that exposes dashboard widgets, they will appear here.',
+            )
+            : canConfigure ? t('dashboard.empty.configurable') : t('dashboard.empty.readonly')}
         </div>
       )}
 

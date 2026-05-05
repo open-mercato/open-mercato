@@ -21,7 +21,11 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │       └── review-checklist.md
 ├── auto-continue-pr/
 │   └── SKILL.md
+├── auto-continue-pr-loop/
+│   └── SKILL.md
 ├── auto-create-pr/
+│   └── SKILL.md
+├── auto-create-pr-loop/
 │   └── SKILL.md
 ├── auto-qa-scenarios/
 │   └── SKILL.md
@@ -187,8 +191,10 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `check-and-commit` | Running CI-style verification, fixing i18n drift, and only then committing and pushing the current branch |
 | `code-review` | Reviewing PRs, code changes, or auditing code quality against project conventions |
 | `auto-continue-pr` | Resuming an in-progress PR that was started by `auto-create-pr`: claims the PR, checks its branch out into an isolated worktree, reads the Progress checklist in the linked spec, and continues execution from the first unchecked step |
+| `auto-continue-pr-loop` | Resuming a run started by `auto-create-pr-loop`: same per-spec run folder, per-step `step-<X.Y>-checks.md` proofs, `HANDOFF.md`/`NOTIFY.md` discipline, executor-dispatch for multi-step runs, and final comprehensive PR summary comment |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
-| `auto-create-pr` | Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop`: drafts a dated spec with a Progress checklist, commits it first, implements phase-by-phase with incremental commits, optionally honors external reference skills passed by URL, runs the full validation gate, and opens a PR with normalized pipeline labels |
+| `auto-create-pr` | Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop`: drafts a dated spec with a Progress checklist, commits it first, implements phase-by-phase with incremental commits, optionally honors external reference skills passed by URL, runs the full validation gate, and opens a PR with normalized pipeline labels. **Default** for one-off bug fixes and small features |
+| `auto-create-pr-loop` | Running a long multi-step spec implementation end-to-end with full checkpoint discipline: per-spec run folder (`.ai/runs/<date>-<slug>/` with `PLAN.md`, `HANDOFF.md`, append-only `NOTIFY.md`), 1:1 step-to-commit, per-step `step-<X.Y>-checks.md` proofs, executor-dispatch for multi-step runs, three-signal in-progress lock, and a final comprehensive PR summary comment. Use when the work spans >5 commits across multiple workstreams and needs resumability |
 | `auto-qa-scenarios` | Generating a human QA report for a window of merged PRs (date floor, PR number floor, or last 7 days default): groups work into practical testing routes (P0/P1/P2), calls out where to click, what to verify, and what can go wrong, then ships markdown + HTML artifacts under `.ai/analysis/` as a docs-only PR against `develop` |
 | `auto-sec-report-pr` | Paranoid single-unit OWASP security analysis for one PR, one branch, or one spec file: layers deep attack vectors (TOCTOU, cache-key cross-tenant leakage, JWT alg confusion, SSRF redirect chains, ReDoS, webhook replay, prototype pollution, etc.) on top of the `code-review` baseline, cites apply-elsewhere candidates, and emits concrete "Next steps — go deeper" follow-up commands so a reviewer (or `auto-sec-report`) can keep drilling |
 | `auto-sec-report` | Driver that loops `auto-sec-report-pr` across a window (date, PR number floor, branch, spec, or default last 7 days of merged PRs), aggregates per-unit fragments into one markdown + HTML report under `.ai/analysis/`, consolidates every "Next steps — go deeper" into one prioritized drill-deeper list, and ships it as a docs-only PR against `develop` |

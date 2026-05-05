@@ -380,7 +380,7 @@ describe('resolveModuleFile', () => {
   it('app override takes precedence for all convention files', () => {
     const conventionFiles = [
       'acl.ts', 'ce.ts', 'search.ts', 'notifications.ts',
-      'ai-tools.ts', 'events.ts', 'analytics.ts', 'setup.ts',
+      'ai-tools.ts', 'ai-agents.ts', 'events.ts', 'analytics.ts', 'setup.ts',
       'translations.ts', 'security.mfa-providers.ts', 'security.sudo.ts',
       'data/extensions.ts', 'data/fields.ts',
     ]

@@ -29,6 +29,41 @@
 // Re-export types
 export * from './modules/ai_assistant/lib/types'
 
+// Focused-agent definition types + helper
+export {
+  defineAiAgent,
+  defineAiAgentExtension,
+  type AiAgentDefinition,
+  type AiAgentExtension,
+  type AiAgentSuggestion,
+  type AiAgentExecutionMode,
+  type AiAgentMutationPolicy,
+  type AiAgentAcceptedMediaType,
+  type AiAgentDataOperation,
+  type AiAgentPageContextInput,
+  type AiAgentStructuredOutput,
+  type AiAgentDataCapabilities,
+} from './modules/ai_assistant/lib/ai-agent-definition'
+
+// Additive AI tool builder
+export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
+
+// Attachment-bridge contract types (spec Phase 0 §8/§10, implementation-ready for Phase 3 runtime)
+export {
+  type AttachmentSource,
+  type AiResolvedAttachmentPart,
+  type AiUiPart,
+  type AiChatRequestContext,
+} from './modules/ai_assistant/lib/attachment-bridge-types'
+
+// Prompt-composition primitives (spec Phase 0 §8, implementation-ready for Phase 3 prompt composer)
+export {
+  definePromptTemplate,
+  type PromptSectionName,
+  type PromptSection,
+  type PromptTemplate,
+} from './modules/ai_assistant/lib/prompt-composition-types'
+
 // Tool registry
 export {
   registerMcpTool,
@@ -57,6 +92,186 @@ export {
 
 // Tool loader
 export { loadAllModuleTools, indexToolsForSearch } from './modules/ai_assistant/lib/tool-loader'
+
+// AI Overrides — module-to-module + modules.ts + programmatic agent/tool replacement.
+// See `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+export {
+  applyAiAgentOverrides,
+  applyAiAgentExtensions,
+  applyAiToolOverrides,
+  applyAiOverridesFromEnabledModules,
+  resetProgrammaticOverridesForTests,
+  type AiAgentOverride,
+  type AiToolOverride,
+  type AiAgentOverridesMap,
+  type AiToolOverridesMap,
+  type AiAgentOverrideConfigEntry,
+  type AiAgentExtensionConfigEntry,
+  type AiToolOverrideConfigEntry,
+  type EnabledModuleAiOverrides,
+} from './modules/ai_assistant/lib/ai-overrides'
+
+// Agent registry (Phase 1 WS-A — read-side lookup API, no policy / dispatch)
+export {
+  loadAgentRegistry,
+  getAgent,
+  listAgents,
+  listAgentsByModule,
+  resetAgentRegistryForTests,
+} from './modules/ai_assistant/lib/agent-registry'
+
+// Agent runtime policy gate (Phase 1 WS-A — pure policy decisions, no HTTP or AI SDK wiring)
+export {
+  checkAgentPolicy,
+  type AgentPolicyDenyCode,
+  type AgentPolicyDecision,
+  type AgentPolicyAuthContext,
+  type AgentPolicyCheckInput,
+} from './modules/ai_assistant/lib/agent-policy'
+
+// AI SDK helpers (Phase 1 WS-B — chat-mode runtime + transport glue)
+export {
+  resolveAiAgentTools,
+  AgentPolicyError,
+  type ResolveAiAgentToolsInput,
+  type ResolvedAgentTools,
+  type AiUiPartQueue,
+} from './modules/ai_assistant/lib/agent-tools'
+
+// In-process API operation runner (Phase 1 of API-backed AI tool DRY refactor)
+export {
+  createAiApiOperationRunner,
+  type AiApiOperationRequest,
+  type AiApiOperationResponse,
+  type AiApiOperationRunner,
+  type AiApiOperationRunnerOptions,
+  type AiApiHttpMethod,
+  type AiToolExecutionContext,
+} from './modules/ai_assistant/lib/ai-api-operation-runner'
+
+// API-backed AI tool helper (Phase 2 of API-backed AI tool DRY refactor)
+export {
+  defineApiBackedAiTool,
+  type ApiBackedAiToolConfig,
+} from './modules/ai_assistant/lib/api-backed-tool'
+
+// Mutation-preparation helper (Phase 3 WS-C — Step 5.6)
+export {
+  prepareMutation,
+  computeMutationIdempotencyKey,
+  AiMutationPreparationError,
+  MUTATION_PREVIEW_CARD_COMPONENT,
+  type PrepareMutationInput,
+  type PrepareMutationContext,
+  type PrepareMutationResult,
+} from './modules/ai_assistant/lib/prepare-mutation'
+
+export {
+  runAiAgentText,
+  runAiAgentObject,
+  composeSystemPrompt,
+  type RunAiAgentTextInput,
+  type RunAiAgentObjectInput,
+  type RunAiAgentObjectOutputOverride,
+  type RunAiAgentObjectResult,
+  type RunAiAgentObjectGenerateResult,
+  type RunAiAgentObjectStreamResult,
+  type AgentRequestPageContext,
+} from './modules/ai_assistant/lib/agent-runtime'
+
+export {
+  createAiAgentTransport,
+  type CreateAiAgentTransportInput,
+} from './modules/ai_assistant/lib/agent-transport'
+
+// Pending-action types / enums / state-machine guard (Phase 3 WS-C — Step 5.5)
+export {
+  AI_PENDING_ACTION_STATUSES,
+  AI_PENDING_ACTION_QUEUE_MODES,
+  AI_PENDING_ACTION_ALLOWED_TRANSITIONS,
+  AI_PENDING_ACTION_TERMINAL_STATUSES,
+  AI_PENDING_ACTION_DEFAULT_TTL_SECONDS,
+  AI_PENDING_ACTION_TTL_ENV_VAR,
+  AiPendingActionStateError,
+  isAiPendingActionStatus,
+  isAiPendingActionQueueMode,
+  isTerminalAiPendingActionStatus,
+  isAllowedAiPendingActionTransition,
+  resolveAiPendingActionTtlSeconds,
+  type AiPendingActionStatus,
+  type AiPendingActionQueueMode,
+  type AiPendingActionRecordDiff,
+  type AiPendingActionFailedRecord,
+  type AiPendingActionFieldDiff,
+  type AiPendingActionExecutionResult,
+} from './modules/ai_assistant/lib/pending-action-types'
+
+// Client-facing pending-action serializer (Phase 3 WS-C — Step 5.7, reused by 5.8 / 5.9 / 5.10)
+export {
+  serializePendingActionForClient,
+  type SerializedPendingAction,
+  type SerializablePendingActionRow,
+} from './modules/ai_assistant/lib/pending-action-client'
+
+// Pending-action confirm re-check contract (Phase 3 WS-C — Step 5.8, reused by 5.9)
+export {
+  runPendingActionRechecks,
+  checkStatusAndExpiry,
+  checkAgentAndFeatures,
+  checkToolWhitelist,
+  checkAttachmentScope,
+  checkRecordVersion,
+  PENDING_ACTION_RECHECK_CODES,
+  isPendingActionRecheckCode,
+  type PendingActionRecheckCode,
+  type PendingActionRecheckResult,
+  type PendingActionRecheckInput,
+  type PendingActionAuthContext,
+} from './modules/ai_assistant/lib/pending-action-recheck'
+
+// Pending-action confirm executor (Phase 3 WS-C — Step 5.8)
+export {
+  executePendingActionConfirm,
+  PENDING_ACTION_CONFIRMED_EVENT_ID,
+  type PendingActionExecuteInput,
+  type PendingActionExecuteContext,
+  type PendingActionExecuteResult,
+  type PendingActionExecuteOk,
+  type PendingActionExecuteFail,
+} from './modules/ai_assistant/lib/pending-action-executor'
+
+// Pending-action cancel executor (Phase 3 WS-C — Step 5.9)
+export {
+  executePendingActionCancel,
+  PENDING_ACTION_CANCELLED_EVENT_ID,
+  PENDING_ACTION_EXPIRED_EVENT_ID,
+  type PendingActionCancelInput,
+  type PendingActionCancelContext,
+  type PendingActionCancelResult,
+  type PendingActionCancelStatus,
+} from './modules/ai_assistant/lib/pending-action-cancel'
+
+// Shared AI model factory (Phase 3 WS-A — Step 5.1)
+export {
+  createModelFactory,
+  AiModelFactoryError,
+  type AiModelFactory,
+  type AiModelFactoryInput,
+  type AiModelResolution,
+  type AiModelFactoryErrorCode,
+  type AiModelInstance,
+  type CreateModelFactoryDependencies,
+} from './modules/ai_assistant/lib/model-factory'
+
+// Attachment-to-model bridge (Phase 1 WS-C — Step 3.7)
+export {
+  resolveAttachmentParts,
+  resolveAttachmentPartsForAgent,
+  attachmentPartsToUiFileParts,
+  summarizeAttachmentPartsForPrompt,
+  type ResolveAttachmentPartsInput,
+  type AttachmentSigner,
+} from './modules/ai_assistant/lib/attachment-parts'
 
 // OpenCode client
 export {

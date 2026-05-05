@@ -1,9 +1,19 @@
 // Central place to enable modules and their source.
 // - id: module id (plural snake_case; special cases: 'auth')
 // - from: '@open-mercato/core' | '@app' | custom alias/path in future
+// - overrides: optional unified per-app override surface — replace or
+//   disable any contract a module presents. AI is wired today (Phase 1);
+//   other domains are stubbed and emit a one-shot warning if used.
+//   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
+//   `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
 
-export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
+export type ModuleEntry = {
+  id: string
+  from?: '@open-mercato/core' | '@app' | string
+  overrides?: ModuleOverrides
+}
 
 export const enabledModules: ModuleEntry[] = [
   { id: 'dashboards', from: '@open-mercato/core' },

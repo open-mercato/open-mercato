@@ -545,6 +545,14 @@ body[data-column-chooser-open="true"] .om-demo-feedback-floating {
   display: none !important;
 }
 
+/* Hide floating demo feedback button while an AI chat (e.g. the merchandising
+   assistant sheet) is open — the FAB sits at z-[60] and otherwise overlaps
+   the chat composer's send button. The data attribute is set/cleared by the
+   shared <AiChat> component. */
+body[data-ai-chat-open="true"] .om-demo-feedback-floating {
+  display: none !important;
+}
+
 /* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
 .scrollbar-hide {
   scrollbar-width: none;

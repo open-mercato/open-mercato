@@ -75,6 +75,10 @@ export function BackendHeaderChrome({
     () => hasVisibleRoute(payload?.groups, '/backend/messages'),
     [payload?.groups],
   )
+  const showNotifications = React.useMemo(
+    () => hasFeature(grantedFeatures, 'notifications.view'),
+    [grantedFeatures],
+  )
 
   return (
     <>
@@ -95,7 +99,7 @@ export function BackendHeaderChrome({
       {showIntegrationsButton ? <IntegrationsButton /> : null}
       <SettingsButton />
       <ProfileDropdown email={email} />
-      {isReady ? <LazyNotificationBellWrapper /> : null}
+      {isReady && showNotifications ? <LazyNotificationBellWrapper /> : null}
       {isReady && showMessages ? <LazyMessagesIcon /> : null}
     </>
   )

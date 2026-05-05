@@ -8,6 +8,11 @@ AI-powered chat and tool execution for Open Mercato, using MCP (Model Context Pr
 - **MCP Server**: Exposes platform tools to AI agents via Model Context Protocol
 - **API Discovery**: Meta-tools (`api_discover`, `api_execute`, `api_schema`) for dynamic API access
 - **OpenCode Integration**: Go-based AI backend for processing requests and executing tools
+- **Typed Agent Framework** *(new — 2026-04-18)*: `AiAgentDefinition` + `defineAiTool()`, generated `ai-agents.generated.ts` discovery, dispatcher route `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>`, AI SDK helpers (`createAiAgentTransport`, `runAiAgentText`, `runAiAgentObject`), attachment bridge, and tool packs for customers + catalog — see the spec at [`.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`](../../.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md)
+- **Mutation Approval Gate (D16)** *(new — 2026-04-18)*: additive `ai_pending_actions` table, `prepareMutation` runtime wrapper, three pending-action routes (`GET` / `confirm` / `cancel`), four new UI parts (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`), typed `ai.action.{confirmed,cancelled,expired}` events, and a cleanup worker for expired approvals — see the **Upgrading / Operator rollout notes** section in [`AGENTS.md`](./AGENTS.md)
+- **Playground + Settings**: `/backend/config/ai-assistant/playground` (agent picker + debug + object-mode) and `/backend/config/ai-assistant/agents` (versioned prompt overrides + feature-gated `mutationPolicy`)
+
+Both stacks coexist: OpenCode Code Mode keeps powering the Command Palette and `/api/chat` unchanged; the new typed framework adds focused, mutation-capable agents alongside it.
 
 ## Quick Start
 

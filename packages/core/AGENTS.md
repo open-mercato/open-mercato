@@ -174,7 +174,7 @@ export default setup
 | `onTenantCreated` | Inside `setupInitialTenant()` | Always | Settings rows, sequences, config |
 | `seedDefaults` | During init/onboarding | Always | Dictionaries, tax rates, statuses |
 | `seedExamples` | During init/onboarding | Skipped with `--no-examples` | Demo data |
-| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` | Always | Role ACL features |
+| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` and `yarn mercato auth sync-role-acls` | Always | Role ACL features |
 
 ### Decoupling Rules
 
@@ -183,6 +183,16 @@ export default setup
 3. Access entity IDs with optional chaining: `(E as any).catalog?.catalog_product`
 4. Use `getEntityIds()` at runtime (not import-time) for cross-module lookups
 5. Integration provider packages that need bootstrap credentials or mappings SHOULD preconfigure themselves from env inside the provider module via `setup.ts` and provider-local helpers/CLI. Do not add provider-specific env bootstrapping to core setup orchestration.
+
+### ACL Grant Sync
+
+When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures` for `admin` and any other default roles that should see the module immediately (for example `employee`, portal/customer roles, or module-specific custom roles). Then run the idempotent sync command so existing tenants receive the new grants:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Do this automatically unless the user explicitly asks to leave role ACLs untouched. New tenants get `defaultRoleFeatures` during setup; existing tenants only receive newly declared grants after the sync command. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 ### Testing with Disabled Modules
 
@@ -318,6 +328,8 @@ DataTable deep-extension surfaces:
 - `data-table:<tableId>:row-actions`
 - `data-table:<tableId>:bulk-actions`
 - `data-table:<tableId>:filters`
+- `data-table:<tableId>:toolbar` — right-side actions row (Refresh, Filters, Columns, Export). Renders on the same row as the title; full-sized buttons.
+- `data-table:<tableId>:search-trailing` — adjacent to the search input on the FilterBar row. Reserve for **compact triggers** (AI assistants, saved-view shortcuts). Suppressed when the host DataTable has no search input. Use `Button variant="outline"` (default size, h-9, `rounded-md`) with a single leading icon plus a short caption (e.g. `AI`) so the trigger matches the search input's `h-9` row height and the toolbar's standard rounded-rectangle button radius.
 
 CrudForm field-injection surface:
 - `crud-form:<entityId>:fields`

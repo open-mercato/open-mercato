@@ -53,11 +53,14 @@ type RoleSnapshots = {
 
 const RESERVED_ROLE_NAMES = new Set(['superadmin', 'admin'])
 
-function assertRoleNameAllowed(name: string | undefined | null) {
-  if (typeof name !== 'string') return
+function isReservedRoleName(name: string | undefined | null): boolean {
+  if (typeof name !== 'string') return false
   const normalized = name.trim().toLowerCase()
-  if (!normalized) return
-  if (RESERVED_ROLE_NAMES.has(normalized)) {
+  return normalized.length > 0 && RESERVED_ROLE_NAMES.has(normalized)
+}
+
+function assertRoleNameAllowed(name: string | undefined | null) {
+  if (isReservedRoleName(name)) {
     throw new CrudHttpError(400, { error: 'Role name is reserved' })
   }
 }
@@ -220,22 +223,17 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
     if (parsed.name !== undefined) {
-      assertRoleNameAllowed(parsed.name)
-      const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-      if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
-      assertRoleNameAllowed(current.name)
       const nextName = parsed.name
+      if (nextName !== current.name) assertRoleNameAllowed(nextName)
       if (nextName !== current.name) {
         const assignments = await em.count(UserRole, { role: current, deletedAt: null })
         if (assignments > 0) {
           throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
         }
       }
-    } else {
-      const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-      if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
-      assertRoleNameAllowed(current.name)
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.updateOrmEntity({

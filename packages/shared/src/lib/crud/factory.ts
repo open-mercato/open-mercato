@@ -631,13 +631,16 @@ function isUuid(v: any): v is string {
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
 
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  const registrations = (container as { registrations?: Record<string, unknown> }).registrations
+  if (registrations && !Object.prototype.hasOwnProperty.call(registrations, 'accessLogService')) {
+    return null
+  }
+
   try {
     const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
     if (service && typeof service.log === 'function') return service
-  } catch (err) {
-    try {
-      console.warn('[crud] accessLogService not available in container', err)
-    } catch {}
+  } catch {
+    return null
   }
   return null
 }

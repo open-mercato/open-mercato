@@ -2,6 +2,25 @@
 
 > **IMPORTANT**: Update this file with every major change to this module. When implementing new features, modifying architecture, or changing key interfaces, update the relevant sections to keep guidance accurate for future agents.
 
+## Where to look first
+
+Before editing this module — and especially before writing or reviewing a new agent — read the public framework docs. They are the source of truth and stay in sync with this AGENTS.md by review:
+
+| Topic | Public doc | This file |
+|-------|------------|-----------|
+| System map, request flow, persistence | [`apps/docs/docs/framework/ai-assistant/architecture.mdx`](../../apps/docs/docs/framework/ai-assistant/architecture.mdx) | "Architecture Constraints" below |
+| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/create-ai-agent/SKILL.md`](../../.ai/skills/create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
+| Agent contract reference | [`apps/docs/docs/framework/ai-assistant/agents.mdx`](../../apps/docs/docs/framework/ai-assistant/agents.mdx) | "How to Add an AI Tool Pack" below |
+| Record cards + custom inline UI parts | [`apps/docs/docs/framework/ai-assistant/ui-parts.mdx`](../../apps/docs/docs/framework/ai-assistant/ui-parts.mdx) | "Adding UI Parts" below |
+| File upload contract | [`apps/docs/docs/framework/ai-assistant/attachments.mdx`](../../apps/docs/docs/framework/ai-assistant/attachments.mdx) | — |
+| Mutation approval lifecycle | [`apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx`](../../apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx) | "Workers" / "Events" below |
+| Topbar launcher + Cmd/Ctrl+L | [`apps/docs/docs/framework/ai-assistant/launcher.mdx`](../../apps/docs/docs/framework/ai-assistant/launcher.mdx) | — |
+| Overrides/extensions — replace, disable, append, or delete tools/prompts/suggestions across modules | [`apps/docs/docs/framework/ai-assistant/overrides.mdx`](../../apps/docs/docs/framework/ai-assistant/overrides.mdx) | "How to Override or Extend Another Module's Agent or Tool" below |
+| Tenant prompt + policy overrides | [`apps/docs/docs/framework/ai-assistant/settings.mdx`](../../apps/docs/docs/framework/ai-assistant/settings.mdx) | — |
+| Operator-facing user guide | [`apps/docs/docs/user-guide/ai-assistant.mdx`](../../apps/docs/docs/user-guide/ai-assistant.mdx) | — |
+
+If a section in this AGENTS.md disagrees with one of those public docs, treat the public doc as authoritative and open a follow-up to update this file.
+
 ## Use This Module To...
 
 - Add AI-powered assistance capabilities to Open Mercato
@@ -76,6 +95,229 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 4. Verify console shows `Done event` with a sessionId
 5. Send: "find his related companies"
 6. Verify: `willContinue: true` and the AI references Taylor correctly
+
+### How to Add a New AI Agent
+
+> **Use the [`create-ai-agent` skill](../../.ai/skills/create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
+
+Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
+
+1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
+2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
+3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
+4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
+5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
+6. Run `yarn generate` so the agent shows up in the registry. Smoke-test via `/backend/config/ai-assistant/playground` (see `/framework/ai-assistant/playground`), then embed `<AiChat agent="<module>.<agent>" />` in the page where you want the operator UI.
+
+### How to Add an AI Tool Pack
+
+Typed tools live under `<module>/ai-tools/` and register via `defineAiTool`. Tool packs are exposed to agents through the agent's `allowedTools` array.
+
+```typescript
+import { defineAiTool } from '@open-mercato/ai-assistant'
+import { z } from 'zod'
+
+const listPeopleTool = defineAiTool({
+  name: 'customers.list_people',
+  description: 'Search customer people records by name, email, or tag.',
+  inputSchema: z.object({
+    query: z.string().optional(),
+    limit: z.number().int().min(1).max(100).default(20),
+  }),
+  requiredFeatures: ['customers.people.view'],
+  isMutation: false,
+  async handler(input, ctx) {
+    // ctx.container, ctx.tenantId, ctx.organizationId, ctx.userId, ctx.userFeatures, ctx.isSuperAdmin
+    return { records: [] }
+  },
+})
+```
+
+MUST rules:
+- MUST set `requiredFeatures` for any tool that reads or writes tenant data. The wildcard-aware ACL matcher is applied before the handler runs.
+- MUST use Zod for `inputSchema` — never raw JSON Schema.
+- MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides.
+- MUST route every mutation tool through `prepareMutation(...)` (see the Mutation Approvals guide at `/framework/ai-assistant/mutation-approvals`). Writing directly inside the handler bypasses the approval gate — the runtime fails closed and refuses to return a result to the operator.
+- MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.
+
+Run `yarn generate` after adding/changing tool definitions so the typed tool registry picks them up.
+
+### How to Add a UI Part (record cards / custom inline widgets)
+
+UI parts are typed inline widgets the agent streams into the chat. Two paths — pick the cheapest one that fits.
+
+**Path A — record cards (no registration).** Five kinds ship out of the box: `product`, `deal`, `person`, `company`, `activity`. Add a `responseStyle` rule to the agent's prompt teaching the model to emit a fenced Markdown block whose info string is `open-mercato:<kind>` and whose body is one JSON object. The chat composer auto-parses the fence into a typed component. Reference: `packages/core/src/modules/customers/ai-agents.ts` (CRM cards) and `packages/core/src/modules/catalog/ai-agents.ts` (product cards). Card payload shapes live in `packages/ui/src/ai/records/types.ts`.
+
+To add a brand-new record-card kind:
+
+1. Add the payload type + the `RecordCardKind` union in `packages/ui/src/ai/records/types.ts`.
+2. Implement the component (copy `ProductCard.tsx` or `PersonCard.tsx`; reuse `RecordCardShell` for header/leading/meta consistency).
+3. Wire it into `packages/ui/src/ai/records/registry.tsx` so `RecordCard` resolves the kind.
+4. Update the consuming agent's prompt with a fenced example.
+5. Add an integration spec asserting `<AiMessageContent>` renders the new kind from a fenced sample.
+
+**Path B — custom server-emitted parts.** For widgets that need server-only state (one-time signed URLs, action handlers, computed snapshots), register a stable namespaced component id and have the tool handler enqueue the part:
+
+```ts
+// 1. component
+'use client'
+import { registerAiUiPart } from '@open-mercato/ui/ai'
+registerAiUiPart('<module>:<kind>', YourComponent)
+
+// 2. push from a tool's handler
+async handler(args, ctx) {
+  ctx.uiParts?.enqueue({ componentId: '<module>:<kind>', props: { /* serializable */ } })
+  return { ok: true }
+}
+```
+
+MUST rules for UI parts:
+
+- MUST use a namespaced component id (`<module>:<kind>`). Reserved ids (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) are FROZEN; never reuse.
+- MUST keep props serializable (no functions, no class instances, no circular refs — the SSE encoder drops them).
+- MUST gate any privileged action inside the part behind the same ACL features as the originating tool.
+- MUST keep prompt instructions in sync with the tool — without a prompt rule the model will paraphrase instead of emitting the part.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
+
+### How to Override or Extend Another Module's Agent or Tool
+
+Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+
+There are three paths.
+
+**Path A — extra exports on `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module file).** No separate `<module>/ai-overrides.ts` file. The generator already scans the existing `ai-agents.ts` / `ai-tools.ts` files; it now also picks up the optional `aiAgentOverrides` / `aiToolOverrides` exports and emits them as sibling `aiAgentOverrideEntries` / `aiToolOverrideEntries` arrays inside the same generated files.
+
+```ts
+// src/modules/<my-module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myCustomMerchandisingAgent from './agents/my-merchandising-agent'
+
+export const aiAgents: AiAgentDefinition[] = [
+  // ...your module's own agents
+]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  // Replace the default merchandising assistant with my variant.
+  'catalog.merchandising_assistant': myCustomMerchandisingAgent,
+  // Disable the default catalog explorer entirely.
+  'catalog.catalog_assistant': null,
+}
+```
+
+Agent extension patch:
+
+```ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+Extension fields apply in deterministic order: `replace*` first, `delete*` second, `append*` last. Supported fields are `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools`, `replaceSystemPrompt` / `appendSystemPrompt`, and `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions`. The legacy `suggestions` field is still accepted as an append alias.
+
+```ts
+// src/modules/<my-module>/ai-tools.ts
+import { defineAiTool, type AiToolOverridesMap } from '@open-mercato/ai-assistant'
+
+export const aiTools = [/* ...your module's own tools */]
+
+export const aiToolOverrides: AiToolOverridesMap = {
+  'inbox_ops_accept_action': null,
+}
+```
+
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (AI is Phase 1; other domains roll out as separate PRs). The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+
+```ts
+// apps/<app>/src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+  },
+},
+```
+
+**Path C — programmatic API (boot-time / dynamic).** Call from `src/bootstrap.ts` or any boot-time entry point. Programmatic overrides supersede both `modules.ts` and file-based overrides for the same id and persist for the process lifetime.
+
+```ts
+import {
+  applyAiAgentOverrides,
+  applyAiToolOverrides,
+} from '@open-mercato/ai-assistant'
+
+applyAiAgentOverrides({
+  'catalog.catalog_assistant': null, // disable
+})
+applyAiToolOverrides({
+  'inbox_ops_accept_action': null,   // disable a default tool
+})
+```
+
+MUST rules:
+
+- MUST keep override exports inside the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` files (no separate `ai-overrides.ts` file is generated or scanned).
+- MUST keep override values consistent with their map key — the value's `id` (agent) or `name` (tool) MUST equal the key. Mismatches log a warning and are skipped.
+- MUST NOT use overrides to patch your own module's agent / tool — author the canonical definition in the same `ai-agents.ts` / `ai-tools.ts` `aiAgents` / `aiTools` array instead. The convention is for **cross-module** replacement.
+- MUST run `yarn generate` after editing any `aiAgentOverrides` / `aiToolOverrides` export so the generated registry picks the change up.
+- MUST run `yarn mercato configs cache structural --all-tenants` after disabling an agent so existing tenants flush stale nav/agent caches.
+- MUST call `applyModuleOverridesFromEnabledModules(enabledModules)` from the app's `bootstrap.ts` if you use Path B (already wired in `apps/mercato` and the `create-mercato-app` template). Importing `@open-mercato/ai-assistant` also runs the side-effect that registers the AI domain applier with the dispatcher.
+
+Resolution order (highest precedence first):
+
+1. Programmatic `applyAiAgentOverrides` / `applyAiToolOverrides` calls (last call per id wins).
+2. `modules.ts` inline (`aiAgentOverrides` / `aiToolOverrides` on `ModuleEntry`; last entry per id wins).
+3. File-based `<module>/ai-agents.ts` / `<module>/ai-tools.ts` overrides (last module load order wins).
+4. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
+
+`null` always means "disable" — applies to all three paths.
+
+### How to Embed the Global Launcher
+
+The topbar AI launcher is mounted in `packages/ui/src/backend/AppShell.tsx`:
+
+```tsx
+import { AiAssistantLauncher } from '@open-mercato/ui/ai'
+<AiAssistantLauncher variant="topbar" />
+```
+
+It self-fetches `/api/ai_assistant/health` and `/api/ai_assistant/ai/agents` and renders nothing when AI is not configured or the caller has access to no agents. It also binds the global **Cmd/Ctrl+L** keyboard shortcut (preventDefault'd against the browser address-bar binding). Standalone apps with custom chrome should mount the same component to expose the global launcher.
+
+Full reference: `apps/docs/docs/framework/ai-assistant/launcher.mdx`.
+
+### How to Configure AI Providers
+
+The unified AI runtime picks the first configured provider from `llmProviderRegistry`. Configure providers via env variables:
+
+| Variable | Provider | Default model |
+|----------|----------|---------------|
+| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-sonnet-4-20250514` |
+| `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-1.5-pro-latest` |
+
+At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+
+Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased from the agent's `moduleId`): for example, `CATALOG_AI_MODEL=claude-opus-4-20250514`, `INBOX_OPS_AI_MODEL=gpt-4o`.
+
+All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
 ## Architecture Constraints
 
@@ -246,6 +488,34 @@ Use 2 meta-tools instead of individual endpoint/schema tools. The AI writes Java
 **Sandbox safety**: Code runs in `node:vm` with only whitelisted globals. `fetch`, `require`, `process`, `fs`, `Buffer`, and network APIs are blocked. Execution times out after 30 seconds. API calls are capped at 50 per execution.
 
 **When modifying Code Mode tools**: Edit `lib/codemode-tools.ts` for tool definitions, `lib/sandbox.ts` for the sandbox engine, `lib/truncate.ts` for response size limiting.
+
+## Model Resolution
+
+Use `createModelFactory(container)` from
+`@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` whenever a
+runtime needs to materialize an AI SDK `LanguageModel` instance. The factory
+consolidates what was previously duplicated across `inbox_ops/lib/llmProvider.ts`
+and the agent-runtime's inline `resolveAgentModel`. Do NOT reintroduce ad-hoc
+`createAnthropic` / `createOpenAI` / `createGoogleGenerativeAI` lookups in new
+modules — route them through the factory instead.
+
+Resolution order (highest precedence first):
+
+1. `callerOverride` (non-empty string) — typically `runAiAgentText({ modelOverride })`.
+2. `<MODULE>_AI_MODEL` env variable (uppercased from `moduleId`) —
+   e.g. `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention;
+   no need to enumerate each one in `.env.example`.
+3. `agentDefaultModel` (typically `AiAgentDefinition.defaultModel`).
+4. The configured provider's own default (`llmProvider.defaultModel`).
+
+The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'`
+when the registry has no configured provider and `code: 'api_key_missing'`
+when the picked provider returns an empty key — every current call site
+already relies on the throw bubbling up, do not swallow it.
+
+The `agent-runtime.ts` inline `resolveAgentModel` will migrate to
+`createModelFactory` in a follow-up Step (5.2+). New agents should accept
+the factory-backed path from day one.
 
 ## MANDATORY: Use AskUserQuestion for Confirmations
 
@@ -483,6 +753,16 @@ yarn mcp:serve
 | `ai_assistant.tools.list` | MUST require for listing available MCP tools |
 | `ai_assistant.mcp_servers.view` | MUST require for viewing external MCP server configs |
 | `ai_assistant.mcp_servers.manage` | MUST require for creating/editing/deleting MCP server configs |
+
+## Workers
+
+| Worker | Queue | Purpose |
+|--------|-------|---------|
+| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Scans every tenant for expired pending mutation approvals (`status = 'pending'` AND `expires_at < now`) and flips them to `expired` via the state-machine guard, emitting `ai.action.expired` per row. Race-safe: rows that concurrently transitioned (e.g., a confirm beat us) throw `AiPendingActionStateError` from the repo and are skipped without emitting. Runs on a 5-minute system-scope interval (registered by `setup.ts`). Manually invoked via `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency: 1. |
+
+## Events
+
+Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
 
 ## Rules for the OpenCode Client
 
@@ -1153,6 +1433,87 @@ See git history for earlier changes including:
 - Debug panel addition
 - CLI tools fixes
 - Raycast-style command palette rewrite
+
+---
+
+## Upgrading / Operator rollout notes
+
+This section captures what existing deployments need to know when picking up the **AI Framework Unification** release (#1593, spec [`2026-04-11-unified-ai-tooling-and-subagents`](../../.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md)). All changes are additive; no runtime contract was renamed or removed.
+
+### New environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 minutes) | Expiry window for pending mutation approvals. After this window the cleanup worker flips `status = 'pending'` rows whose `expires_at < now` to `expired` and emits `ai.action.expired`. |
+| `<MODULE>_AI_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
+
+### New database table
+
+- Migration `Migration20260419134235_ai_assistant` lands automatically on `yarn db:migrate`. It adds the additive `ai_pending_actions` table that backs the mutation approval gate.
+- No data migration is needed. Existing rows in other tables are untouched.
+- The runtime gracefully falls back if the table is absent (the mutation gate fails closed rather than blocking the app build).
+
+### New cleanup worker registration
+
+- Worker id: `ai_assistant:pending-action-cleanup` (queue: `ai-pending-action-cleanup`, concurrency: `1`, interval: 5 minutes system-scope).
+- Auto-registered via the module's `setup.ts` `seedDefaults`. For existing tenants the worker activates once structural cache is refreshed:
+
+  ```bash
+  yarn mercato configs cache structural --all-tenants
+  ```
+
+- Manual invocation (useful when debugging or running outside the scheduler):
+
+  ```bash
+  yarn mercato ai_assistant run-pending-action-cleanup
+  ```
+
+- See the **Workers** section above for the full description.
+
+### New prompt-override + mutation-policy-override tables
+
+- Additive tables: `ai_agent_prompt_overrides`, `ai_agent_mutation_policy_overrides`.
+- Both are feature-gated behind `ai_assistant.settings.manage` (standard ACL feature). Operators who don't want the settings UI exposed can remove that feature from role grants — the UI hides itself and the runtime falls back to agent defaults.
+- Prompt overrides are versioned with safe additive merge rules (see Step 5.3 of the spec).
+- Mutation-policy overrides can NEVER escalate an agent's `mutationPolicy` above what the agent definition declares — the runtime re-checks on every confirm call and refuses at the pending-action gate.
+
+### Backward-compatibility posture
+
+- `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` keeps its public API. The implementation now delegates to `createModelFactory(container)` (see **Model Resolution** above), so callers don't change.
+- No existing event IDs, API routes, widget injection spot IDs, DI service names, ACL feature IDs, notification type IDs, CLI commands, or generated file contracts were renamed or removed.
+- New routes are namespaced under `/api/ai_assistant/ai/...` and `/api/ai/actions/:id/...`; they do not collide with the existing OpenCode Code Mode routes.
+
+### Coexistence with OpenCode Code Mode
+
+The AI framework unification **does not replace OpenCode Code Mode.** Both stacks run side-by-side and can be enabled independently per tenant and per agent.
+
+| Surface | OpenCode Code Mode (unchanged) | New AI Framework |
+|---------|--------------------------------|------------------|
+| Chat entrypoint | `POST /api/chat` (SSE, OpenCode in Docker) | `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` (typed agent dispatcher) |
+| Tool discovery | `/api/tools`, `/api/tools/execute` (2 meta-tools: `search` + `execute`) | Typed tool packs (`search.*`, `attachments.*`, `meta.*`, customers, catalog) registered via `defineAiTool()` |
+| CLI | `mcp:serve`, `mcp:serve-http`, `mcp:dev` | (none — the dispatcher is an HTTP route, not an MCP process) |
+| UI | Raycast-style Command Palette (`Cmd+K`) | `<AiChat>` component, playground page, agent settings page |
+| Mutation approvals | N/A (tool call → tool result) | `ai_pending_actions` + approval cards (`mutation-preview-card` / `field-diff-card` / `confirmation-card` / `mutation-result-card`) |
+| Demo | General-purpose chat | D18 `catalog.merchandising_assistant` on `/backend/catalog/catalog/products` |
+
+Operators who don't want the new surfaces can:
+
+- remove `ai_assistant.settings.manage` from role grants to hide the settings UI, **or**
+- omit individual agents from a tenant via the mutation-policy override table (see Step 5.4), **or**
+- simply not mount `<AiChat>` anywhere in custom UIs — the runtime does not activate until an agent is invoked.
+
+Tenants who want both keep OpenCode Code Mode for ad-hoc chat and Code-Mode-style exploration, and use the new framework for focused, mutation-capable agents (e.g., `customers.account_assistant`, `catalog.merchandising_assistant`) with the D16 pending-action contract.
+
+### Operator QA checklist (D18 demo)
+
+For a live end-to-end walkthrough against a real LLM:
+
+1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `CATALOG_AI_MODEL`.
+2. Run `yarn db:migrate` to pick up `Migration20260419134235_ai_assistant`.
+3. Run `yarn mercato configs cache structural --all-tenants` to register the cleanup worker on existing tenants.
+4. Open `/backend/catalog/catalog/products`, pick a handful of rows, open the `<AiChat>` sheet, and walk through each of the four named use cases (description drafting, attribute extraction, title variants, price adjustment suggestion).
+5. Confirm the proposal card shows a single `[Confirm All]` approval and that after confirmation the DataTable refreshes via the DOM event bridge as `catalog.product.updated` events arrive per record.
+6. Force a partial-success case (e.g., stale-version on one row) and confirm the result card renders the mixed outcome correctly.
 
 ---
 
