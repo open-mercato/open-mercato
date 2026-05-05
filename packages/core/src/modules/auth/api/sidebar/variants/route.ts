@@ -18,7 +18,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true },
-  POST: { requireAuth: true },
+  POST: { requireAuth: true, requireFeatures: ['auth.sidebar.manage'] },
 }
 
 const variantListResponseSchema = z.object({

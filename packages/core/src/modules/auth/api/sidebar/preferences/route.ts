@@ -21,8 +21,8 @@ import { z } from 'zod'
 
 export const metadata = {
   GET: { requireAuth: true },
-  PUT: { requireAuth: true },
-  DELETE: { requireAuth: true },
+  PUT: { requireAuth: true, requireFeatures: ['auth.sidebar.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['auth.sidebar.manage'] },
 }
 
 const sidebarSettingsSchema = z.object({
