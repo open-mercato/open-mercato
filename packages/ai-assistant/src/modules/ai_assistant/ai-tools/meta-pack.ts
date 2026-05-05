@@ -29,6 +29,7 @@ function summarizeAgent(agent: AiAgentDefinition): Record<string, unknown> {
     acceptedMediaTypes: agent.acceptedMediaTypes ?? [],
     domain: agent.domain ?? null,
     keywords: agent.keywords ?? [],
+    suggestions: agent.suggestions ?? [],
     dataCapabilities: agent.dataCapabilities ?? null,
     hasOutputSchema: Boolean(agent.output),
     hasPageContextResolver: typeof agent.resolvePageContext === 'function',

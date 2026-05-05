@@ -23,8 +23,9 @@
 
 import * as React from 'react'
 import {
+  AlertTriangle,
   Bot,
-  Boxes,
+  ExternalLink,
   HelpCircle,
   Lightbulb,
   Loader2,
@@ -70,6 +71,7 @@ export interface AiAssistantLauncherAgent {
    */
   mutationPolicy?: string | null
   keywords?: string[]
+  suggestions?: AiChatSuggestion[]
 }
 
 export interface AiAssistantLauncherProps {
@@ -112,6 +114,10 @@ interface AgentsResponse {
     moduleId?: string | null
     mutationPolicy?: string | null
     keywords?: string[] | null
+    suggestions?: Array<{
+      label?: string | null
+      prompt?: string | null
+    }> | null
   }>
   aiConfigured?: boolean
 }
@@ -123,6 +129,8 @@ interface HealthResponse {
 
 const DEFAULT_AGENTS_ENDPOINT = '/api/ai_assistant/ai/agents'
 const DEFAULT_HEALTH_ENDPOINT = '/api/ai_assistant/health'
+const AI_ASSISTANT_DOCS_URL = 'https://docs.openmercato.com/framework/ai-assistant/overview'
+const AI_ASSISTANT_SETTINGS_DOCS_URL = 'https://docs.openmercato.com/framework/ai-assistant/settings'
 
 function isMutationCapable(policy: string | null | undefined): boolean {
   return policy === 'confirm-required' || policy === 'destructive-confirm-required'
@@ -143,6 +151,18 @@ function normalizeAgents(payload: AgentsResponse | null | undefined): AiAssistan
         typeof raw.mutationPolicy === 'string' ? raw.mutationPolicy : null,
       keywords: Array.isArray(raw.keywords)
         ? raw.keywords.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : [],
+      suggestions: Array.isArray(raw.suggestions)
+        ? raw.suggestions
+            .map((suggestion) => {
+              if (!suggestion) return null
+              if (typeof suggestion.label !== 'string' || typeof suggestion.prompt !== 'string') {
+                return null
+              }
+              if (!suggestion.label || !suggestion.prompt) return null
+              return { label: suggestion.label, prompt: suggestion.prompt }
+            })
+            .filter((suggestion): suggestion is AiChatSuggestion => suggestion !== null)
         : [],
     })
   }
@@ -183,9 +203,9 @@ export function AiAssistantLauncher({
   const [agents, setAgents] = React.useState<AiAssistantLauncherAgent[]>([])
   const [agentsLoaded, setAgentsLoaded] = React.useState(false)
   const [agentsError, setAgentsError] = React.useState<string | null>(null)
-  // `aiConfigured: false` → no LLM provider key in env. Hide the launcher
-  // silently rather than letting the operator click into a chat that will
-  // immediately throw `no_provider_configured`.
+  // `aiConfigured: false` → no LLM provider key in env. Keep the launcher
+  // visible when assistants exist so operators get a concrete setup prompt
+  // instead of a disappearing control or a failing chat stream.
   const [aiConfigured, setAiConfigured] = React.useState<boolean | null>(null)
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [activeAgent, setActiveAgent] = React.useState<AiAssistantLauncherAgent | null>(null)
@@ -336,7 +356,7 @@ export function AiAssistantLauncher({
 
   const handlePickerKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (filteredAgents.length === 0) {
+      if (aiConfigured === false || filteredAgents.length === 0) {
         if (event.key === 'Escape') {
           setPickerOpen(false)
         }
@@ -356,7 +376,7 @@ export function AiAssistantLauncher({
         setPickerOpen(false)
       }
     },
-    [filteredAgents, handleSelectAgent, highlight],
+    [aiConfigured, filteredAgents, handleSelectAgent, highlight],
   )
 
   const triggerLabel = t('ai_assistant.launcher.triggerAriaLabel', 'Open AI assistant')
@@ -399,29 +419,7 @@ export function AiAssistantLauncher({
           icon: <HelpCircle className="size-4" />,
         },
       ]
-      // Agent-specific entry-points. The launcher is the only chat surface
-      // that's page-agnostic, so we tailor suggestions per active agent
-      // here instead of embedding hard-coded prompts in every per-page
-      // widget. Catalog agents get the dynamic-UI-part demo prompt that
-      // surfaces the inline `catalog.stats-card`.
-      const isCatalog =
-        activeAgent?.id === 'catalog.catalog_assistant' ||
-        activeAgent?.id === 'catalog.merchandising_assistant' ||
-        activeAgent?.moduleId === 'catalog'
-      if (isCatalog) {
-        return [
-          {
-            label: t(
-              'ai_assistant.launcher.welcome.catalogStats',
-              'Show catalog overview',
-            ),
-            prompt: 'Show me a quick catalog overview using the stats card.',
-            icon: <Boxes className="size-4" />,
-          },
-          ...generic,
-        ]
-      }
-      return generic
+      return [...(activeAgent?.suggestions ?? []), ...generic]
     },
     [t, activeAgent],
   )
@@ -432,18 +430,14 @@ export function AiAssistantLauncher({
   // because the agent is already named in the dialog/dock header.
   const launcherContextItems = React.useMemo<AiChatContextItem[]>(() => [], [])
 
-  // Hide the launcher entirely when no agents are accessible. We deliberately
-  // keep the SSR shell empty rather than rendering a disabled button —
-  // operators should not see a dead AI control. Visibility is driven by the
-  // agents endpoint alone: an empty list is the authoritative "no AI here"
-  // signal, and the health check is purely advisory (a flaky health endpoint
-  // on refresh used to leave this trigger permanently hidden).
+  // Hide the launcher entirely when no agents are accessible. If agents exist
+  // but providers are not configured, still render the trigger and show a
+  // setup prompt inside the picker.
   // Treat `healthy === false` (an explicit `{ healthy: false }` body) as a
   // hard veto so we still hide when the runtime explicitly opts out, but
   // unknown / pending health does NOT block the agents fetch result.
   const shouldRender =
     healthy !== false &&
-    aiConfigured !== false &&
     agentsLoaded &&
     agents.length > 0
 
@@ -524,7 +518,9 @@ export function AiAssistantLauncher({
             role="listbox"
             aria-label={dialogTitle}
           >
-            {filteredAgents.length === 0 ? (
+            {aiConfigured === false ? (
+              <AiProviderSetupPanel t={t} />
+            ) : filteredAgents.length === 0 ? (
               <div className="px-4 py-6 text-center text-xs text-muted-foreground">
                 {agents.length === 0 ? noneText : emptyText}
               </div>
@@ -752,3 +748,58 @@ function LauncherChatBody({
 }
 
 export default AiAssistantLauncher
+
+interface AiProviderSetupPanelProps {
+  t: ReturnType<typeof useT>
+}
+
+function AiProviderSetupPanel({ t }: AiProviderSetupPanelProps) {
+  return (
+    <div className="px-4 py-5" data-ai-launcher-provider-setup="">
+      <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 text-status-warning-text">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-background/70 text-status-warning-icon">
+            <AlertTriangle className="size-4" aria-hidden />
+          </span>
+          <div className="min-w-0 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold">
+                {t('ai_assistant.launcher.setup.title', 'Configure an AI provider to use assistants')}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-status-warning-text/90">
+                {t(
+                  'ai_assistant.launcher.setup.body',
+                  'AI assistants are installed, but no provider key is configured. Set OPENCODE_PROVIDER and one matching API key in your .env file, then restart the app.',
+                )}
+              </p>
+            </div>
+            <div className="rounded-md border border-status-warning-border/70 bg-background/80 p-3 font-mono text-[11px] leading-5 text-foreground">
+              <div>OPENCODE_PROVIDER=anthropic</div>
+              <div>ANTHROPIC_API_KEY=...</div>
+              <div className="mt-2 text-muted-foreground"># or</div>
+              <div>OPENCODE_PROVIDER=openai</div>
+              <div>OPENAI_API_KEY=...</div>
+              <div className="mt-2 text-muted-foreground"># or</div>
+              <div>OPENCODE_PROVIDER=google</div>
+              <div>GOOGLE_GENERATIVE_AI_API_KEY=...</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <a href={AI_ASSISTANT_DOCS_URL} target="_blank" rel="noreferrer">
+                  {t('ai_assistant.launcher.setup.docs', 'AI assistant docs')}
+                  <ExternalLink className="ml-1 size-3" aria-hidden />
+                </a>
+              </Button>
+              <Button asChild size="sm" variant="ghost">
+                <a href={AI_ASSISTANT_SETTINGS_DOCS_URL} target="_blank" rel="noreferrer">
+                  {t('ai_assistant.launcher.setup.settingsDocs', 'Provider settings')}
+                  <ExternalLink className="ml-1 size-3" aria-hidden />
+                </a>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

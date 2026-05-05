@@ -15,7 +15,7 @@ Before editing this module — and especially before writing or reviewing a new 
 | File upload contract | [`apps/docs/docs/framework/ai-assistant/attachments.mdx`](../../apps/docs/docs/framework/ai-assistant/attachments.mdx) | — |
 | Mutation approval lifecycle | [`apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx`](../../apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx) | "Workers" / "Events" below |
 | Topbar launcher + Cmd/Ctrl+L | [`apps/docs/docs/framework/ai-assistant/launcher.mdx`](../../apps/docs/docs/framework/ai-assistant/launcher.mdx) | — |
-| Overrides — replace / disable agents and tools across modules | [`apps/docs/docs/framework/ai-assistant/overrides.mdx`](../../apps/docs/docs/framework/ai-assistant/overrides.mdx) | "How to Override Another Module's Agent or Tool" below |
+| Overrides/extensions — replace, disable, append, or delete tools/prompts/suggestions across modules | [`apps/docs/docs/framework/ai-assistant/overrides.mdx`](../../apps/docs/docs/framework/ai-assistant/overrides.mdx) | "How to Override or Extend Another Module's Agent or Tool" below |
 | Tenant prompt + policy overrides | [`apps/docs/docs/framework/ai-assistant/settings.mdx`](../../apps/docs/docs/framework/ai-assistant/settings.mdx) | — |
 | Operator-facing user guide | [`apps/docs/docs/user-guide/ai-assistant.mdx`](../../apps/docs/docs/user-guide/ai-assistant.mdx) | — |
 
@@ -103,7 +103,7 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
-2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `domain`, `dataCapabilities`.
+2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
 3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
 4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
 5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
@@ -180,9 +180,9 @@ MUST rules for UI parts:
 
 Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
-### How to Override Another Module's Agent or Tool
+### How to Override or Extend Another Module's Agent or Tool
 
-Modules can replace or disable any AI agent / AI tool that another module registered. Use this to swap the shipped `catalog.merchandising_assistant` for a custom variant, hide an agent your tenant does not need, or patch a tool to add side-effects. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 
 There are three paths.
 
@@ -207,6 +207,27 @@ export const aiAgentOverrides: AiAgentOverridesMap = {
   'catalog.catalog_assistant': null,
 }
 ```
+
+Agent extension patch:
+
+```ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+Extension fields apply in deterministic order: `replace*` first, `delete*` second, `append*` last. Supported fields are `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools`, `replaceSystemPrompt` / `appendSystemPrompt`, and `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions`. The legacy `suggestions` field is still accepted as an append alias.
 
 ```ts
 // src/modules/<my-module>/ai-tools.ts

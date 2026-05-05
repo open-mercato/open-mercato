@@ -42,6 +42,7 @@ import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
 // (catalog.show_stats today; user-defined tools tomorrow) automatically
 // resolve to the card without dispatcher changes.
 import '../../../components/CatalogStatsCard'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -222,9 +223,21 @@ interface MerchandisingAgentDescriptor {
   icon: React.ReactNode
 }
 
-function useMerchandisingAgents(): MerchandisingAgentDescriptor[] {
+interface AgentsResponse {
+  agents?: Array<{
+    id?: string | null
+  }>
+}
+
+interface MerchandisingAgentsState {
+  agents: MerchandisingAgentDescriptor[]
+  loaded: boolean
+}
+
+function useMerchandisingAgents(): MerchandisingAgentsState {
   const t = useT()
-  return React.useMemo(
+  const [accessibleAgentIds, setAccessibleAgentIds] = React.useState<Set<string> | null>(null)
+  const declaredAgents = React.useMemo(
     () => [
       {
         id: MERCHANDISING_AGENT_ID,
@@ -241,6 +254,45 @@ function useMerchandisingAgents(): MerchandisingAgentDescriptor[] {
     ],
     [t],
   )
+
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<AgentsResponse>('/api/ai_assistant/ai/agents', {
+      credentials: 'same-origin',
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    })
+      .then((call) => {
+        if (cancelled) return
+        if (!call.ok || !call.result || !Array.isArray(call.result.agents)) {
+          setAccessibleAgentIds(new Set())
+          return
+        }
+        setAccessibleAgentIds(
+          new Set(
+            call.result.agents
+              .map((agent) => agent?.id)
+              .filter((id): id is string => typeof id === 'string' && id.length > 0),
+          ),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setAccessibleAgentIds(new Set())
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return React.useMemo(
+    () => ({
+      agents:
+        accessibleAgentIds === null
+          ? []
+          : declaredAgents.filter((agent) => accessibleAgentIds.has(agent.id)),
+      loaded: accessibleAgentIds !== null,
+    }),
+    [accessibleAgentIds, declaredAgents],
+  )
 }
 
 export function MerchandisingAssistantSheet({
@@ -254,13 +306,14 @@ export function MerchandisingAssistantSheet({
   const [popoverOpen, setPopoverOpen] = React.useState(false)
   const [activeAgent, setActiveAgent] = React.useState<string>(MERCHANDISING_AGENT_ID)
   const [lastAgent, setLastAgent] = React.useState<string | null>(null)
-  if (!enabled) return null
 
   const selectedCount = pageContext.extra.selectedCount
   const hasSelection = selectedCount > 0
   const suggestions = useMerchandisingSuggestions(hasSelection, selectedCount)
   const contextItems = useContextItems(pageContext)
-  const agents = useMerchandisingAgents()
+  const { agents, loaded: agentsLoaded } = useMerchandisingAgents()
+
+  if (!enabled || !agentsLoaded || agents.length === 0) return null
 
   const openAgent = (agentId: string) => {
     setActiveAgent(agentId)

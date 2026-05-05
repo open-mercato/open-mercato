@@ -32,7 +32,10 @@ export * from './modules/ai_assistant/lib/types'
 // Focused-agent definition types + helper
 export {
   defineAiAgent,
+  defineAiAgentExtension,
   type AiAgentDefinition,
+  type AiAgentExtension,
+  type AiAgentSuggestion,
   type AiAgentExecutionMode,
   type AiAgentMutationPolicy,
   type AiAgentAcceptedMediaType,
@@ -94,6 +97,7 @@ export { loadAllModuleTools, indexToolsForSearch } from './modules/ai_assistant/
 // See `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 export {
   applyAiAgentOverrides,
+  applyAiAgentExtensions,
   applyAiToolOverrides,
   applyAiOverridesFromEnabledModules,
   resetProgrammaticOverridesForTests,
@@ -102,6 +106,7 @@ export {
   type AiAgentOverridesMap,
   type AiToolOverridesMap,
   type AiAgentOverrideConfigEntry,
+  type AiAgentExtensionConfigEntry,
   type AiToolOverrideConfigEntry,
   type EnabledModuleAiOverrides,
 } from './modules/ai_assistant/lib/ai-overrides'

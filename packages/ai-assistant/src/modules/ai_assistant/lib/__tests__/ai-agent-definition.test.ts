@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   defineAiAgent,
+  defineAiAgentExtension,
   type AiAgentDefinition,
 } from '../ai-agent-definition'
 import { defineAiTool } from '../ai-tool-definition'
@@ -63,6 +64,36 @@ describe('defineAiTool', () => {
   })
 })
 
+describe('defineAiAgentExtension', () => {
+  it('returns the extension definition unchanged (identity builder)', () => {
+    const extension = defineAiAgentExtension({
+      targetAgentId: 'catalog.catalog_assistant',
+      replaceAllowedTools: ['catalog.list_products'],
+      deleteAllowedTools: ['catalog.old_tool'],
+      appendAllowedTools: ['example.catalog_stats'],
+      replaceSystemPrompt: 'Replacement prompt.',
+      appendSystemPrompt: 'Use example.catalog_stats for app-level catalog metrics.',
+      replaceSuggestions: [
+        { label: 'Start fresh', prompt: 'Start fresh' },
+      ],
+      deleteSuggestions: ['Old prompt'],
+      appendSuggestions: [
+        { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+      ],
+    })
+
+    expect(extension.targetAgentId).toBe('catalog.catalog_assistant')
+    expect(extension.replaceAllowedTools).toEqual(['catalog.list_products'])
+    expect(extension.deleteAllowedTools).toEqual(['catalog.old_tool'])
+    expect(extension.appendAllowedTools).toEqual(['example.catalog_stats'])
+    expect(extension.replaceSystemPrompt).toBe('Replacement prompt.')
+    expect(extension.deleteSuggestions).toEqual(['Old prompt'])
+    expect(extension.appendSuggestions).toEqual([
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ])
+  })
+})
+
 describe('defineAiAgent', () => {
   it('returns the agent definition unchanged (identity builder)', () => {
     const agent = defineAiAgent({
@@ -108,6 +139,9 @@ describe('defineAiAgent', () => {
       },
       resolvePageContext,
       keywords: ['catalog', 'merchandising'],
+      suggestions: [
+        { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+      ],
       domain: 'catalog',
       dataCapabilities: {
         entities: ['catalog.product'],
@@ -123,6 +157,9 @@ describe('defineAiAgent', () => {
     expect(agent.output?.mode).toBe('generate')
     expect(agent.dataCapabilities?.operations).toEqual(['read', 'search'])
     expect(agent.keywords).toEqual(['catalog', 'merchandising'])
+    expect(agent.suggestions).toEqual([
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ])
     expect(agent.domain).toBe('catalog')
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
     expect(agent.requiredFeatures).toEqual(['catalog.products.view'])

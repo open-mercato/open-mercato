@@ -1,14 +1,9 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-
 /**
  * Ensure app bootstrap is called before creating DI container.
- * Uses import.meta.url for runtime path resolution since @/ alias
- * doesn't work with dynamic imports (TypeScript path aliases are
- * compile-time only, not available to Node.js at runtime).
+ * Uses the shared generated-bootstrap loader so the command works both from
+ * the monorepo app and from standalone apps installed through npm packages.
  */
 async function ensureBootstrap(): Promise<void> {
   // First check if DI is already available
@@ -20,23 +15,9 @@ async function ensureBootstrap(): Promise<void> {
     // DI not available, need to bootstrap
   }
 
-  // Construct absolute path to bootstrap using import.meta.url
   try {
-    const __filename = fileURLToPath(import.meta.url)
-    const __dirname = dirname(__filename)
-    // From packages/ai-assistant/src/modules/ai_assistant/cli.ts
-    // to apps/mercato/src/bootstrap.ts:
-    // ai_assistant → modules → src → ai-assistant → packages → root (6 levels)
-    // then into apps/mercato/src/bootstrap.ts
-    const bootstrapPath = resolve(__dirname, '../../../../../../apps/mercato/src/bootstrap.ts')
-
-    // Dynamic import using file URL
-    const bootstrapUrl = pathToFileURL(bootstrapPath).href
-    const { bootstrap, isBootstrapped } = await import(bootstrapUrl)
-
-    if (!isBootstrapped()) {
-      bootstrap()
-    }
+    const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    await bootstrapFromAppRoot()
   } catch (error) {
     console.error('[MCP] Bootstrap failed:', error instanceof Error ? error.message : error)
     // Continue - some contexts may not have bootstrap available

@@ -1,7 +1,9 @@
-import type { AiAgentDefinition } from './ai-agent-definition'
+import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {
   applyAgentOverrideMap,
+  composeAgentExtensionEntries,
   composeAgentOverrideMap,
+  type AiAgentExtensionConfigEntry,
   type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
 
@@ -10,6 +12,32 @@ let loaded = false
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isAiAgentSuggestion(value: unknown): value is AiAgentSuggestion {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.label === 'string' && typeof candidate.prompt === 'string'
+}
+
+function isAiAgentExtension(value: unknown): value is AiAgentExtension {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.targetAgentId === 'string' &&
+    (!('replaceAllowedTools' in candidate) || isStringArray(candidate.replaceAllowedTools)) &&
+    (!('deleteAllowedTools' in candidate) || isStringArray(candidate.deleteAllowedTools)) &&
+    (!('appendAllowedTools' in candidate) || isStringArray(candidate.appendAllowedTools)) &&
+    (!('replaceSystemPrompt' in candidate) || typeof candidate.replaceSystemPrompt === 'string') &&
+    (!('appendSystemPrompt' in candidate) || typeof candidate.appendSystemPrompt === 'string') &&
+    (!('replaceSuggestions' in candidate) ||
+      (Array.isArray(candidate.replaceSuggestions) && candidate.replaceSuggestions.every(isAiAgentSuggestion))) &&
+    (!('deleteSuggestions' in candidate) || isStringArray(candidate.deleteSuggestions)) &&
+    (!('appendSuggestions' in candidate) ||
+      (Array.isArray(candidate.appendSuggestions) && candidate.appendSuggestions.every(isAiAgentSuggestion))) &&
+    (!('suggestions' in candidate) ||
+      (Array.isArray(candidate.suggestions) && candidate.suggestions.every(isAiAgentSuggestion)))
+  )
 }
 
 function isAiAgentDefinition(value: unknown): value is AiAgentDefinition {
@@ -23,6 +51,57 @@ function isAiAgentDefinition(value: unknown): value is AiAgentDefinition {
     typeof candidate.systemPrompt === 'string' &&
     isStringArray(candidate.allowedTools)
   )
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values.filter((value) => typeof value === 'string' && value.length > 0)))
+}
+
+function applyStringListPatch(
+  current: readonly string[],
+  patch: {
+    replace?: readonly string[]
+    delete?: readonly string[]
+    append?: readonly string[]
+  },
+): string[] {
+  const deleted = new Set(patch.delete ?? [])
+  return uniqueStrings([
+    ...(patch.replace ?? current).filter((value) => !deleted.has(value)),
+    ...(patch.append ?? []),
+  ])
+}
+
+function suggestionDeleteKey(suggestion: AiAgentSuggestion): string[] {
+  return [suggestion.label, suggestion.prompt].filter((value) => value.length > 0)
+}
+
+function applySuggestionPatch(
+  current: readonly AiAgentSuggestion[],
+  patch: {
+    replace?: readonly AiAgentSuggestion[]
+    delete?: readonly string[]
+    append?: readonly AiAgentSuggestion[]
+  },
+): AiAgentSuggestion[] {
+  const deleted = new Set(patch.delete ?? [])
+  const base = patch.replace ?? current
+  const out: AiAgentSuggestion[] = []
+  const seen = new Set<string>()
+  for (const suggestion of base) {
+    if (suggestionDeleteKey(suggestion).some((key) => deleted.has(key))) continue
+    const key = `${suggestion.label}\n${suggestion.prompt}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(suggestion)
+  }
+  for (const suggestion of patch.append ?? []) {
+    const key = `${suggestion.label}\n${suggestion.prompt}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(suggestion)
+  }
+  return out
 }
 
 function populateFromAgents(agents: unknown[]): void {
@@ -67,6 +146,56 @@ function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]
   }
 }
 
+async function loadExtensionEntries(): Promise<AiAgentExtension[]> {
+  try {
+    const mod = (await import(
+      '@/.mercato/generated/ai-agents.generated'
+    )) as { aiAgentExtensionEntries?: unknown[] }
+    const entries = Array.isArray(mod.aiAgentExtensionEntries)
+      ? (mod.aiAgentExtensionEntries as AiAgentExtensionConfigEntry[])
+      : []
+    return composeAgentExtensionEntries(entries).filter(isAiAgentExtension)
+  } catch {
+    return []
+  }
+}
+
+function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): void {
+  if (extensions.length === 0) return
+  for (const extension of extensions) {
+    const agent = agentsById.get(extension.targetAgentId)
+    if (!agent) {
+      console.warn(
+        `[AI Agents] Skipping extension for unknown agent "${extension.targetAgentId}".`,
+      )
+      continue
+    }
+
+    const replacementSystemPrompt = extension.replaceSystemPrompt?.trim()
+    const appendSystemPrompt = extension.appendSystemPrompt?.trim()
+    const systemPrompt = replacementSystemPrompt ?? agent.systemPrompt.trim()
+    agentsById.set(agent.id, {
+      ...agent,
+      allowedTools: applyStringListPatch(agent.allowedTools, {
+        replace: extension.replaceAllowedTools,
+        delete: extension.deleteAllowedTools,
+        append: extension.appendAllowedTools,
+      }),
+      systemPrompt: appendSystemPrompt
+        ? `${systemPrompt}\n\n${appendSystemPrompt}`
+        : systemPrompt,
+      suggestions: applySuggestionPatch(agent.suggestions ?? [], {
+        replace: extension.replaceSuggestions,
+        delete: extension.deleteSuggestions,
+        append: [
+          ...(extension.appendSuggestions ?? []),
+          ...(extension.suggestions ?? []),
+        ],
+      }),
+    })
+  }
+}
+
 export async function loadAgentRegistry(): Promise<void> {
   if (loaded) return
   try {
@@ -84,8 +213,10 @@ export async function loadAgentRegistry(): Promise<void> {
     try {
       const overrideEntries = await loadOverrideEntries()
       applyOverridesToRegistry(overrideEntries)
+      const extensionEntries = await loadExtensionEntries()
+      applyExtensionsToRegistry(extensionEntries)
     } catch (error) {
-      console.error('[AI Overrides] Failed to apply agent overrides:', error)
+      console.error('[AI Agents] Failed to apply agent overrides/extensions:', error)
     }
     loaded = true
   }
@@ -133,4 +264,14 @@ export function applyAgentOverrideEntriesForTests(
   entries: readonly AiAgentOverrideConfigEntry[],
 ): void {
   applyOverridesToRegistry(entries)
+}
+
+/**
+ * @__internal Test-only hook — apply additive extension entries against the
+ * seeded registry without round-tripping through the generated file.
+ */
+export function applyAgentExtensionEntriesForTests(
+  entries: readonly AiAgentExtension[],
+): void {
+  applyExtensionsToRegistry(entries)
 }

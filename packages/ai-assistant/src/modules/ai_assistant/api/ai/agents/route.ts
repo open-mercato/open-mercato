@@ -55,8 +55,8 @@ export async function GET(req: NextRequest) {
     })
 
     // No LLM provider configured (no API keys set). The launcher uses the
-    // `aiConfigured` flag to hide silently; explicit `<AiChat>` mounts and
-    // playground pages still see the full registry so they can show their
+    // `aiConfigured` flag to show a setup prompt; explicit `<AiChat>` mounts
+    // and playground pages still see the full registry so they can show their
     // own configuration prompts instead of silently disappearing.
     const aiConfigured = llmProviderRegistry.resolveFirstConfigured() != null
 
@@ -90,6 +90,8 @@ export async function GET(req: NextRequest) {
         tools,
         requiredFeatures: agent.requiredFeatures ?? [],
         acceptedMediaTypes: agent.acceptedMediaTypes ?? [],
+        keywords: agent.keywords ?? [],
+        suggestions: agent.suggestions ?? [],
         hasOutputSchema: Boolean(agent.output),
       }
     })

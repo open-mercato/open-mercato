@@ -166,7 +166,7 @@ export function createModelFactory(
       if (!provider) {
         throw new AiModelFactoryError(
           'no_provider_configured',
-          'No LLM provider is configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY and retry.',
+          'No LLM provider is configured. Set OPENCODE_PROVIDER plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
         )
       }
       const apiKey = provider.resolveApiKey(env)

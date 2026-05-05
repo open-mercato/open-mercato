@@ -11,10 +11,18 @@
  *  - Missing / malformed inputs degrade to safe defaults.
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import MerchandisingAssistantTriggerWidget, {
   computeCatalogMerchandisingPageContext,
 } from '../widget.client'
+
+const mockApiCall = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
+}))
+
+jest.mock('../../../../components/CatalogStatsCard', () => ({}))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string, vars?: Record<string, unknown>) => {
@@ -31,15 +39,46 @@ jest.mock('@open-mercato/ui/ai/AiChat', () => ({
 }))
 
 describe('catalog MerchandisingAssistantTriggerWidget', () => {
-  it('renders the merchandising trigger via the shared sheet component', () => {
+  beforeEach(() => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: {
+        agents: [{ id: 'catalog.merchandising_assistant' }],
+      },
+    })
+  })
+
+  afterEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('renders the merchandising trigger via the shared sheet component', async () => {
     render(
       <MerchandisingAssistantTriggerWidget
         context={{ totalMatching: 7, filters: {} }}
       />,
     )
-    const trigger = screen.getByRole('button', { name: /open ai merchandising assistant/i })
+    const trigger = await screen.findByRole('button', { name: /open ai merchandising assistant/i })
     expect(trigger).toBeTruthy()
     expect(trigger.getAttribute('data-ai-merchandising-trigger')).toBe('')
+  })
+
+  it('hides the trigger when the merchandising agent is disabled by overrides', async () => {
+    mockApiCall.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        agents: [{ id: 'customers.account_assistant' }],
+      },
+    })
+
+    render(
+      <MerchandisingAssistantTriggerWidget
+        context={{ totalMatching: 7, filters: {} }}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('button', { name: /open ai merchandising assistant/i })).toBeNull()
   })
 })
 

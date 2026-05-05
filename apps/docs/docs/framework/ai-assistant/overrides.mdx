@@ -1,11 +1,11 @@
 ---
 title: Overrides
-description: Replace or disable any AI agent or AI tool that another module registered — via `aiAgentOverrides` / `aiToolOverrides` exports, the `modules.ts` entry, or a programmatic API.
+description: Replace, disable, or patch AI agents/tools that another module registered.
 ---
 
 # Overrides
 
-The AI agent and tool registries are **append-only by default** — every module that ships an `ai-agents.ts` or `ai-tools.ts` file contributes additively, and double registration is a hard error (agents) or a noisy warning (tools). To replace or disable an agent / tool that another module already registered, use the override layer.
+The AI agent and tool registries are **append-only by default** — every module that ships an `ai-agents.ts` or `ai-tools.ts` file contributes additively, and double registration is a hard error (agents) or a noisy warning (tools). To replace or disable an agent / tool that another module already registered, use the override layer. To append, delete, or replace tools, prompt text, or starter suggestions on an existing agent, use `aiAgentExtensions`.
 
 Use this when you want to:
 
@@ -13,6 +13,9 @@ Use this when you want to:
 - Hide a default agent your tenant does not need (e.g. disable `catalog.catalog_assistant` in favor of a single focused merchandising agent).
 - Wrap a shipped tool with extra side-effects, additional logging, or a different `loadBeforeRecord` resolver.
 - Disable a default tool entirely.
+- Add a tenant/app module tool to a shipped agent without copying the full upstream agent definition.
+- Remove or replace one shipped starter prompt while preserving the rest of the agent.
+- Add starter prompts such as "Show catalog stats" to the generic AI launcher welcome state.
 
 The override layer is **deterministic, declarative, and reversible**. There are three paths — pick the one that fits where the decision lives.
 
@@ -20,18 +23,49 @@ The override layer is **deterministic, declarative, and reversible**. There are 
 Never patch another module's `ai-agents.ts` or `ai-tools.ts` source. That breaks under updates and survives reinstall. Always use one of the three paths below.
 :::
 
-## Path A — `aiAgentOverrides` / `aiToolOverrides` exports (per-module file)
+## Path A — `aiAgentOverrides` / `aiToolOverrides` / `aiAgentExtensions` exports
 
-Modules express overrides through extra exports on their existing `ai-agents.ts` / `ai-tools.ts` files. There is **no separate `ai-overrides.ts` file**: the generator already scans `<module>/ai-agents.ts` and `<module>/ai-tools.ts`, and now picks up the override exports alongside the base contributions.
+Modules express overrides and extensions through extra exports on their existing `ai-agents.ts` / `ai-tools.ts` files. There is **no separate `ai-overrides.ts` file**: the generator already scans `<module>/ai-agents.ts` and `<module>/ai-tools.ts`, and now picks up these exports alongside the base contributions.
 
 File layout (unchanged):
 
 ```
 packages/<pkg>/src/modules/<module>/        (or apps/<app>/src/modules/<module>/)
-├── ai-agents.ts                  # exports: aiAgents (+ optional aiAgentOverrides)
+├── ai-agents.ts                  # exports: aiAgents (+ optional aiAgentOverrides / aiAgentExtensions)
 ├── ai-tools.ts                   # exports: aiTools  (+ optional aiToolOverrides)
 └── ...
 ```
+
+Agent extension patch shape:
+
+```ts
+// src/modules/example/ai-agents.ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgents = []
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+`replace*` fields run first, `delete*` fields second, and `append*` fields last:
+
+| Field | Effect |
+|-------|--------|
+| `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools` | Replace, remove, or append tool names in `allowedTools`. |
+| `replaceSystemPrompt` / `appendSystemPrompt` | Replace the full prompt or append an extra paragraph to it. |
+| `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions` | Replace starter prompts, remove by label or prompt text, or append more prompts. |
+| `suggestions` | Backward-compatible alias for `appendSuggestions`. |
 
 Shape:
 
@@ -112,6 +146,16 @@ export const enabledModules: ModuleEntry[] = [
         tools: {
           'inbox_ops_accept_action': null,
         },
+        extensions: [
+          {
+            targetAgentId: 'catalog.catalog_assistant',
+            deleteAllowedTools: ['catalog.old_stats'],
+            appendAllowedTools: ['example.catalog_stats'],
+            appendSuggestions: [
+              { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+            ],
+          },
+        ],
       },
     },
   },
@@ -138,6 +182,7 @@ When the override decision happens at boot from env or runtime config — or in 
 
 ```ts
 import {
+  applyAiAgentExtensions,
   applyAiAgentOverrides,
   applyAiToolOverrides,
 } from '@open-mercato/ai-assistant'
@@ -151,6 +196,16 @@ if (process.env.OM_DISABLE_DEFAULT_CATALOG_AGENT === '1') {
 applyAiToolOverrides({
   'inbox_ops_accept_action': null,
 })
+
+applyAiAgentExtensions([
+  {
+    targetAgentId: 'catalog.catalog_assistant',
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  },
+])
 ```
 
 Programmatic overrides:
@@ -179,7 +234,8 @@ When the agent registry loads:
 2. The runtime reads `aiAgentOverrideEntries` from the same generated file (silently skipped if absent).
 3. The override map is composed in the order: file → modules.ts → programmatic. Later tiers overwrite earlier ones.
 4. The composed map is applied against the base list — `null` removes, a definition replaces.
-5. Each applied override emits a structured `[AI Overrides] Agent "<id>" replaced by override.` (or `disabled`) line so operators can inspect what is in effect.
+5. The runtime applies `aiAgentExtensions` after overrides. Extensions targeting missing/disabled agents are skipped with a warning. For each extension, replacement fields run before delete fields, and delete fields run before append fields.
+6. Each applied override emits a structured `[AI Overrides] Agent "<id>" replaced by override.` (or `disabled`) line so operators can inspect what is in effect.
 
 The same flow applies to tools via `aiToolOverrideEntries` in `ai-tools.generated.ts`, applied immediately after `registerGeneratedAiToolEntries`.
 

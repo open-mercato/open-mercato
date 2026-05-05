@@ -56,6 +56,7 @@
 export interface AiOverridesShape {
   agents?: Record<string, unknown>
   tools?: Record<string, unknown>
+  extensions?: unknown[]
 }
 
 /** Phase 2/3 — routes (api + pages). Stubbed until wired. */

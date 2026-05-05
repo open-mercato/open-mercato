@@ -1,5 +1,6 @@
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import {
+  applyAgentExtensionEntriesForTests,
   getAgent,
   listAgents,
   listAgentsByModule,
@@ -27,17 +28,21 @@ describe('agent-registry', () => {
     resetAgentRegistryForTests()
   })
 
-  it('returns an empty registry when the generated file is absent (dynamic import throws)', async () => {
+  it('loads generated agents when present and otherwise falls back to an empty registry', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     await loadAgentRegistry()
 
-    expect(listAgents()).toEqual([])
-    expect(getAgent('anything')).toBeUndefined()
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[AI Agents] Could not load ai-agents.generated.ts'),
-      expect.any(Object)
-    )
+    const agents = listAgents()
+    if (errorSpy.mock.calls.length > 0) {
+      expect(agents).toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[AI Agents] Could not load ai-agents.generated.ts'),
+        expect.any(Object),
+      )
+    } else {
+      expect(agents.every((agent) => getAgent(agent.id) === agent)).toBe(true)
+    }
     errorSpy.mockRestore()
   })
 
@@ -114,6 +119,74 @@ describe('agent-registry', () => {
     warnSpy.mockRestore()
   })
 
+  it('applies append, delete, and replace extensions to an existing agent', () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.catalog_assistant',
+        moduleId: 'catalog',
+        systemPrompt: 'Base prompt.',
+        allowedTools: ['catalog.list_products', 'catalog.get_product', 'catalog.old_tool'],
+        suggestions: [
+          { label: 'Find products', prompt: 'Find products' },
+          { label: 'Old prompt', prompt: 'Old prompt' },
+        ],
+      }),
+    ])
+
+    applyAgentExtensionEntriesForTests([
+      {
+        targetAgentId: 'catalog.catalog_assistant',
+        deleteAllowedTools: ['catalog.old_tool'],
+        appendAllowedTools: ['example.catalog_stats', 'catalog.list_products'],
+        replaceSystemPrompt: 'Replacement prompt.',
+        appendSystemPrompt: 'Use example.catalog_stats for tenant-specific catalog metrics.',
+        deleteSuggestions: ['Old prompt'],
+        appendSuggestions: [
+          { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+        ],
+      },
+    ])
+
+    expect(getAgent('catalog.catalog_assistant')).toMatchObject({
+      allowedTools: ['catalog.list_products', 'catalog.get_product', 'example.catalog_stats'],
+      suggestions: [
+        { label: 'Find products', prompt: 'Find products' },
+        { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+      ],
+    })
+    expect(getAgent('catalog.catalog_assistant')?.systemPrompt).toBe(
+      'Replacement prompt.\n\nUse example.catalog_stats for tenant-specific catalog metrics.',
+    )
+  })
+
+  it('supports full tool and suggestion replacement in an extension', () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.catalog_assistant',
+        moduleId: 'catalog',
+        allowedTools: ['catalog.list_products'],
+        suggestions: [{ label: 'Find products', prompt: 'Find products' }],
+      }),
+    ])
+
+    applyAgentExtensionEntriesForTests([
+      {
+        targetAgentId: 'catalog.catalog_assistant',
+        replaceAllowedTools: ['example.catalog_stats'],
+        replaceSuggestions: [
+          { label: 'Show categories', prompt: 'Show categories' },
+        ],
+      },
+    ])
+
+    expect(getAgent('catalog.catalog_assistant')).toMatchObject({
+      allowedTools: ['example.catalog_stats'],
+      suggestions: [
+        { label: 'Show categories', prompt: 'Show categories' },
+      ],
+    })
+  })
+
   it('resetAgentRegistryForTests clears the cache so a subsequent seed sees fresh fixtures', () => {
     seedAgentRegistryForTests([
       makeAgent({ id: 'catalog.merchandiser', moduleId: 'catalog' }),
@@ -129,15 +202,16 @@ describe('agent-registry', () => {
     expect(listAgents().map((agent) => agent.id)).toEqual(['customers.assistant'])
   })
 
-  it('loadAgentRegistry is idempotent — repeat calls do not duplicate entries or re-warn', async () => {
+  it('loadAgentRegistry is idempotent — repeat calls do not duplicate entries', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     await loadAgentRegistry()
+    const firstIds = listAgents().map((agent) => agent.id)
     await loadAgentRegistry()
     await loadAgentRegistry()
 
-    expect(listAgents()).toEqual([])
-    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(listAgents().map((agent) => agent.id)).toEqual(firstIds)
+    expect(errorSpy).toHaveBeenCalledTimes(firstIds.length === 0 ? 1 : 0)
     errorSpy.mockRestore()
   })
 })

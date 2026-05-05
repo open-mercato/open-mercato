@@ -24,18 +24,20 @@ import {
  * Generator extension for `<module>/ai-agents.ts` files.
  *
  * Each module's `ai-agents.ts` may export both base agent contributions
- * (`aiAgents`) AND cross-module override declarations
+ * (`aiAgents`), additive extensions for existing agents
+ * (`aiAgentExtensions`), AND cross-module override declarations
  * (`aiAgentOverrides`). The generator scans the file once, emits the
- * configuration entry with both fields, and produces two filtered
+ * configuration entry with all fields, and produces filtered
  * exports inside `ai-agents.generated.ts`:
  *
  *   - `aiAgentConfigEntries` (entries that declare base agents)
+ *   - `aiAgentExtensionEntries` / `allAiAgentExtensions` (entries that append to agents)
  *   - `aiAgentOverrideEntries` (entries that declare overrides)
  *
  * The runtime (`@open-mercato/ai-assistant`) reads
- * `aiAgentConfigEntries` to populate the agent registry and
- * `aiAgentOverrideEntries` to apply cross-module replacements after the
- * base load. See spec
+ * `aiAgentConfigEntries` to populate the agent registry,
+ * `aiAgentOverrideEntries` to apply cross-module replacements, and
+ * `allAiAgentExtensions` to append safe metadata after the base load. See spec
  * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
  */
 export function createAiAgentsExtension(): GeneratorExtension {
@@ -75,6 +77,15 @@ export function createAiAgentsExtension(): GeneratorExtension {
                 castType: 'Record<string, unknown>',
               }),
             },
+            {
+              name: 'extensions',
+              value: namespaceFallback({
+                importName,
+                members: ['aiAgentExtensions'],
+                fallback: emptyArray(),
+                castType: 'unknown[]',
+              }),
+            },
           ]),
       })
     },
@@ -85,11 +96,15 @@ export function createAiAgentsExtension(): GeneratorExtension {
         build(sourceFile) {
           sourceFile.addTypeAlias({
             name: 'AiAgentConfigEntry',
-            type: '{ moduleId: string; agents: unknown[]; overrides: Record<string, unknown> }',
+            type: '{ moduleId: string; agents: unknown[]; overrides: Record<string, unknown>; extensions: unknown[] }',
           })
           sourceFile.addTypeAlias({
             name: 'AiAgentOverrideConfigEntry',
             type: '{ moduleId: string; overrides: Record<string, unknown> }',
+          })
+          sourceFile.addTypeAlias({
+            name: 'AiAgentExtensionConfigEntry',
+            type: '{ moduleId: string; extensions: unknown[] }',
           })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
@@ -112,6 +127,51 @@ export function createAiAgentsExtension(): GeneratorExtension {
                   arrowFunction({
                     parameters: ['entry'],
                     body: binaryExpression(propertyAccess(propertyAccess(identifier('entry'), 'agents'), 'length'), '>', 0),
+                  }),
+                ]),
+              },
+            ],
+          })
+          sourceFile.addVariableStatement({
+            declarationKind: VariableDeclarationKind.Const,
+            isExported: true,
+            declarations: [
+              {
+                name: 'aiAgentExtensionEntries',
+                type: 'AiAgentExtensionConfigEntry[]',
+                initializer: methodCall(
+                  methodCall(identifier('aiAgentConfigEntriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(propertyAccess(propertyAccess(identifier('entry'), 'extensions'), 'length'), '>', 0),
+                    }),
+                  ]),
+                  'map',
+                  [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: parenthesized(
+                        objectLiteral([
+                          { name: 'moduleId', value: propertyAccess(identifier('entry'), 'moduleId') },
+                          { name: 'extensions', value: propertyAccess(identifier('entry'), 'extensions') },
+                        ]),
+                      ),
+                    }),
+                  ],
+                ),
+              },
+            ],
+          })
+          sourceFile.addVariableStatement({
+            declarationKind: VariableDeclarationKind.Const,
+            isExported: true,
+            declarations: [
+              {
+                name: 'allAiAgentExtensions',
+                initializer: methodCall(identifier('aiAgentExtensionEntries'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'extensions'),
                   }),
                 ]),
               },

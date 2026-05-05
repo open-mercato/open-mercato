@@ -1,6 +1,6 @@
 ---
 name: create-ai-agent
-description: Build a typed Open Mercato AI agent (chat or structured-object) using the unified AI framework — declare `ai-agents.ts`, register tool packs via `defineAiTool`, gate mutations through the approval contract, wire ACL features, and embed `<AiChat>` into a backoffice or portal page. Works in both the monorepo (`packages/<x>/src/modules/<module>/`) and standalone projects (`apps/<app>/src/modules/<module>/` or `node_modules/@open-mercato/<package>` consumers). Triggers on "create AI agent", "add AI agent", "build AI assistant", "wire ai-agents.ts", "add ai-tools.ts", "embed AiChat", "agent for module".
+description: Build, override, or extend a typed Open Mercato AI agent (chat or structured-object) using the unified AI framework — declare `ai-agents.ts`, register tool packs via `defineAiTool`, patch existing agents with `aiAgentExtensions`, gate mutations through the approval contract, wire ACL features, and embed `<AiChat>` into a backoffice or portal page. Works in both the monorepo (`packages/<x>/src/modules/<module>/`) and standalone projects (`apps/<app>/src/modules/<module>/` or `node_modules/@open-mercato/<package>` consumers). Triggers on "create AI agent", "add AI agent", "build AI assistant", "extend AI agent", "override AI agent", "add tool to existing agent", "wire ai-agents.ts", "add ai-tools.ts", "embed AiChat", "agent for module".
 ---
 
 # Create AI Agent
@@ -15,6 +15,8 @@ This is the **only** correct way to add a domain-specific AI assistant. Do NOT r
 - Adding a structured-object agent for one-shot extraction or background enrichment.
 - Adding a mutation-capable agent that must go through `ai_pending_actions` + approval cards.
 - Adding a tool pack to be reused across multiple agents (`defineAiTool` registry).
+- Extending a shipped agent with extra tools, prompt text, or starter suggestions.
+- Replacing/disabling another module's shipped agent or tool.
 
 If you only need raw `generateText` / `generateObject` without tool whitelisting or tenant scoping, see the docs escape hatches in `apps/docs/docs/framework/ai-assistant/agents.mdx` (§ "Using the Vercel AI SDK natively"). Default to the agent contract — reach for the escape hatch only when you have a specific reason.
 
@@ -162,6 +164,9 @@ const accountAssistant: AiAgentDefinition = {
   defaultModel: 'claude-haiku-4-5',          // optional — see provider docs
   domain: '<module>',
   keywords: ['<module>', '...'],
+  suggestions: [
+    { label: 'Show recent records', prompt: 'Show recent records' },
+  ],
   // resolvePageContext: optional; see Section 4.2
 }
 
@@ -192,6 +197,31 @@ const systemPrompt = promptSections
 ```
 
 Copy the literal section bodies from `packages/core/src/modules/customers/ai-agents.ts` and adapt the wording — never invent new section names.
+
+### 4.1b Patch an existing agent
+
+If a downstream app/module wants to adjust a shipped agent instead of replacing it, export `aiAgentExtensions` from the module's existing `ai-agents.ts`. This is the right fit for adding a local tool and starter prompt such as "Show catalog stats", deleting an irrelevant shipped tool/prompt, or replacing the prompt/tool list while keeping the upstream agent id and metadata.
+
+```ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+Patch fields apply in order: `replace*` first, `delete*` second, `append*` last. Supported fields are `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools`, `replaceSystemPrompt` / `appendSystemPrompt`, and `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions`. The older `suggestions` field is still accepted as an append alias.
+
+Use patch extensions when the existing agent is still the right conceptual assistant. Use a full override (Section 13) when the agent's label, prompt, policy, model, tool surface, or behavior should be treated as a new replacement definition.
 
 ### 4.2 Optional: `resolvePageContext`
 
@@ -513,27 +543,67 @@ When in doubt, add new — don't rename or remove.
 
 ---
 
-## 13. Overriding Another Module's Agent or Tool
+## 13. Override or Extend Another Module's Agent or Tool
 
-Use this when the module you are working on needs to **replace** or **disable** an agent / tool that another module already shipped — for example, swapping `catalog.merchandising_assistant` for a tenant-specific variant or hiding `catalog.catalog_assistant` from the launcher. There is no separate `<module>/ai-overrides.ts` file: overrides live alongside base contributions in the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts`.
+Use this when the module you are working on needs to change an agent or tool that another module already shipped.
 
-**Path A — extra exports on `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module, generator-driven):**
+Choose the smallest surface:
+
+| Goal | Use |
+|------|-----|
+| Add/remove/replace a few tools, prompt text, or starter prompts on an existing agent | `aiAgentExtensions` |
+| Replace an agent's full definition or disable it entirely | `aiAgentOverrides` |
+| Replace/disable one tool implementation | `aiToolOverrides` |
+| Make the decision at app boot or from env/config | programmatic APIs |
+
+There is no separate `<module>/ai-overrides.ts` file: overrides and extensions live alongside base contributions in the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts`.
+
+### 13.1 Per-module file exports (generator-driven)
 
 ```ts
 // src/modules/<module>/ai-agents.ts
 import type {
   AiAgentDefinition,
+  AiAgentExtension,
   AiAgentOverridesMap,
 } from '@open-mercato/ai-assistant'
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
 import myMerchandisingAgent from './agents/my-merchandising-agent'
 
 export const aiAgents: AiAgentDefinition[] = [/* ...your module's own agents */]
 
+export const aiAgentExtensions: AiAgentExtension[] = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    // Replace the full list when the base whitelist is mostly wrong.
+    // replaceAllowedTools: ['catalog.list_products', 'example.catalog_categories_widget'],
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_categories_widget'],
+    // Replace the full prompt only when appending is not enough.
+    // replaceSystemPrompt: '...',
+    appendSystemPrompt: 'Use example.catalog_categories_widget when the operator asks to inspect categories.',
+    // Deletion matches either suggestion label or prompt text.
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog categories', prompt: 'Show catalog categories' },
+    ],
+  }),
+]
+
 export const aiAgentOverrides: AiAgentOverridesMap = {
   'catalog.merchandising_assistant': myMerchandisingAgent, // replace
-  'catalog.catalog_assistant': null,                       // disable
+  'catalog.legacy_assistant': null,                        // disable
 }
 ```
+
+Agent extension patch order is deterministic: `replace*` first, `delete*` second, `append*` last. Supported fields:
+
+| Field | Effect |
+|-------|--------|
+| `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools` | Replace, remove, or append agent whitelist entries. |
+| `replaceSystemPrompt` / `appendSystemPrompt` | Replace the full prompt or append an extra paragraph. |
+| `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions` | Replace, remove, or append launcher starter prompts. |
+| `suggestions` | Backward-compatible alias for `appendSuggestions`; prefer `appendSuggestions` in new code. |
 
 ```ts
 // src/modules/<module>/ai-tools.ts
@@ -546,7 +616,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`):**
+### 13.2 `modules.ts` inline (app-level static)
 
 ```ts
 // apps/<app>/src/modules.ts
@@ -555,8 +625,17 @@ export const aiToolOverrides: AiToolOverridesMap = {
   from: '@app',
   overrides: {
     ai: {
-      agents: { 'catalog.catalog_assistant': null },
+      agents: { 'catalog.legacy_assistant': null },
       tools:  { 'inbox_ops_accept_action': null },
+      extensions: [
+        {
+          targetAgentId: 'catalog.catalog_assistant',
+          appendAllowedTools: ['example.catalog_categories_widget'],
+          appendSuggestions: [
+            { label: 'Show catalog categories', prompt: 'Show catalog categories' },
+          ],
+        },
+      ],
     },
   },
 },
@@ -564,28 +643,39 @@ export const aiToolOverrides: AiToolOverridesMap = {
 
 `apps/mercato/src/bootstrap.ts` (and the `create-mercato-app` template) already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` to wire these up. Other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` — AI is Phase 1; subsequent domains roll out as focused PRs.
 
-**Path C — programmatic API (boot-time / dynamic):**
+### 13.3 Programmatic API (boot-time / dynamic)
 
 ```ts
 import {
+  applyAiAgentExtensions,
   applyAiAgentOverrides,
   applyAiToolOverrides,
 } from '@open-mercato/ai-assistant'
 
 // In src/bootstrap.ts or an equivalent boot-time entry point.
-applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
+applyAiAgentOverrides({ 'catalog.legacy_assistant': null })
 applyAiToolOverrides({ 'inbox_ops_accept_action': null })
+applyAiAgentExtensions([
+  {
+    targetAgentId: 'catalog.catalog_assistant',
+    appendAllowedTools: ['example.catalog_categories_widget'],
+    appendSuggestions: [
+      { label: 'Show catalog categories', prompt: 'Show catalog categories' },
+    ],
+  },
+])
 ```
 
 MUST rules:
 
-- MUST keep override exports inside the existing `ai-agents.ts` / `ai-tools.ts` files (no separate `ai-overrides.ts` file is generated or scanned).
+- MUST keep override/extension exports inside the existing `ai-agents.ts` / `ai-tools.ts` files (no separate `ai-overrides.ts` file is generated or scanned).
 - MUST keep map keys consistent with `value.id` (agent) / `value.name` (tool); mismatches log a warning and are skipped.
 - MUST NOT use overrides to patch your own module — author the canonical definition in the same `aiAgents` / `aiTools` array instead.
-- MUST run `yarn generate` after editing any `aiAgentOverrides` / `aiToolOverrides` export.
+- MUST prefer `aiAgentExtensions` over copying an entire upstream agent when only changing tools, prompt text, or starter prompts.
+- MUST run `yarn generate` after editing any `aiAgentExtensions`, `aiAgentOverrides`, or `aiToolOverrides` export.
 - MUST run `yarn mercato configs cache structural --all-tenants` after disabling an agent so existing tenants drop stale caches.
 
-Resolution order (highest precedence first): programmatic → `modules.ts` inline → file-based (`aiAgentOverrides` / `aiToolOverrides`) → base (`aiAgents` / `aiTools`). Last entry per id wins inside each tier. `null` disables.
+Resolution order for replacements (highest precedence first): programmatic → `modules.ts` inline → file-based (`aiAgentOverrides` / `aiToolOverrides`) → base (`aiAgents` / `aiTools`). Last entry per id wins inside each tier. `null` disables. Agent extensions apply after agent overrides; they cannot resurrect a disabled/missing agent and will log a warning instead.
 
 Full reference: `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 

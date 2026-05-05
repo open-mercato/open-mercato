@@ -34,6 +34,9 @@ export const accountAssistant: AiAgentDefinition = {
   defaultModel: 'claude-haiku-4-5',
   domain: 'customers',
   keywords: ['crm', 'people', 'companies', 'deals'],
+  suggestions: [
+    { label: 'Show recent deals', prompt: 'Show recent deals' },
+  ],
 }
 
 export default [accountAssistant]
@@ -65,6 +68,7 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). |
 | `maxSteps` | no | Upper bound on AI SDK tool-use loops. |
 | `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
+| `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
 
 ## Tool packs
@@ -110,6 +114,38 @@ Agents shipped in `packages/core` that whitelist any `isMutation: true` tool def
 ### Replacing or disabling a registered agent
 
 Modules can replace or disable an agent registered by another module via three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the module's existing `ai-agents.ts` / `ai-tools.ts`, inline on a `ModuleEntry` in `apps/<app>/src/modules.ts`, or programmatically via `applyAiAgentOverrides({ ... })` / `applyAiToolOverrides({ ... })` at boot. `null` disables; a definition replaces. See [Overrides](./overrides) for the full contract, file layout, and resolution order.
+
+### Extending a registered agent
+
+When a downstream module only needs to patch tools, prompt text, or starter prompts on an existing agent, export `aiAgentExtensions` instead of replacing the full agent:
+
+```ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+Extensions run after replacement/disable overrides. They cannot resurrect a disabled agent; an extension whose `targetAgentId` is missing is skipped with a warning. Patch order is deterministic: `replace*` first, `delete*` second, `append*` last.
+
+Supported patch fields:
+
+| Field | Effect |
+|-------|--------|
+| `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools` | Replace, remove, or append tool names in the agent whitelist. |
+| `replaceSystemPrompt` / `appendSystemPrompt` | Replace the prompt or append an extra prompt paragraph. |
+| `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions` | Replace, remove by label/prompt, or append starter prompts. |
+| `suggestions` | Backward-compatible alias for `appendSuggestions`. |
 
 Concretely:
 

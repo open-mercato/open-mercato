@@ -30,7 +30,7 @@ import {
  *
  * @see ../../../../../../.ai/specs/2026-04-30-ai-overrides-and-module-disable.md
  */
-import type { AiAgentDefinition } from './ai-agent-definition'
+import type { AiAgentDefinition, AiAgentExtension } from './ai-agent-definition'
 import type { AiToolDefinition } from './types'
 
 /** Override for a single agent: replace with a definition or remove with `null`. */
@@ -55,6 +55,11 @@ export interface AiAgentOverrideConfigEntry {
   overrides: AiAgentOverridesMap
 }
 
+export interface AiAgentExtensionConfigEntry {
+  moduleId: string
+  extensions: AiAgentExtension[]
+}
+
 /**
  * Per-entry shape produced by the tool generator. Same record format as
  * {@link AiAgentOverrideConfigEntry}, but with tool definitions.
@@ -68,6 +73,7 @@ export interface AiToolOverrideConfigEntry {
 export interface AiModuleOverridesShape {
   agents?: AiAgentOverridesMap
   tools?: AiToolOverridesMap
+  extensions?: AiAgentExtension[]
 }
 
 /** Shape of a `modules.ts` `ModuleEntry` with the umbrella `overrides.ai`. */
@@ -78,9 +84,11 @@ export interface EnabledModuleAiOverrides {
 
 const programmaticAgentOverrides: AiAgentOverridesMap = {}
 const programmaticToolOverrides: AiToolOverridesMap = {}
+const programmaticAgentExtensions: AiAgentExtension[] = []
 
 const modulesConfigAgentOverrides: AiAgentOverridesMap = {}
 const modulesConfigToolOverrides: AiToolOverridesMap = {}
+const modulesConfigAgentExtensions: AiAgentExtension[] = []
 
 /**
  * Apply programmatic agent overrides — survive after the registries load
@@ -110,6 +118,14 @@ export function applyAiToolOverrides(overrides: AiToolOverridesMap): void {
   for (const [name, value] of Object.entries(overrides)) {
     programmaticToolOverrides[name] = value
   }
+}
+
+/**
+ * Apply programmatic additive agent extensions. Extensions append to an
+ * already-registered agent after replacements/disable overrides resolve.
+ */
+export function applyAiAgentExtensions(extensions: readonly AiAgentExtension[]): void {
+  programmaticAgentExtensions.push(...extensions)
 }
 
 /**
@@ -149,6 +165,9 @@ export function applyAiOverridesFromEnabledModules(
       for (const [name, value] of Object.entries(ai.tools)) {
         modulesConfigToolOverrides[name] = value as AiToolOverride
       }
+    }
+    if (Array.isArray(ai.extensions)) {
+      modulesConfigAgentExtensions.push(...ai.extensions)
     }
   }
 }
@@ -206,6 +225,8 @@ export function resetProgrammaticOverridesForTests(): void {
   for (const key of Object.keys(modulesConfigToolOverrides)) {
     delete modulesConfigToolOverrides[key]
   }
+  programmaticAgentExtensions.length = 0
+  modulesConfigAgentExtensions.length = 0
 }
 
 /**
@@ -260,6 +281,18 @@ export function composeToolOverrideMap(
   for (const [name, value] of Object.entries(programmaticToolOverrides)) {
     out[name] = value
   }
+  return out
+}
+
+export function composeAgentExtensionEntries(
+  fileEntries: readonly AiAgentExtensionConfigEntry[],
+): AiAgentExtension[] {
+  const out: AiAgentExtension[] = []
+  for (const entry of fileEntries) {
+    if (Array.isArray(entry?.extensions)) out.push(...entry.extensions)
+  }
+  out.push(...modulesConfigAgentExtensions)
+  out.push(...programmaticAgentExtensions)
   return out
 }
 
@@ -342,11 +375,15 @@ export function snapshotProgrammaticOverrides(): {
   tools: Readonly<AiToolOverridesMap>
   modulesConfigAgents: Readonly<AiAgentOverridesMap>
   modulesConfigTools: Readonly<AiToolOverridesMap>
+  agentExtensions: readonly AiAgentExtension[]
+  modulesConfigAgentExtensions: readonly AiAgentExtension[]
 } {
   return {
     agents: { ...programmaticAgentOverrides },
     tools: { ...programmaticToolOverrides },
     modulesConfigAgents: { ...modulesConfigAgentOverrides },
     modulesConfigTools: { ...modulesConfigToolOverrides },
+    agentExtensions: programmaticAgentExtensions.slice(),
+    modulesConfigAgentExtensions: modulesConfigAgentExtensions.slice(),
   }
 }

@@ -47,6 +47,11 @@ function findRepoRoot(): string {
 }
 
 function findAppRoot(): string {
+  const testAppRoot = process.env.OM_TEST_APP_ROOT
+  if (testAppRoot && testAppRoot.length > 0) {
+    return testAppRoot
+  }
+
   // The CLI loads its env from apps/mercato/.env (DB connection, JWT secret,
   // encryption fallback). Spawning from there makes the bootstrap reach a
   // ready state instead of bailing on the MFA-secret precondition.

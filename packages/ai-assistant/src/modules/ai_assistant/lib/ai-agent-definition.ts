@@ -32,6 +32,11 @@ export interface AiAgentDataCapabilities {
   searchableFields?: string[]
 }
 
+export interface AiAgentSuggestion {
+  label: string
+  prompt: string
+}
+
 export interface AiAgentDefinition {
   id: string
   moduleId: string
@@ -39,6 +44,7 @@ export interface AiAgentDefinition {
   description: string
   systemPrompt: string
   allowedTools: string[]
+  suggestions?: AiAgentSuggestion[]
   executionMode?: AiAgentExecutionMode
   defaultModel?: string
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
@@ -54,6 +60,27 @@ export interface AiAgentDefinition {
   dataCapabilities?: AiAgentDataCapabilities
 }
 
+export interface AiAgentExtension {
+  targetAgentId: string
+  replaceAllowedTools?: string[]
+  deleteAllowedTools?: string[]
+  appendAllowedTools?: string[]
+  replaceSystemPrompt?: string
+  appendSystemPrompt?: string
+  replaceSuggestions?: AiAgentSuggestion[]
+  deleteSuggestions?: string[]
+  appendSuggestions?: AiAgentSuggestion[]
+  /**
+   * @deprecated Use `appendSuggestions` for new code. Preserved as the
+   * original append-only field for backward compatibility.
+   */
+  suggestions?: AiAgentSuggestion[]
+}
+
 export function defineAiAgent(definition: AiAgentDefinition): AiAgentDefinition {
   return definition
+}
+
+export function defineAiAgentExtension(extension: AiAgentExtension): AiAgentExtension {
+  return extension
 }
