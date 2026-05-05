@@ -384,6 +384,59 @@ describe('AppShell', () => {
     }
   })
 
+  describe('sidebar sticky footer Settings shortcut', () => {
+    const settingsDict = { ...dict, 'backend.nav.settings': 'Settings' }
+
+    it('renders the Settings link inside the main sidebar sticky footer', async () => {
+      mockPathname = '/backend/users'
+
+      renderWithProviders(
+        <AppShell email="demo@example.com" groups={groups}>
+          <div>Page content</div>
+        </AppShell>,
+        { dict: settingsDict },
+      )
+
+      const settingsLink = await screen.findByRole('link', { name: 'Settings' })
+      expect(settingsLink).toHaveAttribute('href', '/backend/settings')
+      expect(settingsLink).toHaveAttribute('data-menu-item-id', 'backend-sidebar-settings')
+    })
+
+    it('marks the Settings link active when the current pathname is a registered settings prefix', async () => {
+      mockPathname = '/backend/entities/user'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict: settingsDict },
+      )
+
+      const settingsLink = await screen.findByRole('link', { name: 'Settings' })
+      expect(settingsLink).toHaveClass('bg-muted')
+      expect(settingsLink).toHaveClass('text-foreground')
+    })
+
+    it('keeps the Settings link inactive on non-settings paths', async () => {
+      mockPathname = '/backend/users'
+
+      renderWithProviders(
+        <AppShell email="demo@example.com" groups={groups}>
+          <div>Page content</div>
+        </AppShell>,
+        { dict: settingsDict },
+      )
+
+      const settingsLink = await screen.findByRole('link', { name: 'Settings' })
+      expect(settingsLink).toHaveClass('text-muted-foreground')
+      expect(settingsLink).not.toHaveClass('bg-muted')
+    })
+  })
+
   describe('two-level sidebar (settings/profile mode)', () => {
     it('renders main + section sidebars side-by-side when on a settings path', async () => {
       mockPathname = '/backend/entities/user'

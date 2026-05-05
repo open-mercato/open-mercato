@@ -3,7 +3,7 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Search, Settings, X } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
@@ -1017,6 +1017,34 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               context={injectionContext}
             />
           ) : null}
+          {(() => {
+            const settingsHref = '/backend/settings'
+            const isActive = !!pathname && (
+              pathname === settingsHref ||
+              pathname.startsWith(`${settingsHref}/`) ||
+              resolvedSettingsPathPrefixes.some((prefix) => pathname.startsWith(prefix))
+            )
+            const base = compact ? 'w-10 h-10 justify-center' : 'w-full px-3 py-2 gap-2'
+            return (
+              <Link
+                href={settingsHref}
+                className={`relative text-sm font-medium rounded-lg inline-flex items-center ${base} ${
+                  isActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
+                }`}
+                title={compact ? t('backend.nav.settings', 'Settings') : undefined}
+                data-menu-item-id="backend-sidebar-settings"
+                onClick={() => setMobileOpen(false)}
+              >
+                {isActive ? (
+                  <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
+                ) : null}
+                <span className="flex items-center justify-center shrink-0">
+                  <Settings className="size-4" aria-hidden />
+                </span>
+                {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
+              </Link>
+            )
+          })()}
           {shouldRenderSidebarInjectionSpots ? (
             <StatusBadgeInjectionSpot
               spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
