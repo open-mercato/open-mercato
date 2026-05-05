@@ -60,7 +60,7 @@ Introduce a repository-wide property-testing system called **spec-informed prope
 | Use `fast-check` + `@fast-check/jest` as the runtime engine | TypeScript-native, Jest-friendly; `it.prop()` is the canonical suite style for this repo to prevent stylistic drift |
 | Keep CI deterministic | CI runs checked-in property suites only, with fixed budgets and replayable seeds |
 | Property bodies must be pure over declared inputs | All time, randomness, and external I/O MUST flow through explicit generators or injected fakes — otherwise seed replay is not reproducible |
-| Run property suites in the Jest pipeline only | No browser-level fuzzing in Phase 1-4; Playwright coverage stays on the existing integration-test flow |
+| Run property suites in the Jest pipeline only | No browser-level fuzzing across all phases of this spec; Playwright coverage stays on the existing integration-test flow |
 | Treat AI as discovery, not oracle | Agent-generated candidate properties require human review before promotion, and must route through the approved LLM provider layer (`2026-04-14-llm-provider-ports-and-adapters`) |
 | Start with pure and service-level logic | Highest signal and lowest flake risk compared to browser-first fuzzing |
 | Store counterexamples as artifacts | Failures should be reproducible, reviewable, and promotable to permanent tests |
@@ -209,12 +209,12 @@ Every invariant below MUST cite a source rule in the evidence of the resulting c
 
 ### Commands & Events
 
-This feature does not introduce domain commands or public business events in Phase 1-3.
+This feature does not introduce domain commands or public business events across all phases of this spec.
 
 Developer-facing CLI commands are introduced instead:
 
 - `yarn test:properties`
-- `yarn test:properties --scope <package-or-module>`
+- `yarn test:properties --scope <package | module | file>`
 - `yarn mercato test:properties:discover --scope <target>`
 - `yarn mercato test:properties:replay --artifact <path>`
 - `yarn mercato test:properties:promote --artifact <path> --target <test-path>`
@@ -292,15 +292,25 @@ type PropertySuiteRegistryEntry = {
 
 ## API Contracts
 
-No HTTP API changes are required in Phase 1-3.
+No HTTP API changes are required across all phases of this spec.
 
 The public contracts for this feature are CLI and file-output based.
+
+### `--scope` accepted shapes
+
+All three CLI entry points (`test:properties`, `test:properties:discover`, `test:properties:replay` via `--path`) accept `--scope` as one of three shapes, resolved in this order:
+
+1. **Package name** — bare workspace name without a path separator (e.g., `shared`, `core`). Resolves to `target.package` in the candidate manifest data model.
+2. **Module path** — `<package>/<module>` form (e.g., `core/catalog`, `core/workflows`). Resolves to `target.package` + `target.module`.
+3. **File path** — any value containing a path separator that resolves to an existing file under a workspace package (e.g., `packages/shared/src/lib/crud/ids.ts`). Resolves to `target.package` + `target.module?` + `target.file`.
+
+The CLI MUST validate the resolved shape against the workspace layout and reject ambiguous values with a non-zero exit code; it MUST NOT silently fall back from one shape to another. `--scope` is required for `test:properties:discover` and optional for `test:properties` (where omitting it runs every checked-in property suite).
 
 ### `yarn test:properties`
 
 - Purpose: Run checked-in property suites
 - Inputs:
-  - `--scope <string>` optional package or module filter
+  - `--scope <string>` optional filter — see "`--scope` accepted shapes" above
   - `--seed <number>` optional deterministic replay seed
   - `--path <string>` optional test path filter
 - Outputs:
@@ -312,7 +322,7 @@ The public contracts for this feature are CLI and file-output based.
 
 - Purpose: Generate candidate property manifests from specs and code
 - Inputs:
-  - `--scope <string>` required target module, package, or file
+  - `--scope <string>` required target — see "`--scope` accepted shapes" above
   - `--sources <csv>` optional source kinds to include
   - `--limit <number>` optional max candidates
 - Outputs:
@@ -346,7 +356,7 @@ Per root `AGENTS.md` requirement that every new feature list integration coverag
 
 ## Internationalization (i18n)
 
-No user-facing runtime strings are introduced in Phase 1-3. CLI output may remain English-only. If a future backend UI is added for browsing candidate properties or artifacts, that UI must use standard i18n patterns.
+No user-facing runtime strings are introduced across all phases of this spec. CLI output may remain English-only. If a future backend UI is added for browsing candidate properties or artifacts, that UI must use standard i18n patterns.
 
 ## UI/UX
 
@@ -408,7 +418,7 @@ This keeps the standard feedback loop fast while making property testing a delib
 | Flag | Purpose |
 |------|---------|
 | `--seed` | Replay a deterministic failure |
-| `--scope` | Limit runtime to a package or module |
+| `--scope` | Limit runtime to a package, module, or file (see API Contracts → `--scope` accepted shapes) |
 | `--write-artifacts` | Persist counterexample artifacts for local investigation |
 
 ## Migration & Compatibility
@@ -419,7 +429,7 @@ This feature is additive.
 - No route changes
 - No event-ID changes
 - No widget-spot changes
-- No generated runtime contract changes required in Phase 1-3
+- No generated runtime contract changes required across all phases of this spec
 
 Backward-compatibility impact is low because the feature lives in test and developer-tooling layers. If a future generated property-suite registry is added to `apps/mercato/.mercato/generated/`, it must follow the generated contract rules and be additive-only.
 
@@ -597,7 +607,7 @@ No production migration is required. The compatibility risk sits in conventions 
 - **Scenario**: A later phase introduces generated property-suite metadata with unstable exports or breaking rename behavior.
 - **Severity**: Low
 - **Affected area**: Developer tooling, generated-file contract surface
-- **Mitigation**: Keep Phase 1-4 file-based and additive; if generation is introduced later, treat it as a separate spec with explicit contract review.
+- **Mitigation**: Keep all phases of this spec file-based and additive; if generation is introduced later, treat it as a separate spec with explicit contract review.
 - **Residual risk**: Future expansion could still accidentally create a contract surface if not handled carefully.
 
 ### Operational Risks
@@ -672,6 +682,10 @@ None.
 
 ### 2026-04-24
 - Initial specification
+- Applied review findings from PR #1702 review (pat-lewczuk)
+  - [Blocker 1] Normalized "Phase 1-3" / "Phase 1-4" wording to "across all phases of this spec" — Out-of-Scope, Commands & Events, API Contracts, i18n, Migration & Compatibility, and Migration & Deployment Risks. Phase 4 does not re-open these decisions, so the distinction was not load-bearing.
+  - [Blocker 2] Verified `Related` cross-references resolve at the cited paths: `.ai/specs/implemented/SPEC-027-2026-02-08-integration-testing-automation.md`, `.ai/specs/SPEC-050-2026-02-20-catalog-unit-tests.md`, `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`. Per `.ai/specs/AGENTS.md` legacy clause, existing `SPEC-*` filenames are preserved; references will be updated in lockstep if those files are renormalized.
+  - [Blocker 3] Added "`--scope` accepted shapes" subsection to API Contracts spelling out the three accepted shapes (package | module | file) and the resolution order. Updated each per-command `--scope` description and the `Recommended runtime flags` table to point at the new subsection. Updated the developer-facing CLI bullet to reflect the unified shape.
 - Review — 2026-04-24
   - **Reviewer**: Agent (om-spec-writing)
   - **Security**: Passed
