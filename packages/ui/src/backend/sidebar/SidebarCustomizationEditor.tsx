@@ -228,6 +228,7 @@ export function SidebarCustomizationEditor({
   const [canApplyToRoles, setCanApplyToRoles] = React.useState(false)
   const [addDialogOpen, setAddDialogOpen] = React.useState(false)
   const [addDialogName, setAddDialogName] = React.useState('')
+  const [addDialogError, setAddDialogError] = React.useState<string | null>(null)
   const baseSnapshotRef = React.useRef<SidebarGroup[] | null>(null)
   const hasInitializedRef = React.useRef(false)
 
@@ -366,8 +367,11 @@ export function SidebarCustomizationEditor({
     setDirty(true)
   }, [])
 
-  const createNewVariant = React.useCallback(async (proposedName?: string): Promise<boolean> => {
-    if (saving || deleting) return false
+  const createNewVariant = React.useCallback(async (
+    proposedName?: string,
+    options: { suppressPageError?: boolean } = {},
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (saving || deleting) return { ok: false }
     if (dirty && selectedVariantId !== null) {
       const proceed = await confirmDialog({
         title: t('appShell.sidebarCustomizationSwitchConfirmTitle', 'Discard unsaved changes?'),
@@ -376,10 +380,10 @@ export function SidebarCustomizationEditor({
         cancelText: t('common.cancel', 'Cancel'),
         variant: 'destructive',
       })
-      if (!proceed) return false
+      if (!proceed) return { ok: false }
     }
     setSaving(true)
-    setError(null)
+    if (!options.suppressPageError) setError(null)
     try {
       const baseSnapshot = baseSnapshotRef.current ?? buildBaseSnapshot()
       baseSnapshotRef.current = baseSnapshot
@@ -401,8 +405,9 @@ export function SidebarCustomizationEditor({
         mutationPayload: { name: trimmed.length > 0 ? trimmed : null },
       })
       if (!call.ok) {
-        setError(formatVariantApiError(call, t))
-        return false
+        const message = formatVariantApiError(call, t)
+        if (!options.suppressPageError) setError(message)
+        return { ok: false, error: message }
       }
       const created = call.result?.variant ?? null
       // Trust POST response as authoritative; refetch in background for any side-effects
@@ -424,11 +429,12 @@ export function SidebarCustomizationEditor({
         selectVariantInternal(fresh, nextList)
       }
       flash(t('appShell.sidebarCustomizationVariantCreated', 'Variant created.'), 'success')
-      return true
+      return { ok: true }
     } catch (err) {
       console.error('Failed to create sidebar variant', err)
-      setError(t('appShell.sidebarCustomizationSaveError'))
-      return false
+      const message = t('appShell.sidebarCustomizationSaveError')
+      if (!options.suppressPageError) setError(message)
+      return { ok: false, error: message }
     } finally {
       setSaving(false)
     }
@@ -552,12 +558,16 @@ export function SidebarCustomizationEditor({
   }, [onCanceled])
 
   const submitAddDialog = React.useCallback(async () => {
-    const ok = await createNewVariant(addDialogName)
-    if (ok) {
+    setAddDialogError(null)
+    const result = await createNewVariant(addDialogName, { suppressPageError: true })
+    if (result.ok) {
       setAddDialogOpen(false)
       setAddDialogName('')
+      setAddDialogError(null)
+      return
     }
-  }, [createNewVariant, addDialogName])
+    setAddDialogError(result.error ?? t('appShell.sidebarCustomizationSaveError'))
+  }, [createNewVariant, addDialogName, t])
 
   const sanitizeSettingsPayload = React.useCallback(() => {
     if (!draft || !baseSnapshotRef.current) return null
@@ -857,6 +867,7 @@ export function SidebarCustomizationEditor({
           if (!next) {
             setAddDialogOpen(false)
             setAddDialogName('')
+            setAddDialogError(null)
           }
         }}
       >
@@ -876,7 +887,10 @@ export function SidebarCustomizationEditor({
             <Input
               autoFocus
               value={addDialogName}
-              onChange={(event) => setAddDialogName(event.target.value)}
+              onChange={(event) => {
+                setAddDialogName(event.target.value)
+                if (addDialogError) setAddDialogError(null)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -885,7 +899,18 @@ export function SidebarCustomizationEditor({
               }}
               placeholder={t('appShell.sidebarCustomizationVariantNamePlaceholder', 'My preferences')}
               disabled={saving}
+              aria-invalid={addDialogError ? true : undefined}
+              aria-describedby={addDialogError ? 'sidebar-add-variant-error' : undefined}
             />
+            {addDialogError ? (
+              <p
+                id="sidebar-add-variant-error"
+                role="alert"
+                className="text-xs text-destructive"
+              >
+                {addDialogError}
+              </p>
+            ) : null}
           </div>
           <DialogFooter className="mt-2">
             <Button
@@ -894,6 +919,7 @@ export function SidebarCustomizationEditor({
               onClick={() => {
                 setAddDialogOpen(false)
                 setAddDialogName('')
+                setAddDialogError(null)
               }}
               disabled={saving}
             >
@@ -986,6 +1012,7 @@ export function SidebarCustomizationEditor({
                               type="button"
                               onClick={() => {
                                 setAddDialogName('')
+                                setAddDialogError(null)
                                 setAddDialogOpen(true)
                               }}
                               disabled={isBusy}
