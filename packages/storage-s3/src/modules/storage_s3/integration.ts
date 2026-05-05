@@ -18,6 +18,18 @@ export const integration: IntegrationDefinition = {
   credentials: {
     fields: [
       {
+        key: 'authMode',
+        label: 'Authentication',
+        type: 'select',
+        required: false,
+        helpText:
+          'Choose how the AWS SDK should authenticate. For production deployments, prefer IAM roles (IRSA/instance profile) when available.',
+        options: [
+          { value: 'access_keys', label: 'Access keys' },
+          { value: 'ambient', label: 'Credentials provided by AWS (STS / IRSA / instance profile)' },
+        ],
+      },
+      {
         key: 'accessKeyId',
         label: 'Access Key ID',
         type: 'text',
@@ -25,6 +37,7 @@ export const integration: IntegrationDefinition = {
         placeholder: 'AKIAIOSFODNN7EXAMPLE',
         helpText:
           'AWS IAM access key ID, or the equivalent key for your S3-compatible provider.',
+        visibleWhen: { field: 'authMode', equals: 'access_keys' },
       },
       {
         key: 'secretAccessKey',
@@ -33,6 +46,16 @@ export const integration: IntegrationDefinition = {
         required: true,
         helpText:
           'AWS IAM secret access key, or the equivalent secret for your S3-compatible provider.',
+        visibleWhen: { field: 'authMode', equals: 'access_keys' },
+      },
+      {
+        key: 'sessionToken',
+        label: 'Session Token (optional)',
+        type: 'secret',
+        required: false,
+        helpText:
+          'Optional AWS session token when using temporary credentials (e.g. from STS).',
+        visibleWhen: { field: 'authMode', equals: 'access_keys' },
       },
       {
         key: 'region',

@@ -33,7 +33,8 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
 }
 
 function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  return key.includes(`org_${orgId}/tenant_${tenantId}/`)
+  const parts = key.split('/')
+  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
 }
 
 export async function POST(req: Request) {

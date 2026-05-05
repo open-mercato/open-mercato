@@ -18,11 +18,20 @@ export type S3DriverConfig = {
   endpoint?: string
   pathPrefix?: string
   forcePathStyle?: boolean
+  /**
+   * authMode:
+   * - access_keys: use explicit credentials (direct values or env prefix)
+   * - ambient: let AWS SDK resolve credentials from the default chain (STS/IRSA/instance profile/etc.)
+   *
+   * Backward compat: missing authMode behaves like access_keys when keys are provided; otherwise ambient.
+   */
+  authMode?: 'access_keys' | 'ambient'
   /** Resolve access key + secret from env vars: {PREFIX}_ACCESS_KEY_ID / {PREFIX}_SECRET_ACCESS_KEY */
   credentialsEnvPrefix?: string
   /** Direct credentials (used when passed from Integration Marketplace) */
   accessKeyId?: string
   secretAccessKey?: string
+  sessionToken?: string
 }
 
 function sanitizeFileName(fileName: string): string {
@@ -60,16 +69,31 @@ export class S3StorageDriver implements StorageDriver {
     this.bucket = cfg.bucket
     this.pathPrefix = cfg.pathPrefix ?? ''
 
-    let credentials: { accessKeyId: string; secretAccessKey: string } | undefined
-    if (cfg.credentialsEnvPrefix) {
-      const prefix = cfg.credentialsEnvPrefix
-      const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`]
-      const secretAccessKey = process.env[`${prefix}_SECRET_ACCESS_KEY`]
-      if (accessKeyId && secretAccessKey) {
-        credentials = { accessKeyId, secretAccessKey }
+    const authMode = cfg.authMode
+    const shouldUseAccessKeys =
+      authMode === 'access_keys'
+      || (
+        authMode !== 'ambient'
+        && ((cfg.accessKeyId && cfg.secretAccessKey) || Boolean(cfg.credentialsEnvPrefix))
+      )
+
+    let credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | undefined
+    if (shouldUseAccessKeys) {
+      if (cfg.credentialsEnvPrefix) {
+        const prefix = cfg.credentialsEnvPrefix
+        const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`]
+        const secretAccessKey = process.env[`${prefix}_SECRET_ACCESS_KEY`]
+        const sessionToken = process.env[`${prefix}_SESSION_TOKEN`]
+        if (accessKeyId && secretAccessKey) {
+          credentials = { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) }
+        }
+      } else if (cfg.accessKeyId && cfg.secretAccessKey) {
+        credentials = {
+          accessKeyId: cfg.accessKeyId,
+          secretAccessKey: cfg.secretAccessKey,
+          ...(cfg.sessionToken ? { sessionToken: cfg.sessionToken } : {}),
+        }
       }
-    } else if (cfg.accessKeyId && cfg.secretAccessKey) {
-      credentials = { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey }
     }
 
     this.client = new S3Client({

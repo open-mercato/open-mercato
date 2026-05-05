@@ -92,6 +92,14 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
   true,
 )
 
+function evaluateFieldVisibility(
+  visibleWhen: { field: string; equals: string | number | boolean } | undefined,
+  values: Record<string, unknown>,
+): boolean {
+  if (!visibleWhen) return true
+  return values[visibleWhen.field] === visibleWhen.equals
+}
+
 function resolveInternalNavigationTarget(target: string | URL | null | undefined): string | null {
   if (typeof window === 'undefined' || target == null) return null
   try {
@@ -130,6 +138,11 @@ export type CrudFieldBase = {
   placeholder?: string
   description?: React.ReactNode // inline field-level help
   required?: boolean
+  /**
+   * Simple conditional visibility for base fields.
+   * When not satisfied, the field is not rendered and is excluded from blur validation.
+   */
+  visibleWhen?: { field: string; equals: string | number | boolean }
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
   readOnly?: boolean
@@ -1415,6 +1428,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [values])
 
+  const hiddenBaseFieldIds = React.useMemo(() => {
+    const hidden = new Set<string>()
+    const recordValues = values as Record<string, unknown>
+    for (const field of fields) {
+      if (!evaluateFieldVisibility(field.visibleWhen, recordValues)) {
+        hidden.add(field.id)
+      }
+    }
+    return hidden
+  }, [fields, values])
+
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
     for (const definition of injectedFieldDefinitions) {
@@ -1480,7 +1504,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
-    if (hiddenInjectedFieldIds.has(fieldId)) return
+    if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
     const nextFieldErrors: Record<string, string> = {}
@@ -1587,6 +1611,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     customEntity,
     fieldById,
     formReadOnly,
+    hiddenBaseFieldIds,
     hiddenInjectedFieldIds,
     injectedFieldIdSet,
     mapDefsForValidation,
@@ -3092,6 +3117,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             ) : null}
             <div className={grid}>
               {allFields.map((f) => {
+                if (hiddenBaseFieldIds.has(f.id) || hiddenInjectedFieldIds.has(f.id)) return null
                 const layout = f.layout ?? 'full'
                 const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
                 return (

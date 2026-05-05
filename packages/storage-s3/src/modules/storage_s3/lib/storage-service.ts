@@ -43,7 +43,11 @@ type S3Config = {
   region?: string
   endpoint?: string
   forcePathStyle?: boolean
+  authMode?: 'access_keys' | 'ambient'
   credentialsEnvPrefix?: string
+  accessKeyId?: string
+  secretAccessKey?: string
+  sessionToken?: string
 }
 
 function sanitizeSegment(value: string): string {

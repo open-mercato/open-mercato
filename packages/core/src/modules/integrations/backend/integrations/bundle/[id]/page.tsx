@@ -115,7 +115,15 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
       { fallback: null },
     )
     if (credCall.ok && credCall.result?.credentials) {
-      setCredValues(credCall.result.credentials)
+      const next = { ...credCall.result.credentials }
+      if (currentBundleId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(next)
     }
     setIsLoading(false)
   }, [resolveCurrentBundleId, t])
@@ -173,6 +181,11 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
 
   const credFields = (detail.bundle.credentials?.fields ?? []).filter(isEditableCredentialField)
 
+  function isFieldVisible(field: CredentialField): boolean {
+    if (!field.visibleWhen) return true
+    return credValues[field.visibleWhen.field] === field.visibleWhen.equals
+  }
+
   return (
     <Page>
       <PageBody className="space-y-6">
@@ -195,7 +208,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
               <CardTitle>{t('integrations.bundle.sharedCredentials')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {credFields.map((field) => (
+              {credFields.filter(isFieldVisible).map((field) => (
                 <div key={field.key} className="space-y-1.5">
                   <label className="text-sm font-medium">
                     {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}

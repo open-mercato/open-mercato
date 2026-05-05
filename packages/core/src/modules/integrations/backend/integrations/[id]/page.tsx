@@ -202,6 +202,7 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
       ) : field.helpText,
       placeholder: field.placeholder,
       required: field.required,
+      visibleWhen: field.visibleWhen,
     }
 
     if (field.type === 'secret') {
@@ -384,7 +385,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       { fallback: null },
     )
     if (call.ok && call.result?.credentials) {
-      setCredValues(call.result.credentials)
+      const next = { ...call.result.credentials }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(next)
       setCredentialsFormKey((current) => current + 1)
     }
   }, [resolveCurrentIntegrationId])
@@ -558,19 +567,32 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
+      const sanitizedValues = { ...values }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = sanitizedValues.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(sanitizedValues.accessKeyId || sanitizedValues.secretAccessKey)
+          sanitizedValues.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+        if (sanitizedValues.authMode === 'ambient') {
+          delete sanitizedValues.accessKeyId
+          delete sanitizedValues.secretAccessKey
+          delete sanitizedValues.sessionToken
+        }
+      }
       const call = await runMutationWithContext({
         actionId: 'save-credentials',
         tabId: 'credentials',
-        mutationPayload: { integrationId: currentIntegrationId, credentials: values },
+        mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
         operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credentials: values }),
+          body: JSON.stringify({ credentials: sanitizedValues }),
         }, { fallback: null }),
       })
 
       if (call.ok) {
-        setCredValues(values)
+        setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
         return
@@ -670,6 +692,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const values = rawValues as Record<string, unknown>
 
       editableCredentialFields.forEach((field) => {
+        if (field.visibleWhen) {
+          const targetValue = values[field.visibleWhen.field]
+          if (targetValue !== field.visibleWhen.equals) return
+        }
         const value = values[field.key]
 
         if (field.type === 'boolean') {

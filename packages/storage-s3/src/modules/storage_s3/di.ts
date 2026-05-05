@@ -30,10 +30,16 @@ export function register(container: AppContainer) {
             const creds = await integrationCredentialsService.resolve('storage_s3', scope)
             if (!creds) throw new Error('S3 storage integration is not configured for this tenant.')
             return createStorageService({
+              authMode: creds.authMode === 'ambient' || creds.authMode === 'access_keys'
+                ? (creds.authMode as 'ambient' | 'access_keys')
+                : undefined,
               bucket: String(creds.bucket ?? ''),
               region: creds.region ? String(creds.region) : undefined,
               endpoint: creds.endpoint ? String(creds.endpoint) : undefined,
               forcePathStyle: Boolean(creds.forcePathStyle),
+              accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
+              secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
+              sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
               // Credentials are resolved from the Integration Marketplace (encrypted at rest)
               // and injected directly rather than via env prefix for the standalone service.
             } as Parameters<typeof createStorageService>[0])

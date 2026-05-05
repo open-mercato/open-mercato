@@ -1,1 +1,1 @@
-export * from '../../../../helpers/integration/s3Fixtures'
+export * from '@open-mercato/storage-s3/test-helpers/s3Fixtures'
