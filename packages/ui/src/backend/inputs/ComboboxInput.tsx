@@ -208,6 +208,10 @@ export function ComboboxInput({
 
   return (
     <div className="relative w-full">
+      {/* Use raw <input> here instead of the DS Input primitive: ComboboxInput's
+          focus / suggestions-popup interplay relies on the trigger being a plain
+          input element. The DS wrapper introduces a <div> that desyncs autocomplete
+          on this specific surface. Keeps the rest of the form on Input primitive. */}
       <input
         ref={inputRef}
         type="text"
@@ -238,7 +242,7 @@ export function ComboboxInput({
       />
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
-        <div className="absolute z-50 w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
+        <div className="absolute z-dropdown w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">Loading suggestions…</div>
           ) : (

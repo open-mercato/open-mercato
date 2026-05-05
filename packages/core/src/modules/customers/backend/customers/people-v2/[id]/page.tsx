@@ -59,7 +59,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
-  const groups = React.useMemo(() => createPersonPersonalDataGroups(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -100,6 +99,16 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     data?.person?.displayName && data.person.displayName.trim().length
       ? data.person.displayName
       : t('customers.people.list.deleteFallbackName', 'this person')
+
+  const personDisplayNameForGroups =
+    typeof data?.person?.displayName === 'string' && data.person.displayName.trim().length
+      ? data.person.displayName.trim()
+      : null
+
+  const groups = React.useMemo(
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
+    [t, personDisplayNameForGroups],
+  )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
     { id: 'personalData', icon: User, label: t('customers.people.form.groups.personalData', 'Personal data') },
@@ -249,7 +258,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Section action (for tabs that expose add/create buttons)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
+    setSectionAction((prev) => (action !== null ? action : prev))
   }, [])
 
   React.useEffect(() => {
@@ -424,6 +433,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 dealsCount={dealCount}
                 companiesCount={companyCount}
                 tasksCount={todoCount}
+                sectionAction={sectionAction}
               >
                 <div className="min-w-0">
                 {(() => {

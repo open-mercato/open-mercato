@@ -38,6 +38,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
+import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -683,10 +684,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
     const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
     profiler.mark('custom_field_routing_resolved', { keys: routing.size })
-    customFields = mergePersonCustomFieldValues(
-      routing,
-      entityCustomFieldValues?.[person.id] ?? {},
-      profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+    customFields = normalizeCustomerDetailCustomFields(
+      mergePersonCustomFieldValues(
+        routing,
+        entityCustomFieldValues?.[person.id] ?? {},
+        profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+      ),
     )
     profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
 

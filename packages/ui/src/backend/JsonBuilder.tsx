@@ -3,6 +3,14 @@
 import * as React from 'react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Input } from '../primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
 import { Plus, Trash2, ChevronRight, ChevronDown, Code, LayoutList } from 'lucide-react'
 
 function cn(...classes: (string | undefined | null | false)[]) {
@@ -117,7 +125,7 @@ export function JsonBuilder({
                             } catch { }
                         }}
                         placeholder='{"key": "value"}'
-                        className="w-full rounded border px-3 py-2 min-h-[300px] text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full rounded border px-3 py-2 min-h-[300px] text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={disabled}
                     />
                     {parseError && (
@@ -239,47 +247,57 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                 <div className="flex-1 flex gap-2 items-center flex-wrap">
 
                     {!readOnly && (
-                        <select
+                        <Select
                             value={type}
-                            onChange={(e) => handleTypeChange(e.target.value as JsonNodeType)}
-                            className="text-xs border rounded px-1 py-0.5 bg-muted text-foreground focus:ring-1 focus:ring-blue-500"
+                            onValueChange={(next) => handleTypeChange(next as JsonNodeType)}
                         >
-                            <option value="string">String</option>
-                            <option value="number">Number</option>
-                            <option value="boolean">Boolean</option>
-                            <option value="object">Object</option>
-                            <option value="array">Array</option>
-                            <option value="null">Null</option>
-                        </select>
+                            <SelectTrigger size="sm" className="w-auto min-w-[6rem]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="string">String</SelectItem>
+                                <SelectItem value="number">Number</SelectItem>
+                                <SelectItem value="boolean">Boolean</SelectItem>
+                                <SelectItem value="object">Object</SelectItem>
+                                <SelectItem value="array">Array</SelectItem>
+                                <SelectItem value="null">Null</SelectItem>
+                            </SelectContent>
+                        </Select>
                     )}
 
                     {type === 'string' && (
-                        <input
-                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                        <Input
+                            size="sm"
+                            className="flex-1 min-w-0 sm:min-w-[120px]"
                             value={data}
                             onChange={e => onChange(e.target.value)}
                             disabled={readOnly}
                         />
                     )}
                     {type === 'number' && (
-                        <input
+                        <Input
                             type="number"
-                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            size="sm"
+                            className="flex-1 w-full sm:w-[100px]"
                             value={data}
                             onChange={e => onChange(parseFloat(e.target.value) || 0)}
                             disabled={readOnly}
                         />
                     )}
                     {type === 'boolean' && (
-                        <select
-                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                        <Select
                             value={String(data)}
-                            onChange={e => onChange(e.target.value === 'true')}
+                            onValueChange={(next) => onChange(next === 'true')}
                             disabled={readOnly}
                         >
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
+                            <SelectTrigger size="sm" className="flex-1 w-full sm:w-[100px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="true">true</SelectItem>
+                                <SelectItem value="false">false</SelectItem>
+                            </SelectContent>
+                        </Select>
                     )}
                     {type === 'null' && <span className="text-xs text-muted-foreground">null</span>}
                     {isContainer && (
@@ -310,7 +328,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             <div className="pt-2">
                                 {/* Key Renamer */}
                                 <input
-                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
+                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus-visible:border-ring bg-transparent focus-visible:outline-none text-right pr-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}

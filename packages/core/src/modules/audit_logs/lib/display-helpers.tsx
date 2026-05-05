@@ -29,7 +29,7 @@ export function renderValue(value: unknown, fallback: string) {
   if (value instanceof Date) return <span>{value.toISOString()}</span>
   if (typeof value === 'string') return <span className="break-words">{value}</span>
   return (
-    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 px-2 py-1 text-xs leading-5 text-muted-foreground">
+    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1 text-xs leading-5 text-muted-foreground">
       {safeStringify(value)}
     </pre>
   )

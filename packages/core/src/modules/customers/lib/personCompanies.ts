@@ -6,7 +6,10 @@ import {
   CustomerPersonCompanyLink,
   CustomerPersonProfile,
 } from '../data/entities'
-import { withActiveCustomerPersonCompanyLinkFilter } from './personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from './personCompanyLinkTable'
 
 export type PersonCompanySummary = {
   linkId: string | null
@@ -62,12 +65,14 @@ export async function loadPersonCompanyLinks(
     { person, organizationId: person.organizationId, tenantId: person.tenantId },
     'customers.personCompanies.loadPersonCompanyLinks',
   )
-  return findWithDecryption(
-    em,
-    CustomerPersonCompanyLink,
-    where,
-    { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
-    { tenantId: person.tenantId, organizationId: person.organizationId },
+  return filterActivePersonCompanyLinks(
+    await findWithDecryption(
+      em,
+      CustomerPersonCompanyLink,
+      where,
+      { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
+      { tenantId: person.tenantId, organizationId: person.organizationId },
+    ),
   )
 }
 

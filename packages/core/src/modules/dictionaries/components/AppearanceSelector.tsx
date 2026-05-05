@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Ellipsis } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { ICON_LIBRARY, ICON_SUGGESTIONS, type IconOption, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 
 export type AppearanceSelectorLabels = {
@@ -142,12 +143,12 @@ export function AppearanceSelector({
         <label className="text-sm font-medium">{labels.iconLabel}</label>
         <div ref={pickerContainerRef} className="relative">
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
               value={normalizedIcon}
               onChange={(event) => onIconChange(event.target.value)}
               placeholder={labels.iconPlaceholder}
-              className="flex-1 rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex-1"
               disabled={disabled}
             />
             <Button
@@ -164,16 +165,15 @@ export function AppearanceSelector({
             </Button>
           </div>
           {pickerOpen ? (
-            <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
+            <div className="absolute left-0 right-0 top-full z-dropdown mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
               <div className="space-y-3">
-                <input
+                <Input
                   ref={searchInputRef}
                   type="search"
                   value={iconSearch}
                   onChange={(event) => setIconSearch(event.target.value)}
                   placeholder={labels.iconSearchPlaceholder}
                   aria-label={labels.iconSearchPlaceholder}
-                  className="w-full rounded border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   autoComplete="off"
                 />
                 <div className="max-h-64 overflow-y-auto pr-1">

@@ -7,6 +7,14 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { CompanyDetailHeader } from '../CompanyDetailHeader'
 
 const invalidateCustomerDictionaryMock = jest.fn()
+const mockSendObjectMessageDialog = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/messages', () => ({
+  SendObjectMessageDialog: (props: Record<string, unknown>) => {
+    mockSendObjectMessageDialog(props)
+    return <button type="button">Send message</button>
+  },
+}))
 
 jest.mock('../hooks/useCustomerDictionary', () => ({
   useCustomerDictionary: jest.fn(() => ({ data: null })),
@@ -22,6 +30,7 @@ jest.mock('../CompanyTagsDialog', () => ({
 describe('CompanyDetailHeader', () => {
   beforeEach(() => {
     invalidateCustomerDictionaryMock.mockReset()
+    mockSendObjectMessageDialog.mockReset()
   })
 
   it('opens the company record tags dialog from the edit tags action', () => {
@@ -63,7 +72,7 @@ describe('CompanyDetailHeader', () => {
     expect(screen.getByText('company-tags-dialog')).toBeInTheDocument()
   })
 
-  it('does not render a separate history button when the changelog tab is the audit entry point', () => {
+  it('renders the object history trigger in the header action cluster', () => {
     renderWithProviders(
       <CompanyDetailHeader
         data={{
@@ -97,7 +106,54 @@ describe('CompanyDetailHeader', () => {
       />,
     )
 
-    expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'audit_logs.version_history.title' })).toBeInTheDocument()
+  })
+
+  it('renders the send-message trigger in the header action cluster', () => {
+    renderWithProviders(
+      <CompanyDetailHeader
+        data={{
+          company: {
+            id: 'company-1',
+            displayName: 'Acme Corp',
+            organizationId: 'org-1',
+            primaryEmail: 'hello@acme.test',
+            status: null,
+            lifecycleStage: null,
+            source: null,
+            temperature: null,
+            renewalQuarter: null,
+          },
+          profile: null,
+          customFields: {},
+          tags: [],
+          comments: [],
+          activities: [],
+          interactions: [],
+          deals: [],
+          todos: [],
+          people: [],
+          viewer: null,
+        }}
+        onTagsChange={jest.fn()}
+        tagsSectionControllerRef={{ current: null }}
+        onSave={jest.fn()}
+        onDelete={jest.fn(async () => undefined)}
+        isDirty={false}
+        isSaving={false}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
+    expect(mockSendObjectMessageDialog).toHaveBeenCalledWith(expect.objectContaining({
+      object: expect.objectContaining({
+        entityModule: 'customers',
+        entityType: 'company',
+        entityId: 'company-1',
+      }),
+      buttonVariant: 'outline',
+      buttonSize: 'icon',
+    }))
   })
 
   it('triggers deletion directly from the trash action', () => {

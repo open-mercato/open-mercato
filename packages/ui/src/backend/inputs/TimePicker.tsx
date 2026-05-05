@@ -74,7 +74,7 @@ export function TimePicker({
           className={cn(
             'w-full h-9 flex items-center gap-2 rounded border px-3 text-sm text-left',
             'bg-background transition-colors',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
             readOnly && 'cursor-default opacity-70',
             !value && 'text-muted-foreground',
@@ -98,7 +98,7 @@ export function TimePicker({
               <button
                 type="button"
                 onClick={handleNow}
-                className="text-sm text-primary hover:underline focus:outline-none"
+                className="text-sm text-primary hover:underline focus-visible:outline-none"
               >
                 {nowText}
               </button>
@@ -107,7 +107,7 @@ export function TimePicker({
               <button
                 type="button"
                 onClick={handleClear}
-                className="text-sm text-muted-foreground hover:text-foreground hover:underline focus:outline-none ml-auto"
+                className="text-sm text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none ml-auto"
               >
                 {clearText}
               </button>

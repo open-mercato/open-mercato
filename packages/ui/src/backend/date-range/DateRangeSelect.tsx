@@ -2,6 +2,13 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { DATE_RANGE_OPTIONS, type DateRangePreset } from './dateRanges'
 
 export type DateRangeSelectProps = {
@@ -31,18 +38,18 @@ export function DateRangeSelect({
           {label}
         </label>
       )}
-      <select
-        id={id}
-        className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-        value={value}
-        onChange={(e) => onChange(e.target.value as DateRangePreset)}
-      >
-        {DATE_RANGE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {t(option.labelKey, option.value.replace(/_/g, ' '))}
-          </option>
-        ))}
-      </select>
+      <Select value={value} onValueChange={(next) => onChange(next as DateRangePreset)}>
+        <SelectTrigger id={id} size="sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DATE_RANGE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {t(option.labelKey, option.value.replace(/_/g, ' '))}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

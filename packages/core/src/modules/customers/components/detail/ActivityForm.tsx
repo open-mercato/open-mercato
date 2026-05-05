@@ -5,6 +5,13 @@ import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -150,17 +157,21 @@ export function ActivityForm({
           const currentValue =
             typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
           return (
-            <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              value={currentValue}
-              onChange={(event) => setValue(event.target.value)}
+            <Select
+              value={currentValue || undefined}
+              onValueChange={(next) => setValue(next ?? '')}
             >
-              {normalizedEntityOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {normalizedEntityOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )
         },
       } as CrudField)
@@ -175,20 +186,21 @@ export function ActivityForm({
         component: ({ value, setValue }) => {
           const currentValue = typeof value === 'string' ? value : ''
           return (
-            <select
-              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              value={currentValue}
-              onChange={(event) => setValue(event.target.value)}
+            <Select
+              value={currentValue || undefined}
+              onValueChange={(next) => setValue(next ?? '')}
             >
-              <option value="">
-                {t('customers.people.detail.activities.fields.dealPlaceholder', 'No linked deal')}
-              </option>
-              {normalizedDealOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder={t('customers.people.detail.activities.fields.dealPlaceholder', 'No linked deal')} />
+              </SelectTrigger>
+              <SelectContent>
+                {normalizedDealOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )
         },
       } as CrudField)
@@ -238,7 +250,7 @@ export function ActivityForm({
       component: ({ value, setValue }) => (
         <input
           type="datetime-local"
-          className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => setValue(event.target.value || '')}
           onFocus={(event) => {

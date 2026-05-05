@@ -34,6 +34,22 @@ describe('security email URL helpers', () => {
     expect(() => assertAllowedAppOrigin(request, env)).toThrow(AppOriginRejectedError)
   })
 
+  test('rejects an untrusted request URL even when forwarded host matches the configured app origin', () => {
+    const env = {
+      APP_URL: 'https://auth.openmercato.com',
+      NODE_ENV: 'production',
+    }
+    const request = new Request('https://evil.example/api/auth/reset', {
+      headers: {
+        host: 'auth.openmercato.com',
+        'x-forwarded-host': 'auth.openmercato.com',
+        'x-forwarded-proto': 'https',
+      },
+    })
+
+    expect(() => assertAllowedAppOrigin(request, env)).toThrow(AppOriginRejectedError)
+  })
+
   test('rejects a mismatched Host header even when the request URL origin is allowed', () => {
     const env = {
       APP_URL: 'https://app.example.com',
@@ -53,6 +69,22 @@ describe('security email URL helpers', () => {
       NODE_ENV: 'production',
     }
     const request = new Request('https://admin.example.com/api/auth/reset')
+
+    expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
+  })
+
+  test('allows internal request URLs when forwarded host matches the configured app origin', () => {
+    const env = {
+      APP_URL: 'https://auth.openmercato.com',
+      NODE_ENV: 'production',
+    }
+    const request = new Request('https://localhost:9876/api/auth/reset', {
+      headers: {
+        host: 'auth.openmercato.com',
+        'x-forwarded-host': 'auth.openmercato.com',
+        'x-forwarded-proto': 'https',
+      },
+    })
 
     expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
   })

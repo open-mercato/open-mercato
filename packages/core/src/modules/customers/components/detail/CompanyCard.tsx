@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Hash,
+  Link2Off,
   MapPin,
   TrendingUp,
   Zap,
@@ -17,6 +18,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -67,6 +69,9 @@ type CompanyCardProps = {
   temperatureMap?: CustomerDictionaryMap | undefined
   renewalQuarterMap?: CustomerDictionaryMap | undefined
   roleMap?: CustomerDictionaryMap | undefined
+  onUnlink?: () => void | Promise<void>
+  unlinkLabel?: string
+  unlinkDisabled?: boolean
 }
 
 function copyToClipboard(text: string, t: ReturnType<typeof useT>) {
@@ -208,8 +213,12 @@ export function CompanyCard({
   temperatureMap,
   renewalQuarterMap,
   roleMap,
+  onUnlink,
+  unlinkLabel,
+  unlinkDisabled,
 }: CompanyCardProps) {
   const t = useT()
+  const resolvedUnlinkLabel = unlinkLabel ?? t('customers.people.detail.companies.unlinkAction', 'Unlink')
 
   const hasBillingSection =
     data.profile?.legalName ||
@@ -236,9 +245,12 @@ export function CompanyCard({
             <div className="flex flex-wrap items-center gap-2">
               <span className="break-words text-base font-bold">{data.displayName}</span>
               {data.isPrimary && (
-                <Badge variant="default" className="rounded-sm px-1.5 py-0 text-overline font-bold uppercase tracking-wider">
-                  PRIMARY
-                </Badge>
+                <StatusBadge
+                  variant="info"
+                  className="rounded-sm px-1.5 py-0 text-overline font-bold uppercase tracking-wider"
+                >
+                  {t('customers.people.detail.companies.primaryBadge', 'Primary')}
+                </StatusBadge>
               )}
             </div>
             {data.subtitle && (
@@ -246,7 +258,19 @@ export function CompanyCard({
             )}
           </div>
         </div>
-        <div className="self-start sm:self-auto">
+        <div className="flex items-center gap-1 self-start sm:self-auto">
+          {onUnlink ? (
+            <IconButton
+              variant="ghost"
+              size="sm"
+              type="button"
+              aria-label={resolvedUnlinkLabel}
+              disabled={unlinkDisabled}
+              onClick={() => { void onUnlink() }}
+            >
+              <Link2Off className="size-4" />
+            </IconButton>
+          ) : null}
           <Link href={`/backend/customers/companies-v2/${data.companyId}`}>
             <IconButton variant="ghost" size="sm" type="button">
               <ExternalLink className="size-4" />

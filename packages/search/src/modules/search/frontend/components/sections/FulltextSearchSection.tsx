@@ -272,8 +272,8 @@ export function FulltextSearchSection({
               <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/30">
                 <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
                   fulltextConfig?.configured
-                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
-                    : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+                    ? 'bg-status-success-bg text-status-success-icon'
+                    : 'bg-status-warning-bg text-status-warning-icon'
                 }`}>
                   {getStrategyIcon()}
                 </div>
@@ -283,8 +283,8 @@ export function FulltextSearchSection({
                   </p>
                   <p className={`text-sm ${
                     fulltextConfig?.configured
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-amber-600 dark:text-amber-400'
+                      ? 'text-status-success-text'
+                      : 'text-status-warning-text'
                   }`}>
                     {fulltextConfig?.configured
                       ? t('search.settings.fulltext.ready', 'Ready to use')
@@ -303,8 +303,8 @@ export function FulltextSearchSection({
                     <div key={key} className="flex items-start gap-3 p-3 rounded-md border border-border">
                       <div className={`flex h-5 w-5 items-center justify-center rounded-full flex-shrink-0 mt-0.5 ${
                         status.set
-                          ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
-                          : 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                          ? 'bg-status-success-bg text-status-success-icon'
+                          : 'bg-status-error-bg text-status-error-icon'
                       }`}>
                         {status.set ? (
                           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -319,7 +319,7 @@ export function FulltextSearchSection({
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
-                          <span className={`text-xs ${status.set ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                          <span className={`text-xs ${status.set ? 'text-status-success-text' : 'text-status-error-text'}`}>
                             {status.set ? t('search.settings.fulltext.envSet', 'Set') : t('search.settings.fulltext.envMissing', 'Missing')}
                           </span>
                         </div>
@@ -342,7 +342,7 @@ export function FulltextSearchSection({
                       <div className="flex-1 text-xs text-muted-foreground">
                         <span>{status.hint}</span>
                         {status.set ? (
-                          <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                          <span className="ml-2 text-status-success-text">
                             ({t('search.settings.fulltext.currentValue', 'Current')}: {String(status.value)})
                           </span>
                         ) : (
@@ -357,19 +357,19 @@ export function FulltextSearchSection({
               </div>
 
               {/* Setup Instructions */}
-              <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <div className="p-3 rounded-md bg-status-info-bg border border-status-info-border">
                 <div className="flex items-start gap-2">
-                  <svg className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-5 w-5 text-status-info-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <div className="text-sm text-blue-800 dark:text-blue-200">
+                  <div className="text-sm text-status-info-text">
                     <p className="font-medium mb-1">{t('search.settings.fulltext.howTo', 'How to set up')}</p>
                     <p className="text-xs">{t('search.settings.fulltext.howToDescription', 'Add these variables to your .env file or deployment environment. You can use a hosted Meilisearch instance or run it locally with Docker.')}</p>
                     <a
                       href="https://www.meilisearch.com/docs/learn/getting_started/quick_start"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+                      className="text-xs text-status-info-text hover:underline mt-1 inline-block"
                     >
                       {t('search.settings.fulltext.learnMore', 'Learn more: Meilisearch Quick Start')} →
                     </a>
@@ -388,16 +388,16 @@ export function FulltextSearchSection({
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
           ) : !fulltextConfig?.configured ? (
-            <div className="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
               <div className="flex items-start gap-3">
-                <svg className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  <p className="text-sm font-medium text-status-warning-text">
                     {t('search.settings.fulltextNotConfigured', 'Full-text search driver not configured')}
                   </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  <p className="text-xs text-status-warning-text mt-1">
                     {t('search.settings.fulltextNotConfiguredHint', 'Configure the required environment variables in the Configuration tab to enable indexing.')}
                   </p>
                 </div>
@@ -421,14 +421,14 @@ export function FulltextSearchSection({
 
               {/* Active reindex lock banner */}
               {fulltextReindexLock && (
-                <div className="p-4 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                <div className="p-4 rounded-md bg-status-info-bg border border-status-info-border">
                   <div className="flex items-start gap-3">
-                    <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                    <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-status-info-icon" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                      <p className="text-sm font-medium text-status-info-text">
                         {t('search.settings.reindexInProgress', 'Reindex operation in progress')}
                       </p>
-                      <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                      <p className="text-xs text-status-info-text mt-1">
                         {t('search.settings.reindexInProgressDetails', 'Action: {{action}} | Started {{minutes}} minutes ago', {
                           action: fulltextReindexLock.action,
                           minutes: fulltextReindexLock.elapsedMinutes,
@@ -533,18 +533,18 @@ export function FulltextSearchSection({
                   key={log.id}
                   className={`p-2 rounded-md text-sm ${
                     log.level === 'error'
-                      ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                      ? 'bg-status-error-bg border border-status-error-border'
                       : 'bg-muted/50'
                   }`}
                 >
                   <div className="flex items-start gap-2">
                     {log.level === 'error' && (
-                      <svg className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-4 w-4 text-status-error-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs ${log.level === 'error' ? 'text-red-800 dark:text-red-200' : 'text-foreground'}`}>
+                      <p className={`text-xs ${log.level === 'error' ? 'text-status-error-text' : 'text-foreground'}`}>
                         {log.message}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -584,11 +584,11 @@ export function FulltextSearchSection({
 
       {/* Reindex Confirmation Dialog */}
       {showReindexDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
           <div className="mx-4 max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
             <div className="flex items-start gap-3 mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
-                <svg className="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-status-warning-bg">
+                <svg className="h-5 w-5 text-status-warning-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               </div>
@@ -598,12 +598,12 @@ export function FulltextSearchSection({
               </div>
             </div>
 
-            <div className="mb-4 p-3 rounded-md bg-amber-50 dark:bg-amber-900/20">
+            <div className="mb-4 p-3 rounded-md bg-status-warning-bg">
               <div className="flex items-start gap-2">
-                <svg className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <p className="text-sm text-amber-800 dark:text-amber-200">{getDialogContent(showReindexDialog).warning}</p>
+                <p className="text-sm text-status-warning-text">{getDialogContent(showReindexDialog).warning}</p>
               </div>
             </div>
 

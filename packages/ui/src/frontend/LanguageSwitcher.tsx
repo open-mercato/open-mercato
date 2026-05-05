@@ -3,6 +3,13 @@ import { useId, useTransition } from 'react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 
 export function LanguageSwitcher() {
   const current = useLocale()
@@ -41,26 +48,22 @@ export function LanguageSwitcher() {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <label htmlFor={selectId}>{t('common.language')}</label>
-      <div className="relative">
-        <select
-          id={selectId}
-          className="appearance-none rounded-md border bg-background px-3 py-1 pr-8 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-60"
-          value={current}
-          onChange={(event) => setLocale(event.target.value as Locale)}
-          disabled={pending}
-        >
+      <Select
+        value={current}
+        onValueChange={(value) => setLocale(value as Locale)}
+        disabled={pending}
+      >
+        <SelectTrigger id={selectId} size="sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
           {locales.map((locale) => (
-            <option key={locale} value={locale}>
+            <SelectItem key={locale} value={locale}>
               {languageLabels[locale]}
-            </option>
+            </SelectItem>
           ))}
-        </select>
-        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </span>
-      </div>
+        </SelectContent>
+      </Select>
     </div>
   )
 }

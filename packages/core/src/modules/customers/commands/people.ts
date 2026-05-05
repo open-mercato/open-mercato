@@ -54,6 +54,7 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   loadPersonCompanyLinks,
   summarizePersonCompanies,
@@ -523,7 +524,10 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const timezone = normalizeOptionalString(parsed.timezone)
     const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
     const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
-    const displayName = parsed.displayName?.trim() ?? ''
+    const displayNameInput = parsed.displayName?.trim() ?? ''
+    const displayName = displayNameInput.length > 0
+      ? displayNameInput
+      : deriveDisplayName(firstName, lastName)
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
@@ -713,6 +717,17 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       if (!nextDisplayName) {
         throw new CrudHttpError(400, { error: 'Display name is required' })
       }
+    }
+
+    if (
+      parsed.displayName === undefined
+      && (parsed.firstName !== undefined || parsed.lastName !== undefined)
+      && isDerivedDisplayName(record.displayName, profile.firstName, profile.lastName)
+    ) {
+      const nextFirst = parsed.firstName !== undefined ? parsed.firstName : profile.firstName
+      const nextLast = parsed.lastName !== undefined ? parsed.lastName : profile.lastName
+      const derived = deriveDisplayName(nextFirst, nextLast)
+      if (derived.length > 0) parsed.displayName = derived
     }
 
     await withAtomicFlush(em, [

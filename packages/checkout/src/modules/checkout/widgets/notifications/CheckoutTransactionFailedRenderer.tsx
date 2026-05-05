@@ -38,8 +38,8 @@ export function CheckoutTransactionFailedRenderer({
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-red-500',
-        isUnread && 'bg-red-50/50 dark:bg-red-950/20',
+        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-status-error-border',
+        isUnread && 'bg-status-error-bg',
       )}
       onClick={handleView}
       onKeyDown={(e) => {
@@ -56,8 +56,8 @@ export function CheckoutTransactionFailedRenderer({
       )}
       <div className="flex gap-3">
         <div className="flex-shrink-0 mt-0.5">
-          <div className="h-10 w-10 rounded-lg bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          <div className="h-10 w-10 rounded-lg bg-status-error-bg flex items-center justify-center">
+            <AlertCircle className="h-5 w-5 text-status-error-icon" />
           </div>
         </div>
         <div className="flex-1 min-w-0">

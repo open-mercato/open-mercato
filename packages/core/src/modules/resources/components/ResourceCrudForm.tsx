@@ -7,6 +7,13 @@ import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { AttachmentsSection, TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -132,26 +139,28 @@ export function useResourcesResourceFormConfig(options: {
         type: 'custom',
         component: ({ value, setValue, setFormValue, disabled }) => (
           <div className="flex items-center gap-2">
-            <select
-              className="h-9 w-full rounded border px-2 text-sm"
-              value={typeof value === 'string' ? value : ''}
-              onChange={(event) => {
-                const next = event.target.value || ''
-                setValue(next)
+            <Select
+              value={typeof value === 'string' && value ? value : undefined}
+              onValueChange={(next) => {
+                const value = next || ''
+                setValue(value)
                 if (setFormValue) {
-                  setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+                  setFormValue('customFieldsetCode', resolveFieldsetCode(value || null))
                 }
               }}
-              data-crud-focus-target=""
               disabled={disabled}
             >
-              <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-              {resourceTypes.map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger data-crud-focus-target="">
+                <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+              </SelectTrigger>
+              <SelectContent>
+                {resourceTypes.map((type) => (
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               asChild
               type="button"

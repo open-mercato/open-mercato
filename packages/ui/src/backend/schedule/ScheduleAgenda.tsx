@@ -119,7 +119,7 @@ export function ScheduleAgenda({ items, range, timezone, onItemClick, onSlotClic
                         <span className="font-semibold">{item.title}</span>
                         {statusLabel ? <Badge variant="secondary">{statusLabel}</Badge> : null}
                       </div>
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <div className="flex items-center justify-between text-overline text-muted-foreground">
                         <span>{formatTimeRange(item, timezone)}</span>
                         <span className="capitalize">{item.kind}</span>
                       </div>

@@ -444,8 +444,22 @@ describe('CompanyPeopleSection', () => {
         displayName: 'Grace Hopper',
       },
     ]
-    mockCompanyPeopleApi({ linkedPeople: initialPeople })
-    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    let linked = initialPeople
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: linked,
+          page: 1,
+          total: linked.length,
+          totalPages: 1,
+        }
+      }
+      return { items: [], totalPages: 1 }
+    })
+    apiCallOrThrowMock.mockImplementation(async () => {
+      linked = []
+      return { ok: true }
+    })
 
     renderWithProviders(
       <CompanyPeopleSection
@@ -474,7 +488,7 @@ describe('CompanyPeopleSection', () => {
       expect.any(Object),
     )
     await waitFor(() => {
-      expect(onPeopleChange).toHaveBeenCalledWith([])
+      expect(screen.queryByRole('button', { name: 'Unlink' })).toBeNull()
     })
   })
 

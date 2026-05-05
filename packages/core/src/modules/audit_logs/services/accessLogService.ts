@@ -23,6 +23,7 @@ const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTI
 const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
 const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -140,10 +141,7 @@ export class AccessLogService {
     const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
     const toNullableUuid = (value: unknown) => {
       if (typeof value !== 'string' || value.length === 0) return null
-      // Extract UUID from "api_key:<uuid>" format (used by workflow authentication)
       const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
-      // System actors (sync workers, scheduler, etc.) use non-UUID subjects like
-      // "system:...". Reject those so the uuid column stays valid.
       return UUID_REGEX.test(candidate) ? candidate : null
     }
     const fields = Array.isArray(input.fields)
