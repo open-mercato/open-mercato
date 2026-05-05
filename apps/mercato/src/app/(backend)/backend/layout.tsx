@@ -10,7 +10,6 @@ import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
-import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
 
 registerBackendRouteManifests(backendRoutes)
@@ -114,7 +113,6 @@ export default async function BackendLayout({
             organizationId={auth?.orgId ?? null}
           />
         )}
-        mobileSidebarSlot={<OrganizationSwitcher compact />}
         adminNavApi="/api/auth/admin/nav"
         version={APP_VERSION}
         settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
