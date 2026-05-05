@@ -18,13 +18,25 @@ test('resolvePreset: classic returns isClassic=true and empty modules', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: empty returns 7-module list', () => {
+test('resolvePreset: empty returns 10-module list', () => {
   const result = resolvePreset('empty')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 7)
+  assert.equal(result.modules.length, 10)
   const ids = result.modules.map((m) => m.id)
-  assert.deepEqual(ids, ['auth', 'directory', 'configs', 'entities', 'query_index', 'api_docs', 'audit_logs'])
-  assert.ok(result.modules.every((m) => m.from === '@open-mercato/core'))
+  assert.deepEqual(ids, [
+    'auth',
+    'directory',
+    'configs',
+    'entities',
+    'query_index',
+    'api_docs',
+    'audit_logs',
+    'notifications',
+    'dashboards',
+    'events',
+  ])
+  assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
+  assert.ok(result.modules.filter((m) => m.id !== 'events').every((m) => m.from === '@open-mercato/core'))
   assert.ok(result.filesToRemove.includes('src/modules/example'))
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
 })
@@ -68,6 +80,10 @@ test('generateModulesTs: produces valid content for empty modules', () => {
   assert.ok(content.includes("id: 'auth'"))
   assert.ok(content.includes("id: 'api_docs'"))
   assert.ok(content.includes("id: 'audit_logs'"))
+  assert.ok(content.includes("id: 'notifications'"))
+  assert.ok(content.includes("id: 'dashboards'"))
+  assert.ok(content.includes("id: 'events'"))
+  assert.ok(content.includes("from: '@open-mercato/events'"))
   assert.ok(content.includes('enterpriseModulesEnabled'))
   assert.ok(!content.includes('example_customers_sync'))
   assert.ok(!content.includes("id: 'example'"))
@@ -112,7 +128,7 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 7-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: empty writes 10-module modules.ts and removes example dirs', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
@@ -120,6 +136,9 @@ test('applyStarterPreset: empty writes 7-module modules.ts and removes example d
     assert.ok(content.includes("id: 'auth'"))
     assert.ok(content.includes("id: 'api_docs'"))
     assert.ok(content.includes("id: 'audit_logs'"))
+    assert.ok(content.includes("id: 'notifications'"))
+    assert.ok(content.includes("id: 'dashboards'"))
+    assert.ok(content.includes("id: 'events'"))
     assert.ok(!content.includes("id: 'customers'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))

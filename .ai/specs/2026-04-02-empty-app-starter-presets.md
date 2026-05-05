@@ -20,8 +20,8 @@ Target preset sizes:
 | Preset | Enabled modules |
 |--------|-----------------|
 | `classic` | current default set |
-| `empty` | `auth`, `directory`, `configs`, `entities`, `query_index`, `api_docs`, `audit_logs` |
-| `crm` | `empty` + `customers`, `dictionaries`, `feature_toggles`, `notifications`, `dashboards`, `events` |
+| `empty` | `auth`, `directory`, `configs`, `entities`, `query_index`, `api_docs`, `audit_logs`, `notifications`, `dashboards`, `events` |
+| `crm` | `empty` + `customers`, `dictionaries`, `feature_toggles` |
 
 This work MUST NOT remove or rename any public module, route, event, feature ID, CLI command, or import path. The change is additive: keep `classic` as the default, introduce preset-based scaffolding, and harden existing hidden module couplings so disabled modules do not crash bootstrap, init, or page rendering.
 
@@ -72,7 +72,7 @@ The analysis below is limited to runtime-relevant coupling, not tests, docs, or 
 | Workflow demos | workflow examples and frontend pages reference `sales` and `checkout` | Demo-only coupling leaks into module package | Move demo/example assets behind classic-only example data or separate example bundle |
 | Staff / planner / resources cycle | `planner/api/access.ts` imports `StaffTeamMember`; `resources` requires `planner`; `staff` requires `planner` and `resources` | Removing `staff` alone leaves an incoherent trio | Empty and CRM presets must disable all three; later phase should break the cycle intentionally |
 | Customer accounts / portal | `customer_accounts` enrichers and subscribers import `customers`; `portal` already requires `customer_accounts` | Empty starter should not carry portal identity assumptions | Exclude `customer_accounts` and `portal` from `empty` and `crm`; add explicit `customers` dependency if retained later |
-| Dashboards | dashboard analytics and widgets import `customers`, `sales`, and `catalog` data | `empty` should not assume dashboards, but `crm` benefits from keeping the backend landing page intact | Keep dashboards disabled in `empty` and enabled in `crm` |
+| Dashboards | dashboard analytics and widgets import `customers`, `sales`, and `catalog` data | `empty` needs the dashboard shell route, but must not assume business widgets | Keep dashboards enabled in `empty`; render a friendly empty state when no module exposes dashboard widgets |
 | Backend nav ordering | auth nav and app shell hardcode group order for `customers`, `catalog`, `sales`, `staff` | Cosmetic only, not fatal | Keep behavior; no blocker because absent groups are simply skipped |
 | Attachments / query index | attachments and query index contain guarded special cases for `catalog`, `customers`, `sales` via runtime entity checks | Mostly safe | Leave as-is for this phase unless runtime failures appear in tests |
 
@@ -114,6 +114,9 @@ Enabled modules:
 - `query_index`
 - `api_docs`
 - `audit_logs`
+- `notifications`
+- `dashboards`
+- `events`
 
 Rationale:
 
@@ -123,6 +126,9 @@ Rationale:
 - `entities` + `query_index` keep the app ready for extension/custom entities
 - `api_docs` keeps the starter inspectable for builders and integrators
 - `audit_logs` keeps CRUD access logging and basic operational observability available without requiring the demo/business module set
+- `notifications` provides the in-app notification center used by the backend header chrome
+- `dashboards` provides the `/backend` dashboard landing page and a friendly empty state until modules expose dashboard widgets
+- `events` provides the SSE DOM Event Bridge at `/api/events/stream` for real-time shell, dashboard, and notification updates
 
 #### Preset `crm`
 
@@ -132,18 +138,12 @@ Enabled modules:
 - `customers`
 - `dictionaries`
 - `feature_toggles`
-- `notifications`
-- `dashboards`
-- `events`
 
 Rationale:
 
 - `customers` currently depends on dictionary-backed UI, customer custom fields, and interaction feature flags
 - `feature_toggles` is required by current customer interaction setup/runtime
 - `dictionaries` is required by current customer forms and detail pages
-- `notifications` provides the in-app notification center used by the backend header chrome
-- `dashboards` provides the `/backend` dashboard layout endpoint used by the main backend landing page
-- `events` provides the SSE bridge used by dashboard and notification real-time updates
 
 ### 3. Treat collateral removals explicitly
 
@@ -481,7 +481,7 @@ This spec is explicitly BC-preserving.
 
 ### Phase 3: CRM preset hardening
 
-- make `crm` green with `customers + dictionaries + feature_toggles + notifications + dashboards + events + empty base`
+- make `crm` green with `customers + dictionaries + feature_toggles + empty base`
 - verify no accidental dependence on `sales`, `catalog`, `checkout`, `staff`, `workflows`
 
 ### Phase 4: Optional lean package pruning
@@ -504,7 +504,7 @@ This spec is explicitly BC-preserving.
    - `workflows`
    - `customer_accounts`
    - any other module found during implementation tests
-10. Keep `catalog`, `sales`, `checkout`, `staff`, `planner`, `resources`, `workflows`, `business_rules`, `customer_accounts`, `portal`, and `example` disabled in lean presets; allow `crm` to keep `dashboards`, `notifications`, and `events`.
+10. Keep `catalog`, `sales`, `checkout`, `staff`, `planner`, `resources`, `workflows`, `business_rules`, `customer_accounts`, `portal`, and `example` disabled in lean presets; keep backend shell infrastructure modules in the `empty` base.
 11. Add template/package dependency mutation rules, but keep bootstrap infrastructure packages unless verified safe to remove.
 12. Optionally write `.mercato/starter-preset.json` after scaffold completion for diagnostics and future upgrade tooling.
 13. Verify monorepo app and standalone template both scaffold and initialize correctly for all presets.
@@ -514,7 +514,7 @@ This spec is explicitly BC-preserving.
 | Scenario | Type |
 |----------|------|
 | `create-mercato-app my-app` still produces current scaffold | Integration |
-| `create-mercato-app my-app --preset empty` produces the 7-module baseline | Integration |
+| `create-mercato-app my-app --preset empty` produces the 10-module baseline | Integration |
 | `create-mercato-app my-app --preset crm` produces the 13-module baseline | Integration |
 | preset resolver merges `crm -> empty` inheritance correctly | Unit |
 | preset validator rejects duplicate module IDs or unresolved preset parents before filesystem writes | Unit |
@@ -553,3 +553,4 @@ This spec is explicitly BC-preserving.
 - 2026-04-23: Implemented Phase 1 preset plumbing — `packages/create-app/src/lib/starter-presets.ts` (data-only manifest), `packages/create-app/src/lib/apply-starter-preset.ts` (resolver/applier with inheritance, validation, and filesystem mutations), unit tests in `apply-starter-preset.test.ts` (9 tests, all passing), and `--preset` flag wiring in `packages/create-app/src/index.ts` with mutual-exclusion guard against `--app`/`--app-url`.
 - 2026-04-23: Hardened example-module decoupling on starter surfaces by making home-page quick links module-aware in both `apps/mercato` and `packages/create-app/template`, added app coverage for no-example quick links, extended preset tests so `classic` explicitly keeps `example`, and manually verified direct scaffolds for `classic`, `empty`, and `crm`.
 - 2026-05-05: Promoted `audit_logs` into the `empty` baseline because CRUD access logging is platform observability, not demo/business functionality.
+- 2026-05-05: Promoted `notifications`, `dashboards`, and `events` into the `empty` baseline so backend shell routes, the notification center, and `/api/events/stream` exist in empty apps.
