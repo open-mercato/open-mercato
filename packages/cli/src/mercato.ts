@@ -347,6 +347,13 @@ function createManagedProcessExitError(result: ManagedProcessExitResult): Error 
   return new Error(`[server] ${result.label} exited unexpectedly with ${formatManagedProcessExitStatus(result)}.`)
 }
 
+function formatQueueWorkerLabel(queueNames: string[]): string {
+  if (queueNames.length === 0) return 'Queue worker'
+  const sorted = [...queueNames].sort((a, b) => a.localeCompare(b))
+  const preview = sorted.length > 4 ? `${sorted.slice(0, 4).join(', ')}, +${sorted.length - 4} more` : sorted.join(', ')
+  return `Queue worker (${preview})`
+}
+
 function lookupModuleCommand(
   allModules: Module[],
   moduleName: string,
@@ -1744,7 +1751,7 @@ export async function run(argv = process.argv) {
                 cwd: appDir,
               })
               processes.push(workerProcess)
-              managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
+              managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
             }
           }
 
@@ -1847,7 +1854,7 @@ export async function run(argv = process.argv) {
                   cwd: appDir,
                 })
                 processes.push(workerProcess)
-                managedExitPromises.push(waitForManagedProcessExit(workerProcess, 'Queue worker'))
+                managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
               }
             }
 

@@ -244,6 +244,8 @@ This is additive behavior hardening, not a contract break.
   - managed child exit regression coverage
 - standalone runtime compatibility
   - preserve explicit child-exit failure reporting in `packages/create-app/template/scripts/dev-runtime.mjs`
+- `apps/mercato/scripts/dev.mjs`
+  - the `mercato` binary is now resolved via `resolveProjectBinary(...)` so the dev wrapper picks the workspace-local `node_modules/.bin/mercato` instead of relying on PATH lookup. This is required to keep dev startup portable across yarn-workspace setups where `mercato` is not on PATH (notably standalone-app CI), and matches the resolution strategy already used by the standalone template's `dev-runtime.mjs`.
 
 ### Out of scope
 
@@ -290,6 +292,21 @@ It does not:
 
 It only changes how the CLI behaves when optional module commands are absent.
 
+### Behavior change: `server start` now exits non-zero on unexpected child exit
+
+Previously `mercato server start` could return exit code `0` when a managed child (Next.js server, queue worker, scheduler) exited unexpectedly during startup or runtime. After this change, unexpected exits are surfaced as `[server] <Label> exited unexpectedly with ...` and propagated as a non-zero exit code.
+
+This is intentional and consistent with `server dev`, but supervisors or CI pipelines that previously treated `server start` exit `0` as success even after a child crash will now correctly observe the failure. If a downstream supervisor relied on the old behavior, it should be updated to either restart on non-zero or accept that a crashed child is now a real failure.
+
+### Note on `server dev` env handling for workers/scheduler
+
+`server dev` no longer wraps the spawned `next dev`, queue-worker, and scheduler subprocesses with `buildServerProcessEnvironment(process.env)`. This is intentional:
+
+- `next dev` requires the natural Node `NODE_ENV=development` environment, so the production-style normalization that `server start` applies caused Next.js to emit `NODE_ENV` warnings.
+- Queue worker and scheduler subprocesses spawned from `server dev` should observe the same dev-time environment as the rest of the dev runtime so that DI containers, encryption keys, and config resolvers behave consistently across all dev children.
+
+`server start` continues to use `runtimeEnv = buildServerProcessEnvironment(process.env)` for all three subprocess kinds because production deployments expect normalized environment variables (uppercased booleans, defaulted ports, etc.). The two server modes intentionally diverge here.
+
 ## Final Compliance Report
 
 | Check | Result | Notes |
@@ -306,3 +323,4 @@ It only changes how the CLI behaves when optional module commands are absent.
 | Date | Change |
 |------|--------|
 | 2026-04-23 | Created companion spec for CLI optional-module orchestration across `init`, `server dev`, `server start`, and standalone runtime supervision. |
+| 2026-05-05 | Documented `server start` non-zero-exit behavior change in BC section, justified `dev.mjs` `resolveProjectBinary(...)` scope, and explained the intentional dev/prod env divergence for `next dev`, queue-worker, and scheduler subprocesses. Worker exit labels now include the discovered queue names so `Queue worker (queue-a, queue-b)` makes post-mortems unambiguous. |

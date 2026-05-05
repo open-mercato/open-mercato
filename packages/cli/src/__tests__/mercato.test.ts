@@ -1,3 +1,4 @@
+import type { Module } from '@open-mercato/shared/modules/registry'
 import {
   registerCliModules,
   getCliModules,
@@ -5,6 +6,61 @@ import {
   padByCodePointWidth,
   run,
 } from '../mercato'
+
+type MockChildAutoExit = { code: number | null; signal?: NodeJS.Signals | null } | undefined
+type MockChildSpawnRouter = (args: string[]) => MockChildAutoExit
+
+function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
+  const { EventEmitter } = jest.requireActual('node:events')
+
+  const createChild = (spawnargs: string[], autoExit?: MockChildAutoExit) => {
+    const child = new EventEmitter() as any
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.spawnargs = spawnargs
+    child.killed = false
+    child.exitCode = null
+    child.signalCode = null
+    child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
+      child.killed = true
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return true
+      }
+      child.signalCode = signal
+      queueMicrotask(() => {
+        child.emit('exit', null, signal)
+      })
+      return true
+    })
+
+    if (autoExit) {
+      queueMicrotask(() => {
+        if (child.exitCode !== null || child.signalCode !== null) return
+        child.exitCode = autoExit.code
+        child.signalCode = autoExit.signal ?? null
+        child.emit('exit', child.exitCode, child.signalCode)
+      })
+    }
+
+    return child
+  }
+
+  return {
+    spawn: jest.fn((_command: string, args: string[]) => createChild(['node', ...args], routeAutoExit(args))),
+  }
+}
+
+const eventsWorkerFixture: Pick<Module, 'id' | 'workers'> = {
+  id: 'events',
+  workers: [
+    {
+      id: 'events.test-worker',
+      queue: 'events',
+      concurrency: 1,
+      handler: jest.fn(),
+    },
+  ],
+}
 
 describe('mercato CLI module registration', () => {
   beforeEach(() => {
@@ -610,53 +666,11 @@ describe('server dev managed process exits', () => {
       }),
       createResolver: () => ({}),
     }))
-    jest.doMock('child_process', () => {
-      const { EventEmitter } = jest.requireActual('node:events')
-
-      const createChild = (
-        spawnargs: string[],
-        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
-      ) => {
-        const child = new EventEmitter() as any
-        child.stdout = new EventEmitter()
-        child.stderr = new EventEmitter()
-        child.spawnargs = spawnargs
-        child.killed = false
-        child.exitCode = null
-        child.signalCode = null
-        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
-          child.killed = true
-          if (child.exitCode !== null || child.signalCode !== null) {
-            return true
-          }
-          child.signalCode = signal
-          queueMicrotask(() => {
-            child.emit('exit', null, signal)
-          })
-          return true
-        })
-
-        if (autoExit) {
-          queueMicrotask(() => {
-            if (child.exitCode !== null || child.signalCode !== null) return
-            child.exitCode = autoExit.code
-            child.signalCode = autoExit.signal ?? null
-            child.emit('exit', child.exitCode, child.signalCode)
-          })
-        }
-
-        return child
-      }
-
-      return {
-        spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
-            return createChild(['node', ...args], { code: null, signal: 'SIGTERM' })
-          }
-          return createChild(['node', ...args])
-        }),
-      }
-    })
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
@@ -693,76 +707,23 @@ describe('server dev managed process exits', () => {
       }),
       createResolver: () => ({}),
     }))
-    jest.doMock('child_process', () => {
-      const { EventEmitter } = jest.requireActual('node:events')
-
-      const createChild = (
-        spawnargs: string[],
-        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
-      ) => {
-        const child = new EventEmitter() as any
-        child.stdout = new EventEmitter()
-        child.stderr = new EventEmitter()
-        child.spawnargs = spawnargs
-        child.killed = false
-        child.exitCode = null
-        child.signalCode = null
-        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
-          child.killed = true
-          if (child.exitCode !== null || child.signalCode !== null) {
-            return true
-          }
-          child.signalCode = signal
-          queueMicrotask(() => {
-            child.emit('exit', null, signal)
-          })
-          return true
-        })
-
-        if (autoExit) {
-          queueMicrotask(() => {
-            if (child.exitCode !== null || child.signalCode !== null) return
-            child.exitCode = autoExit.code
-            child.signalCode = autoExit.signal ?? null
-            child.emit('exit', child.exitCode, child.signalCode)
-          })
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) => {
+        if (args.slice(1).join(' ') === 'queue worker --all') {
+          return { code: 0 }
         }
-
-        return child
-      }
-
-      return {
-        spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
-            return createChild(['node', ...args])
-          }
-          if (args.slice(1).join(' ') === 'queue worker --all') {
-            return createChild(['node', ...args], { code: 0 })
-          }
-          return createChild(['node', ...args])
-        }),
-      }
-    })
+        return undefined
+      }),
+    )
 
     const mercato = await import('../mercato')
-    mercato.registerCliModules([
-      {
-        id: 'events',
-        workers: [
-          {
-            queue: 'events',
-            concurrency: 1,
-            handler: jest.fn(),
-          },
-        ],
-      } as any,
-    ])
+    mercato.registerCliModules([eventsWorkerFixture as Module])
 
     const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
 
     expect(exitCode).toBe(1)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '💥 Failed: [server] Queue worker exited unexpectedly with exit code 0.',
+      '💥 Failed: [server] Queue worker (events) exited unexpectedly with exit code 0.',
     )
 
     consoleErrorSpy.mockRestore()
@@ -820,53 +781,11 @@ describe('server start managed process exits', () => {
         release: jest.fn(),
       })),
     }))
-    jest.doMock('child_process', () => {
-      const { EventEmitter } = jest.requireActual('node:events')
-
-      const createChild = (
-        spawnargs: string[],
-        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
-      ) => {
-        const child = new EventEmitter() as any
-        child.stdout = new EventEmitter()
-        child.stderr = new EventEmitter()
-        child.spawnargs = spawnargs
-        child.killed = false
-        child.exitCode = null
-        child.signalCode = null
-        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
-          child.killed = true
-          if (child.exitCode !== null || child.signalCode !== null) {
-            return true
-          }
-          child.signalCode = signal
-          queueMicrotask(() => {
-            child.emit('exit', null, signal)
-          })
-          return true
-        })
-
-        if (autoExit) {
-          queueMicrotask(() => {
-            if (child.exitCode !== null || child.signalCode !== null) return
-            child.exitCode = autoExit.code
-            child.signalCode = autoExit.signal ?? null
-            child.emit('exit', child.exitCode, child.signalCode)
-          })
-        }
-
-        return child
-      }
-
-      return {
-        spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
-            return createChild(['node', ...args], { code: null, signal: 'SIGTERM' })
-          }
-          return createChild(['node', ...args])
-        }),
-      }
-    })
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'server', 'start'])
@@ -903,76 +822,23 @@ describe('server start managed process exits', () => {
         release: jest.fn(),
       })),
     }))
-    jest.doMock('child_process', () => {
-      const { EventEmitter } = jest.requireActual('node:events')
-
-      const createChild = (
-        spawnargs: string[],
-        autoExit?: { code: number | null; signal?: NodeJS.Signals | null },
-      ) => {
-        const child = new EventEmitter() as any
-        child.stdout = new EventEmitter()
-        child.stderr = new EventEmitter()
-        child.spawnargs = spawnargs
-        child.killed = false
-        child.exitCode = null
-        child.signalCode = null
-        child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
-          child.killed = true
-          if (child.exitCode !== null || child.signalCode !== null) {
-            return true
-          }
-          child.signalCode = signal
-          queueMicrotask(() => {
-            child.emit('exit', null, signal)
-          })
-          return true
-        })
-
-        if (autoExit) {
-          queueMicrotask(() => {
-            if (child.exitCode !== null || child.signalCode !== null) return
-            child.exitCode = autoExit.code
-            child.signalCode = autoExit.signal ?? null
-            child.emit('exit', child.exitCode, child.signalCode)
-          })
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) => {
+        if (args.slice(1).join(' ') === 'queue worker --all') {
+          return { code: 0 }
         }
-
-        return child
-      }
-
-      return {
-        spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
-            return createChild(['node', ...args])
-          }
-          if (args.slice(1).join(' ') === 'queue worker --all') {
-            return createChild(['node', ...args], { code: 0 })
-          }
-          return createChild(['node', ...args])
-        }),
-      }
-    })
+        return undefined
+      }),
+    )
 
     const mercato = await import('../mercato')
-    mercato.registerCliModules([
-      {
-        id: 'events',
-        workers: [
-          {
-            queue: 'events',
-            concurrency: 1,
-            handler: jest.fn(),
-          },
-        ],
-      } as any,
-    ])
+    mercato.registerCliModules([eventsWorkerFixture as Module])
 
     const exitCode = await mercato.run(['node', 'mercato', 'server', 'start'])
 
     expect(exitCode).toBe(1)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '💥 Failed: [server] Queue worker exited unexpectedly with exit code 0.',
+      '💥 Failed: [server] Queue worker (events) exited unexpectedly with exit code 0.',
     )
 
     consoleErrorSpy.mockRestore()
