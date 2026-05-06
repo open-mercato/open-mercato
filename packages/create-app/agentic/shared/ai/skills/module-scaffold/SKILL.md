@@ -180,7 +180,7 @@ Use `makeCrudRoute` for standard CRUD. Each HTTP method lives in its own file.
 **File**: `src/modules/<module_id>/api/get/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({
@@ -203,7 +203,7 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/post/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { <Entity> } from '../../data/entities'
 import { create<Entity>Schema } from '../../data/validators'
 
@@ -227,7 +227,7 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/put/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { <Entity> } from '../../data/entities'
 import { update<Entity>Schema } from '../../data/validators'
 
@@ -251,7 +251,7 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/delete/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({

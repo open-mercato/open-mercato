@@ -39,7 +39,7 @@ Every item must be answered in the spec or marked N/A with justification.
 - [ ] API contracts are complete (request/response/errors)
 - [ ] Routes include `openApi` expectations
 - [ ] **Canonical mechanisms — no DIY substitutes.** The spec MUST reach for the framework primitives, not invent its own. See `AGENTS.md` → **Mandatory Module Mechanisms**.
-  - [ ] **CRUD APIs** use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/make-crud-route`. Custom write routes call `validateCrudMutationGuard` before mutation and `runCrudMutationGuardAfterSuccess` after.
+  - [ ] **CRUD APIs** use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Custom write routes call `validateCrudMutationGuard` before mutation and `runCrudMutationGuardAfterSuccess` after.
   - [ ] **API route files export `metadata`** with per-method `requireAuth` / `requireFeatures` (no top-level `export const requireAuth`).
   - [ ] **Backend forms** use `<CrudForm>` from `@open-mercato/ui/backend/CrudForm` with helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`, throwing `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors` for field-level errors. No raw `<form>`, no raw `fetch`.
   - [ ] **Lists** use `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable` with stable `entityId` / `extensionTableId` so widget injection (columns / row actions / bulk actions / filters / toolbar) keeps working.

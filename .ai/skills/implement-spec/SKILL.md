@@ -73,7 +73,7 @@ For every piece of code, enforce these code-review rules inline:
 |------|------|
 | Types | No `any` — use zod + `z.infer` |
 | API routes | Export `openApi` and per-method `metadata` with `requireAuth` / `requireFeatures` (no top-level `export const requireAuth`) |
-| **CRUD APIs** | **Use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/make-crud-route`. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success. See `packages/core/AGENTS.md` → API Routes / CRUD Factory.** |
+| **CRUD APIs** | **Use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success. See `packages/core/AGENTS.md` → API Routes / CRUD Factory.** |
 | Entities | Standard columns, snake_case, UUID PKs, indexed `organization_id` + `tenant_id` |
 | Security | `findWithDecryption`, tenant scoping, zod validation |
 | **Encryption maps** | **For every PII / GDPR-relevant column the phase touches, declare in `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads via `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. NEVER hand-rolled AES/KMS, `crypto.subtle`, or "encrypt later" stubs. See `packages/core/AGENTS.md` → Encryption + `apps/docs/docs/user-guide/encryption.mdx`.** |
