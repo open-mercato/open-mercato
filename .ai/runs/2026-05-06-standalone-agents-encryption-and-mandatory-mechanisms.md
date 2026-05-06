@@ -102,3 +102,23 @@ Plan committed first on `feat/standalone-agents-encryption-and-mandatory-mechani
 - [x] 6.2 Self-review caught fabricated docs URLs and an incorrect domain (`docs.openmercato.dev` vs `docs.open-mercato.dev`); replaced with verified real doc paths under `apps/docs/docs/` — c0dab9c91
 - [x] 6.3 Peer review (general-purpose subagent against the live PR) caught a real BLOCKER — the `findWithDecryption` / `findOneWithDecryption` examples used a 4-arg call shape, but the real signature is 5-arg `(em, entity, where, options?, scope?)`. Passing the scope object in slot 4 makes MikroORM read it as `FindOptions` and silently breaks decryption. Fixed in all three files — 080584f6f
 - [x] 6.4 Applied the peer-review NITPICK on the "Use encrypted queries" Task Router row to defer authoring agents to the new "Encrypt sensitive / GDPR-relevant fields" row — 820554f7f
+
+### Phase 7: spec-writing skill (monorepo + standalone) — link, don't duplicate
+
+The user pointed out a follow-up gap: the spec-writing / spec-checklist / compliance-review files do not require specs to address the encryption-maps mechanism, the Mandatory Module Mechanisms canon (CRUD factory, CrudForm, DataTable, `apiCall`, `useGuardedMutation`, cache via DI, events via `createModuleEvents`), or the Design System token rules (no hardcoded `text-red-*` / `bg-green-*`, no arbitrary sizes like `text-[11px]`, mandatory `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `EmptyState`, lucide-react in page body, dialog `Cmd/Ctrl+Enter` / `Escape`, icon-only button `aria-label`). Specs that pass review today can still ship hand-rolled crypto, raw `<form>`, and hardcoded Tailwind status colors. Fix by extending the checklists and SKILL pointers in both monorepo and standalone trees — references only, no copy-paste.
+
+- [ ] 7.1 Extend monorepo `.ai/skills/spec-writing/SKILL.md` Quick Rule Reference + Review Heuristics with encryption-maps, Mandatory Mechanisms, and Design System pointers
+- [ ] 7.2 Extend monorepo `.ai/skills/spec-writing/references/spec-checklist.md` (Data & Security § 3, API/UI § 5) with explicit checkboxes for encryption maps, CRUD factory, CrudForm/DataTable host pattern, `apiCall` / `useGuardedMutation`, DS tokens / shared UI primitives, dialog keyboard contract, lucide page-body icons
+- [ ] 7.3 Extend monorepo `.ai/skills/spec-writing/references/compliance-review.md` Compliance Matrix template with rows showing encryption maps, DS rules, and CRUD factory MUSTs
+- [ ] 7.4 Extend standalone `packages/create-app/agentic/shared/ai/skills/spec-writing/SKILL.md` Quick Rule Reference + Review Heuristics with the same pointers (linking to the AGENTS.md.template Mandatory Mechanisms section + `data-model-design`/`module-scaffold`/`backend-ui-design` SKILLs in this PR rather than duplicating prose)
+- [ ] 7.5 Extend standalone `packages/create-app/agentic/shared/ai/skills/spec-writing/references/spec-checklist.md` § 3 + § 5 + new § 6 with the same checkbox additions, pointing at the standalone canon
+
+### Phase 8: implement-spec / pre-implement-spec (monorepo + standalone)
+
+- [ ] 8.1 Extend monorepo `.ai/skills/implement-spec/SKILL.md` Step-2 inline review table + Step-6 self-review enumeration with rows for `Encryption maps`, `CRUD factory (makeCrudRoute)`, `Cache (DI-resolved)`, `Design System` (link to root AGENTS.md "Design System Rules" + `.ai/ds-rules.md` + `.ai/ui-components.md`)
+- [ ] 8.2 Extend standalone `packages/create-app/agentic/shared/ai/skills/implement-spec/SKILL.md` Step-2 inline review table with the same rows, linking to the standalone canon
+- [ ] 8.3 Extend monorepo `.ai/skills/pre-implement-spec/SKILL.md` Phase 4 AGENTS.md Compliance with explicit encryption-maps + DS + CRUD-factory + cache-via-DI + shared-UI-primitives compliance items (standalone tree has no pre-implement-spec — skip)
+
+### Phase 9: Validation + push
+
+- [ ] 9.1 Re-read all spec-skill diffs, confirm each new checkbox links to a real file/section that exists in this PR or in the existing tree, push, post follow-up comment on PR #1817
