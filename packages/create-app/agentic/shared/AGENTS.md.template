@@ -90,6 +90,8 @@ These guides ship automatically when the corresponding module is installed.
 |---|---|
 | Delegate an arbitrary task end-to-end as a PR | `.ai/skills/auto-create-pr/SKILL.md` |
 | Resume an in-progress agent PR | `.ai/skills/auto-continue-pr/SKILL.md` |
+| Run a long multi-step spec implementation with resumable checkpoints | `.ai/skills/auto-create-pr-loop/SKILL.md` |
+| Resume a checkpointed PR started by `auto-create-pr-loop` | `.ai/skills/auto-continue-pr-loop/SKILL.md` |
 | Automated code review on a PR (with optional autofix) | `.ai/skills/auto-review-pr/SKILL.md` |
 | Fix a GitHub issue by number and open a PR | `.ai/skills/auto-fix-github/SKILL.md` |
 | Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/trim-unused-modules/SKILL.md` |
