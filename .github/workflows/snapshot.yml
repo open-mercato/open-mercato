@@ -5,9 +5,9 @@ env:
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, feat/wms]
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, feat/wms]
 
 permissions:
   contents: read
