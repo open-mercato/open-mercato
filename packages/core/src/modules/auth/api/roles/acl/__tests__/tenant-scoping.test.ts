@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { GET, PUT } from '../route'
 
 const ACTOR_TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -173,5 +173,45 @@ describe('role ACL tenant scoping — existence oracle prevention', () => {
     )
 
     expect(res.status).toBe(200)
+  })
+
+  it('PUT rejects feature grants outside the actor effective ACL', async () => {
+    const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
+    mockRbacService.loadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.acl.manage'],
+      organizations: null,
+    })
+    mockEm.findOne.mockImplementation(
+      async (ctor: unknown) => {
+        if (ctor === Role) return role
+        if (ctor === RoleAcl) {
+          return {
+            role,
+            tenantId: ACTOR_TENANT_ID,
+            isSuperAdmin: false,
+            featuresJson: ['auth.acl.manage'],
+            organizationsJson: null,
+          }
+        }
+        return null
+      },
+    )
+
+    const res = await PUT(
+      new Request('http://localhost/api/auth/roles/acl', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roleId: ROLE_ID,
+          features: ['auth.acl.manage', 'api_keys.create'],
+        }),
+      }),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.error).toContain('Cannot grant feature api_keys.create')
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 })

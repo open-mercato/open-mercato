@@ -3,16 +3,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
+import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -102,7 +103,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
-          await assertCanAssignRoles(ctx.request, parsed.roles)
+          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
       },
@@ -117,7 +118,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
-          await assertCanAssignRoles(ctx.request, parsed.roles)
+          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
       },
@@ -371,14 +372,10 @@ export async function GET(req: Request) {
 }
 
 export const POST = async (req: Request) => {
-  const body = await req.clone().json().catch(() => ({}))
-  await assertCanAssignRoles(req, body?.roles)
   return crud.POST(req)
 }
 
 export const PUT = async (req: Request) => {
-  const body = await req.clone().json().catch(() => ({}))
-  await assertCanAssignRoles(req, body?.roles)
   return crud.PUT(req)
 }
 
@@ -414,35 +411,41 @@ async function findUserIdsBySearchTokens(
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-async function assertCanAssignRoles(req: Request, roles: unknown) {
+async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
   if (!Array.isArray(roles)) return
-  const values = roles
-    .map((role) => (typeof role === 'string' ? role.trim() : null))
-    .filter((role): role is string => !!role)
-  if (!values.length) return
-
-  let hasSuperAdmin = values.some((v) => v.toLowerCase() === 'superadmin')
-  if (!hasSuperAdmin) {
-    const uuids = values.filter((v) => UUID_RE.test(v))
-    if (uuids.length) {
-      const container = await createRequestContainer()
-      const em = container.resolve('em') as EntityManager
-      const matched = await em.find(Role, { id: { $in: uuids as any } })
-      hasSuperAdmin = matched.some((r) => String(r.name).toLowerCase() === 'superadmin')
-    }
-  }
-  if (!hasSuperAdmin) return
-
   const auth = await getAuthFromRequest(req)
-  if (!auth) throw new Error('Unauthorized')
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
   const container = await createRequestContainer()
-  const rbac = container.resolve('rbacService') as RbacService
-  const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-  if (!acl?.isSuperAdmin) {
-    throw forbidden('Only super administrators can assign the superadmin role.')
+  const em = container.resolve('em') as EntityManager
+  const tenantId = await resolveTargetTenantIdForRoleGrant(em, payload, auth.tenantId ?? null)
+  await assertActorCanGrantRoleTokens({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId,
+    organizationId: auth.orgId ?? null,
+    roleTokens: roles,
+  })
+}
+
+async function resolveTargetTenantIdForRoleGrant(
+  em: EntityManager,
+  payload: Record<string, unknown>,
+  fallbackTenantId: string | null,
+): Promise<string | null> {
+  const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+  if (organizationId) {
+    const organization = await em.findOne(Organization, { id: organizationId }, { populate: ['tenant'] })
+    return organization?.tenant?.id ? String(organization.tenant.id) : fallbackTenantId
   }
+
+  const userId = typeof payload.id === 'string' ? payload.id : null
+  if (userId) {
+    const user = await em.findOne(User, { id: userId, deletedAt: null })
+    return user?.tenantId ? String(user.tenantId) : fallbackTenantId
+  }
+
+  return fallbackTenantId
 }
 
 export const openApi: OpenApiRouteDoc = {
