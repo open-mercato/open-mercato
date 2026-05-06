@@ -1,6 +1,6 @@
 ---
 name: pre-implement-spec
-description: Analyze a spec before implementation: BC audit, risk assessment, gap analysis. Produces a readiness report with BC violations, missing sections, and suggested improvements. Triggers on "analyze spec", "pre-implement", "spec readiness", "BC analysis", "spec gap analysis".
+description: "Analyze a spec before implementation: BC audit, risk assessment, gap analysis. Produces a readiness report with BC violations, missing sections, and suggested improvements. Triggers on \"analyze spec\", \"pre-implement\", \"spec readiness\", \"BC analysis\", \"spec gap analysis\"."
 ---
 
 # Pre-Implement Spec Skill
