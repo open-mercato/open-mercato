@@ -549,7 +549,7 @@ Calling `em.find` on an encrypted column returns ciphertext, breaks search, and 
 yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
 ```
 
-New tenants pick up the maps automatically during `auth:setup`. Toggling the **Encrypted** flag on a custom field via the admin UI also only applies to data written **after** the change — backfill historical rows with `yarn mercato entities encrypt-database` (and `decrypt-database` to roll back). For full UI flows and CLI options see <https://docs.openmercato.dev/user-guide/encryption>.
+New tenants pick up the maps automatically during `auth:setup`. Toggling the **Encrypted** flag on a custom field via the admin UI also only applies to data written **after** the change — backfill historical rows with `yarn mercato entities encrypt-database` (and `decrypt-database` to roll back). For full UI flows and CLI options see <https://docs.open-mercato.dev/user-guide/encryption>.
 
 ### Vector search caveat
 

@@ -615,7 +615,7 @@ const single = await findOneWithDecryption(em, '<Entity>', { id }, { tenantId, o
 yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
 ```
 
-New tenants pick up `defaultEncryptionMaps` automatically during `auth:setup`. Toggling the **Encrypted** flag for a field only applies to data written **after** the change — historical rows stay as they were until rewritten or backfilled via `yarn mercato entities encrypt-database` / `decrypt-database`. For end-to-end usage and admin UI flows see <https://docs.openmercato.dev/user-guide/encryption>.
+New tenants pick up `defaultEncryptionMaps` automatically during `auth:setup`. Toggling the **Encrypted** flag for a field only applies to data written **after** the change — historical rows stay as they were until rewritten or backfilled via `yarn mercato entities encrypt-database` / `decrypt-database`. For end-to-end usage and admin UI flows see <https://docs.open-mercato.dev/user-guide/encryption>.
 
 > Tip: when `email` (or any other column) needs deterministic lookups while encrypted, declare a sibling `hashField` in the map and add a matching `varchar` column to the entity. The framework keeps the hash in sync on writes; queries can target the hash instead of the cleartext column.
 

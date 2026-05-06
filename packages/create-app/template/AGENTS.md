@@ -210,7 +210,7 @@ Practical consequences:
 Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
 
 - Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
-- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.openmercato.dev/framework/ai-assistant/ui-parts).
+- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.open-mercato.dev/framework/ai-assistant/ui-parts).
 - Replace or disable an agent / tool that another module shipped through three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module), inline on a `ModuleEntry` in `src/modules.ts` (per-app), or programmatically via `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → modules.ts → file-based → base**.
 
 Example per-module override (preferred when the override should ship with a module):
@@ -326,20 +326,20 @@ When building a new application or a new module under `src/modules/<id>/`, do no
 
 | Concern | Canonical mechanism | Reference |
 |---|---|---|
-| Module structure & auto-discovery | `src/modules/<id>/{api,backend,frontend,data,subscribers,workers,widgets}` + `index.ts` + `src/modules.ts` (`from: '@app'`); discovered by `yarn generate` | <https://docs.openmercato.dev/framework/modules/overview> |
-| Backend admin pages | Auto-discovered files under `backend/**` with paired `page.meta.ts` (`requireAuth`, `requireFeatures`, `pageGroup`, `pageGroupKey`, `pageOrder`) | <https://docs.openmercato.dev/framework/ui/backend-pages> |
-| Frontend public pages and customer portal | Auto-discovered files under `frontend/**`. Portal pages live at `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` | <https://docs.openmercato.dev/framework/ui/portal> |
-| API routes (auth + OpenAPI) | `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi` | <https://docs.openmercato.dev/framework/api/routes> |
-| CRUD APIs (factory) | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/make-crud-route` | <https://docs.openmercato.dev/framework/api/crud-factory> |
-| CRUD forms in admin | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/crud` — never raw `<form>` or raw `fetch`. Use `createCrud` / `updateCrud` / `deleteCrud`, throw `createCrudFormError` for field-level errors | <https://docs.openmercato.dev/framework/ui/crud-form> |
-| DataTables in admin | `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable`; keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, filters, toolbar) keeps working | <https://docs.openmercato.dev/framework/ui/data-table> |
-| Authorization (RBAC) | Declare features in `<module>/acl.ts`, grant in `<module>/setup.ts` `defaultRoleFeatures`, gate routes/pages with `requireFeatures` in `metadata`. NEVER use `requireRoles`. Run `yarn mercato auth sync-role-acls` after adding features | <https://docs.openmercato.dev/framework/security/rbac> |
-| Multi-tenant scoping (default) | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id`; every read/write filters by them. The CRUD factory injects the scope automatically — do not bypass it | <https://docs.openmercato.dev/framework/security/multi-tenant> |
-| **Encryption maps for sensitive data** | Declare `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`; read via `findWithDecryption` / `findOneWithDecryption`. NEVER hand-roll AES/KMS — see the next section | <https://docs.openmercato.dev/user-guide/encryption> |
-| Cache | Resolve from DI (`container.resolve('cache')`); never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` for tenant-scoped invalidation | <https://docs.openmercato.dev/framework/cache> |
-| Background workers | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | <https://docs.openmercato.dev/framework/queue> |
-| Events between modules | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`; subscribers in `subscribers/*.ts` | <https://docs.openmercato.dev/framework/events> |
-| i18n (every user-facing string) | `useT()` client-side, `resolveTranslations()` server-side; keys in `src/i18n/<locale>.json` | <https://docs.openmercato.dev/framework/i18n> |
+| Module structure & auto-discovery | `src/modules/<id>/{api,backend,frontend,data,subscribers,workers,widgets}` + `index.ts` + `src/modules.ts` (`from: '@app'`); discovered by `yarn generate` | <https://docs.open-mercato.dev/framework/modules/overview> |
+| Backend admin pages | Auto-discovered files under `backend/**` with paired `page.meta.ts` (`requireAuth`, `requireFeatures`, `pageGroup`, `pageGroupKey`, `pageOrder`) | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| Frontend public pages and customer portal | Auto-discovered files under `frontend/**`. Portal pages live at `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| API routes (auth + OpenAPI) | `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi` | <https://docs.open-mercato.dev/framework/api/api-development-guide> |
+| CRUD APIs (factory) | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/make-crud-route` | <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| CRUD forms in admin | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/crud` — never raw `<form>` or raw `fetch`. Use `createCrud` / `updateCrud` / `deleteCrud`, throw `createCrudFormError` for field-level errors | <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
+| DataTables in admin | `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable`; keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, filters, toolbar) keeps working | <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
+| Authorization (RBAC) | Declare features in `<module>/acl.ts`, grant in `<module>/setup.ts` `defaultRoleFeatures`, gate routes/pages with `requireFeatures` in `metadata`. NEVER use `requireRoles`. Run `yarn mercato auth sync-role-acls` after adding features | <https://docs.open-mercato.dev/framework/rbac/overview> |
+| Multi-tenant scoping (default) | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id`; every read/write filters by them. The CRUD factory injects the scope automatically — do not bypass it | <https://docs.open-mercato.dev/architecture/system-overview> |
+| **Encryption maps for sensitive data** | Declare `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`; read via `findWithDecryption` / `findOneWithDecryption`. NEVER hand-roll AES/KMS — see the next section | <https://docs.open-mercato.dev/user-guide/encryption> |
+| Cache | Resolve from DI (`container.resolve('cache')`); never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` for tenant-scoped invalidation | <https://docs.open-mercato.dev/user-guide/cache-management> |
+| Background workers | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | <https://docs.open-mercato.dev/framework/events/queue-workers> |
+| Events between modules | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`; subscribers in `subscribers/*.ts` | <https://docs.open-mercato.dev/framework/events/overview> |
+| i18n (every user-facing string) | `useT()` client-side from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations()` server-side from `@open-mercato/shared/lib/i18n/server`; keys in `src/i18n/<locale>.json` | The `@open-mercato/shared` package (`node_modules/@open-mercato/shared/lib/i18n/`) |
 
 > Rule of thumb: if you reach for raw `fetch`, raw `<form>`, ad-hoc `crypto`, ad-hoc `Redis`, or a manual cross-module ORM join, stop and check the row above first.
 
@@ -389,7 +389,7 @@ Notes:
 - The `vector` module stores raw embeddings unencrypted in the vector store — treat embeddings as sensitive even when the source text is encrypted.
 - Env switches: `TENANT_DATA_ENCRYPTION` (default `yes`), `TENANT_DATA_ENCRYPTION_DEBUG`, Vault (`VAULT_ADDR` / `VAULT_TOKEN` / `VAULT_KV_PATH`), and dev fallback (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`).
 
-Full guide: <https://docs.openmercato.dev/user-guide/encryption>.
+Full guide: <https://docs.open-mercato.dev/user-guide/encryption>.
 
 ## Design System (Strict — applies to every UI change)
 
