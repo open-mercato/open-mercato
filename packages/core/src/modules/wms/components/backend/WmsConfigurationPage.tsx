@@ -41,6 +41,8 @@ type WarehouseRow = {
 type LocationRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   code?: string | null
   type?: string | null
   capacity_units?: string | number | null
@@ -51,6 +53,8 @@ type LocationRow = {
 type ZoneRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   code?: string | null
   name?: string | null
   priority?: number | null
@@ -593,9 +597,13 @@ export function ZoneSection() {
     },
     { accessorKey: 'code', header: t('wms.backend.config.zones.columns.code', 'Code') },
     {
-      accessorKey: 'warehouse_id',
+      accessorKey: 'warehouse_name',
       header: t('wms.backend.config.zones.columns.warehouse', 'Warehouse'),
-      cell: ({ row }) => row.original.warehouse_id || '—',
+      cell: ({ row }) =>
+        row.original.warehouse_name
+        || row.original.warehouse_code
+        || row.original.warehouse_id
+        || '—',
     },
     {
       accessorKey: 'priority',
@@ -832,7 +840,15 @@ export function LocationSection() {
   const columns = React.useMemo<ColumnDef<LocationRow>[]>(() => [
     { accessorKey: 'code', header: t('wms.backend.config.locations.columns.code', 'Location') },
     { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), cell: ({ row }) => row.original.type || '—' },
-    { accessorKey: 'warehouse_id', header: t('wms.backend.config.locations.columns.warehouse', 'Warehouse'), cell: ({ row }) => row.original.warehouse_id || '—' },
+    {
+      accessorKey: 'warehouse_name',
+      header: t('wms.backend.config.locations.columns.warehouse', 'Warehouse'),
+      cell: ({ row }) =>
+        row.original.warehouse_name
+        || row.original.warehouse_code
+        || row.original.warehouse_id
+        || '—',
+    },
     { accessorKey: 'capacity_units', header: t('wms.backend.config.locations.columns.capacityUnits', 'Capacity units'), cell: ({ row }) => String(row.original.capacity_units ?? '—') },
     {
       accessorKey: 'is_active',

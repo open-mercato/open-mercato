@@ -8,6 +8,7 @@ import { E } from '#generated/entities.ids.generated'
 import { WarehouseLocation } from '../../data/entities'
 import { warehouseLocationCreateSchema, warehouseLocationUpdateSchema } from '../../data/validators'
 import { createPagedListResponseSchema, createWmsCrudOpenApi, defaultOkResponseSchema } from '../openapi'
+import { attachWarehouseLabelsToListItems } from '../listEnrichers'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -89,6 +90,11 @@ const crud = makeCrudRoute({
       return filters
     },
   },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await attachWarehouseLabelsToListItems(payload, ctx)
+    },
+  },
   actions: {
     create: {
       commandId: 'wms.locations.create',
@@ -131,6 +137,8 @@ const locationListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   warehouse_id: z.string().uuid().nullable().optional(),
+  warehouse_name: z.string().nullable().optional(),
+  warehouse_code: z.string().nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
   code: z.string().nullable().optional(),
   type: z.string().nullable().optional(),
