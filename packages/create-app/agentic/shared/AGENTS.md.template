@@ -1,6 +1,6 @@
 # Agent Context Routing — {{PROJECT_NAME}}
 
-**MANDATORY CONTEXT LOADING** — see Critical Rule #5 below.
+**MANDATORY CONTEXT LOADING** — see the "BEFORE writing ANY code" Critical Rule below.
 Before writing code, find your task below and `Read` the listed files.
 Do NOT load the entire src/ tree — Open Mercato apps can have many modules.
 
