@@ -95,6 +95,22 @@ export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRoo
   return '.snapshot-open-mercato'
 }
 
+export function shouldCreateInitialModuleMigration(migrationsPath: string, snapshotName: string): boolean {
+  const snapshotPath = path.join(migrationsPath, `${snapshotName}.json`)
+  if (fs.existsSync(snapshotPath)) return false
+  if (!fs.existsSync(migrationsPath)) return true
+
+  const migrationFiles = fs
+    .readdirSync(migrationsPath)
+    .filter((file) => /^Migration.*\.(ts|js)$/.test(file) && !file.endsWith('.d.ts'))
+
+  return migrationFiles.length === 0
+}
+
+export function resolveGeneratedMigrationPath(fileName: string, migrationsPath: string): string {
+  return path.isAbsolute(fileName) ? fileName : path.join(migrationsPath, fileName)
+}
+
 let tsxLoaderRegistered = false
 let temporaryModuleCounter = 0
 
@@ -242,6 +258,8 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
+    const snapshotName = getMigrationSnapshotName(resolver)
+    const createInitialMigration = shouldCreateInitialModuleMigration(migrationsPath, snapshotName)
 
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
@@ -254,7 +272,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
-        snapshotName: getMigrationSnapshotName(resolver),
+        snapshotName,
         dropTables: false,
       },
       schemaGenerator: {
@@ -272,10 +290,10 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     })
 
     try {
-      const diff = await orm.migrator.create()
+      const diff = await orm.migrator.create(undefined, false, createInitialMigration)
       if (diff && diff.fileName) {
         try {
-          const orig = diff.fileName
+          const orig = resolveGeneratedMigrationPath(diff.fileName, migrationsPath)
           const base = path.basename(orig)
           const dir = path.dirname(orig)
           const ext = path.extname(base)
