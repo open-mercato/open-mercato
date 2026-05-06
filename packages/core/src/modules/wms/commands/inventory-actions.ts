@@ -1,3 +1,27 @@
+// =============================================================================
+// WMS Inventory Mutation Commands — Undo Policy
+// =============================================================================
+//
+// All inventory-mutation commands in this file are deliberately registered
+// with `isUndoable: false` and therefore opt out of the generic command-bus
+// undo flow. WMS inventory is modeled as an append-only ledger
+// (`inventory_movements`) that drives live balances; subsequent reservations
+// and movements may be made on top of any prior state, so a per-record
+// "undo" cannot safely re-derive a point-in-time balance without a
+// stop-the-world replay.
+//
+// Reversal is therefore exposed as an explicit, auditable counter-action in
+// the domain model rather than as a generic undo verb:
+//   - reserve         ↔ release
+//   - allocate        ↔ release (cancels the allocation)
+//   - adjust(+N)      ↔ adjust(-N)
+//   - receive         ↔ adjust / RMA flow
+//   - move(A → B)     ↔ move(B → A)
+//   - cycle count     ↔ cycle count (re-recount)
+//
+// The audit log still captures the full before/after via `buildLog`, so any
+// reversing counter-action is fully traceable.
+// =============================================================================
 import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -662,6 +686,8 @@ async function createMovement(
 
 const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, ReservationCommandResult> = {
   id: 'wms.inventory.reserve',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryReservationCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -790,6 +816,8 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
 
 const releaseInventoryReservationCommand: CommandHandler<InventoryReservationReleaseInput, { reservationId: string }> = {
   id: 'wms.inventory.release',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryReservationReleaseSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -878,6 +906,8 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
 
 const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAllocateInput, { reservationId: string; allocationState: 'allocated' }> = {
   id: 'wms.inventory.allocate',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryReservationAllocateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -972,6 +1002,8 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
 
 const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId: string }> = {
   id: 'wms.inventory.adjust',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryAdjustSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -1070,6 +1102,8 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
 
 const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementId: string }> = {
   id: 'wms.inventory.receive',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryReceiveSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -1167,6 +1201,8 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
 
 const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: string }> = {
   id: 'wms.inventory.move',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryMoveSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -1286,6 +1322,8 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
 
 const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adjustmentDelta: string; movementId?: string | null }> = {
   id: 'wms.inventory.cycleCount',
+  // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryCycleCountSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)

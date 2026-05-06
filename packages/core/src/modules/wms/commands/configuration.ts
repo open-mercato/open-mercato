@@ -1,3 +1,32 @@
+// =============================================================================
+// WMS Configuration Commands — Undo Policy
+// =============================================================================
+//
+// All warehouse / zone / location / inventory-profile / lot CRUD commands in
+// this file are deliberately registered with `isUndoable: false`. Generic
+// command-bus undo is intentionally NOT exposed for these entities because
+// downstream operational data — `inventory_balance`, `inventory_reservation`,
+// and `inventory_movement` rows — references these configuration records.
+// Auto-restoring a deleted warehouse / zone / location does not auto-restore
+// its child structure or live ledger state, and the resulting "undo" could
+// leave the system in a partially-consistent shape (e.g. dangling reservations
+// pointing at a restored warehouse with no zones).
+//
+// Recovery for the affected entities is instead modeled as:
+//   - Soft-deleted records (deletedAt set) — restored via the standard CRUD
+//     restore endpoint or admin tooling. The audit log captures full
+//     before/after via `buildLog`, so all data needed to perform a manual
+//     restore is persisted.
+//   - Mistaken creates — an explicit `delete` command (which itself emits an
+//     audit log + lifecycle event so downstream subscribers can react).
+//   - Mistaken updates — an explicit `update` command with the previous
+//     values pulled from the audit log snapshot.
+//
+// If a future contributor wants per-record undo for any individual command
+// here, set `isUndoable: true` and add `prepare` / `captureAfter` / `undo`
+// for that specific entity. The audit log already preserves the full
+// before/after snapshot via `buildLog` so the data is available.
+// =============================================================================
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -253,6 +282,8 @@ async function resolveParentLocation(
 
 const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId: string }> = {
   id: 'wms.warehouses.create',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -287,6 +318,8 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
 
 const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId: string }> = {
   id: 'wms.warehouses.update',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -318,6 +351,8 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
 
 const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: string }> = {
   id: 'wms.warehouses.delete',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(input, ctx) {
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
@@ -332,6 +367,8 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
 
 const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zoneId: string }> = {
   id: 'wms.zones.create',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseZoneCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -364,6 +401,8 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
 
 const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zoneId: string }> = {
   id: 'wms.zones.update',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseZoneUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -396,6 +435,8 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
 
 const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: string }> = {
   id: 'wms.zones.delete',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(input, ctx) {
     const zoneId = requireId(input?.id, 'Zone')
     const em = resolveEm(ctx)
@@ -410,6 +451,8 @@ const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: stri
 
 const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInput, { locationId: string }> = {
   id: 'wms.locations.create',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseLocationCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -447,6 +490,8 @@ const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInpu
 
 const updateWarehouseLocationCommand: CommandHandler<WarehouseLocationUpdateInput, { locationId: string }> = {
   id: 'wms.locations.update',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseLocationUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -485,6 +530,8 @@ const updateWarehouseLocationCommand: CommandHandler<WarehouseLocationUpdateInpu
 
 const deleteWarehouseLocationCommand: CommandHandler<{ id?: string }, { locationId: string }> = {
   id: 'wms.locations.delete',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(input, ctx) {
     const locationId = requireId(input?.id, 'Location')
     const em = resolveEm(ctx)
@@ -499,6 +546,8 @@ const deleteWarehouseLocationCommand: CommandHandler<{ id?: string }, { location
 
 const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileCreateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.create',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = productInventoryProfileCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -536,6 +585,8 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
 
 const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileUpdateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.update',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = productInventoryProfileUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -579,6 +630,8 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
 
 const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { profileId: string }> = {
   id: 'wms.inventoryProfiles.delete',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(input, ctx) {
     const profileId = requireId(input?.id, 'Inventory profile')
     const em = resolveEm(ctx)
@@ -593,6 +646,8 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
 
 const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId: string }> = {
   id: 'wms.lots.create',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = inventoryLotCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -621,6 +676,8 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
 
 const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId: string }> = {
   id: 'wms.lots.update',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -660,6 +717,8 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
 
 const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string }> = {
   id: 'wms.lots.delete',
+  // See "WMS Configuration Commands — Undo Policy" at top of file.
+  isUndoable: false,
   async execute(input, ctx) {
     const lotId = requireId(input?.id, 'Inventory lot')
     const em = resolveEm(ctx)

@@ -2,7 +2,8 @@ import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { CatalogProductVariant } from '../../catalog/data/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { E } from '#generated/entities.ids.generated'
 import { ProductInventoryProfile } from '../data/entities'
 import {
   catalogInventoryProfileIntentSchema,
@@ -102,37 +103,35 @@ async function resolveCatalogProductId(params: {
 }): Promise<string> {
   if (params.target === 'product') return params.recordId
 
-  const em = params.container.resolve('em')
-  const scope = {
-    organizationId: params.organizationId,
-    tenantId: params.tenantId,
-  }
-
-  const variant = await findOneWithDecryption(
-    em,
-    CatalogProductVariant,
+  // Read the variant -> product_id mapping via QueryEngine so this module does
+  // not import the catalog ORM entity directly. queryEngine resolves the
+  // base table via Mikro-ORM metadata, so the only cross-module surface we
+  // depend on is the public catalog entity id from the `E` registry.
+  const queryEngine = params.container.resolve('queryEngine') as QueryEngine
+  const result = await queryEngine.query<{ id?: string; product_id?: string }>(
+    E.catalog.catalog_product_variant,
     {
-      id: params.recordId,
-      organizationId: params.organizationId,
       tenantId: params.tenantId,
-      deletedAt: null,
-    } as never,
-    { populate: ['product'] } as never,
-    scope,
+      organizationId: params.organizationId,
+      filters: { id: { $eq: params.recordId } },
+      fields: ['id', 'product_id'],
+      page: { page: 1, pageSize: 1 },
+    },
   )
 
-  if (!variant) {
+  const variantRow = result.items[0]
+  if (!variantRow) {
     throw new Error(`Variant ${params.recordId} not found for WMS profile sync`)
   }
 
-  const product = variant.product as { id?: string } | undefined
-  if (!product?.id) {
+  const productId = typeof variantRow.product_id === 'string' ? variantRow.product_id : null
+  if (!productId) {
     throw new Error(
       `Variant ${params.recordId} is missing product context for WMS profile sync`,
     )
   }
 
-  return product.id
+  return productId
 }
 
 export async function syncCatalogInventoryProfile(

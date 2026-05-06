@@ -876,7 +876,18 @@ function emitOrderLifecycleEventsForTransition(input: {
       eventId: "sales.order.confirmed",
       order: input.order,
       previousStatus: input.previousStatus,
-    }).catch(() => undefined);
+    }).catch((err) => {
+      // Surface as warning so downstream automations (e.g. WMS reservation
+      // subscriber) failing to register/persist their own follow-up state is
+      // observable in logs instead of being silently dropped. The order
+      // status transition itself is already committed at this point.
+      console.warn(
+        "[sales.commands.documents] order lifecycle event emit failed",
+        "sales.order.confirmed",
+        { orderId: input.order.id },
+        err,
+      );
+    });
   }
 
   if (isCancelledOrderStatus(nextStatus)) {
@@ -884,7 +895,14 @@ function emitOrderLifecycleEventsForTransition(input: {
       eventId: "sales.order.cancelled",
       order: input.order,
       previousStatus: input.previousStatus,
-    }).catch(() => undefined);
+    }).catch((err) => {
+      console.warn(
+        "[sales.commands.documents] order lifecycle event emit failed",
+        "sales.order.cancelled",
+        { orderId: input.order.id },
+        err,
+      );
+    });
   }
 }
 

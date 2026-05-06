@@ -1,8 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
-import { SalesOrder, SalesOrderLine } from '../../sales/data/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
 
 const SALES_ORDER_INVENTORY_TOGGLE = 'wms_integration_sales_order_inventory'
@@ -25,6 +26,21 @@ type Scope = {
 type WarehouseAvailability = {
   warehouseId: string
   available: number
+}
+
+type SalesOrderRow = {
+  id?: string
+  order_number?: string | null
+  tenant_id?: string | null
+  organization_id?: string | null
+}
+
+type SalesOrderLineRow = {
+  id?: string
+  kind?: string | null
+  product_variant_id?: string | null
+  quantity?: string | number | null
+  line_number?: number | null
 }
 
 function toNumber(value: unknown): number {
@@ -64,34 +80,42 @@ async function isInventoryAutomationEnabled(ctx: EventContext, tenantId: string)
   }
 }
 
-async function loadOrder(em: EntityManager, orderId: string, scope: Scope): Promise<SalesOrder | null> {
-  return findOneWithDecryption(
-    em,
-    SalesOrder,
-    {
-      id: orderId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
+async function loadOrderViaQueryEngine(
+  ctx: EventContext,
+  orderId: string,
+  scope: Scope,
+): Promise<SalesOrderRow | null> {
+  // Read sales orders/lines via QueryEngine instead of importing the sales ORM
+  // entity classes — keeps the WMS module decoupled from sales internals.
+  // Sales mutations also flush their CRUD side effects synchronously through
+  // the command bus before this subscriber fires, so the query_index/base
+  // table is consistent at this point.
+  const queryEngine = ctx.resolve<QueryEngine>('queryEngine')
+  const result = await queryEngine.query<SalesOrderRow>(E.sales.sales_order, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { id: { $eq: orderId } },
+    fields: ['id', 'order_number', 'tenant_id', 'organization_id'],
+    page: { page: 1, pageSize: 1 },
+  })
+  return result.items[0] ?? null
 }
 
-async function loadOrderLines(em: EntityManager, orderId: string, scope: Scope): Promise<SalesOrderLine[]> {
-  return findWithDecryption(
-    em,
-    SalesOrderLine,
-    {
-      order: orderId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      deletedAt: null,
-    },
-    { orderBy: { lineNumber: 'asc' } },
-    scope,
-  )
+async function loadOrderLinesViaQueryEngine(
+  ctx: EventContext,
+  orderId: string,
+  scope: Scope,
+): Promise<SalesOrderLineRow[]> {
+  const queryEngine = ctx.resolve<QueryEngine>('queryEngine')
+  const result = await queryEngine.query<SalesOrderLineRow>(E.sales.sales_order_line, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { order_id: { $eq: orderId } },
+    fields: ['id', 'kind', 'product_variant_id', 'quantity', 'line_number'],
+    sort: [{ field: 'line_number', dir: 'asc' as never }],
+    page: { page: 1, pageSize: 1000 },
+  })
+  return result.items
 }
 
 async function loadActiveReservations(
@@ -135,13 +159,16 @@ async function loadBalances(
   )
 }
 
-function buildRequiredQuantityByVariant(lines: SalesOrderLine[]): Map<string, number> {
+function buildRequiredQuantityByVariant(lines: SalesOrderLineRow[]): Map<string, number> {
   const quantities = new Map<string, number>()
   for (const line of lines) {
-    if (line.kind !== 'product' || !line.productVariantId) continue
+    if (line.kind !== 'product' || !line.product_variant_id) continue
     const quantity = toNumber(line.quantity)
     if (quantity <= 0) continue
-    quantities.set(line.productVariantId, (quantities.get(line.productVariantId) ?? 0) + quantity)
+    quantities.set(
+      line.product_variant_id,
+      (quantities.get(line.product_variant_id) ?? 0) + quantity,
+    )
   }
   return quantities
 }
@@ -201,12 +228,15 @@ export async function reserveInventoryForConfirmedOrder(
   const em = ctx.resolve<EntityManager>('em').fork()
   const commandBus = ctx.resolve<CommandBus>('commandBus')
   const commandCtx = buildCommandContext(ctx, scope)
-  const order = await loadOrder(em, payload.orderId, scope)
-  if (!order) return
+  const order = await loadOrderViaQueryEngine(ctx, payload.orderId, scope)
+  if (!order || typeof order.id !== 'string') return
+
+  const orderId = order.id
+  const orderNumber = typeof order.order_number === 'string' ? order.order_number : null
 
   const [lines, activeReservations] = await Promise.all([
-    loadOrderLines(em, order.id, scope),
-    loadActiveReservations(em, order.id, scope),
+    loadOrderLinesViaQueryEngine(ctx, orderId, scope),
+    loadActiveReservations(em, orderId, scope),
   ])
   const requiredByVariant = buildRequiredQuantityByVariant(lines)
   if (requiredByVariant.size === 0) return
@@ -233,11 +263,11 @@ export async function reserveInventoryForConfirmedOrder(
           catalogVariantId: variantId,
           quantity: reserveQuantity,
           sourceType: 'order',
-          sourceId: order.id,
+          sourceId: orderId,
           metadata: {
             automation: 'sales.order.confirmed',
-            orderId: order.id,
-            orderNumber: order.orderNumber,
+            orderId,
+            orderNumber,
             catalogVariantId: variantId,
           },
         },

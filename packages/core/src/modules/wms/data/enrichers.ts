@@ -2,14 +2,27 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { CatalogProductVariant } from '../../catalog/data/entities'
-import { SalesOrderLine } from '../../sales/data/entities'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile } from './entities'
 
 type SalesOrderRecord = Record<string, unknown> & { id?: string }
 type CatalogProductRecord = Record<string, unknown> & { id?: string }
 type CatalogVariantRecord = Record<string, unknown> & { id?: string; product_id?: string; productId?: string }
+
+type SalesOrderLineRow = {
+  id?: string
+  order_id?: string | null
+  product_variant_id?: string | null
+  quantity?: string | number | null
+  line_number?: number | null
+  status?: string | null
+}
+
+type CatalogVariantRow = {
+  id?: string
+  product_id?: string | null
+}
 type ReservationStatus = 'unreserved' | 'partially_reserved' | 'fully_reserved'
 type ReorderState = 'no_profile' | 'healthy' | 'below_reorder_point' | 'below_safety_stock'
 
@@ -97,14 +110,14 @@ function extractRecordId(record: SalesOrderRecord): string | null {
   return typeof record.id === 'string' && record.id.trim().length > 0 ? record.id : null
 }
 
-function extractOrderId(line: SalesOrderLine): string | null {
-  const relation = line.order as { id?: string } | undefined
-  return typeof relation?.id === 'string' ? relation.id : null
+function extractOrderIdFromLine(line: SalesOrderLineRow): string | null {
+  return typeof line.order_id === 'string' && line.order_id.length > 0 ? line.order_id : null
 }
 
-function extractProductId(variant: CatalogProductVariant): string | null {
-  const relation = variant.product as { id?: string } | undefined
-  return typeof relation?.id === 'string' ? relation.id : null
+function extractProductIdFromVariant(variant: CatalogVariantRow): string | null {
+  return typeof variant.product_id === 'string' && variant.product_id.length > 0
+    ? variant.product_id
+    : null
 }
 
 function extractWarehouseId(reservation: InventoryReservation): string | null {
@@ -227,23 +240,25 @@ async function isSalesOrderInventoryEnabled(context: EnricherContext): Promise<b
 }
 
 async function loadOrderLines(
-  em: EntityManager,
+  context: EnricherContext,
   orderIds: string[],
   scope: Scope,
-): Promise<SalesOrderLine[]> {
+): Promise<SalesOrderLineRow[]> {
   if (orderIds.length === 0) return []
-  return findWithDecryption(
-    em,
-    SalesOrderLine,
-    {
-      order: { $in: orderIds },
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    { orderBy: { lineNumber: 'asc' } },
-    scope,
-  )
+  // Read sales order lines via QueryEngine instead of importing the sales ORM
+  // entity. Keeps the WMS module decoupled from sales internals; queryEngine
+  // resolves the base table via Mikro-ORM metadata.
+  const container = context.container as { resolve: (name: string) => unknown }
+  const queryEngine = container.resolve('queryEngine') as QueryEngine
+  const result = await queryEngine.query<SalesOrderLineRow>(E.sales.sales_order_line, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { order_id: { $in: orderIds } },
+    fields: ['id', 'order_id', 'product_variant_id', 'quantity', 'line_number', 'status'],
+    sort: [{ field: 'line_number', dir: 'asc' as never }],
+    page: { page: 1, pageSize: 5000 },
+  })
+  return result.items
 }
 
 async function loadReservations(
@@ -288,23 +303,22 @@ async function loadBalances(
 }
 
 async function loadCatalogVariants(
-  em: EntityManager,
+  context: EnricherContext,
   productIds: string[],
   scope: Scope,
-): Promise<CatalogProductVariant[]> {
+): Promise<CatalogVariantRow[]> {
   if (productIds.length === 0) return []
-  return findWithDecryption(
-    em,
-    CatalogProductVariant,
-    {
-      product: { $in: productIds },
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    { orderBy: { createdAt: 'asc' } },
-    scope,
-  )
+  const container = context.container as { resolve: (name: string) => unknown }
+  const queryEngine = container.resolve('queryEngine') as QueryEngine
+  const result = await queryEngine.query<CatalogVariantRow>(E.catalog.catalog_product_variant, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { product_id: { $in: productIds } },
+    fields: ['id', 'product_id'],
+    sort: [{ field: 'created_at', dir: 'asc' as never }],
+    page: { page: 1, pageSize: 5000 },
+  })
+  return result.items
 }
 
 async function loadProductInventoryProfiles(
@@ -376,12 +390,12 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
     const em = context.em.fork()
     const scope = { organizationId: context.organizationId, tenantId: context.tenantId }
 
-    const lines = await loadOrderLines(em, orderIds, scope)
+    const lines = await loadOrderLines(context, orderIds, scope)
 
     const variantIds = Array.from(
       new Set(
         lines
-          .map((line) => line.productVariantId)
+          .map((line) => line.product_variant_id)
           .filter((value): value is string => typeof value === 'string' && value.length > 0),
       ),
     )
@@ -406,8 +420,8 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
     const requiredBySalesOrder = new Map<string, number>()
 
     for (const line of lines) {
-      const orderId = extractOrderId(line)
-      const variantId = line.productVariantId
+      const orderId = extractOrderIdFromLine(line)
+      const variantId = line.product_variant_id ?? null
       if (!orderId || !variantId) continue
 
       const variantOrder = variantOrderBySalesOrder.get(orderId) ?? []
@@ -494,8 +508,10 @@ const catalogProductInventoryEnricher: ResponseEnricher<CatalogProductRecord, Ca
     const em = context.em.fork()
     const scope = { organizationId: context.organizationId, tenantId: context.tenantId }
 
-    const variants = await loadCatalogVariants(em, productIds, scope)
-    const variantIds = variants.map((variant) => variant.id)
+    const variants = await loadCatalogVariants(context, productIds, scope)
+    const variantIds = variants
+      .map((variant) => variant.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
     const [productProfiles, balances] = await Promise.all([
       loadProductInventoryProfiles(em, productIds, scope),
       loadBalances(em, variantIds, scope),
@@ -508,8 +524,8 @@ const catalogProductInventoryEnricher: ResponseEnricher<CatalogProductRecord, Ca
     const variantIdsByProductId = new Map<string, string[]>()
 
     for (const variant of variants) {
-      const productId = extractProductId(variant)
-      if (!productId) continue
+      const productId = extractProductIdFromVariant(variant)
+      if (!productId || typeof variant.id !== 'string') continue
       const entries = variantIdsByProductId.get(productId) ?? []
       entries.push(variant.id)
       variantIdsByProductId.set(productId, entries)

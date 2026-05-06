@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type PagedResponse<T> = {
   items: T[]
@@ -522,6 +523,7 @@ export function WarehouseSection() {
           <CrudForm<WarehouseFormValues>
             schema={warehouseFormSchema}
             fields={fields}
+            entityId={E.wms.warehouse}
             initialValues={initialValues}
             submitLabel={t('common.save', 'Save')}
             onSubmit={handleSubmit}
@@ -759,6 +761,7 @@ export function ZoneSection() {
           <CrudForm<ZoneFormValues>
             schema={zoneFormSchema}
             fields={fields}
+            entityId={E.wms.warehouse_zone}
             initialValues={initialValues}
             submitLabel={t('common.save', 'Save')}
             onSubmit={handleSubmit}
@@ -996,6 +999,7 @@ export function LocationSection() {
           <CrudForm<LocationFormValues>
             schema={locationFormSchema}
             fields={fields}
+            entityId={E.wms.warehouse_location}
             initialValues={initialValues}
             submitLabel={t('common.save', 'Save')}
             onSubmit={handleSubmit}
@@ -1239,6 +1243,7 @@ export function InventoryProfilesSection() {
           <CrudForm<InventoryProfileFormValues>
             schema={inventoryProfileFormSchema}
             fields={fields}
+            entityId={E.wms.product_inventory_profile}
             initialValues={initialValues}
             submitLabel={t('common.save', 'Save')}
             onSubmit={handleSubmit}

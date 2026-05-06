@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
 
 const wmsIntegrationToggles = [
@@ -31,7 +32,7 @@ const wmsIntegrationToggles = [
 
 async function seedWmsFeatureToggles(em: EntityManager): Promise<void> {
   for (const toggle of wmsIntegrationToggles) {
-    const existing = await em.findOne(FeatureToggle, {
+    const existing = await findOneWithDecryption(em, FeatureToggle, {
       identifier: toggle.identifier,
       deletedAt: null,
     })

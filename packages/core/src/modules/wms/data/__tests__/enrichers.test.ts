@@ -5,17 +5,32 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogProductVariant } from '../../../catalog/data/entities'
-import { SalesOrderLine } from '../../../sales/data/entities'
+import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile } from '../entities'
 import { enrichers } from '../enrichers'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
 
+type QueryStub = {
+  query: jest.Mock<Promise<{ items: unknown[]; page: number; pageSize: number; total: number }>, [string, Record<string, unknown>]>
+}
+
 describe('wms sales order enrichers', () => {
   const salesOrderInventoryEnricher = enrichers.find((enricher) => enricher.id === 'wms.sales-order-inventory')
 
-  const createContext = (enabled: boolean) => ({
+  const createQueryEngine = (
+    handler: (entityId: string) => unknown[],
+  ): QueryStub => ({
+    query: jest.fn(async (entityId: string) => {
+      const items = handler(entityId)
+      return { items, page: 1, pageSize: items.length, total: items.length }
+    }),
+  })
+
+  const createContext = (
+    enabled: boolean,
+    queryEngine: QueryStub = createQueryEngine(() => []),
+  ) => ({
     organizationId: 'org-1',
     tenantId: 'tenant-1',
     userId: 'user-1',
@@ -26,6 +41,9 @@ describe('wms sales order enrichers', () => {
           return {
             getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: enabled }),
           }
+        }
+        if (name === 'queryEngine') {
+          return queryEngine
         }
         throw new Error(`Unexpected resolve: ${name}`)
       },
@@ -47,22 +65,29 @@ describe('wms sales order enrichers', () => {
   })
 
   it('adds additive _wms sales order inventory data when the toggle is enabled', async () => {
-    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
-      if (entity === SalesOrderLine) {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
         return [
           {
-            order: { id: 'order-1' },
-            productVariantId: 'variant-1',
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
             quantity: '2',
-          } as SalesOrderLine,
+            line_number: 1,
+          },
           {
-            order: { id: 'order-1' },
-            productVariantId: 'variant-2',
+            id: 'line-2',
+            order_id: 'order-1',
+            product_variant_id: 'variant-2',
             quantity: '4',
-          } as SalesOrderLine,
+            line_number: 2,
+          },
         ]
       }
+      return []
+    })
 
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
       if (entity === InventoryReservation) {
         return [
           {
@@ -114,9 +139,13 @@ describe('wms sales order enrichers', () => {
 
     const result = await salesOrderInventoryEnricher!.enrichMany!(
       [{ id: 'order-1', orderNumber: 'SO-1' }],
-      createContext(true),
+      createContext(true, queryEngine),
     )
 
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      E.sales.sales_order_line,
+      expect.objectContaining({ filters: { order_id: { $in: ['order-1'] } } }),
+    )
     expect(result).toEqual([
       {
         id: 'order-1',
@@ -221,20 +250,17 @@ describe('wms sales order enrichers', () => {
       (enricher) => enricher.id === 'wms.catalog-product-inventory',
     )
 
-    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
-      if (entity === CatalogProductVariant) {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.catalog.catalog_product_variant) {
         return [
-          {
-            id: 'variant-1',
-            product: { id: 'product-1' },
-          } as CatalogProductVariant,
-          {
-            id: 'variant-2',
-            product: { id: 'product-1' },
-          } as CatalogProductVariant,
+          { id: 'variant-1', product_id: 'product-1' },
+          { id: 'variant-2', product_id: 'product-1' },
         ]
       }
+      return []
+    })
 
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
       if (entity === ProductInventoryProfile) {
         return [
           {
@@ -274,9 +300,13 @@ describe('wms sales order enrichers', () => {
 
     const result = await catalogProductInventoryEnricher!.enrichMany!(
       [{ id: 'product-1', title: 'Aurora Jacket' }],
-      createContext(true),
+      createContext(true, queryEngine),
     )
 
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      E.catalog.catalog_product_variant,
+      expect.objectContaining({ filters: { product_id: { $in: ['product-1'] } } }),
+    )
     expect(result).toEqual([
       {
         id: 'product-1',
