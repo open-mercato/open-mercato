@@ -1,42 +1,125 @@
 # Unreleased
 
 ## Highlights
-**AI Framework Unification** 🧠 (#1593) — single contract for agent-oriented surfaces across the platform, from typed agent definitions to mutation approval. Implements the full [`2026-04-11-unified-ai-tooling-and-subagents`](.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md) spec (Phases 0–3). OpenCode Code Mode stays unchanged — the new framework runs alongside it.
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+---
+
+# 0.6.0 (2026-05-06)
+
+## Highlights
+Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: AI agents now have a unified runtime and approval flow, MikroORM has moved to v7/Kysely, CRM and navigation screens received another major usability pass, and release engineering now carries forward contributor credits for superseded PRs.
 
 ## ✨ Features
+- ✨ Realtime messages. (#1590) *(@Sawarz)*
+- ✨ CRM details screens revamp. (#1618) *(@haxiorz)*
+- ✨ Starter preset. (#1670) *(@dominikpalatynski)*
+- ✨ UI-driven e2e tests + trigger cache invalidation. (#1689) *(@jtomaszewski)*
+- ✨ Accept { cause } option in CrudHttpError constructor (supersedes #1691). (#1694) *(@jtomaszewski, via @pkarw)*
+- ✨ Add `mercato auth sync-role-acls` CLI for re-applying default role features. (#1699) *(@MStaniaszek1998)*
+- ✨ Add inbox bulk actions. (#1685) *(@dominikpalatynski)*
+- ✨ Route metadata + standalone auto-skills + agent guardrails. (#1650) *(@pkarw)*
+- ✨ Make AppShell and PortalShell logo configurable. (#1725) *(@jtomaszewski)*
+- ✨ DS Foundation v2: form primitives + Tooltip + sweep migrations (clean replay). (#1739) *(@zielivia)*
+- ✨ Sidebar customization page with variants, DnD, and cross-locale support (supersedes #1730). (#1781) *(@zielivia, via @pkarw)*
+- ✨ Two-level sidebar — settings/profile alongside collapsed main. (#1790) *(@zielivia)*
+- ✨ CRM activity new UI. (#1791) *(@haxiorz)*
+- ✨ Introduce optional module orchestration and improve CLI errors. (#1698) *(@dominikpalatynski)*
+- ✨ AI framework unification + testing subagents flow with better agent-to-human communication. (#1593) *(@pkarw)*
 
-### 🧠 AI agent runtime
-- `AiAgentDefinition` + `defineAiTool()`, `ai-agents.generated.ts` discovery, `agent-registry.ts` loader, runtime policy gate, and `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` dispatcher route. (#1593) *(@peter)*
+## 🔒 Security
+- 🔒 Atomic password change + audit event for customer_accounts. (#1692) *(@pkarw)*
+- 🔒 Add tenant encryption map for inbox_ops module. (#1688) *(@WH173-P0NY)*
+- 🔒 Revoke customer sessions on self-service password change. (#1686) *(@WH173-P0NY)*
+- 🔒 Harden reset origin checks and require password confirmation. (#1729) *(@MStaniaszek1998)*
+- 🔒 Pin outbound webhook DNS to defeat rebinding (SSRF). (#1735) *(@pat-lewczuk)*
+- 🔒 Gate sidebar customization behind auth.sidebar.manage (#1792). (#1802) *(@pkarw)*
 
-### 🧰 AI SDK helpers
-- `createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText`, `runAiAgentObject` plus chat-mode / object-mode parity tests. (#1593) *(@peter)*
-
-### 📎 Attachment bridge
-- Typed resolved-attachment parts (`bytes` / `signed-url` / `text` / `metadata-only`), UI-part contract, and structured prompt-composition primitives. (#1593) *(@peter)*
-
-### 🧩 Tool packs
-- General (`search.*`, `attachments.*`, `meta.*`), customers, and catalog packs plus D18 merchandising read + AI-authoring tools. (#1593) *(@peter)*
-
-### 🛍️ D18 merchandising demo
-- `catalog.merchandising_assistant` with selection-aware `pageContext`; four bulk-edit use cases flow through `bulk_update_products` with single `[Confirm All]` approval, per-record `catalog.product.updated` events, DataTable refresh via DOM bridge, and `partialSuccess` handling. (#1593) *(@peter)*
-
-### 🎛️ Playground + settings UI
-- `<AiChat>` component, backend playground (`/backend/config/ai-assistant/playground`), and agent settings page (`/backend/config/ai-assistant/agents`) with versioned prompt overrides and feature-gated `mutationPolicy`. (#1593) *(@peter)*
-
-### 🛡️ Mutation approval gate (D16)
-- New additive table `ai_pending_actions` with three routes (`GET`/`confirm`/`cancel`), `prepareMutation` runtime wrapper, four new UI parts, typed `ai.action.{confirmed,cancelled,expired}` events, cleanup worker, and the first mutation-capable agent flow (`customers.account_assistant`). (#1593) *(@peter)*
+## 🐛 Fixes
+- 🐛 Parallelize entity defs, search availability, and dictionary resolution (#1404). (#1614) *(@pkarw)*
+- 🐛 Accept edit form payload and embed triggers in definition (#1586). (#1601) *(@pkarw)*
+- 🐛 Link seeded deals to pipeline + prevent doc number increment on type switch. (#1609) *(@vloneskorpion)*
+- 🐛 Prevent column truncation on definitions list. (#1623) *(@jtomaszewski)*
+- 💰 Load Stripe.js only on payment pages and update CSP (#1606). (#1608) *(@pkarw)*
+- 🐛 Move layout above [...slug] to stop navigation remount (#1083). (#1612) *(@pkarw)*
+- 🔐 Extend PII encryption maps + use decryption helpers in auth (#1413). (#1581) *(@pkarw)*
+- 🐛 Hide messages topbar icon when backing module is disabled. (#1567) *(@jtomaszewski)*
+- 🌍 Restore Jest module resolution and reduce false-positive unused i18n keys. (#1616) *(@pkarw)*
+- 🐛 Use `yarn mercato db` commands in codex enforcement rules. (#1630) *(@pat-lewczuk)*
+- 💰 [Business Logic] Shipment remains editable after full return and completed payment — missing state guards (#1624). (#1628) *(@pat-lewczuk)*
+- 🐛 Customer portal review fixes. (#1629) *(@pat-lewczuk)*
+- 🔄 Refresh inbox cache on unread events (#1634). (#1638) *(@pkarw)*
+- 🐛 Hide UI and gate APIs when backing module is disabled (supersedes #1636). (#1641) *(@jtomaszewski, via @pkarw)*
+- 🔐 Resolve CALL_API roles from the instance initiator. (#1643) *(@pkarw)*
+- 🔐 Use security email URL helper in signup. (#1642) *(@pkarw)*
+- 🐛 Eliminate race condition causing truncated dist files. (#1667) *(@staskolukasz)*
+- 🔄 V7 generated cache recovery. (#1672) *(@pkarw)*
+- 🔧 Restore recipient access to inbox and detail pages (#1633). (#1639) *(@pkarw)*
+- 📦 Hide example links in lean starters. (#1684) *(@pkarw)*
+- 🔄 Scope bulk-delete cache invalidation to worker tenant (fixes #1677). (#1687) *(@marcinwadon)*
+- 🐳 Extend QA Dokploy slots and adapt Docker provider API. (#1683) *(@dominikpalatynski)*
+- 📦 Update the create-app template copy path. (#1675) *(@dominikpalatynski)*
+- 🐛 Use search_tokens for users list search on encrypted email (#1666). (#1674) *(@pkarw)*
+- 🔄 Move default file-backed cache paths under .mercato. (#1682) *(@pkarw)*
+- 🐛 Normalize interaction & deal customValues via shared response helper. (#1680) *(@pkarw)*
+- 🔧 Update Docker ignore test exclusions and retain runtime helpers. (#1695) *(@dominikpalatynski)*
+- 🐛 CRM issues resolution (fixes #1657). (#1700) *(@haxiorz)*
+- 🐛 Disable rate limiting under OM_INTEGRATION_TEST. (#1673) *(@jtomaszewski)*
+- 🔧 Skip ratelimit_probe path when module is absent (standalone scaffold). (#1756) *(@pat-lewczuk)*
+- 🐛 CRM fixes 2 (fixes #1711). (#1743) *(@haxiorz)*
+- 🔧 Unblock standalone CI under zod 4.4.x + capture app log. (#1764) *(@pat-lewczuk)*
+- 💰 Fix company v2 currency collapse. (#1753) *(@dominikpalatynski)*
+- 🔐 Expand auth users search to organizations and roles. (#1752) *(@dominikpalatynski)*
+- 🐛 Resolve owning module from registry, not feature-id prefix. (#1768) *(@pat-lewczuk)*
+- 🔐 Fix portal signup activation messaging. (#1754) *(@dominikpalatynski)*
+- 🐛 Devsplash respects configured base URL across all variants. (#1726) *(@pkarw)*
+- 🔧 Align MikroORM entity migration guidance. (#1710) *(@pkarw)*
+- 🐛 Anchor storage/ and data/ ignore patterns to repo root. (#1697) *(@Kamyyylo)*
+- 🐛 Prevent duplicate sends from composer (#1631). (#1640) *(@pkarw)*
+- 🔧 Use OM_SEARCH_MIN_LEN env var for search query minimum length (supersedes #1761). (#1773) *(@haxiorz, via @pkarw)*
+- 🐛 Fix numeric-string display names and collapsed-rail icon focus (supersedes #1766). (#1772) *(@haxiorz, via @pkarw)*
+- 💰 [Forms] Native browser "Leave site?" dialog appears when submitting Create User or Create Payment Link forms (#1733). (#1759) *(@pat-lewczuk)*
+- 🐛 [Custom Fields] Deleted custom fields still appear in API response after removal from entity definition (#1749). (#1760) *(@pat-lewczuk)*
+- 🔐 [Customer Portal] Password reset link leads to 404 — reset page does not exist at generated URL (#1740). (#1758) *(@pat-lewczuk)*
+- 🔧 Remove explicit NODE_ENV from env files to silence Next.js warning. (#1728) *(@pkarw)*
+- 🐛 Keep organization switcher in topbar at all viewport widths (#1795). (#1798) *(@pkarw)*
 
 ## 🛠️ Improvements
-
-- Shared model factory extracted from `inbox_ops/lib/llmProvider.ts` with caller-override / `<MODULE>_AI_MODEL` env / agent-default / provider-default resolution; original API preserved via a thin shim (no call-site churn). New env var `AI_PENDING_ACTION_TTL_SECONDS` (default `900`). (#1593) *(@peter)*
+- 🛠️ Memoize Tabs context value to prevent consumer re-renders (#1409). (#1610) *(@pkarw)*
+- 🛠️ Lazy-load heavy libraries for schedule, markdown, and API docs (#1408). (#1615) *(@pkarw)*
+- 🛠️ Eliminate N+1 queries in user listing and role validation (#1398). (#1613) *(@pkarw)*
+- 🛠️ Migrate deprecated Notice usages to Alert. (#1649) *(@pkarw)*
+- 🛠️ MikroORM v7, use Kysely. (#1513) *(@staskolukasz)*
+- 🛠️ DS foundation v1. (#1708) *(@zielivia)*
+- 🛠️ Document v2 form primitives + new tokens. (#1707) *(@zielivia)*
+- 🛠️ Update README.md. (#1765) *(@pat-lewczuk)*
+- 🛠️ Add priority labels (low/medium/high/extreme). (#1785) *(@pkarw)*
+- 🛠️ Migrate Dependabot PRs #1724 + #1723 to develop. (#1775) *(@pkarw)*
 
 ## 📝 Specs & Documentation
-
-- Spec moved to [`.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md`](.ai/specs/implemented/2026-04-11-unified-ai-tooling-and-subagents.md) (history preserved via `git mv`); AI Assistant `AGENTS.md` gains an **Upgrading / Operator rollout notes** section with env vars, new tables, cleanup worker registration, and OpenCode coexistence guidance. (#1593) *(@peter)*
+- 📝 Add local development walkthrough (#1435). (#1611) *(@pkarw)*
+- 📝 Add Hall of Fame for Agentic Hackathon winners. (#1646) *(@pat-lewczuk)*
+- 📝 Reassign authors on review and fix handoffs. (#1644) *(@pkarw)*
+- 📝 Make vector auto-indexing opt-in by default. (#1679) *(@pkarw)*
+- 📝 Add CRM call transcriptions + Zoom + tl;dv adapter specs. (#1645) *(@matgren)*
+- 📝 Push notifications and devices modules. (#1746) *(@jtomaszewski)*
+- 📝 Telemetry package with pluggable OTEL backend. (#1747) *(@jtomaszewski)*
 
 ## 👥 Contributors
-
-- @peter
+- @pkarw
+- @vloneskorpion
+- @jtomaszewski
+- @Sawarz
+- @pat-lewczuk
+- @haxiorz
+- @staskolukasz
+- @dominikpalatynski
+- @matgren
+- @WH173-P0NY
+- @marcinwadon
+- @MStaniaszek1998
+- @zielivia
+- @Kamyyylo
 
 ---
 
