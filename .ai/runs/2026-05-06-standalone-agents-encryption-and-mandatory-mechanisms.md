@@ -86,16 +86,16 @@ Plan committed first on `feat/standalone-agents-encryption-and-mandatory-mechani
 
 ### Phase 3: module-scaffold SKILL
 
-- [ ] 3.1 Add Encryption maps subsection + rules + tree entry to `packages/create-app/agentic/shared/ai/skills/module-scaffold/SKILL.md`
+- [x] 3.1 Add Encryption maps subsection + rules + tree entry to `packages/create-app/agentic/shared/ai/skills/module-scaffold/SKILL.md` — e3d168c49
 
 ### Phase 4: data-model-design SKILL
 
-- [ ] 4.1 Add "Sensitive Data and Encryption Maps" section + updated rules + anti-patterns to `packages/create-app/agentic/shared/ai/skills/data-model-design/SKILL.md`
+- [x] 4.1 Add "Sensitive Data and Encryption Maps" section + updated rules + anti-patterns to `packages/create-app/agentic/shared/ai/skills/data-model-design/SKILL.md` — a62bb4bd3
 
 ### Phase 5: Bare-scaffold template AGENTS.md
 
-- [ ] 5.1 Add "Data Encryption" section + "Mandatory Module Mechanisms" callout to `packages/create-app/template/AGENTS.md`
+- [x] 5.1 Add "Data Encryption" section + "Mandatory Module Mechanisms" callout to `packages/create-app/template/AGENTS.md` — 5135747ba
 
 ### Phase 6: Validation gate
 
-- [ ] 6.1 Re-read full diff, run `yarn lint` if present, mark plan and PR body Status: complete
+- [x] 6.1 Re-read full diff, fixed pre-existing numeric anchor in AGENTS.md.template (b977e1128); docs-only run — `yarn lint` is TS-only and does not parse `.md` / `.template` content, so the validation is the manual diff re-read plus frontmatter spot-check.
