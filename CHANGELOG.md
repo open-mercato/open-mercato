@@ -1,14 +1,12 @@
-# Unreleased
-
-## Highlights
-<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
-
----
 
 # 0.6.0 (2026-05-06)
 
 ## Highlights
 Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: AI agents now have a unified runtime and approval flow, MikroORM has moved to v7/Kysely, CRM and navigation screens received another major usability pass, and release engineering now carries forward contributor credits for superseded PRs.
+
+**Note:** Check the `UPGRADE_NOTES.md` as for the Mikro-ORM required upgrade steps for the custom code build before this release; we've provided you with the automation skill for the migration - and it's 100% automatic one, no business logic changes required.
+
+**Note:** The AI Framework is still in the BETA - however the data structures and services won't be changed - so they're upon the BC contract. Feel free  to build something cool, but first - configure the AI service in the `.env` :) 
 
 ## ✨ Features
 - ✨ Realtime messages. (#1590) *(@Sawarz)*
