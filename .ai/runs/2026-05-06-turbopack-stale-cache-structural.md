@@ -112,17 +112,17 @@ None — no `--skill-url` provided.
 
 ### Phase 2: `dev:reset` escape hatch
 
-- [ ] 2.1 Add `apps/mercato/scripts/dev-reset.mjs` + package.json entry
-- [ ] 2.2 Add standalone template `scripts/dev-reset.mjs` + package.json.template entry
+- [x] 2.1 Add `apps/mercato/scripts/dev-reset.mjs` + package.json entry — e14701495
+- [x] 2.2 Add standalone template `scripts/dev-reset.mjs` + package.json.template entry — e14701495
 
 ### Phase 3: Unit tests
 
-- [ ] 3.1 Add `touchGeneratedBarrels` unit tests
+- [x] 3.1 Add `touchGeneratedBarrels` unit tests — 9d0f5ebd2
 
 ### Phase 4: Docs
 
-- [ ] 4.1 Update `packages/cli/AGENTS.md`
-- [ ] 4.2 Update root `AGENTS.md` (structural-cache note + Key Commands)
+- [x] 4.1 Update `packages/cli/AGENTS.md` — b78894e1b
+- [x] 4.2 Update root `AGENTS.md` + standalone template AGENTS.md — b78894e1b
 
 ### Phase 5: Validation gate + PR
 
