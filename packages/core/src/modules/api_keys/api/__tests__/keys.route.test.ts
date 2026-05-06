@@ -50,6 +50,7 @@ const mockDataEngine: MockDataEngine = {
   markOrmEntityChange: jest.fn<void, [QueueEntry | undefined]>(),
   flushOrmEntityChanges: jest.fn<Promise<void>, []>(),
 }
+const mockFindOneWithDecryption = jest.fn()
 const mockRbac: MockRbacService = {
   invalidateUserCache: jest.fn<Promise<void>, [string]>(),
   loadAcl: jest.fn<Promise<MockAcl | null>, [string, { tenantId: string | null; organizationId: string | null }]>(),
@@ -83,6 +84,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
+}))
+
 jest.mock('../../services/apiKeyService', () => {
   const actual = jest.requireActual('../../services/apiKeyService')
   return {
@@ -106,6 +111,8 @@ describe('API Keys route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockDataEngine.__queue.length = 0
+    mockFindOneWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
@@ -228,7 +235,7 @@ describe('API Keys route', () => {
       isSuperAdmin: false,
       features: ['api_keys.create'],
     })
-    mockEm.findOne.mockImplementation(async (entity: unknown) => {
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === RoleAcl) {
         return {
           isSuperAdmin: false,

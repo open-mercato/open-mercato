@@ -214,4 +214,120 @@ describe('role ACL tenant scoping — existence oracle prevention', () => {
     expect(body.error).toContain('Cannot grant feature api_keys.create')
     expect(mockEm.persist).not.toHaveBeenCalled()
   })
+
+  it('PUT rejects superadmin grants from non-superadmin actors', async () => {
+    const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
+    mockRbacService.loadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.acl.manage'],
+      organizations: null,
+    })
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === Role) return role
+      if (ctor === RoleAcl) {
+        return {
+          role,
+          tenantId: ACTOR_TENANT_ID,
+          isSuperAdmin: false,
+          featuresJson: ['auth.acl.manage'],
+          organizationsJson: null,
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(
+      new Request('http://localhost/api/auth/roles/acl', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roleId: ROLE_ID,
+          isSuperAdmin: true,
+          features: ['auth.acl.manage'],
+        }),
+      }),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.error).toContain('super admin')
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+
+  it('PUT rejects global wildcard grants from non-superadmin actors', async () => {
+    const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
+    mockRbacService.loadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.acl.manage'],
+      organizations: null,
+    })
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === Role) return role
+      if (ctor === RoleAcl) {
+        return {
+          role,
+          tenantId: ACTOR_TENANT_ID,
+          isSuperAdmin: false,
+          featuresJson: ['auth.acl.manage'],
+          organizationsJson: null,
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(
+      new Request('http://localhost/api/auth/roles/acl', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roleId: ROLE_ID,
+          features: ['*'],
+        }),
+      }),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.error).toContain('global wildcard')
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+
+  it('PUT rejects organization grants outside the actor scope', async () => {
+    const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
+    mockRbacService.loadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.acl.manage'],
+      organizations: ['org-allowed'],
+    })
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === Role) return role
+      if (ctor === RoleAcl) {
+        return {
+          role,
+          tenantId: ACTOR_TENANT_ID,
+          isSuperAdmin: false,
+          featuresJson: ['auth.acl.manage'],
+          organizationsJson: ['org-allowed'],
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(
+      new Request('http://localhost/api/auth/roles/acl', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roleId: ROLE_ID,
+          features: ['auth.acl.manage'],
+          organizations: ['org-denied'],
+        }),
+      }),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.error).toContain('organization access outside actor scope')
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
 })

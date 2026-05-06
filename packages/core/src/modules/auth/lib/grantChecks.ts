@@ -1,6 +1,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -61,7 +62,13 @@ export async function assertActorCanGrantRoles(input: RoleGrantCheckInput): Prom
       throw forbidden('Cannot grant a role outside the target tenant.')
     }
 
-    const acl = await input.em.findOne(RoleAcl, { role, tenantId } as FilterQuery<RoleAcl>)
+    const acl = await findOneWithDecryption(
+      input.em,
+      RoleAcl,
+      { role, tenantId } as FilterQuery<RoleAcl>,
+      {},
+      { tenantId, organizationId: null },
+    )
     if (!acl) continue
 
     assertActorCanGrantAclSnapshot(actorAcl, {
@@ -142,7 +149,13 @@ async function resolveRoleForGrant(
     ? { id: token, deletedAt: null }
     : { name: token, deletedAt: null }
   if (tenantId) where.tenantId = tenantId
-  return em.findOne(Role, where as FilterQuery<Role>)
+  return findOneWithDecryption(
+    em,
+    Role,
+    where as FilterQuery<Role>,
+    {},
+    { tenantId, organizationId: null },
+  )
 }
 
 function assertActorCanGrantAclSnapshot(

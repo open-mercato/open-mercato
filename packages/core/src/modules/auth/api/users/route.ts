@@ -14,7 +14,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
@@ -435,13 +435,25 @@ async function resolveTargetTenantIdForRoleGrant(
 ): Promise<string | null> {
   const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
   if (organizationId) {
-    const organization = await em.findOne(Organization, { id: organizationId }, { populate: ['tenant'] })
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: organizationId },
+      { populate: ['tenant'] },
+      { tenantId: null, organizationId },
+    )
     return organization?.tenant?.id ? String(organization.tenant.id) : fallbackTenantId
   }
 
   const userId = typeof payload.id === 'string' ? payload.id : null
   if (userId) {
-    const user = await em.findOne(User, { id: userId, deletedAt: null })
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: userId, deletedAt: null },
+      {},
+      { tenantId: null, organizationId: null },
+    )
     return user?.tenantId ? String(user.tenantId) : fallbackTenantId
   }
 
