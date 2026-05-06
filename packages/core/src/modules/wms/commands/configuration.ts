@@ -3,29 +3,27 @@
 // =============================================================================
 //
 // All warehouse / zone / location / inventory-profile / lot CRUD commands in
-// this file are deliberately registered with `isUndoable: false`. Generic
-// command-bus undo is intentionally NOT exposed for these entities because
-// downstream operational data — `inventory_balance`, `inventory_reservation`,
-// and `inventory_movement` rows — references these configuration records.
-// Auto-restoring a deleted warehouse / zone / location does not auto-restore
-// its child structure or live ledger state, and the resulting "undo" could
-// leave the system in a partially-consistent shape (e.g. dangling reservations
-// pointing at a restored warehouse with no zones).
+// this file follow the standard Open Mercato undoable pattern: each handler
+// declares `prepare` (snapshot before), `captureAfter` (snapshot after) and
+// `undo` (restore from snapshot) so the generic command-bus undo flow works
+// out of the box, mirroring `catalog/commands/categories.ts`.
 //
-// Recovery for the affected entities is instead modeled as:
-//   - Soft-deleted records (deletedAt set) — restored via the standard CRUD
-//     restore endpoint or admin tooling. The audit log captures full
-//     before/after via `buildLog`, so all data needed to perform a manual
-//     restore is persisted.
-//   - Mistaken creates — an explicit `delete` command (which itself emits an
-//     audit log + lifecycle event so downstream subscribers can react).
-//   - Mistaken updates — an explicit `update` command with the previous
-//     values pulled from the audit log snapshot.
+// Undo semantics per kind:
+//   - create — undo soft-deletes the created record (`deletedAt = now`).
+//   - update — undo restores all scalar/FK fields from the `before` snapshot;
+//     re-creates the record with the original id if it was hard-deleted.
+//   - delete — undo clears `deletedAt` and restores all fields from snapshot.
 //
-// If a future contributor wants per-record undo for any individual command
-// here, set `isUndoable: true` and add `prepare` / `captureAfter` / `undo`
-// for that specific entity. The audit log already preserves the full
-// before/after snapshot via `buildLog` so the data is available.
+// Notes for downstream consistency:
+//   - Inventory balances / reservations / movements reference these records
+//     by FK. Undo does NOT replay those ledger rows; if a warehouse / zone /
+//     location was deleted while ledger rows still pointed at it, undoing the
+//     delete simply makes those references resolvable again. Live ledger state
+//     itself is not rewound — that is the responsibility of the inventory
+//     mutation commands' counter-actions documented in `inventory-actions.ts`.
+//   - Cascading children (zones inside a warehouse, child locations inside a
+//     parent location) are NOT auto-undone; each affected record needs its own
+//     undo entry. The audit log preserves enough data per-entity for that.
 // =============================================================================
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -34,12 +32,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
 import {
   InventoryLot,
+  type InventoryLotStatus,
   ProductInventoryProfile,
+  type InventoryStrategy,
   Warehouse,
   WarehouseLocation,
+  type WarehouseLocationType,
   WarehouseZone,
 } from '../data/entities'
 import {
@@ -145,6 +147,266 @@ async function loadLot(em: EntityManager, ctx: CommandRuntimeContext, id: string
   ensureTenantScope(ctx, lot.tenantId)
   ensureOrganizationScope(ctx, lot.organizationId)
   return lot
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot types — used by `prepare` / `captureAfter` / `undo` to round-trip
+// the full record through the audit log payload.
+// ---------------------------------------------------------------------------
+
+type WarehouseSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  name: string
+  code: string
+  isActive: boolean
+  addressLine1: string | null
+  city: string | null
+  postalCode: string | null
+  country: string | null
+  timezone: string | null
+  metadata: JsonValue | null
+  createdAt: string
+  updatedAt: string
+}
+
+type WarehouseUndoPayload = { before?: WarehouseSnapshot | null; after?: WarehouseSnapshot | null }
+
+type WarehouseZoneSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  warehouseId: string
+  code: string
+  name: string
+  priority: number
+  metadata: JsonValue | null
+  createdAt: string
+  updatedAt: string
+}
+
+type WarehouseZoneUndoPayload = { before?: WarehouseZoneSnapshot | null; after?: WarehouseZoneSnapshot | null }
+
+type WarehouseLocationSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  warehouseId: string
+  parentId: string | null
+  code: string
+  type: WarehouseLocationType
+  isActive: boolean
+  capacityUnits: string | null
+  capacityWeight: string | null
+  constraints: JsonValue | null
+  metadata: JsonValue | null
+  createdAt: string
+  updatedAt: string
+}
+
+type WarehouseLocationUndoPayload = {
+  before?: WarehouseLocationSnapshot | null
+  after?: WarehouseLocationSnapshot | null
+}
+
+type ProductInventoryProfileSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  catalogProductId: string
+  catalogVariantId: string | null
+  defaultUom: string
+  trackLot: boolean
+  trackSerial: boolean
+  trackExpiration: boolean
+  defaultStrategy: InventoryStrategy
+  reorderPoint: string
+  safetyStock: string
+  metadata: JsonValue | null
+  createdAt: string
+  updatedAt: string
+}
+
+type ProductInventoryProfileUndoPayload = {
+  before?: ProductInventoryProfileSnapshot | null
+  after?: ProductInventoryProfileSnapshot | null
+}
+
+type InventoryLotSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  catalogVariantId: string
+  sku: string
+  lotNumber: string
+  batchNumber: string | null
+  manufacturedAt: string | null
+  bestBeforeAt: string | null
+  expiresAt: string | null
+  status: InventoryLotStatus
+  metadata: JsonValue | null
+  createdAt: string
+  updatedAt: string
+}
+
+type InventoryLotUndoPayload = { before?: InventoryLotSnapshot | null; after?: InventoryLotSnapshot | null }
+
+function isoOrNull(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'string') return value
+  return null
+}
+
+function dateOrNull(value: string | Date | null | undefined): Date | null {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value === 'string') return new Date(value)
+  return null
+}
+
+function snapshotWarehouse(record: Warehouse): WarehouseSnapshot {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    name: record.name,
+    code: record.code,
+    isActive: !!record.isActive,
+    addressLine1: record.addressLine1 ?? null,
+    city: record.city ?? null,
+    postalCode: record.postalCode ?? null,
+    country: record.country ?? null,
+    timezone: record.timezone ?? null,
+    metadata: (record.metadata ?? null) as JsonValue | null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function loadWarehouseSnapshot(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+): Promise<WarehouseSnapshot | null> {
+  const record = await findOneWithDecryption(em, Warehouse, { id }, undefined, resolveScope(ctx))
+  return record ? snapshotWarehouse(record) : null
+}
+
+function snapshotWarehouseZone(record: WarehouseZone): WarehouseZoneSnapshot {
+  const warehouseId = typeof record.warehouse === 'string' ? record.warehouse : record.warehouse.id
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    warehouseId,
+    code: record.code,
+    name: record.name,
+    priority: record.priority ?? 0,
+    metadata: (record.metadata ?? null) as JsonValue | null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function loadWarehouseZoneSnapshot(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+): Promise<WarehouseZoneSnapshot | null> {
+  const record = await findOneWithDecryption(em, WarehouseZone, { id }, undefined, resolveScope(ctx))
+  return record ? snapshotWarehouseZone(record) : null
+}
+
+function snapshotWarehouseLocation(record: WarehouseLocation): WarehouseLocationSnapshot {
+  const warehouseId = typeof record.warehouse === 'string' ? record.warehouse : record.warehouse.id
+  let parentId: string | null = null
+  if (record.parent) {
+    parentId = typeof record.parent === 'string' ? record.parent : record.parent.id
+  }
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    warehouseId,
+    parentId,
+    code: record.code,
+    type: record.type,
+    isActive: !!record.isActive,
+    capacityUnits: record.capacityUnits ?? null,
+    capacityWeight: record.capacityWeight ?? null,
+    constraints: (record.constraints ?? null) as JsonValue | null,
+    metadata: (record.metadata ?? null) as JsonValue | null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function loadWarehouseLocationSnapshot(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+): Promise<WarehouseLocationSnapshot | null> {
+  const record = await findOneWithDecryption(em, WarehouseLocation, { id }, undefined, resolveScope(ctx))
+  return record ? snapshotWarehouseLocation(record) : null
+}
+
+function snapshotInventoryProfile(record: ProductInventoryProfile): ProductInventoryProfileSnapshot {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    catalogProductId: record.catalogProductId,
+    catalogVariantId: record.catalogVariantId ?? null,
+    defaultUom: record.defaultUom,
+    trackLot: !!record.trackLot,
+    trackSerial: !!record.trackSerial,
+    trackExpiration: !!record.trackExpiration,
+    defaultStrategy: record.defaultStrategy,
+    reorderPoint: record.reorderPoint,
+    safetyStock: record.safetyStock,
+    metadata: (record.metadata ?? null) as JsonValue | null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function loadInventoryProfileSnapshot(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+): Promise<ProductInventoryProfileSnapshot | null> {
+  const record = await findOneWithDecryption(em, ProductInventoryProfile, { id }, undefined, resolveScope(ctx))
+  return record ? snapshotInventoryProfile(record) : null
+}
+
+function snapshotInventoryLot(record: InventoryLot): InventoryLotSnapshot {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    catalogVariantId: record.catalogVariantId,
+    sku: record.sku,
+    lotNumber: record.lotNumber,
+    batchNumber: record.batchNumber ?? null,
+    manufacturedAt: isoOrNull(record.manufacturedAt ?? null),
+    bestBeforeAt: isoOrNull(record.bestBeforeAt ?? null),
+    expiresAt: isoOrNull(record.expiresAt ?? null),
+    status: record.status,
+    metadata: (record.metadata ?? null) as JsonValue | null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function loadInventoryLotSnapshot(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+): Promise<InventoryLotSnapshot | null> {
+  const record = await findOneWithDecryption(em, InventoryLot, { id }, undefined, resolveScope(ctx))
+  return record ? snapshotInventoryLot(record) : null
 }
 
 async function ensureWarehouseCodeUnique(
@@ -282,8 +544,6 @@ async function resolveParentLocation(
 
 const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId: string }> = {
   id: 'wms.warehouses.create',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -312,14 +572,37 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
     }).catch(() => undefined)
     return { warehouseId: warehouse.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.create', 'Create warehouse', 'wms.warehouse'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseSnapshot(em, ctx, result.warehouseId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.create', 'Create warehouse', 'wms.warehouse')
+    const after = snapshots?.after as WarehouseSnapshot | undefined
+    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies WarehouseUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = resolveEm(ctx)
+    const record = await em.findOne(Warehouse, { id: after.id })
+    if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId: string }> = {
   id: 'wms.warehouses.update',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Warehouse')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(rawInput, ctx) {
     const parsed = warehouseUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -345,14 +628,64 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
     }).catch(() => undefined)
     return { warehouseId: warehouse.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.update', 'Update warehouse', 'wms.warehouse'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseSnapshot(em, ctx, result.warehouseId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.update', 'Update warehouse', 'wms.warehouse')
+    const before = snapshots?.before as WarehouseSnapshot | undefined
+    const after = snapshots?.after as WarehouseSnapshot | undefined
+    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies WarehouseUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(Warehouse, { id: before.id })
+    if (!record) {
+      record = em.create(Warehouse, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        name: before.name,
+        code: before.code,
+        isActive: before.isActive,
+        addressLine1: before.addressLine1,
+        city: before.city,
+        postalCode: before.postalCode,
+        country: before.country,
+        timezone: before.timezone,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      record.name = before.name
+      record.code = before.code
+      record.isActive = before.isActive
+      record.addressLine1 = before.addressLine1
+      record.city = before.city
+      record.postalCode = before.postalCode
+      record.country = before.country
+      record.timezone = before.timezone
+      record.metadata = before.metadata
+      record.deletedAt = null
+    }
+    await em.flush()
+  },
 }
 
 const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: string }> = {
   id: 'wms.warehouses.delete',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Warehouse')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(input, ctx) {
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
@@ -361,14 +694,81 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     await em.flush()
     return { warehouseId: warehouse.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.delete', 'Delete warehouse', 'wms.warehouse'),
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.delete', 'Delete warehouse', 'wms.warehouse')
+    const before = snapshots?.before as WarehouseSnapshot | undefined
+    return { ...base, snapshotBefore: before, payload: { undo: { before } satisfies WarehouseUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(Warehouse, { id: before.id })
+    if (!record) {
+      record = em.create(Warehouse, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        name: before.name,
+        code: before.code,
+        isActive: before.isActive,
+        addressLine1: before.addressLine1,
+        city: before.city,
+        postalCode: before.postalCode,
+        country: before.country,
+        timezone: before.timezone,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      record.deletedAt = null
+      record.name = before.name
+      record.code = before.code
+      record.isActive = before.isActive
+      record.addressLine1 = before.addressLine1
+      record.city = before.city
+      record.postalCode = before.postalCode
+      record.country = before.country
+      record.timezone = before.timezone
+      record.metadata = before.metadata
+    }
+    await em.flush()
+  },
+}
+
+async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneSnapshot): Promise<void> {
+  const warehouseRef = await em.findOne(Warehouse, { id: before.warehouseId })
+  if (!warehouseRef) {
+    throw new CrudHttpError(409, { error: 'Cannot undo zone: parent warehouse no longer exists.' })
+  }
+  let record = await em.findOne(WarehouseZone, { id: before.id })
+  if (!record) {
+    record = em.create(WarehouseZone, {
+      id: before.id,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+      warehouse: warehouseRef,
+      code: before.code,
+      name: before.name,
+      priority: before.priority,
+      metadata: before.metadata,
+    })
+    em.persist(record)
+  } else {
+    record.warehouse = warehouseRef
+    record.code = before.code
+    record.name = before.name
+    record.priority = before.priority
+    record.metadata = before.metadata
+    record.deletedAt = null
+  }
 }
 
 const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zoneId: string }> = {
   id: 'wms.zones.create',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseZoneCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -395,14 +795,37 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
     }).catch(() => undefined)
     return { zoneId: zone.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.create', 'Create warehouse zone', 'wms.zone'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseZoneSnapshot(em, ctx, result.zoneId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.create', 'Create warehouse zone', 'wms.zone')
+    const after = snapshots?.after as WarehouseZoneSnapshot | undefined
+    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies WarehouseZoneUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseZoneUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = resolveEm(ctx)
+    const record = await em.findOne(WarehouseZone, { id: after.id })
+    if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zoneId: string }> = {
   id: 'wms.zones.update',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Zone')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseZoneSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(rawInput, ctx) {
     const parsed = warehouseZoneUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -429,14 +852,36 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     }).catch(() => undefined)
     return { zoneId: zone.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.update', 'Update warehouse zone', 'wms.zone'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseZoneSnapshot(em, ctx, result.zoneId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.update', 'Update warehouse zone', 'wms.zone')
+    const before = snapshots?.before as WarehouseZoneSnapshot | undefined
+    const after = snapshots?.after as WarehouseZoneSnapshot | undefined
+    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies WarehouseZoneUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseZoneUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    await restoreZoneFromSnapshot(em, before)
+    await em.flush()
+  },
 }
 
 const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: string }> = {
   id: 'wms.zones.delete',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Zone')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseZoneSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(input, ctx) {
     const zoneId = requireId(input?.id, 'Zone')
     const em = resolveEm(ctx)
@@ -445,14 +890,68 @@ const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: stri
     await em.flush()
     return { zoneId: zone.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.delete', 'Delete warehouse zone', 'wms.zone'),
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.zoneId ?? null, 'wms.audit.zone.delete', 'Delete warehouse zone', 'wms.zone')
+    const before = snapshots?.before as WarehouseZoneSnapshot | undefined
+    return { ...base, snapshotBefore: before, payload: { undo: { before } satisfies WarehouseZoneUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseZoneUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    await restoreZoneFromSnapshot(em, before)
+    await em.flush()
+  },
+}
+
+async function restoreLocationFromSnapshot(em: EntityManager, before: WarehouseLocationSnapshot): Promise<void> {
+  const warehouseRef = await em.findOne(Warehouse, { id: before.warehouseId })
+  if (!warehouseRef) {
+    throw new CrudHttpError(409, { error: 'Cannot undo location: parent warehouse no longer exists.' })
+  }
+  let parentRef: WarehouseLocation | null = null
+  if (before.parentId) {
+    parentRef = await em.findOne(WarehouseLocation, { id: before.parentId })
+    // Parent may have been deleted independently — fall back to root level
+    // rather than blocking the undo (the audit log still records the original
+    // parent id for manual reconciliation).
+  }
+  let record = await em.findOne(WarehouseLocation, { id: before.id })
+  if (!record) {
+    record = em.create(WarehouseLocation, {
+      id: before.id,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+      warehouse: warehouseRef,
+      parent: parentRef,
+      code: before.code,
+      type: before.type,
+      isActive: before.isActive,
+      capacityUnits: before.capacityUnits,
+      capacityWeight: before.capacityWeight,
+      constraints: before.constraints,
+      metadata: before.metadata,
+    })
+    em.persist(record)
+  } else {
+    record.warehouse = warehouseRef
+    record.parent = parentRef
+    record.code = before.code
+    record.type = before.type
+    record.isActive = before.isActive
+    record.capacityUnits = before.capacityUnits
+    record.capacityWeight = before.capacityWeight
+    record.constraints = before.constraints
+    record.metadata = before.metadata
+    record.deletedAt = null
+  }
 }
 
 const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInput, { locationId: string }> = {
   id: 'wms.locations.create',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = warehouseLocationCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -484,14 +983,37 @@ const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInpu
     }).catch(() => undefined)
     return { locationId: location.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.create', 'Create warehouse location', 'wms.location'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseLocationSnapshot(em, ctx, result.locationId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.create', 'Create warehouse location', 'wms.location')
+    const after = snapshots?.after as WarehouseLocationSnapshot | undefined
+    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies WarehouseLocationUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseLocationUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = resolveEm(ctx)
+    const record = await em.findOne(WarehouseLocation, { id: after.id })
+    if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateWarehouseLocationCommand: CommandHandler<WarehouseLocationUpdateInput, { locationId: string }> = {
   id: 'wms.locations.update',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Location')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseLocationSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(rawInput, ctx) {
     const parsed = warehouseLocationUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -524,14 +1046,36 @@ const updateWarehouseLocationCommand: CommandHandler<WarehouseLocationUpdateInpu
     }).catch(() => undefined)
     return { locationId: location.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.update', 'Update warehouse location', 'wms.location'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadWarehouseLocationSnapshot(em, ctx, result.locationId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.update', 'Update warehouse location', 'wms.location')
+    const before = snapshots?.before as WarehouseLocationSnapshot | undefined
+    const after = snapshots?.after as WarehouseLocationSnapshot | undefined
+    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies WarehouseLocationUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseLocationUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    await restoreLocationFromSnapshot(em, before)
+    await em.flush()
+  },
 }
 
 const deleteWarehouseLocationCommand: CommandHandler<{ id?: string }, { locationId: string }> = {
   id: 'wms.locations.delete',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Location')
+    const em = resolveEm(ctx)
+    const before = await loadWarehouseLocationSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(input, ctx) {
     const locationId = requireId(input?.id, 'Location')
     const em = resolveEm(ctx)
@@ -540,14 +1084,39 @@ const deleteWarehouseLocationCommand: CommandHandler<{ id?: string }, { location
     await em.flush()
     return { locationId: location.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.delete', 'Delete warehouse location', 'wms.location'),
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.locationId ?? null, 'wms.audit.location.delete', 'Delete warehouse location', 'wms.location')
+    const before = snapshots?.before as WarehouseLocationSnapshot | undefined
+    return { ...base, snapshotBefore: before, payload: { undo: { before } satisfies WarehouseLocationUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<WarehouseLocationUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    await restoreLocationFromSnapshot(em, before)
+    await em.flush()
+  },
+}
+
+function restoreInventoryProfileFromSnapshot(em: EntityManager, before: ProductInventoryProfileSnapshot, record: ProductInventoryProfile): void {
+  record.catalogProductId = before.catalogProductId
+  record.catalogVariantId = before.catalogVariantId
+  record.defaultUom = before.defaultUom
+  record.trackLot = before.trackLot
+  record.trackSerial = before.trackSerial
+  record.trackExpiration = before.trackExpiration
+  record.defaultStrategy = before.defaultStrategy
+  record.reorderPoint = before.reorderPoint
+  record.safetyStock = before.safetyStock
+  record.metadata = before.metadata
+  record.deletedAt = null
 }
 
 const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileCreateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.create',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = productInventoryProfileCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -579,14 +1148,37 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     }).catch(() => undefined)
     return { profileId: profile.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.create', 'Create inventory profile', 'wms.inventoryProfile'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadInventoryProfileSnapshot(em, ctx, result.profileId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.create', 'Create inventory profile', 'wms.inventoryProfile')
+    const after = snapshots?.after as ProductInventoryProfileSnapshot | undefined
+    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies ProductInventoryProfileUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ProductInventoryProfileUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = resolveEm(ctx)
+    const record = await em.findOne(ProductInventoryProfile, { id: after.id })
+    if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileUpdateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.update',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Inventory profile')
+    const em = resolveEm(ctx)
+    const before = await loadInventoryProfileSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(rawInput, ctx) {
     const parsed = productInventoryProfileUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -624,14 +1216,56 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     }).catch(() => undefined)
     return { profileId: profile.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.update', 'Update inventory profile', 'wms.inventoryProfile'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadInventoryProfileSnapshot(em, ctx, result.profileId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.update', 'Update inventory profile', 'wms.inventoryProfile')
+    const before = snapshots?.before as ProductInventoryProfileSnapshot | undefined
+    const after = snapshots?.after as ProductInventoryProfileSnapshot | undefined
+    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies ProductInventoryProfileUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ProductInventoryProfileUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(ProductInventoryProfile, { id: before.id })
+    if (!record) {
+      record = em.create(ProductInventoryProfile, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        catalogProductId: before.catalogProductId,
+        catalogVariantId: before.catalogVariantId,
+        defaultUom: before.defaultUom,
+        trackLot: before.trackLot,
+        trackSerial: before.trackSerial,
+        trackExpiration: before.trackExpiration,
+        defaultStrategy: before.defaultStrategy,
+        reorderPoint: before.reorderPoint,
+        safetyStock: before.safetyStock,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      restoreInventoryProfileFromSnapshot(em, before, record)
+    }
+    await em.flush()
+  },
 }
 
 const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { profileId: string }> = {
   id: 'wms.inventoryProfiles.delete',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Inventory profile')
+    const em = resolveEm(ctx)
+    const before = await loadInventoryProfileSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(input, ctx) {
     const profileId = requireId(input?.id, 'Inventory profile')
     const em = resolveEm(ctx)
@@ -640,14 +1274,58 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
     await em.flush()
     return { profileId: profile.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.delete', 'Delete inventory profile', 'wms.inventoryProfile'),
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.profileId ?? null, 'wms.audit.inventoryProfile.delete', 'Delete inventory profile', 'wms.inventoryProfile')
+    const before = snapshots?.before as ProductInventoryProfileSnapshot | undefined
+    return { ...base, snapshotBefore: before, payload: { undo: { before } satisfies ProductInventoryProfileUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ProductInventoryProfileUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(ProductInventoryProfile, { id: before.id })
+    if (!record) {
+      record = em.create(ProductInventoryProfile, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        catalogProductId: before.catalogProductId,
+        catalogVariantId: before.catalogVariantId,
+        defaultUom: before.defaultUom,
+        trackLot: before.trackLot,
+        trackSerial: before.trackSerial,
+        trackExpiration: before.trackExpiration,
+        defaultStrategy: before.defaultStrategy,
+        reorderPoint: before.reorderPoint,
+        safetyStock: before.safetyStock,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      restoreInventoryProfileFromSnapshot(em, before, record)
+    }
+    await em.flush()
+  },
+}
+
+function restoreInventoryLotFromSnapshot(_em: EntityManager, before: InventoryLotSnapshot, record: InventoryLot): void {
+  record.catalogVariantId = before.catalogVariantId
+  record.sku = before.sku
+  record.lotNumber = before.lotNumber
+  record.batchNumber = before.batchNumber
+  record.manufacturedAt = dateOrNull(before.manufacturedAt)
+  record.bestBeforeAt = dateOrNull(before.bestBeforeAt)
+  record.expiresAt = dateOrNull(before.expiresAt)
+  record.status = before.status
+  record.metadata = before.metadata
+  record.deletedAt = null
 }
 
 const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId: string }> = {
   id: 'wms.lots.create',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = inventoryLotCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
@@ -670,14 +1348,37 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
     await em.persist(lot).flush()
     return { lotId: lot.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.create', 'Create inventory lot', 'wms.inventoryLot'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadInventoryLotSnapshot(em, ctx, result.lotId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.create', 'Create inventory lot', 'wms.inventoryLot')
+    const after = snapshots?.after as InventoryLotSnapshot | undefined
+    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies InventoryLotUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InventoryLotUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = resolveEm(ctx)
+    const record = await em.findOne(InventoryLot, { id: after.id })
+    if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId: string }> = {
   id: 'wms.lots.update',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Inventory lot')
+    const em = resolveEm(ctx)
+    const before = await loadInventoryLotSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(rawInput, ctx) {
     const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
@@ -711,14 +1412,55 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     await em.flush()
     return { lotId: lot.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.update', 'Update inventory lot', 'wms.inventoryLot'),
+  captureAfter: async (_input, result, ctx) => {
+    const em = resolveEm(ctx)
+    return loadInventoryLotSnapshot(em, ctx, result.lotId)
+  },
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.update', 'Update inventory lot', 'wms.inventoryLot')
+    const before = snapshots?.before as InventoryLotSnapshot | undefined
+    const after = snapshots?.after as InventoryLotSnapshot | undefined
+    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies InventoryLotUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InventoryLotUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(InventoryLot, { id: before.id })
+    if (!record) {
+      record = em.create(InventoryLot, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        catalogVariantId: before.catalogVariantId,
+        sku: before.sku,
+        lotNumber: before.lotNumber,
+        batchNumber: before.batchNumber,
+        manufacturedAt: dateOrNull(before.manufacturedAt),
+        bestBeforeAt: dateOrNull(before.bestBeforeAt),
+        expiresAt: dateOrNull(before.expiresAt),
+        status: before.status,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      restoreInventoryLotFromSnapshot(em, before, record)
+    }
+    await em.flush()
+  },
 }
 
 const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string }> = {
   id: 'wms.lots.delete',
-  // See "WMS Configuration Commands — Undo Policy" at top of file.
-  isUndoable: false,
+  prepare: async (input, ctx) => {
+    const id = requireId(input?.id, 'Inventory lot')
+    const em = resolveEm(ctx)
+    const before = await loadInventoryLotSnapshot(em, ctx, id)
+    return before ? { before } : {}
+  },
   async execute(input, ctx) {
     const lotId = requireId(input?.id, 'Inventory lot')
     const em = resolveEm(ctx)
@@ -727,8 +1469,40 @@ const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string
     await em.flush()
     return { lotId: lot.id }
   },
-  buildLog: async ({ input, result, ctx }) =>
-    buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.delete', 'Delete inventory lot', 'wms.inventoryLot'),
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const base = await buildCrudLog(ctx, input, result?.lotId ?? null, 'wms.audit.lot.delete', 'Delete inventory lot', 'wms.inventoryLot')
+    const before = snapshots?.before as InventoryLotSnapshot | undefined
+    return { ...base, snapshotBefore: before, payload: { undo: { before } satisfies InventoryLotUndoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InventoryLotUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = resolveEm(ctx)
+    let record = await em.findOne(InventoryLot, { id: before.id })
+    if (!record) {
+      record = em.create(InventoryLot, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        catalogVariantId: before.catalogVariantId,
+        sku: before.sku,
+        lotNumber: before.lotNumber,
+        batchNumber: before.batchNumber,
+        manufacturedAt: dateOrNull(before.manufacturedAt),
+        bestBeforeAt: dateOrNull(before.bestBeforeAt),
+        expiresAt: dateOrNull(before.expiresAt),
+        status: before.status,
+        metadata: before.metadata,
+      })
+      em.persist(record)
+    } else {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      restoreInventoryLotFromSnapshot(em, before, record)
+    }
+    await em.flush()
+  },
 }
 
 registerCommand(createWarehouseCommand)
