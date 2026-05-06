@@ -170,17 +170,18 @@ function assertActorCanGrantAclSnapshot(
     throw forbidden('Only super administrators can grant super admin access.')
   }
 
+  const actorGrantableFeatures = actorAcl.features.filter((grant) => grant !== '*')
   for (const feature of requested.features) {
     if (feature === '*') {
       throw forbidden('Only super administrators can grant global wildcard access.')
     }
     if (isWildcardFeature(feature)) {
-      if (!actorAcl.features.includes(feature)) {
+      if (!hasFeature(actorGrantableFeatures, feature)) {
         throw forbidden(`Cannot grant feature wildcard ${feature}.`)
       }
       continue
     }
-    if (!hasFeature(actorAcl.features.filter((grant) => grant !== '*'), feature)) {
+    if (!hasFeature(actorGrantableFeatures, feature)) {
       throw forbidden(`Cannot grant feature ${feature}.`)
     }
   }

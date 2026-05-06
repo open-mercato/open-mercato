@@ -429,6 +429,41 @@ describe('GET /api/auth/users', () => {
     expect(body.isSuperAdmin).toBe(true)
   })
 
+  test('allows assigning a role whose wildcard ACL is covered by actor wildcard ACL', async () => {
+    const employeeRoleId = '323e4567-e89b-12d3-a456-426614174776'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.create', 'example.*'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Organization) return { id: organizationId, tenant: { id: tenantId } }
+      if (entity === Role) return { id: employeeRoleId, name: 'employee', tenantId }
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: false,
+          featuresJson: ['example.widgets.*'],
+          organizationsJson: null,
+          tenantId,
+        }
+      }
+      return null
+    })
+
+    const response = await POST(new Request('http://localhost/api/auth/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'employee-create@example.com',
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [employeeRoleId],
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+  })
+
   test('rejects limited users assigning a role whose ACL grants features outside the actor ACL', async () => {
     const privilegedRoleId = '323e4567-e89b-12d3-a456-426614174777'
     mockLoadAcl.mockResolvedValueOnce({
