@@ -83,7 +83,6 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🐛 Keep organization switcher in topbar at all viewport widths (#1795). (#1798) *(@pkarw)*
 
 ## 🛠️ Improvements
-<<<<<<< HEAD
 - 🛠️ Memoize Tabs context value to prevent consumer re-renders (#1409). (#1610) *(@pkarw)*
 - 🛠️ Lazy-load heavy libraries for schedule, markdown, and API docs (#1408). (#1615) *(@pkarw)*
 - 🛠️ Eliminate N+1 queries in user listing and role validation (#1398). (#1613) *(@pkarw)*
