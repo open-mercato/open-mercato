@@ -166,11 +166,14 @@ export function generateShared(config: AgenticConfig): void {
     'auto-review-pr',
     'auto-fix-github',
   ]) {
+    if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
+      continue
+    }
     copyFile(
       `ai/skills/${autoSkill}/SKILL.md`,
       join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
     )
-    if (existsSync(join(AI_DIR, 'skills', autoSkill, 'STANDALONE.md'))) {
+    if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
       copyFile(
         `ai/skills/${autoSkill}/STANDALONE.md`,
         join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),

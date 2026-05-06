@@ -17,7 +17,8 @@
         "create-agents-md",
         "skill-creator",
         "fix-specs",
-        "migrate-mikro-orm"
+        "migrate-mikro-orm",
+        "create-ai-agent"
       ]
     },
     "automation": {
