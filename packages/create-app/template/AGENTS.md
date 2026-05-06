@@ -388,7 +388,7 @@ yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId
 
 Notes:
 
-- Toggling the **Encrypted** flag on a custom field via the admin UI only applies to data written *after* the change. Backfill historical rows with `yarn mercato entities encrypt-database` (and `decrypt-database` to roll back).
+- Toggling the **Encrypted** flag on a custom field via the admin UI only applies to data written *after* the change. Backfill historical plaintext rows with `yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>` (without `--old-key` it only encrypts plaintext and skips already-encrypted fields). Use `yarn mercato entities decrypt-database` to roll back.
 - The `vector` module stores raw embeddings unencrypted in the vector store — treat embeddings as sensitive even when the source text is encrypted.
 - Env switches: `TENANT_DATA_ENCRYPTION` (default `yes`), `TENANT_DATA_ENCRYPTION_DEBUG`, Vault (`VAULT_ADDR` / `VAULT_TOKEN` / `VAULT_KV_PATH`), and dev fallback (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`).
 

@@ -43,8 +43,6 @@ Verify the spec is aligned with all relevant AGENTS rules and internally consist
 | ... | ... | ... | ... |
 ```
 
-> When the spec is for a **standalone-app** project (`create-mercato-app`), substitute the rule sources for the standalone canon: `packages/create-app/agentic/shared/AGENTS.md.template` → Mandatory Mechanisms (canonical-primitives table) and `Critical Rule #11` (encryption maps); `packages/create-app/agentic/shared/ai/skills/data-model-design/SKILL.md` → Sensitive Data and Encryption Maps (§ 8); `packages/create-app/agentic/shared/ai/skills/module-scaffold/SKILL.md` → Encryption maps (§ 11); `packages/create-app/agentic/shared/ai/skills/backend-ui-design/SKILL.md` (DS guidance). The MUST rules carry over verbatim.
-
 ## Report Format
 
 ```markdown
