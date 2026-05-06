@@ -40,6 +40,13 @@ yarn generate              # Run all generators
 
 `yarn generate` now performs a best-effort post-step structural cache purge by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
 
+The structural cache purge does two things:
+
+1. Deletes Redis cache keys matching `nav:*` so navigation/sidebar caches are rebuilt next render.
+2. Touches every `*.generated.ts` and `*.generated.checksum` file in the current app's `.mercato/generated/` directory by rewriting them with identical bytes. This advances mtime without changing content, which forces Turbopack's filesystem watcher to invalidate the import graph and recompile leaf files that imported a barrel. Without this, Turbopack can keep serving a cached compile error against a since-fixed module file until the dev server is restarted.
+
+The dev escape hatch is `yarn dev:reset`, which clears `.next/cache/turbopack` and `.next/cache/webpack` for the rare case where Turbopack's internal cache stays stuck after a structural purge.
+
 ## Database Migrations
 
 Module-scoped migrations using MikroORM:

@@ -269,7 +269,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `yarn generate` after adding/modifying module files
-- Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache can hide structural changes until it is purged
+- Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache and stale Turbopack module-graph fingerprints can both hide structural changes until they are purged. The structural command purges `nav:*` Redis keys and bumps mtimes on `.mercato/generated/*.generated.{ts,checksum}` so Turbopack re-evaluates the import graph without a dev-server restart. If Turbopack still serves a stale compiled chunk after that, run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
 - New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
 - AI agents: put definitions in `<module>/ai-agents.ts` and run `yarn generate`. Every agent declares `moduleId`, `label`, `executionMode`, `requiredFeatures`, `allowedTools`, `mutationPolicy`, and `defaultModel` (optional). See `packages/ai-assistant/AGENTS.md` and `/framework/ai-assistant/agents`.
 - AI-driven mutations MUST go through `prepareMutation(...)` + pending-action approval; never write directly inside a mutation tool handler — the runtime fails closed if the approval contract is bypassed.
@@ -347,6 +347,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 ```bash
 yarn dev                  # Start compact dev runtime; press `d` to toggle raw logs
 yarn dev:verbose          # Start dev runtime with full raw passthrough logs
+yarn dev:reset            # Clear .next/cache/turbopack when Turbopack serves stale chunks
 yarn dev:app              # Start compact app-only runtime
 yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything

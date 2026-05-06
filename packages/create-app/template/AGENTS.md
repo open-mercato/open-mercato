@@ -62,8 +62,11 @@ mercato test coverage
 # Generate code from modules
 yarn generate
 
-# Manually purge structural navigation/sidebar caches when needed
+# Manually purge structural caches when needed (Redis nav:* + Turbopack barrel mtimes)
 yarn mercato configs cache structural --all-tenants
+
+# Escape hatch: clear .next/cache/turbopack when Turbopack still serves a stale chunk
+yarn dev:reset
 
 # Database operations
 yarn db:generate    # Generate/probe migrations; keep or write only scoped SQL and update the touched snapshot
@@ -400,6 +403,8 @@ Notes:
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
+
+The structural cache purge invalidates two layers: Redis `nav:*` cache keys and Turbopack's module-graph fingerprints (it bumps mtimes on every file in `.mercato/generated/` without changing content). When Turbopack still serves a stale compiled chunk after a structural change — typically because its own internal cache pinned a previous compile error — run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
 
 Detail/read-model APIs that expose `customFields` must return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 
