@@ -289,6 +289,7 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
+          NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
           OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
@@ -354,9 +355,15 @@ jobs:
 
       - name: Run integration tests
         env:
-          BASE_URL: http://localhost:3001
           OM_TEST_APP_ROOT: /tmp/standalone-app
+          BASE_URL: http://localhost:3001
+          DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL: http://localhost:3001
+          NEXT_PUBLIC_APP_URL: http://localhost:3001
+          JWT_SECRET: ci-standalone-test-jwt-secret
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
         run: yarn test:integration
 
