@@ -106,9 +106,9 @@ None — no `--skill-url` provided.
 
 ### Phase 1: Generator-side touch helper
 
-- [ ] 1.1 Add `touchGeneratedBarrels` helper module
-- [ ] 1.2 Wire helper into `runStructuralCachePurge`
-- [ ] 1.3 Verify `yarn mercato configs cache help` still passes
+- [x] 1.1 Add `touchGeneratedBarrels` helper module — eb7ee11e5
+- [x] 1.2 Wire helper into `runStructuralCachePurge` — eb7ee11e5
+- [x] 1.3 Verify `yarn mercato configs cache help` still passes — eb7ee11e5
 
 ### Phase 2: `dev:reset` escape hatch
 
