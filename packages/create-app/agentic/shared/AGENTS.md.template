@@ -51,7 +51,8 @@ step, you WILL produce incorrect imports and miss required patterns.
 | Add caching | `.ai/guides/cache.md` |
 | Add background workers | `.ai/guides/queue.md` |
 | Use i18n (translations) | `.ai/guides/shared.md` → i18n |
-| Use encrypted queries | `.ai/guides/shared.md` → Encryption |
+| Use encrypted queries (read sensitive columns) | `.ai/guides/shared.md` → Encryption |
+| **Encrypt sensitive / GDPR-relevant fields** ("we need this column encrypted", "store this securely", "this is PII", "GDPR", "encryption at rest", addresses, contact info, free-text notes about people, integration credentials, secrets) — declare them in the framework's encryption-maps mechanism, never hand-rolled AES/KMS | `.ai/skills/data-model-design/SKILL.md` → Sensitive Data and Encryption Maps, then `.ai/skills/module-scaffold/SKILL.md` → Encryption maps. Reference: <https://docs.openmercato.dev/user-guide/encryption> |
 | Use apiCall / UI components | `.ai/guides/ui.md` |
 | Add permissions (RBAC) | `.ai/guides/core.md` → Access Control |
 | Add notifications | `.ai/guides/core.md` → Notifications |
@@ -128,7 +129,8 @@ src/modules/<id>/
 ├── ce.ts                 # Custom entities / custom field sets
 ├── translations.ts       # Translatable fields per entity
 ├── notifications.ts      # Notification type definitions
-└── notifications.client.ts  # Client-side notification renderers
+├── notifications.client.ts  # Client-side notification renderers
+└── encryption.ts         # Tenant data encryption maps (defaultEncryptionMaps) for sensitive / GDPR fields
 ```
 
 Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
