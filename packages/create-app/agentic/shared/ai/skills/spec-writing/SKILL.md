@@ -61,8 +61,8 @@ Use the [Specification Template](references/spec-template.md). Adapt if needed, 
 4. **Undo Contract**: Is the "Undo" logic as detailed as the "Execute"?
 5. **Module Isolation**: Using Event Bus for side effects or cheating with direct imports?
 6. **Canonical Mechanisms**: Does the spec reach for the framework primitives (`makeCrudRoute`, `<CrudForm>`, `<DataTable>`, `apiCall` / `useGuardedMutation`, DI-resolved cache, `createModuleEvents`) or invent its own substitute? See `AGENTS.md` → **Mandatory Module Mechanisms** for the full canon and links. No raw `fetch`, no raw `<form>`, no `new Redis(...)`, no manual cross-module ORM joins.
-7. **Sensitive Data**: For every PII / GDPR / address / contact / free-text-about-people / integration-credential column the spec proposes, does it declare an `encryption.ts` `defaultEncryptionMaps` entry and route reads through `findWithDecryption`? See `AGENTS.md` → "Data Encryption (sensitive / GDPR-relevant fields)" and `.ai/skills/data-model-design/SKILL.md` § Sensitive Data and Encryption Maps. No hand-rolled AES, no `crypto.subtle`, no "TODO encrypt later".
-8. **Design System**: Does every UI mock / className snippet in the spec match the DS canon — semantic status tokens (no `text-red-*` / `bg-green-*`), Tailwind text scale (no `text-[11px]` / `text-[13px]`), shared primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage` / `Spinner` / `DataLoader`, `EmptyState`), lucide-react icons in page body (never inline `<svg>`), dialog `Cmd/Ctrl+Enter` submit + `Escape` cancel, `aria-label` on every icon-only button? See `AGENTS.md` → "Design System (Strict — applies to every UI change)" and `.ai/skills/backend-ui-design/SKILL.md`. Specs that touch existing pages MUST honour the Boy Scout rule.
+7. **Sensitive Data**: For every PII / GDPR / address / contact / free-text-about-people / integration-credential column the spec proposes, does it declare an `encryption.ts` `defaultEncryptionMaps` entry and route reads through `findWithDecryption`? See `AGENTS.md` → CRITICAL Rule #11 (Encryption maps) + the "Encryption maps for sensitive data" row of the Mandatory Module Mechanisms table and `.ai/skills/data-model-design/SKILL.md` § Sensitive Data and Encryption Maps. No hand-rolled AES, no `crypto.subtle`, no "TODO encrypt later".
+8. **Design System**: Does every UI mock / className snippet in the spec match the DS canon — semantic status tokens (no `text-red-*` / `bg-green-*`), Tailwind text scale (no `text-[11px]` / `text-[13px]`), shared primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage` / `Spinner` / `DataLoader`, `EmptyState`), lucide-react icons in page body (never inline `<svg>`), dialog `Cmd/Ctrl+Enter` submit + `Escape` cancel, `aria-label` on every icon-only button? See `AGENTS.md` → CRITICAL Rule #10 (Strict Design System alignment for every UI change) and `.ai/skills/backend-ui-design/SKILL.md`. Specs that touch existing pages MUST honour the Boy Scout rule.
 
 ## Quick Rule Reference
 
@@ -79,7 +79,7 @@ Use the [Specification Template](references/spec-template.md). Adapt if needed, 
 
 - [Spec Template](references/spec-template.md)
 - [Spec Checklist](references/spec-checklist.md) — § 3 covers encryption maps; § 5 covers canonical mechanisms + DS
-- [AGENTS.md](../../../AGENTS.md) — Mandatory Module Mechanisms, Data Encryption, Design System sections
+- [AGENTS.md](../../../AGENTS.md) — Mandatory Module Mechanisms table; CRITICAL Rule #10 (Design System); CRITICAL Rule #11 (Encryption maps)
 - [`.ai/skills/data-model-design/SKILL.md`](../data-model-design/SKILL.md) → Sensitive Data and Encryption Maps
 - [`.ai/skills/module-scaffold/SKILL.md`](../module-scaffold/SKILL.md) → Encryption maps
 - [`.ai/skills/backend-ui-design/SKILL.md`](../backend-ui-design/SKILL.md) — DS-compliant pages

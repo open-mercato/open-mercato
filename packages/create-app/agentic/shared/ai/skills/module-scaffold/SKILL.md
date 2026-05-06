@@ -348,7 +348,7 @@ export const metadata = {
 
 ```tsx
 'use client'
-import { CrudForm } from '@open-mercato/ui/backend/crud'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export default function Create<Entity>Page() {
@@ -386,7 +386,7 @@ export const metadata = {
 
 ```tsx
 'use client'
-import { CrudForm } from '@open-mercato/ui/backend/crud'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export default function Edit<Entity>Page({ params }: { params: { id: string } }) {

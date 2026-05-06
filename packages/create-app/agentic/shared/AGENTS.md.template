@@ -135,7 +135,7 @@ src/modules/<id>/
 
 Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 
-## Mandatory Mechanisms (every module MUST use these — no DIY substitutes)
+## Mandatory Module Mechanisms (every module MUST use these — no DIY substitutes)
 
 When the user asks to **create a new application** or a **new module**, do not invent your own routing, auth, persistence, forms, or caching. The framework provides one canonical primitive for each concern. If a feature is not on this list and not in the Task → Context Map, ask before adding it — do not roll your own.
 
@@ -146,7 +146,7 @@ When the user asks to **create a new application** or a **new module**, do not i
 | **Frontend public pages** | Auto-discovered files under `src/modules/<id>/frontend/**`. Customer portal pages live under `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` in `page.meta.ts` | `.ai/guides/ui.md` → Portal Extension; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | **API routes** | Files under `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi`. NEVER write a top-level `export const requireAuth` — the registry no longer recognises it | `.ai/guides/core.md` → API Routes; <https://docs.open-mercato.dev/framework/api/api-development-guide> |
 | **CRUD APIs (factory)** | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/make-crud-route`. Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success | `.ai/skills/module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
-| **CRUD forms in admin** | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/crud` — never raw `<form>`, never raw `fetch`. Use `createCrud` / `updateCrud` / `deleteCrud` and `createCrudFormError` for validation errors | `.ai/skills/backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
+| **CRUD forms in admin** | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>`, never raw `fetch` | `.ai/skills/backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
 | **DataTables in admin** | `<DataTable entityId apiPath title columns />` from `@open-mercato/ui/backend/DataTable`. Keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, bulk actions, filters, toolbar) keeps working | `.ai/skills/backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
 | **Authorization (RBAC)** | Declare features in `<module>/acl.ts`, grant them in `<module>/setup.ts` `defaultRoleFeatures`, gate pages and routes with `requireFeatures` in `metadata` / `page.meta.ts`. NEVER use `requireRoles` (role names mutate). Run `yarn mercato auth sync-role-acls` after adding new features | `.ai/guides/core.md` → Access Control; <https://docs.open-mercato.dev/framework/rbac/overview> |
 | **Multi-tenant scoping (default for every entity)** | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id` columns and every read/write MUST filter by them. The CRUD factory injects scope automatically — do NOT bypass it. For ad-hoc queries use `withScopedPayload` from `@open-mercato/shared/lib/api/scoped` | `.ai/skills/data-model-design/SKILL.md`; <https://docs.open-mercato.dev/architecture/system-overview> |
@@ -188,7 +188,7 @@ When the user asks to **create a new application** or a **new module**, do not i
 12. **BEFORE writing ANY code**, you MUST:
    - Match your task against the **Task → Context Map** above
    - `Read` every file listed in the "Load" column for your task type
-   - Read the **Mandatory Mechanisms** section above to confirm which canonical primitives apply (CRUD factory, CrudForm, DataTable, RBAC, multi-tenant scoping, encryption maps, cache, events) — do not invent your own substitutes
+   - Read the **Mandatory Module Mechanisms** section above to confirm which canonical primitives apply (CRUD factory, CrudForm, DataTable, RBAC, multi-tenant scoping, encryption maps, cache, events) — do not invent your own substitutes
    - Only then proceed to implementation
    - If your task matches multiple rows, load ALL listed files
    - **Do NOT skip this step.** The guides contain canonical import paths, required patterns, and conventions that CANNOT be reliably inferred from existing code alone. Skipping leads to wrong imports, missing conventions, and rework.
@@ -227,7 +227,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 // CRUD forms
-import { CrudForm, createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/crud'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 // UI components (MUST use — never raw <button>)
