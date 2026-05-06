@@ -74,6 +74,9 @@ Refer to [Spec Review Checklist](references/spec-checklist.md).
 3.  **Singularity Law**: Does the spec use `pos.carts` (FAIL) or `pos.cart` (PASS)?
 4.  **Undo Contract**: How is the state reversed? Is the "Undo" logic as detailed as the "Execute"?
 5.  **Module Isolation**: Are we using Event Bus for side effects or cheating with direct imports?
+6.  **Canonical Mechanisms**: Does the spec reach for the framework primitives (`makeCrudRoute`, `CrudForm`, `DataTable`, `apiCall` / `useGuardedMutation`, DI-resolved cache, `createModuleEvents`) or invent its own substitute? See `packages/core/AGENTS.md` → API Routes / Module Setup, `packages/ui/AGENTS.md` → CrudForm / DataTable, `packages/cache/AGENTS.md`, `packages/events/AGENTS.md`. For standalone-app specs, the same canon is summarised in `packages/create-app/agentic/shared/AGENTS.md.template` → Mandatory Mechanisms.
+7.  **Sensitive Data**: For every PII / GDPR / address / contact / free-text-about-people / integration-credential column the spec proposes, does it declare an `encryption.ts` `defaultEncryptionMaps` entry and route reads through `findWithDecryption`? See `packages/core/AGENTS.md` → Encryption and `apps/docs/docs/user-guide/encryption.mdx`. No hand-rolled AES, no `crypto.subtle`, no "TODO encrypt later".
+8.  **Design System**: Does every UI mock / className snippet in the spec match the DS canon — semantic status tokens (no `text-red-*` / `bg-green-*`), Tailwind text scale (no `text-[11px]` / `text-[13px]`), shared primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage` / `Spinner` / `DataLoader`, `EmptyState`), lucide-react icons in page body (never inline `<svg>`), dialog `Cmd/Ctrl+Enter` submit and `Escape` cancel, `aria-label` on every icon-only button? See `.ai/ds-rules.md` (foundations), `.ai/ui-components.md` (component reference), `packages/ui/AGENTS.md` (workflow), and the root `AGENTS.md` → Design System Rules. Specs that touch existing pages MUST honour the Boy Scout rule (migrate touched lines to semantic tokens).
 
 ## Quick Rule Reference
 
@@ -82,10 +85,14 @@ Refer to [Spec Review Checklist](references/spec-checklist.md).
 - **Organization ID** is mandatory for all scoped entities.
 - **Undoability** is the default for state changes.
 - **Zod validation** for all API inputs.
+- **Encryption maps** for every sensitive / GDPR-relevant column (declare in `<module>/encryption.ts`, read via `findWithDecryption`) — see `packages/core/AGENTS.md` → Encryption.
+- **Canonical primitives** for CRUD APIs (`makeCrudRoute`), backend forms (`CrudForm`), tables (`DataTable`), HTTP (`apiCall` — never raw `fetch`), non-`CrudForm` writes (`useGuardedMutation`), cache (DI-resolved `@open-mercato/cache`), events (`createModuleEvents`) — see the matching rows in root `AGENTS.md` Task Router.
+- **Design System** tokens and shared UI primitives — see `.ai/ds-rules.md` and `.ai/ui-components.md`. No hardcoded status colors, no arbitrary text sizes, no inline `<svg>` in page-body UI.
 
 ## Reference Materials
 
-- [Spec Review Checklist](references/spec-checklist.md)
-- [Final Compliance Review](references/compliance-review.md)
+- [Spec Review Checklist](references/spec-checklist.md) — § 3 Data & Security covers encryption maps; § 5 API/UI covers Mandatory Mechanisms + Design System
+- [Final Compliance Review](references/compliance-review.md) — sample matrix calls out encryption-maps, CRUD factory, and DS-rules MUSTs
 - [Specification Template](references/spec-template.md)
-- [Root AGENTS.md](../../../AGENTS.md)
+- [Root AGENTS.md](../../../AGENTS.md) — Task Router rows for every canonical primitive listed above
+- [`.ai/ds-rules.md`](../../ds-rules.md), [`.ai/ui-components.md`](../../ui-components.md) — Design System foundations and component reference
