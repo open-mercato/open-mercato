@@ -77,12 +77,12 @@ Plan committed first on `feat/standalone-agents-encryption-and-mandatory-mechani
 
 ### Phase 1: Plan + worktree
 
-- [ ] 1.1 Draft and commit execution plan on a fresh `feat/` branch in an isolated worktree
+- [x] 1.1 Draft and commit execution plan on a fresh `feat/` branch in an isolated worktree — 07a92a276
 
 ### Phase 2: Agentic standalone AGENTS.md
 
-- [ ] 2.1 Add "Encrypt sensitive data" task row + Module Anatomy `encryption.ts` entry to `packages/create-app/agentic/shared/AGENTS.md.template`
-- [ ] 2.2 Add "Mandatory Mechanisms" section + Critical Rule for encryption maps to `packages/create-app/agentic/shared/AGENTS.md.template`
+- [x] 2.1 Add "Encrypt sensitive data" task row + Module Anatomy `encryption.ts` entry to `packages/create-app/agentic/shared/AGENTS.md.template` — f31fd7f76
+- [x] 2.2 Add "Mandatory Mechanisms" section + Critical Rule for encryption maps to `packages/create-app/agentic/shared/AGENTS.md.template` — d158348ee
 
 ### Phase 3: module-scaffold SKILL
 
