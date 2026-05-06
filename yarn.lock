@@ -5527,67 +5527,67 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mikro-orm/core@npm:^7.0.13":
-  version: 7.0.13
-  resolution: "@mikro-orm/core@npm:7.0.13"
+"@mikro-orm/core@npm:^7.0.14":
+  version: 7.0.14
+  resolution: "@mikro-orm/core@npm:7.0.14"
   peerDependencies:
     dataloader: 2.2.3
   peerDependenciesMeta:
     dataloader:
       optional: true
-  checksum: 10/31fe32e85120b21f74fd1c4dee16dd7dec546a7668fdadd676dc4f148cae79b8365c0948f14bf1ba534150a1d3b493d9736d73e065583597a4a4946b3f9432c3
+  checksum: 10/286d4f79f474eae6e12db957080622d9ab74acb91c687c0f5bd6672b94db8893e9f4cb244b64ba2b060e65ae9c01254ebb3f456ab810c4dc669025a8d777aea8
   languageName: node
   linkType: hard
 
-"@mikro-orm/decorators@npm:^7.0.13":
-  version: 7.0.13
-  resolution: "@mikro-orm/decorators@npm:7.0.13"
+"@mikro-orm/decorators@npm:^7.0.14":
+  version: 7.0.14
+  resolution: "@mikro-orm/decorators@npm:7.0.14"
   peerDependencies:
-    "@mikro-orm/core": 7.0.13
+    "@mikro-orm/core": 7.0.14
     reflect-metadata: ^0.1.0 || ^0.2.0
   peerDependenciesMeta:
     reflect-metadata:
       optional: true
-  checksum: 10/ac13c9629e5cca9a1f05550b1da0aa2514ed943aaded3a21cea91da4d0a07f81b714644772ac2c48db81da8ffdda17309f4e343cf7628321a24a2a369d417206
+  checksum: 10/617064cb40b2afdae72547b2a162b9b8a0a1254a4435ffbf255cd67b5ad1eada8ed772391cbae0ce143cda33d9c0479e4c2b2cd9ebcd046bb526470dae0c852c
   languageName: node
   linkType: hard
 
-"@mikro-orm/migrations@npm:^7.0.13":
-  version: 7.0.13
-  resolution: "@mikro-orm/migrations@npm:7.0.13"
+"@mikro-orm/migrations@npm:^7.0.14":
+  version: 7.0.14
+  resolution: "@mikro-orm/migrations@npm:7.0.14"
   dependencies:
-    "@mikro-orm/sql": "npm:7.0.13"
+    "@mikro-orm/sql": "npm:7.0.14"
   peerDependencies:
-    "@mikro-orm/core": 7.0.13
-  checksum: 10/7f362acd8b05116cd317ab2d17452787f005029b30e80dc5698e2c32925aad06cb120ce62ba816e155a3fa97a6f5f07cd1dbfc7c2d91dcb202d3a607d7fa6b3d
+    "@mikro-orm/core": 7.0.14
+  checksum: 10/dd633fe39ac4b10627905e7be6ccb930fa07521eea6cda94bc3f29318a3733c883aa22526ebeea73e14304a2965ceb08e1f26e460f36471fd60382f1f779a0b3
   languageName: node
   linkType: hard
 
-"@mikro-orm/postgresql@npm:^7.0.13":
-  version: 7.0.13
-  resolution: "@mikro-orm/postgresql@npm:7.0.13"
+"@mikro-orm/postgresql@npm:^7.0.14":
+  version: 7.0.14
+  resolution: "@mikro-orm/postgresql@npm:7.0.14"
   dependencies:
-    "@mikro-orm/sql": "npm:7.0.13"
-    kysely: "npm:0.28.16"
+    "@mikro-orm/sql": "npm:7.0.14"
+    kysely: "npm:0.28.17"
     pg: "npm:8.20.0"
     pg-cursor: "npm:2.19.0"
     postgres-array: "npm:3.0.4"
     postgres-date: "npm:2.1.0"
     postgres-interval: "npm:4.0.2"
   peerDependencies:
-    "@mikro-orm/core": 7.0.13
-  checksum: 10/885e8299d28b0080c8253548d78a938260545354380fcc3cd10f5555dcf321600006ea2f535b795aa488d37462969f4d010c1eaf57559b1d929638e0076d272e
+    "@mikro-orm/core": 7.0.14
+  checksum: 10/a372e7dc47d4a703fcf8255a46b75a64e8dea5a0e423a0715be15655ebe320931ca1dfe76ff36a6f4c0107d999366e9364097455fbe0e641210cbeaf61af70e7
   languageName: node
   linkType: hard
 
-"@mikro-orm/sql@npm:7.0.13":
-  version: 7.0.13
-  resolution: "@mikro-orm/sql@npm:7.0.13"
+"@mikro-orm/sql@npm:7.0.14":
+  version: 7.0.14
+  resolution: "@mikro-orm/sql@npm:7.0.14"
   dependencies:
-    kysely: "npm:0.28.16"
+    kysely: "npm:0.28.17"
   peerDependencies:
-    "@mikro-orm/core": 7.0.13
-  checksum: 10/357f90da86dca9bd2549ec6b5a892b975115ee0b0c4d3f4a3bbb7321588d308d650a8b9d079ccfc870b78e51da41a8e6a01af2276a482e3a356276343ff90007
+    "@mikro-orm/core": 7.0.14
+  checksum: 10/796a16ee389164a826b354c3fc7a643e2b64968415a136fe50befe9696509104f7491d70fb94b80fd81f70b4b1a93dbc29d591c15eb2dbea148873aef609975b
   languageName: node
   linkType: hard
 
@@ -6307,10 +6307,10 @@ __metadata:
   resolution: "@open-mercato/app@workspace:apps/mercato"
   dependencies:
     "@ai-sdk/openai": "npm:^3.0.53"
-    "@mikro-orm/core": "npm:^7.0.13"
-    "@mikro-orm/decorators": "npm:^7.0.13"
-    "@mikro-orm/migrations": "npm:^7.0.13"
-    "@mikro-orm/postgresql": "npm:^7.0.13"
+    "@mikro-orm/core": "npm:^7.0.14"
+    "@mikro-orm/decorators": "npm:^7.0.14"
+    "@mikro-orm/migrations": "npm:^7.0.14"
+    "@mikro-orm/postgresql": "npm:^7.0.14"
     "@napi-rs/canvas": "npm:^0.1.100"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
@@ -6423,7 +6423,7 @@ __metadata:
     jest: "npm:^30.3.0"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
-    "@mikro-orm/postgresql": ^7.0.13
+    "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
   languageName: unknown
@@ -6433,10 +6433,10 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/cli@workspace:packages/cli"
   dependencies:
-    "@mikro-orm/core": "npm:^7.0.13"
-    "@mikro-orm/decorators": "npm:^7.0.13"
-    "@mikro-orm/migrations": "npm:^7.0.13"
-    "@mikro-orm/postgresql": "npm:^7.0.13"
+    "@mikro-orm/core": "npm:^7.0.14"
+    "@mikro-orm/decorators": "npm:^7.0.14"
+    "@mikro-orm/migrations": "npm:^7.0.14"
+    "@mikro-orm/postgresql": "npm:^7.0.14"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
@@ -6473,9 +6473,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
-    "@mikro-orm/core": "npm:^7.0.13"
-    "@mikro-orm/decorators": "npm:^7.0.13"
-    "@mikro-orm/postgresql": "npm:^7.0.13"
+    "@mikro-orm/core": "npm:^7.0.14"
+    "@mikro-orm/decorators": "npm:^7.0.14"
+    "@mikro-orm/postgresql": "npm:^7.0.14"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@testing-library/dom": "npm:^10.4.1"
@@ -6556,7 +6556,7 @@ __metadata:
     stripe: "npm:^22.1.0"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
-    "@mikro-orm/postgresql": ^7.0.13
+    "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
   languageName: unknown
@@ -6605,7 +6605,7 @@ __metadata:
     jest: "npm:^30.3.0"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
-    "@mikro-orm/core": ^7.0.13
+    "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     bullmq: ^5.0.0
     ioredis: ^5.0.0
@@ -6646,9 +6646,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/shared@workspace:packages/shared"
   dependencies:
-    "@mikro-orm/core": "npm:^7.0.13"
-    "@mikro-orm/decorators": "npm:^7.0.13"
-    "@mikro-orm/postgresql": "npm:^7.0.13"
+    "@mikro-orm/core": "npm:^7.0.14"
+    "@mikro-orm/decorators": "npm:^7.0.14"
+    "@mikro-orm/postgresql": "npm:^7.0.14"
     "@open-mercato/cache": "npm:0.6.0"
     "@types/jest": "npm:^30.0.0"
     "@types/sanitize-html": "npm:^2.16.1"
@@ -6676,7 +6676,7 @@ __metadata:
     node-html-markdown: "npm:^2.0.0"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
-    "@mikro-orm/postgresql": ^7.0.13
+    "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
@@ -6730,7 +6730,7 @@ __metadata:
     jest: "npm:^30.3.0"
     ts-jest: "npm:^29.4.9"
   peerDependencies:
-    "@mikro-orm/postgresql": ^7.0.13
+    "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
@@ -18971,10 +18971,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"kysely@npm:0.28.16":
-  version: 0.28.16
-  resolution: "kysely@npm:0.28.16"
-  checksum: 10/d0dffee9158a62103f61559588fffd7b34e01a1adf4f054599c3be50c10c6357cda09de456a931fd7eba6502cbb8804710805bbd56e6d94b19633e043cde3e31
+"kysely@npm:0.28.17":
+  version: 0.28.17
+  resolution: "kysely@npm:0.28.17"
+  checksum: 10/50690d745016d25f09574fe58c7e31f84427845497f30c84280131bc1f9f60d118c53640a184e225708a1f54f2b54ac12fdf3a0dfc6405527487ad96ff594f42
   languageName: node
   linkType: hard
 
@@ -21467,10 +21467,10 @@ __metadata:
   dependencies:
     "@ai-sdk/openai": "npm:^3.0.53"
     "@eslint/eslintrc": "npm:^3.3.5"
-    "@mikro-orm/core": "npm:^7.0.13"
-    "@mikro-orm/decorators": "npm:^7.0.13"
-    "@mikro-orm/migrations": "npm:^7.0.13"
-    "@mikro-orm/postgresql": "npm:^7.0.13"
+    "@mikro-orm/core": "npm:^7.0.14"
+    "@mikro-orm/decorators": "npm:^7.0.14"
+    "@mikro-orm/migrations": "npm:^7.0.14"
+    "@mikro-orm/postgresql": "npm:^7.0.14"
     "@napi-rs/canvas": "npm:^0.1.100"
     "@playwright/test": "npm:^1.59.1"
     "@radix-ui/react-checkbox": "npm:^1.3.3"

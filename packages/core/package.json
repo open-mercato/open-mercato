@@ -223,9 +223,9 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.0.13",
-    "@mikro-orm/decorators": "^7.0.13",
-    "@mikro-orm/postgresql": "^7.0.13",
+    "@mikro-orm/core": "^7.0.14",
+    "@mikro-orm/decorators": "^7.0.14",
+    "@mikro-orm/postgresql": "^7.0.14",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.168",
     "date-fns": "^4.1.0",
