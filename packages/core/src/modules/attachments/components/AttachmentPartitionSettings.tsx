@@ -67,8 +67,10 @@ const STORAGE_DRIVER_OPTIONS = [
   { value: 's3', label: 'Amazon S3 / S3-compatible' },
 ]
 
+const OCR_MODEL_DEFAULT_VALUE = '__default__'
+
 const OCR_MODEL_OPTIONS = [
-  { value: '', label: 'Default (from environment)' },
+  { value: OCR_MODEL_DEFAULT_VALUE, label: 'Default (from environment)' },
   { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, Lower Cost)' },
 ]
@@ -450,8 +452,13 @@ export function AttachmentPartitionSettings() {
                   {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
                 </Label>
                 <Select
-                  value={form.ocrModel || undefined}
-                  onValueChange={(value) => setForm((prev) => ({ ...prev, ocrModel: value ?? '' }))}
+                  value={form.ocrModel ? form.ocrModel : OCR_MODEL_DEFAULT_VALUE}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      ocrModel: value === OCR_MODEL_DEFAULT_VALUE ? '' : value,
+                    }))
+                  }
                 >
                   <SelectTrigger id="partition-ocr-model">
                     <SelectValue />
@@ -459,7 +466,12 @@ export function AttachmentPartitionSettings() {
                   <SelectContent>
                     {OCR_MODEL_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
-                        {t(`attachments.partitions.form.ocrModelOptions.${option.value || 'default'}`, option.label)}
+                        {t(
+                          `attachments.partitions.form.ocrModelOptions.${
+                            option.value === OCR_MODEL_DEFAULT_VALUE ? 'default' : option.value
+                          }`,
+                          option.label,
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
