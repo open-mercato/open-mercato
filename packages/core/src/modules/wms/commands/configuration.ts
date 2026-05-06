@@ -658,6 +658,8 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
         country: before.country,
         timezone: before.timezone,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
@@ -719,6 +721,8 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
         country: before.country,
         timezone: before.timezone,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
@@ -755,6 +759,8 @@ async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneS
       name: before.name,
       priority: before.priority,
       metadata: before.metadata,
+      createdAt: new Date(before.createdAt),
+      updatedAt: new Date(before.updatedAt),
     })
     em.persist(record)
   } else {
@@ -934,6 +940,8 @@ async function restoreLocationFromSnapshot(em: EntityManager, before: WarehouseL
       capacityWeight: before.capacityWeight,
       constraints: before.constraints,
       metadata: before.metadata,
+      createdAt: new Date(before.createdAt),
+      updatedAt: new Date(before.updatedAt),
     })
     em.persist(record)
   } else {
@@ -1247,6 +1255,8 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
         reorderPoint: before.reorderPoint,
         safetyStock: before.safetyStock,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
@@ -1300,6 +1310,8 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
         reorderPoint: before.reorderPoint,
         safetyStock: before.safetyStock,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
@@ -1442,6 +1454,8 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
         expiresAt: dateOrNull(before.expiresAt),
         status: before.status,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
@@ -1494,6 +1508,8 @@ const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string
         expiresAt: dateOrNull(before.expiresAt),
         status: before.status,
         metadata: before.metadata,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     } else {
