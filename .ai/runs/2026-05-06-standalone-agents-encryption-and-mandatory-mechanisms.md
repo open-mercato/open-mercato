@@ -107,18 +107,16 @@ Plan committed first on `feat/standalone-agents-encryption-and-mandatory-mechani
 
 The user pointed out a follow-up gap: the spec-writing / spec-checklist / compliance-review files do not require specs to address the encryption-maps mechanism, the Mandatory Module Mechanisms canon (CRUD factory, CrudForm, DataTable, `apiCall`, `useGuardedMutation`, cache via DI, events via `createModuleEvents`), or the Design System token rules (no hardcoded `text-red-*` / `bg-green-*`, no arbitrary sizes like `text-[11px]`, mandatory `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `EmptyState`, lucide-react in page body, dialog `Cmd/Ctrl+Enter` / `Escape`, icon-only button `aria-label`). Specs that pass review today can still ship hand-rolled crypto, raw `<form>`, and hardcoded Tailwind status colors. Fix by extending the checklists and SKILL pointers in both monorepo and standalone trees — references only, no copy-paste.
 
-- [ ] 7.1 Extend monorepo `.ai/skills/spec-writing/SKILL.md` Quick Rule Reference + Review Heuristics with encryption-maps, Mandatory Mechanisms, and Design System pointers
-- [ ] 7.2 Extend monorepo `.ai/skills/spec-writing/references/spec-checklist.md` (Data & Security § 3, API/UI § 5) with explicit checkboxes for encryption maps, CRUD factory, CrudForm/DataTable host pattern, `apiCall` / `useGuardedMutation`, DS tokens / shared UI primitives, dialog keyboard contract, lucide page-body icons
-- [ ] 7.3 Extend monorepo `.ai/skills/spec-writing/references/compliance-review.md` Compliance Matrix template with rows showing encryption maps, DS rules, and CRUD factory MUSTs
-- [ ] 7.4 Extend standalone `packages/create-app/agentic/shared/ai/skills/spec-writing/SKILL.md` Quick Rule Reference + Review Heuristics with the same pointers (linking to the AGENTS.md.template Mandatory Mechanisms section + `data-model-design`/`module-scaffold`/`backend-ui-design` SKILLs in this PR rather than duplicating prose)
-- [ ] 7.5 Extend standalone `packages/create-app/agentic/shared/ai/skills/spec-writing/references/spec-checklist.md` § 3 + § 5 + new § 6 with the same checkbox additions, pointing at the standalone canon
+- [x] 7.1 Extend monorepo `.ai/skills/spec-writing/SKILL.md` Quick Rule Reference + Review Heuristics with encryption-maps, Mandatory Mechanisms, and Design System pointers — 4dda05fcc
+- [x] 7.2 Extend monorepo `.ai/skills/spec-writing/references/spec-checklist.md` (Data & Security § 3, API/UI § 5) with explicit checkboxes for encryption maps, CRUD factory, CrudForm/DataTable host pattern, `apiCall` / `useGuardedMutation`, DS tokens / shared UI primitives, dialog keyboard contract, lucide page-body icons — 832bcc2d5
+- [x] 7.3 Extend monorepo `.ai/skills/spec-writing/references/compliance-review.md` Compliance Matrix template with rows showing encryption maps, DS rules, and CRUD factory MUSTs (plus a footnote remapping rule sources for standalone-app specs) — a9e8a198f
+- [x] 7.4 + 7.5 Mirror the encryption-maps + canonical-mechanisms + DS guidance into standalone `packages/create-app/agentic/shared/ai/skills/spec-writing/SKILL.md` and `references/spec-checklist.md`, pointing at the standalone canon (`AGENTS.md` Mandatory Mechanisms / Data Encryption / Design System sections + the in-repo `data-model-design` / `module-scaffold` / `backend-ui-design` SKILLs) — 95d366aa7
 
 ### Phase 8: implement-spec / pre-implement-spec (monorepo + standalone)
 
-- [ ] 8.1 Extend monorepo `.ai/skills/implement-spec/SKILL.md` Step-2 inline review table + Step-6 self-review enumeration with rows for `Encryption maps`, `CRUD factory (makeCrudRoute)`, `Cache (DI-resolved)`, `Design System` (link to root AGENTS.md "Design System Rules" + `.ai/ds-rules.md` + `.ai/ui-components.md`)
-- [ ] 8.2 Extend standalone `packages/create-app/agentic/shared/ai/skills/implement-spec/SKILL.md` Step-2 inline review table with the same rows, linking to the standalone canon
-- [ ] 8.3 Extend monorepo `.ai/skills/pre-implement-spec/SKILL.md` Phase 4 AGENTS.md Compliance with explicit encryption-maps + DS + CRUD-factory + cache-via-DI + shared-UI-primitives compliance items (standalone tree has no pre-implement-spec — skip)
+- [x] 8.1 + 8.2 Add `Encryption maps`, `CRUD APIs`, `Cache`, `Design System` rows to the inline review table in both `.ai/skills/implement-spec/SKILL.md` and `packages/create-app/agentic/shared/ai/skills/implement-spec/SKILL.md` — ee5564de7
+- [x] 8.3 Extend monorepo `.ai/skills/pre-implement-spec/SKILL.md` Phase 4 with the same encryption-maps + canonical-mechanisms + Design System compliance items (standalone tree has no pre-implement-spec — confirmed; mirroring not required) — d9fe6f3ab
 
 ### Phase 9: Validation + push
 
-- [ ] 9.1 Re-read all spec-skill diffs, confirm each new checkbox links to a real file/section that exists in this PR or in the existing tree, push, post follow-up comment on PR #1817
+- [x] 9.1 Audited every new file path / section reference against the worktree (root + standalone trees) — all 23 cited paths exist; pushed all Phase 7-8 commits to `feat/standalone-agents-encryption-and-mandatory-mechanisms`
