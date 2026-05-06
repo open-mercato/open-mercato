@@ -56,11 +56,11 @@ describe('PhoneNumberField', () => {
     expect(screen.queryByText('Use an international phone number.')).not.toBeInTheDocument()
   })
 
-  it('hides the blur-time validation hint when an external field error is present', () => {
+  it('renders an external field error instead of the blur-time validation hint', () => {
     render(
       <PhoneFieldHarness
         invalidLabel="Use an international phone number."
-        externalError="Use an international phone number."
+        externalError="Server says the phone is invalid."
       />,
     )
 
@@ -68,6 +68,8 @@ describe('PhoneNumberField', () => {
     fireEvent.change(input, { target: { value: '12345' } })
     fireEvent.blur(input)
 
+    expect(screen.getByText('Server says the phone is invalid.')).toBeInTheDocument()
     expect(screen.queryByText('Use an international phone number.')).not.toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
   })
 })

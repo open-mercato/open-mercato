@@ -28,7 +28,7 @@
   "customers.activities.card.overdue": "{count} overdue",
   "customers.activities.card.title": "Activities",
   "customers.activities.errors.dateRequired": "Date is required",
-  "customers.activities.errors.phoneInvalid": "Enter a valid phone number",
+  "customers.activities.errors.phoneInvalid": "Enter a valid phone number with country code (e.g. +1 212 555 1234)",
   "customers.activities.errors.phoneRequired": "Phone number is required for Call activities",
   "customers.activities.errors.timeRequired": "Time is required",
   "customers.activities.filters.clearAll": "Clear filters",

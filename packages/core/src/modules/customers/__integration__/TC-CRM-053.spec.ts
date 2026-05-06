@@ -222,4 +222,44 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
+
+  test('Schedule Activity dialog shows inline phone validation instead of a generic save failure (#1808)', async ({ page, request }) => {
+    test.slow()
+
+    let token: string | null = null
+    let companyId: string | null = null
+    const stamp = Date.now()
+    const phoneError = 'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-053f Co ${stamp}`)
+
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, {
+        waitUntil: 'domcontentloaded',
+      })
+
+      const activityTab = page.getByRole('tab', { name: /Activity log/i })
+      await expect(activityTab).toBeVisible({ timeout: 30_000 })
+      await activityTab.click()
+
+      const addNewTrigger = page.getByRole('button', { name: /^Add new$/ })
+      await expect(addNewTrigger).toBeVisible({ timeout: 30_000 })
+      await addNewTrigger.click()
+
+      const logCallItem = page.getByRole('button', { name: /Log call/i }).first()
+      await expect(logCallItem).toBeVisible({ timeout: 15_000 })
+      await logCallItem.click()
+
+      await page.getByPlaceholder('Activity title...').fill(`QA TC-CRM-053f call ${stamp}`)
+      await page.getByLabel('Phone number').fill('not-a-phone')
+      await page.getByRole('button', { name: /^Log call$/ }).click()
+
+      await expect(page.getByText(phoneError).first()).toBeVisible({ timeout: 10_000 })
+      await expect(page.getByText('Failed to schedule activity')).toHaveCount(0)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
 })

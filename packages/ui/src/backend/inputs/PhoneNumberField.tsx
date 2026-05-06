@@ -11,12 +11,15 @@ export type PhoneDuplicateMatch = {
 }
 
 export type PhoneNumberFieldProps = {
+  id?: string
   value?: string | null
   onValueChange: (next: string | undefined) => void
   onDigitsChange?: (digits: string | null) => void
   externalError?: string | null
   disabled?: boolean
   autoFocus?: boolean
+  ariaLabel?: string
+  ariaDescribedBy?: string
   placeholder?: string
   minDigits?: number
   checkingLabel?: string
@@ -30,12 +33,15 @@ const DEFAULT_MIN_DIGITS = 6
 const DEFAULT_INVALID_LABEL = 'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
 
 export function PhoneNumberField({
+  id,
   value,
   onValueChange,
   onDigitsChange,
   externalError,
   disabled = false,
   autoFocus,
+  ariaLabel,
+  ariaDescribedBy,
   placeholder,
   minDigits = DEFAULT_MIN_DIGITS,
   checkingLabel,
@@ -52,7 +58,10 @@ export function PhoneNumberField({
   const [checking, setChecking] = React.useState(false)
   const [validationHint, setValidationHint] = React.useState<string | null>(null)
   const userEditingRef = React.useRef(false)
-  const visibleValidationHint = externalError ? null : validationHint
+  const externalFieldError = externalError && externalError.trim().length > 0 ? externalError : null
+  const errorMessage = externalFieldError ?? validationHint
+  const errorId = errorMessage && id ? `${id}-error` : undefined
+  const describedBy = [ariaDescribedBy, errorId].filter((part): part is string => Boolean(part)).join(' ') || undefined
 
   React.useEffect(() => {
     if (userEditingRef.current) return
@@ -145,10 +154,14 @@ export function PhoneNumberField({
         placeholder={placeholder}
         autoFocus={autoFocus}
         disabled={disabled}
+        id={id}
+        aria-label={ariaLabel}
+        aria-describedby={describedBy}
+        aria-invalid={errorMessage ? 'true' : undefined}
         data-crud-focus-target=""
       />
-      {visibleValidationHint ? (
-        <p className="text-xs text-destructive">{visibleValidationHint}</p>
+      {errorMessage ? (
+        <p id={errorId} className="text-xs text-destructive">{errorMessage}</p>
       ) : null}
       {!disabled && duplicate && duplicateLabel && duplicateLinkLabel ? (
         <p className="text-xs text-amber-600">

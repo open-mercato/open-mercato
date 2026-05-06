@@ -28,7 +28,7 @@
   "customers.activities.card.overdue": "{count} zaległych",
   "customers.activities.card.title": "Aktywności",
   "customers.activities.errors.dateRequired": "Data jest wymagana",
-  "customers.activities.errors.phoneInvalid": "Wprowadź prawidłowy numer telefonu",
+  "customers.activities.errors.phoneInvalid": "Wprowadź prawidłowy numer telefonu z numerem kierunkowym kraju (np. +48 123 456 789)",
   "customers.activities.errors.phoneRequired": "Numer telefonu jest wymagany dla aktywności typu Połączenie",
   "customers.activities.errors.timeRequired": "Godzina jest wymagana",
   "customers.activities.filters.clearAll": "Clear filters",

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
@@ -50,6 +51,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCheckoutLinkRecord(record: CheckoutLinkTemplate | CheckoutLink): record is CheckoutLink {
   return typeof (record as { slug?: unknown }).slug === 'string'
+}
+
+function normalizeMaybeStringifiedJsonObject(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value
+  if (typeof value !== 'string') return {}
+
+  const parsed = parseDecryptedFieldValue(value)
+  return isRecord(parsed) ? parsed : {}
 }
 
 export function pickExplicitParsedOverrides<TInput extends Record<string, unknown>>(
@@ -455,8 +464,8 @@ export function serializeTransaction(record: CheckoutTransaction, link?: Checkou
     paymentStatus: record.paymentStatus ?? null,
     gatewayTransactionId: record.gatewayTransactionId ?? null,
     selectedPriceItemId: record.selectedPriceItemId ?? null,
-    acceptedLegalConsents: includePii ? (record.acceptedLegalConsents ?? {}) : null,
-    customerData: includePii ? (record.customerData ?? {}) : null,
+    acceptedLegalConsents: includePii ? normalizeMaybeStringifiedJsonObject(record.acceptedLegalConsents) : null,
+    customerData: includePii ? normalizeMaybeStringifiedJsonObject(record.customerData) : null,
     firstName: includePii ? (record.firstName ?? null) : null,
     lastName: includePii ? (record.lastName ?? null) : null,
     email: includePii ? (record.email ?? null) : null,

@@ -28,7 +28,7 @@
   "customers.activities.card.overdue": "{count} vencidas",
   "customers.activities.card.title": "Actividades",
   "customers.activities.errors.dateRequired": "La fecha es obligatoria",
-  "customers.activities.errors.phoneInvalid": "Introduce un número de teléfono válido",
+  "customers.activities.errors.phoneInvalid": "Introduce un número de teléfono válido con prefijo internacional (p. ej., +34 912 345 678)",
   "customers.activities.errors.phoneRequired": "El número de teléfono es obligatorio para actividades de llamada",
   "customers.activities.errors.timeRequired": "La hora es obligatoria",
   "customers.activities.filters.clearAll": "Clear filters",

@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   getBundle,
   getIntegration,
@@ -14,6 +15,18 @@ import { IntegrationCredentials } from '../data/entities'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
 const DERIVED_KEY_CONTEXT = 'integrations.credentials'
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeCredentialsRecord(value: unknown): Record<string, unknown> {
+  if (isRecordValue(value)) return value
+  if (typeof value !== 'string') return {}
+
+  const parsed = parseDecryptedFieldValue(value)
+  return isRecordValue(parsed) ? parsed : {}
+}
 
 function resolveFallbackEncryptionSecret(): string {
   const candidates = [
@@ -100,9 +113,10 @@ export function createCredentialsService(em: EntityManager) {
   }
 
   async function decryptCredentialsBlob(
-    credentials: Record<string, unknown>,
+    credentialsInput: unknown,
     scope: IntegrationScope,
   ): Promise<Record<string, unknown>> {
+    const credentials = normalizeCredentialsRecord(credentialsInput)
     const encrypted = credentials[ENCRYPTED_CREDENTIALS_BLOB_KEY]
     if (typeof encrypted !== 'string' || !encrypted) return credentials
 
