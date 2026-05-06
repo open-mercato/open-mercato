@@ -41,8 +41,9 @@ Before writing any code, ask the developer:
    - [ ] Background workers
    - [ ] CLI commands
    - [ ] Custom fields support
+   - [ ] **Sensitive / GDPR-relevant fields** (PII, contact info, addresses, free-text notes about people, integration credentials, secrets) — if yes, an `encryption.ts` declaring `defaultEncryptionMaps` is mandatory; see section 11 → Encryption maps
 
-If the developer provides a brief description, infer reasonable defaults and confirm.
+If the developer provides a brief description, infer reasonable defaults and confirm. When key fields include names, emails, phones, addresses, free-text comments, or external API keys, treat the encryption checkbox as `yes` by default and confirm with the user rather than skipping it silently.
 
 ---
 
@@ -57,6 +58,7 @@ src/modules/<module_id>/
 ├── setup.ts                    # Tenant init, role features
 ├── di.ts                       # Awilix DI registrations
 ├── events.ts                   # Typed event declarations (if needed)
+├── encryption.ts               # Tenant data encryption maps (only if entity has sensitive/GDPR fields)
 ├── data/
 │   ├── entities.ts             # MikroORM entity classes
 │   └── validators.ts           # Zod validation schemas
@@ -573,6 +575,50 @@ export default function registerCli(program: any) {
 }
 ```
 
+### Encryption maps (sensitive / GDPR-relevant fields)
+
+**Mandatory** when the entity stores PII, contact info, addresses, free-text notes about people, integration credentials, secrets, or anything subject to a data-processing agreement. Do NOT hand-roll AES, KMS calls, or "TODO encrypt later" stubs — the framework provides per-tenant DEKs and a declarative field-level map.
+
+**File**: `src/modules/<module_id>/encryption.ts`
+
+```typescript
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: '<module_id>:<entity>',  // matches data/entities.ts table id, colon-separated
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'phone' },
+      // Add a hashField for deterministic equality lookups (e.g. login by email):
+      { field: 'email', hashField: 'email_hash' },
+    ],
+  },
+]
+
+export default defaultEncryptionMaps
+```
+
+**Read paths** — never `em.find` an encrypted column directly:
+
+```typescript
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const records = await findWithDecryption(em, '<Entity>', filter, { tenantId, organizationId })
+const single = await findOneWithDecryption(em, '<Entity>', { id }, { tenantId, organizationId })
+```
+
+**Apply to existing tenants** after declaring or updating maps:
+
+```bash
+yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
+```
+
+New tenants pick up `defaultEncryptionMaps` automatically during `auth:setup`. Toggling the **Encrypted** flag for a field only applies to data written **after** the change — historical rows stay as they were until rewritten or backfilled via `yarn mercato entities encrypt-database` / `decrypt-database`. For end-to-end usage and admin UI flows see <https://docs.openmercato.dev/user-guide/encryption>.
+
+> Tip: when `email` (or any other column) needs deterministic lookups while encrypted, declare a sibling `hashField` in the map and add a matching `varchar` column to the entity. The framework keeps the hash in sync on writes; queries can target the hash instead of the cleartext column.
+
 ---
 
 ## 12. Wire & Verify
@@ -658,3 +704,5 @@ yarn dev               # Start dev server
 - **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST NOT** create ORM relationships (`@ManyToOne`, `@OneToMany`) to entities in other modules
 - **MUST NOT** edit `.mercato/generated/*` files manually
+- **MUST** declare `<module>/encryption.ts` exporting `defaultEncryptionMaps` whenever the entity stores sensitive / GDPR-relevant fields (PII, contact info, addresses, free-text notes about people, integration credentials, secrets) — and read those columns via `findWithDecryption` / `findOneWithDecryption`
+- **MUST NOT** hand-roll AES/KMS calls or store "we'll encrypt this later" plaintext for sensitive columns — use the encryption-maps mechanism described in section 11 → Encryption maps
