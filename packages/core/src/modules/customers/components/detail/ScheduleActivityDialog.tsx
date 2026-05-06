@@ -116,11 +116,20 @@ export function ScheduleActivityDialog({
 
   React.useEffect(() => {
     if (!open) return
-    const raw = editData as (Record<string, unknown> & { customValues?: unknown }) | null | undefined
+    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown }) | null | undefined
     const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
     setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
     setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
-    setCallPhoneNumber(typeof cv?.callPhoneNumber === 'string' ? cv.callPhoneNumber : '')
+    // Seed phone number from either top-level `phoneNumber` (newer write path)
+    // or legacy `customValues.callPhoneNumber` so previously-saved calls still
+    // round-trip on edit (#1808).
+    const seededPhone =
+      typeof raw?.phoneNumber === 'string' && raw.phoneNumber.trim().length > 0
+        ? raw.phoneNumber
+        : typeof cv?.callPhoneNumber === 'string'
+          ? cv.callPhoneNumber
+          : ''
+    setCallPhoneNumber(seededPhone)
     setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
   }, [open, editData])
 
@@ -284,8 +293,27 @@ export function ScheduleActivityDialog({
     return () => clearTimeout(timer)
   }, [editData?.id, open, state.date, state.startTime, state.duration, state.allDay, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const trimmedDate = state.date.trim()
+  const trimmedStartTime = state.startTime.trim()
+  const trimmedCallPhone = callPhoneNumber.trim()
+  const isDateMissing = !trimmedDate
+  const isTimeMissing = !state.allDay && !trimmedStartTime
+  const isSubmitDisabled =
+    state.saving ||
+    !state.title.trim() ||
+    isDateMissing ||
+    isTimeMissing
+
   const handleSave = React.useCallback(async () => {
     if (!state.title.trim()) return
+    if (isDateMissing) {
+      flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
+      return
+    }
+    if (isTimeMissing) {
+      flash(t('customers.activities.errors.timeRequired', 'Time is required'), 'error')
+      return
+    }
     state.setSaving(true)
     try {
       const scheduledAt = state.allDay
@@ -301,7 +329,7 @@ export function ScheduleActivityDialog({
       if (state.activityType === 'call') {
         customValues.callDirection = callDirection
         if (callOutcome) customValues.callOutcome = callOutcome
-        if (callPhoneNumber.trim()) customValues.callPhoneNumber = callPhoneNumber.trim()
+        if (trimmedCallPhone) customValues.callPhoneNumber = trimmedCallPhone
       }
       if (state.activityType === 'task') {
         customValues.taskPriority = taskPriority
@@ -314,6 +342,9 @@ export function ScheduleActivityDialog({
         title: state.title.trim(),
         body: state.description.trim() || null,
         status: 'planned',
+        date: trimmedDate,
+        time: state.allDay ? '00:00' : trimmedStartTime,
+        phoneNumber: state.activityType === 'call' && trimmedCallPhone ? trimmedCallPhone : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -355,7 +386,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, state.title, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -642,7 +673,7 @@ export function ScheduleActivityDialog({
           <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-md border border-input bg-background px-5 py-3 text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
+          <Button type="button" onClick={handleSave} disabled={isSubmitDisabled} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
             <SaveIcon className="size-3.5" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')

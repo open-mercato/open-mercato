@@ -67,6 +67,13 @@ function findKey(obj: Record<string, unknown>, key: string): string | null {
  * payload is unambiguously a JSON object or array; otherwise return the raw
  * decrypted string. Numeric/boolean entity columns are not in any current
  * encryption map, so this is backward-compatible.
+ *
+ * NOTE (issue #1810 follow-up): `decryptFields` no longer calls this helper for
+ * entity-field decryption — typed string columns whose contents happen to look
+ * like JSON (e.g. a display name `{"a":1}`) must remain raw strings to avoid
+ * downstream React-render crashes. Callers that legitimately need the parse
+ * (audit-log jsonb columns, custom-field rotation, encryption CLI) MUST invoke
+ * `parseDecryptedFieldValue` themselves on the decrypted payload.
  */
 export function parseDecryptedFieldValue(decrypted: string): unknown {
   if (decrypted.length === 0) return decrypted
@@ -277,7 +284,11 @@ export class TenantDataEncryptionService {
       if (typeof value !== 'string') continue
       const decrypted = maybeDecrypt(value)
       if (decrypted === null) continue
-      clone[key] = parseDecryptedFieldValue(decrypted)
+      // Entity fields are typed columns (string/text). Never auto-parse to an object —
+      // it triggers React-render crashes when a string value happens to be valid JSON
+      // (issue #1810 follow-up). Custom field values use a separate helper that
+      // preserves their typed-JSON contract.
+      clone[key] = decrypted
     }
     return clone
   }

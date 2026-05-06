@@ -885,6 +885,8 @@
   "ui.perspectives.untitled": "Untitled view",
   "ui.perspectives.updated": "Updated {date}",
   "ui.rowActions.openActions": "Open actions",
+  "ui.sidebar.chevron.scrollBottom": "Scroll to bottom",
+  "ui.sidebar.chevron.scrollTop": "Scroll to top",
   "ui.spinner.ariaLabel": "Loading",
   "ui.spinner.srOnly": "Loading...",
   "ui.timePicker.clearButton": "Clear",

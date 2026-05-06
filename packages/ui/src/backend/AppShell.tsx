@@ -454,6 +454,35 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   // up via the aside ref so we don't have to thread refs through the JSX tree.
   const sidebarAsideRef = React.useRef<HTMLElement>(null)
   const [sidebarScrollState, setSidebarScrollState] = React.useState<'down' | 'up' | 'none'>('down')
+  const sidebarScrollIntentRef = React.useRef<'top' | 'bottom' | null>(null)
+
+  // Click-to-scroll handler for the sidebar affordance chevron (#1803). Resolves the
+  // scroll target lazily through the aside ref so we don't have to thread refs into
+  // renderSidebar; respects `prefers-reduced-motion` by falling back to instant
+  // scrolling when the user has opted out of smooth motion.
+  const handleSidebarChevronScroll = React.useCallback((target: 'top' | 'bottom') => {
+    const aside = sidebarAsideRef.current
+    if (!aside) return
+    const scrollTarget = aside.querySelector<HTMLElement>('[data-sidebar-scroll="true"]')
+    if (!scrollTarget) return
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth'
+    const maxScrollTop = Math.max(0, scrollTarget.scrollHeight - scrollTarget.clientHeight)
+    if (maxScrollTop <= 1) {
+      sidebarScrollIntentRef.current = null
+      setSidebarScrollState('none')
+      return
+    }
+    sidebarScrollIntentRef.current = target
+    setSidebarScrollState(target === 'bottom' ? 'up' : 'down')
+    scrollTarget.scrollTo({
+      top: target === 'top' ? 0 : maxScrollTop,
+      behavior,
+    })
+  }, [])
   React.useEffect(() => {
     const aside = sidebarAsideRef.current
     if (!aside) return
@@ -463,10 +492,24 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       const { scrollTop, scrollHeight, clientHeight } = target
       const canScroll = scrollHeight > clientHeight + 1
       if (!canScroll) {
+        sidebarScrollIntentRef.current = null
         setSidebarScrollState('none')
         return
       }
-      const atBottom = scrollTop + clientHeight >= scrollHeight - 8
+      const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+      const atTop = scrollTop <= 8
+      const atBottom = scrollTop >= maxScrollTop - 8
+      const scrollIntent = sidebarScrollIntentRef.current
+      if (scrollIntent === 'bottom') {
+        if (atBottom) sidebarScrollIntentRef.current = null
+        setSidebarScrollState('up')
+        return
+      }
+      if (scrollIntent === 'top') {
+        if (atTop) sidebarScrollIntentRef.current = null
+        setSidebarScrollState('down')
+        return
+      }
       setSidebarScrollState(atBottom ? 'up' : 'down')
     }
     update()
@@ -1127,20 +1170,40 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       {/* Desktop main sidebar */}
       <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
-        {/* Scroll affordance — gradient fade + chevron that flips up when the user
-            reaches the bottom and disappears when nothing is scrollable. */}
+        {/* Scroll affordance — gradient fade + clickable chevron that flips up when
+            the user reaches the bottom and disappears when nothing is scrollable
+            (#1803). Clicking the chevron scrolls the inner sidebar container to
+            top/bottom (`prefers-reduced-motion: reduce` collapses to instant
+            scrolling). The wrapper is `pointer-events-none` so the gradient fade
+            doesn't block hover/click on the rendered nav items behind it; the
+            IconButton restores `pointer-events-auto` so it stays interactive. */}
         {sidebarScrollState !== 'none' ? (
           <div
-            aria-hidden
             className="pointer-events-none absolute inset-x-0 bottom-0 flex h-10 items-end justify-center bg-gradient-to-t from-background via-background/80 to-transparent pb-1.5"
           >
-            {/* Outer div owns the rotate transition so it doesn't fight with the
-                animate-bounce keyframes (both target `transform`). */}
-            <span
-              className={`inline-flex transition-transform duration-300 ${sidebarScrollState === 'up' ? 'rotate-180' : ''}`}
+            {/* The IconButton owns hover/focus affordance; the inner span owns the
+                rotate transition so it doesn't fight with the animate-bounce
+                keyframes (both target `transform`). */}
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="sidebar-scroll-chevron"
+              data-sidebar-scroll-chevron={sidebarScrollState}
+              aria-label={
+                sidebarScrollState === 'up'
+                  ? t('ui.sidebar.chevron.scrollTop', 'Scroll to top')
+                  : t('ui.sidebar.chevron.scrollBottom', 'Scroll to bottom')
+              }
+              className="pointer-events-auto text-muted-foreground/70 hover:text-foreground"
+              onClick={() => handleSidebarChevronScroll(sidebarScrollState === 'up' ? 'top' : 'bottom')}
             >
-              <ChevronDown className="size-4 animate-bounce text-muted-foreground/70" />
-            </span>
+              <span
+                className={`inline-flex transition-transform duration-300 ${sidebarScrollState === 'up' ? 'rotate-180' : ''}`}
+              >
+                <ChevronDown className="size-4 animate-bounce" />
+              </span>
+            </IconButton>
           </div>
         ) : null}
       </aside>

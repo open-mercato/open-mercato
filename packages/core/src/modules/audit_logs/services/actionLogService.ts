@@ -151,15 +151,23 @@ export class ActionLogService {
         ...decrypted,
       } as Record<string, unknown>
 
-      merged.changesJson = deepDecrypt(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json)
+      // Audit log jsonb columns are encrypted as JSON-stringified payloads. After the
+      // service-level `decryptEntityPayload` call (which now returns raw strings —
+      // see issue #1810 follow-up), reattach the structured shape via
+      // `parseDecryptedFieldValue` before running the recursive `deepDecrypt` walk
+      // so nested encrypted strings inside payload objects/arrays are handled.
+      const restoreJson = (value: unknown): unknown =>
+        typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+
+      merged.changesJson = deepDecrypt(restoreJson(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json))
       merged.changes_json = merged.changesJson
-      merged.snapshotBefore = deepDecrypt(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before)
+      merged.snapshotBefore = deepDecrypt(restoreJson(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before))
       merged.snapshot_before = merged.snapshotBefore
-      merged.snapshotAfter = deepDecrypt(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after)
+      merged.snapshotAfter = deepDecrypt(restoreJson(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after))
       merged.snapshot_after = merged.snapshotAfter
-      merged.commandPayload = deepDecrypt(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload)
+      merged.commandPayload = deepDecrypt(restoreJson(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload))
       merged.command_payload = merged.commandPayload
-      merged.contextJson = deepDecrypt(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json)
+      merged.contextJson = deepDecrypt(restoreJson(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json))
       merged.context_json = merged.contextJson
 
       return merged as T

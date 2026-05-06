@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -105,6 +105,7 @@ export function ActivitiesSection({
   onLoadingChange,
   refreshKey = 0,
   onEditActivity,
+  runGuardedMutation,
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
@@ -165,13 +166,17 @@ export function ActivitiesSection({
     setLoading(true)
     try {
       // Always fetch canonical interactions (new activities are always created here)
+      const taskFilterActive = filterTypes.includes('task')
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
-        excludeInteractionType: 'task',
       })
+      // Hide tasks from the activity timeline by default — they have their own tab —
+      // but lift the exclusion when the user explicitly toggled the Task chip on
+      // (mirrors `ActivityHistorySection.tsx` after the #1805 fix).
+      if (!taskFilterActive) canonicalParams.set('excludeInteractionType', 'task')
       if (dealId) canonicalParams.set('dealId', dealId)
       if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
@@ -249,6 +254,31 @@ export function ActivitiesSection({
   React.useEffect(() => {
     setLoadedPages(1)
   }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
+
+  const handleMarkDone = React.useCallback(async (activityId: string) => {
+    try {
+      const operation = () =>
+        apiCallOrThrow('/api/customers/interactions/complete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
+        })
+      if (runGuardedMutation) {
+        await runGuardedMutation(operation, {
+          id: activityId,
+          status: 'done',
+          operation: 'completeActivity',
+        })
+      } else {
+        await operation()
+      }
+      flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
+      await loadActivities()
+    } catch (err) {
+      console.warn('[customers.activitiesSection] mark done failed', activityId, err)
+      flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+    }
+  }, [loadActivities, runGuardedMutation, t])
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
@@ -353,7 +383,11 @@ export function ActivitiesSection({
         </div>
       ) : (
         <>
-          <ActivityTimeline activities={visibleActivities} onEdit={onEditActivity} />
+          <ActivityTimeline
+            activities={visibleActivities}
+            onEdit={onEditActivity}
+            onMarkDone={handleMarkDone}
+          />
           {totalCount > 0 ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
               <span className="text-xs text-muted-foreground">

@@ -885,6 +885,8 @@
   "ui.perspectives.untitled": "Perspectiva sin título",
   "ui.perspectives.updated": "Actualizado {date}",
   "ui.rowActions.openActions": "Abrir acciones",
+  "ui.sidebar.chevron.scrollBottom": "Desplazar hacia abajo",
+  "ui.sidebar.chevron.scrollTop": "Desplazar hacia arriba",
   "ui.spinner.ariaLabel": "Cargando",
   "ui.spinner.srOnly": "Cargando...",
   "ui.timePicker.clearButton": "Limpiar",

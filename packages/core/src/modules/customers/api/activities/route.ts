@@ -9,7 +9,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -28,6 +27,7 @@ import {
 import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
+import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 
 const listSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -251,81 +251,6 @@ function mapLegacyActivity(activity: CustomerActivity): ActivityItem {
     dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
     customValues: null,
   }
-}
-
-async function loadLegacyActivityCustomValues(
-  em: EntityManager,
-  activity: CustomerActivity,
-): Promise<Record<string, unknown> | null> {
-  const values = await loadCustomFieldValues({
-    em,
-    entityId: 'customers:customer_activity',
-    recordIds: [activity.id],
-    tenantIdByRecord: { [activity.id]: activity.tenantId },
-    organizationIdByRecord: { [activity.id]: activity.organizationId },
-    tenantFallbacks: [activity.tenantId],
-  })
-  return values[activity.id] ?? null
-}
-
-async function ensureCanonicalActivityBridge(
-  em: EntityManager,
-  commandBus: CommandBus,
-  commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
-  activity: CustomerActivity,
-): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: activity.id, tenantId: activity.tenantId })
-  if (existing) return existing.id
-
-  const entityId = typeof activity.entity === 'string' ? activity.entity : activity.entity.id
-  const dealId = activity.deal
-    ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id)
-    : null
-  const customValues = await loadLegacyActivityCustomValues(em, activity)
-
-  await commandBus.execute('customers.interactions.create', {
-    input: {
-      id: activity.id,
-      tenantId: activity.tenantId,
-      organizationId: activity.organizationId,
-      entityId,
-      interactionType: activity.activityType,
-      title: activity.subject ?? null,
-      body: activity.body ?? null,
-      occurredAt: activity.occurredAt ?? null,
-      status: activity.occurredAt ? 'done' : 'planned',
-      dealId,
-      authorUserId: activity.authorUserId ?? null,
-      appearanceIcon: activity.appearanceIcon ?? null,
-      appearanceColor: activity.appearanceColor ?? null,
-      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
-      ...(customValues ? { customValues } : {}),
-    },
-    ctx: commandContext,
-  })
-
-  return activity.id
-}
-
-async function resolveCanonicalActivityTargetId(
-  em: EntityManager,
-  commandBus: CommandBus,
-  commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
-  targetId: string,
-  tenantId: string,
-): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: targetId, tenantId })
-  if (existing) return existing.id
-
-  const legacy = await em.findOne(CustomerActivity, { id: targetId, tenantId }, { populate: ['entity', 'deal'] })
-  if (!legacy) return targetId
-
-  return ensureCanonicalActivityBridge(
-    em,
-    commandBus,
-    commandContext,
-    legacy,
-  )
 }
 
 async function listCanonicalActivities(

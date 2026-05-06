@@ -62,7 +62,7 @@ describe('ActivityHistorySection', () => {
     const from = url.searchParams.get('from')
 
     expect(url.searchParams.get('entityId')).toBe('company-123')
-    expect(url.searchParams.get('status')).toBe('done')
+    expect(url.searchParams.get('status')).toBeNull()
     expect(url.searchParams.get('excludeInteractionType')).toBe('task')
     expect(url.searchParams.get('type')).toBeNull()
     expect(from).not.toBeNull()

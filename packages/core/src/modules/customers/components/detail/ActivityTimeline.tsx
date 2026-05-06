@@ -1,8 +1,9 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Users, StickyNote, User } from 'lucide-react'
+import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
 
@@ -11,14 +12,16 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   email: Mail,
   meeting: Users,
   note: StickyNote,
+  task: ListTodo,
 }
 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
+  onMarkDone?: (activityId: string) => void | Promise<void>
 }
 
-export function ActivityTimeline({ activities, onEdit }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -54,6 +57,7 @@ export function ActivityTimeline({ activities, onEdit }: ActivityTimelineProps) 
               t={t}
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
+              onMarkDone={onMarkDone}
             />
           </React.Fragment>
         )
@@ -67,16 +71,31 @@ function TimelineEntry({
   t,
   withBorder,
   onEdit,
+  onMarkDone,
 }: {
   activity: InteractionSummary
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
+  onMarkDone?: (activityId: string) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
+  const isPlanned = activity.status === 'planned'
+  const [markingDone, setMarkingDone] = React.useState(false)
+
+  const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
+    event.stopPropagation()
+    if (!onMarkDone || markingDone) return
+    setMarkingDone(true)
+    try {
+      await onMarkDone(activity.id)
+    } finally {
+      setMarkingDone(false)
+    }
+  }, [activity.id, markingDone, onMarkDone])
 
   return (
     <div
@@ -104,9 +123,24 @@ function TimelineEntry({
 
         {/* Column 3: Content */}
         <div className="min-w-0 space-y-1.5">
-          <span className="block text-[12px] font-semibold leading-tight text-foreground">
-            {title}{duration}
-          </span>
+          <div className="flex items-start justify-between gap-2">
+            <span className="block text-[12px] font-semibold leading-tight text-foreground">
+              {title}{duration}
+            </span>
+            {isPlanned && onMarkDone ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={markingDone}
+                onClick={handleMarkDone}
+                className="shrink-0"
+              >
+                <Check className="size-3.5" />
+                {t('customers.activities.actions.markDone', 'Mark done')}
+              </Button>
+            ) : null}
+          </div>
 
           {activity.body && activity.title && (
             <p className="text-[11px] leading-snug text-muted-foreground">
