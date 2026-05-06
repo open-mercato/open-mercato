@@ -46,15 +46,13 @@ describe('ActivityHistorySection', () => {
       await Promise.resolve()
     })
 
+    let interactionsCall: string | undefined
     await waitFor(() => {
-      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/interactions?'),
-      )
+      interactionsCall = readApiResultOrThrowMock.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
+      )?.[0] as string | undefined
+      expect(interactionsCall).toBeDefined()
     })
-
-    const interactionsCall = readApiResultOrThrowMock.mock.calls.find(
-      ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
-    )?.[0] as string | undefined
 
     expect(interactionsCall).toBeDefined()
 
