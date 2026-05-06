@@ -10,6 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Route, ShieldCheck } from 'lucide-react'
+import { E } from '#generated/entities.ids.generated'
 
 type PagedResponse<T> = {
   items: T[]
@@ -160,6 +161,7 @@ type InventoryDataTableSectionProps<T> = {
   emptyDescriptionKey: string
   emptyDescriptionFallback: string
   tableId: string
+  entityId: string
   icon: React.ReactNode
   columns: ColumnDef<T>[]
 }
@@ -180,6 +182,7 @@ function InventoryDataTableSection<T>({
   emptyDescriptionKey,
   emptyDescriptionFallback,
   tableId,
+  entityId,
   icon,
   columns,
 }: InventoryDataTableSectionProps<T>) {
@@ -216,6 +219,7 @@ function InventoryDataTableSection<T>({
         data={query.data?.items ?? []}
         isLoading={query.isLoading}
         error={query.isError ? t(errorKey, errorFallback) : null}
+        entityId={entityId}
         searchValue={search}
         onSearchChange={(value) => {
           setSearch(value)
@@ -313,6 +317,7 @@ export function InventoryBalancesSection() {
       emptyDescriptionKey="wms.backend.inventory.balances.empty.description"
       emptyDescriptionFallback="Balances appear after receipts, adjustments, or moves create inventory buckets."
       tableId="wms.inventory.balances"
+      entityId={E.wms.inventory_balance}
       icon={<Boxes className="size-5" />}
       columns={columns}
     />
@@ -393,6 +398,7 @@ export function InventoryReservationsSection() {
       emptyDescriptionKey="wms.backend.inventory.reservations.empty.description"
       emptyDescriptionFallback="Reservations show stock committed to orders, transfers, or manual holds."
       tableId="wms.inventory.reservations"
+      entityId={E.wms.inventory_reservation}
       icon={<ShieldCheck className="size-5" />}
       columns={columns}
     />
@@ -489,6 +495,7 @@ export function InventoryMovementsSection() {
       emptyDescriptionKey="wms.backend.inventory.movements.empty.description"
       emptyDescriptionFallback="Movement rows are created by receipts, reservations, moves, and reconciliation actions."
       tableId="wms.inventory.movements"
+      entityId={E.wms.inventory_movement}
       icon={<Route className="size-5" />}
       columns={columns}
     />

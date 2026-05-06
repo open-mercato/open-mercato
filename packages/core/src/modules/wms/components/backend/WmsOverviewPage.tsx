@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Warehouse, MapPinned, Boxes, Layers, Settings, ClipboardList, Truck } from 'lucide-react'
+import { E } from '#generated/entities.ids.generated'
 
 type WarehouseRow = {
   id: string
@@ -257,6 +258,7 @@ export default function WmsOverviewPage() {
                 data={warehouseQuery.data?.items ?? []}
                 isLoading={warehouseQuery.isLoading}
                 error={warehouseQuery.isError ? t('wms.backend.overview.errors.warehouses', 'Failed to load warehouses.') : null}
+                entityId={E.wms.warehouse}
                 perspective={{ tableId: 'wms.overview.warehouses' }}
                 emptyState={(
                   <EmptyState
@@ -279,6 +281,7 @@ export default function WmsOverviewPage() {
                 data={locationQuery.data?.items ?? []}
                 isLoading={locationQuery.isLoading}
                 error={locationQuery.isError ? t('wms.backend.overview.errors.locations', 'Failed to load locations.') : null}
+                entityId={E.wms.warehouse_location}
                 perspective={{ tableId: 'wms.overview.locations' }}
                 emptyState={(
                   <EmptyState

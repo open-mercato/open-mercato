@@ -478,6 +478,7 @@ export function WarehouseSection() {
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
           error={query.isError ? t('wms.backend.config.warehouses.errors.load', 'Failed to load warehouses.') : null}
+          entityId={E.wms.warehouse}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value)
@@ -720,6 +721,7 @@ export function ZoneSection() {
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
           error={query.isError ? t('wms.backend.config.zones.errors.load', 'Failed to load zones.') : null}
+          entityId={E.wms.warehouse_zone}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value)
@@ -966,6 +968,7 @@ export function LocationSection() {
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
           error={query.isError ? t('wms.backend.config.locations.errors.load', 'Failed to load locations.') : null}
+          entityId={E.wms.warehouse_location}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value)
@@ -1216,6 +1219,7 @@ export function InventoryProfilesSection() {
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
           error={query.isError ? t('wms.backend.config.profiles.errors.load', 'Failed to load inventory profiles.') : null}
+          entityId={E.wms.product_inventory_profile}
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addProfile', 'Add profile')}
