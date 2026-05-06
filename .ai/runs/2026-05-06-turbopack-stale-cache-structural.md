@@ -126,6 +126,6 @@ None — no `--skill-url` provided.
 
 ### Phase 5: Validation gate + PR
 
-- [ ] 5.1 Full validation gate (typecheck, tests, builds, i18n)
-- [ ] 5.2 Self code-review + BC check
-- [ ] 5.3 Open PR with labels
+- [x] 5.1 Full validation gate (typecheck, tests, builds, i18n) — 6a0cd5536
+- [x] 5.2 Self code-review + BC check — PR #1818 review comment
+- [x] 5.3 Open PR with labels — PR #1818
