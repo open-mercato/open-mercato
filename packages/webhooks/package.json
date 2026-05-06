@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/webhooks",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
   "main": "./dist/index.js",
