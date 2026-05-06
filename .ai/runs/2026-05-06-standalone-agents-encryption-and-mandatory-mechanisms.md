@@ -99,3 +99,4 @@ Plan committed first on `feat/standalone-agents-encryption-and-mandatory-mechani
 ### Phase 6: Validation gate
 
 - [x] 6.1 Re-read full diff, fixed pre-existing numeric anchor in AGENTS.md.template (b977e1128); docs-only run — `yarn lint` is TS-only and does not parse `.md` / `.template` content, so the validation is the manual diff re-read plus frontmatter spot-check.
+- [x] 6.2 Self-review caught fabricated docs URLs and an incorrect domain (`docs.openmercato.dev` vs `docs.open-mercato.dev`); replaced with verified real doc paths under `apps/docs/docs/` — c0dab9c91
