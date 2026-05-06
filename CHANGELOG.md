@@ -11,7 +11,6 @@
 Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: AI agents now have a unified runtime and approval flow, MikroORM has moved to v7/Kysely, CRM and navigation screens received another major usability pass, and release engineering now carries forward contributor credits for superseded PRs.
 
 ## ✨ Features
-
 - ✨ Realtime messages. (#1590) *(@Sawarz)*
 - ✨ CRM details screens revamp. (#1618) *(@haxiorz)*
 - ✨ Starter preset. (#1670) *(@dominikpalatynski)*
@@ -29,11 +28,14 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - ✨ AI framework unification + testing subagents flow with better agent-to-human communication. (#1593) *(@pkarw)*
 
 ## 🔒 Security
-
 - 🔒 Atomic password change + audit event for customer_accounts. (#1692) *(@pkarw)*
+- 🔒 Add tenant encryption map for inbox_ops module. (#1688) *(@WH173-P0NY)*
+- 🔒 Revoke customer sessions on self-service password change. (#1686) *(@WH173-P0NY)*
+- 🔒 Harden reset origin checks and require password confirmation. (#1729) *(@MStaniaszek1998)*
+- 🔒 Pin outbound webhook DNS to defeat rebinding (SSRF). (#1735) *(@pat-lewczuk)*
+- 🔒 Gate sidebar customization behind auth.sidebar.manage (#1792). (#1802) *(@pkarw)*
 
 ## 🐛 Fixes
-
 - 🐛 Parallelize entity defs, search availability, and dictionary resolution (#1404). (#1614) *(@pkarw)*
 - 🐛 Accept edit form payload and embed triggers in definition (#1586). (#1601) *(@pkarw)*
 - 🐛 Link seeded deals to pipeline + prevent doc number increment on type switch. (#1609) *(@vloneskorpion)*
@@ -54,9 +56,7 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🔄 V7 generated cache recovery. (#1672) *(@pkarw)*
 - 🔧 Restore recipient access to inbox and detail pages (#1633). (#1639) *(@pkarw)*
 - 📦 Hide example links in lean starters. (#1684) *(@pkarw)*
-- 🔐 Add tenant encryption map for inbox_ops module. (#1688) *(@WH173-P0NY)*
 - 🔄 Scope bulk-delete cache invalidation to worker tenant (fixes #1677). (#1687) *(@marcinwadon)*
-- 🔐 Revoke customer sessions on self-service password change. (#1686) *(@WH173-P0NY)*
 - 🐳 Extend QA Dokploy slots and adapt Docker provider API. (#1683) *(@dominikpalatynski)*
 - 📦 Update the create-app template copy path. (#1675) *(@dominikpalatynski)*
 - 🐛 Use search_tokens for users list search on encrypted email (#1666). (#1674) *(@pkarw)*
@@ -64,10 +64,8 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🐛 Normalize interaction & deal customValues via shared response helper. (#1680) *(@pkarw)*
 - 🔧 Update Docker ignore test exclusions and retain runtime helpers. (#1695) *(@dominikpalatynski)*
 - 🐛 CRM issues resolution (fixes #1657). (#1700) *(@haxiorz)*
-- 🔐 Harden reset origin checks and require password confirmation. (#1729) *(@MStaniaszek1998)*
 - 🐛 Disable rate limiting under OM_INTEGRATION_TEST. (#1673) *(@jtomaszewski)*
 - 🔧 Skip ratelimit_probe path when module is absent (standalone scaffold). (#1756) *(@pat-lewczuk)*
-- 🔐 Pin outbound webhook DNS to defeat rebinding (SSRF). (#1735) *(@pat-lewczuk)*
 - 🐛 CRM fixes 2 (fixes #1711). (#1743) *(@haxiorz)*
 - 🔧 Unblock standalone CI under zod 4.4.x + capture app log. (#1764) *(@pat-lewczuk)*
 - 💰 Fix company v2 currency collapse. (#1753) *(@dominikpalatynski)*
@@ -84,11 +82,9 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🐛 [Custom Fields] Deleted custom fields still appear in API response after removal from entity definition (#1749). (#1760) *(@pat-lewczuk)*
 - 🔐 [Customer Portal] Password reset link leads to 404 — reset page does not exist at generated URL (#1740). (#1758) *(@pat-lewczuk)*
 - 🔧 Remove explicit NODE_ENV from env files to silence Next.js warning. (#1728) *(@pkarw)*
-- 🔐 Gate sidebar customization behind auth.sidebar.manage (#1792). (#1802) *(@pkarw)*
 - 🐛 Keep organization switcher in topbar at all viewport widths (#1795). (#1798) *(@pkarw)*
 
 ## 🛠️ Improvements
-
 - 🛠️ Memoize Tabs context value to prevent consumer re-renders (#1409). (#1610) *(@pkarw)*
 - 🛠️ Lazy-load heavy libraries for schedule, markdown, and API docs (#1408). (#1615) *(@pkarw)*
 - 🛠️ Eliminate N+1 queries in user listing and role validation (#1398). (#1613) *(@pkarw)*
@@ -101,7 +97,6 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🛠️ Migrate Dependabot PRs #1724 + #1723 to develop. (#1775) *(@pkarw)*
 
 ## 📝 Specs & Documentation
-
 - 📝 Add local development walkthrough (#1435). (#1611) *(@pkarw)*
 - 📝 Add Hall of Fame for Agentic Hackathon winners. (#1646) *(@pat-lewczuk)*
 - 📝 Reassign authors on review and fix handoffs. (#1644) *(@pkarw)*
@@ -111,7 +106,6 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 📝 Telemetry package with pluggable OTEL backend. (#1747) *(@jtomaszewski)*
 
 ## 👥 Contributors
-
 - @pkarw
 - @vloneskorpion
 - @jtomaszewski
