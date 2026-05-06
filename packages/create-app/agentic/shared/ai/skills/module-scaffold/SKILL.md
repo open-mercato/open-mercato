@@ -605,8 +605,10 @@ export default defaultEncryptionMaps
 ```typescript
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-const records = await findWithDecryption(em, '<Entity>', filter, { tenantId, organizationId })
-const single = await findOneWithDecryption(em, '<Entity>', { id }, { tenantId, organizationId })
+// Signature: (em, entityName, where, options?, scope?) — MikroORM FindOptions in slot 4
+// (pass `undefined` when none), decryption scope in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
 ```
 
 **Apply to existing tenants** after declaring or updating maps:

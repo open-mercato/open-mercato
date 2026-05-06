@@ -374,7 +374,10 @@ Read with decryption — never raw `em.find` / `em.findOne` on encrypted columns
 ```ts
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-const records = await findWithDecryption(em, '<Entity>', filter, { tenantId, organizationId })
+// Signature: (em, entityName, where, options?, scope?). Pass MikroORM FindOptions in slot 4
+// (or `undefined`), and the decryption scope in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
 ```
 
 Apply maps to existing tenants after declaring them (new tenants pick them up automatically during `auth:setup`):

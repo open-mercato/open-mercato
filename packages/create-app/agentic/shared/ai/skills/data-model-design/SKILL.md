@@ -537,8 +537,10 @@ export default defaultEncryptionMaps
 ```typescript
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-const records = await findWithDecryption(em, '<Entity>', filter, { tenantId, organizationId })
-const single = await findOneWithDecryption(em, '<Entity>', { id }, { tenantId, organizationId })
+// Signature: (em, entityName, where, options?, scope?). MikroORM FindOptions go in slot 4
+// (pass `undefined` if you have none), the decryption scope `{ tenantId, organizationId }` in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
 ```
 
 Calling `em.find` on an encrypted column returns ciphertext, breaks search, and silently leaks bug surface. The `findWithDecryption` family is the one entry point.
