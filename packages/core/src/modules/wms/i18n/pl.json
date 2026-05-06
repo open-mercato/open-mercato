@@ -121,6 +121,8 @@
   "wms.backend.inventory.errors.balances": "Nie udało się załadować stanów magazynowych.",
   "wms.backend.inventory.errors.movements": "Nie udało się załadować ruchów magazynowych.",
   "wms.backend.inventory.errors.reservations": "Nie udało się załadować rezerwacji.",
+  "wms.backend.inventory.movements.columns.locationFrom": "Z",
+  "wms.backend.inventory.movements.columns.locationTo": "Do",
   "wms.backend.inventory.movements.columns.performedAt": "Wykonano",
   "wms.backend.inventory.movements.columns.quantity": "Ilość",
   "wms.backend.inventory.movements.columns.referenceType": "Typ referencji",

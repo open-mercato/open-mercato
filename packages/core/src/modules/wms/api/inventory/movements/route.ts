@@ -6,6 +6,11 @@ import { E } from '#generated/entities.ids.generated'
 import { InventoryMovement } from '../../../data/entities'
 import { inventoryMovementListQuerySchema } from '../../../data/validators'
 import { createPagedListResponseSchema } from '../../openapi'
+import {
+  attachLocationLabelsToListItems,
+  attachVariantLabelsToListItems,
+  attachWarehouseLabelsToListItems,
+} from '../../listEnrichers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -69,6 +74,15 @@ const crud = makeCrudRoute({
       return filters
     },
   },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await Promise.all([
+        attachWarehouseLabelsToListItems(payload, ctx),
+        attachLocationLabelsToListItems(payload, ctx),
+        attachVariantLabelsToListItems(payload, ctx),
+      ])
+    },
+  },
 })
 
 export const GET = crud.GET
@@ -78,9 +92,18 @@ const movementListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   warehouse_id: z.string().uuid().nullable().optional(),
+  warehouse_name: z.string().nullable().optional(),
+  warehouse_code: z.string().nullable().optional(),
   location_from_id: z.string().uuid().nullable().optional(),
+  location_from_code: z.string().nullable().optional(),
+  location_from_type: z.string().nullable().optional(),
   location_to_id: z.string().uuid().nullable().optional(),
+  location_to_code: z.string().nullable().optional(),
+  location_to_type: z.string().nullable().optional(),
   catalog_variant_id: z.string().uuid().nullable().optional(),
+  catalog_product_id: z.string().uuid().nullable().optional(),
+  variant_name: z.string().nullable().optional(),
+  variant_sku: z.string().nullable().optional(),
   lot_id: z.string().uuid().nullable().optional(),
   serial_number: z.string().nullable().optional(),
   quantity: z.union([z.string(), z.number()]).nullable().optional(),

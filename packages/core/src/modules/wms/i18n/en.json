@@ -121,6 +121,8 @@
   "wms.backend.inventory.errors.balances": "Failed to load balances.",
   "wms.backend.inventory.errors.movements": "Failed to load movements.",
   "wms.backend.inventory.errors.reservations": "Failed to load reservations.",
+  "wms.backend.inventory.movements.columns.locationFrom": "From",
+  "wms.backend.inventory.movements.columns.locationTo": "To",
   "wms.backend.inventory.movements.columns.performedAt": "Performed at",
   "wms.backend.inventory.movements.columns.quantity": "Quantity",
   "wms.backend.inventory.movements.columns.referenceType": "Reference type",

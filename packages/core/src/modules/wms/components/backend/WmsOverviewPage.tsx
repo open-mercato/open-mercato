@@ -25,6 +25,8 @@ type WarehouseRow = {
 type LocationRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   code?: string | null
   type?: string | null
   is_active?: boolean | null
@@ -144,7 +146,11 @@ export default function WmsOverviewPage() {
     {
       accessorKey: 'warehouse_id',
       header: t('wms.backend.overview.locations.columns.warehouse', 'Warehouse'),
-      cell: ({ row }) => row.original.warehouse_id || '—',
+      cell: ({ row }) =>
+        row.original.warehouse_name ||
+        row.original.warehouse_code ||
+        row.original.warehouse_id ||
+        '—',
     },
     {
       accessorKey: 'is_active',

@@ -20,8 +20,14 @@ type PagedResponse<T> = {
 type InventoryBalanceRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   location_id?: string | null
+  location_code?: string | null
+  location_type?: string | null
   catalog_variant_id?: string | null
+  variant_name?: string | null
+  variant_sku?: string | null
   quantity_on_hand?: string | number | null
   quantity_reserved?: string | number | null
   quantity_allocated?: string | number | null
@@ -31,7 +37,11 @@ type InventoryBalanceRow = {
 type InventoryReservationRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   catalog_variant_id?: string | null
+  variant_name?: string | null
+  variant_sku?: string | null
   quantity?: string | number | null
   source_type?: string | null
   source_id?: string | null
@@ -41,13 +51,59 @@ type InventoryReservationRow = {
 type InventoryMovementRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
+  location_from_id?: string | null
+  location_from_code?: string | null
+  location_from_type?: string | null
+  location_to_id?: string | null
+  location_to_code?: string | null
+  location_to_type?: string | null
   catalog_variant_id?: string | null
+  variant_name?: string | null
+  variant_sku?: string | null
   quantity?: string | number | null
   type?: string | null
   reference_type?: string | null
   reference_id?: string | null
   performed_at?: string | null
   received_at?: string | null
+}
+
+function formatVariantLabel(row: {
+  variant_name?: string | null
+  variant_sku?: string | null
+  catalog_variant_id?: string | null
+}): string {
+  const name = (row.variant_name ?? '').trim()
+  const sku = (row.variant_sku ?? '').trim()
+  if (name && sku) return `${name} (${sku})`
+  if (name) return name
+  if (sku) return sku
+  return row.catalog_variant_id || '—'
+}
+
+function formatWarehouseLabel(row: {
+  warehouse_name?: string | null
+  warehouse_code?: string | null
+  warehouse_id?: string | null
+}): string {
+  return (
+    row.warehouse_name?.trim() ||
+    row.warehouse_code?.trim() ||
+    row.warehouse_id ||
+    '—'
+  )
+}
+
+function formatLocationLabel(
+  row: Record<string, unknown>,
+  prefix: 'location' | 'location_from' | 'location_to',
+): string {
+  const code = String((row[`${prefix}_code`] as string | null | undefined) ?? '').trim()
+  if (code) return code
+  const id = row[`${prefix}_id`]
+  return typeof id === 'string' && id ? id : '—'
 }
 
 function SectionCard({
@@ -193,7 +249,7 @@ export function InventoryBalancesSection() {
       {
         accessorKey: 'catalog_variant_id',
         header: t('wms.backend.inventory.balances.columns.variant', 'Variant'),
-        cell: ({ row }) => row.original.catalog_variant_id || '—',
+        cell: ({ row }) => formatVariantLabel(row.original),
       },
       {
         accessorKey: 'warehouse_id',
@@ -201,7 +257,7 @@ export function InventoryBalancesSection() {
           'wms.backend.inventory.balances.columns.warehouse',
           'Warehouse',
         ),
-        cell: ({ row }) => row.original.warehouse_id || '—',
+        cell: ({ row }) => formatWarehouseLabel(row.original),
       },
       {
         accessorKey: 'location_id',
@@ -209,7 +265,8 @@ export function InventoryBalancesSection() {
           'wms.backend.inventory.balances.columns.location',
           'Location',
         ),
-        cell: ({ row }) => row.original.location_id || '—',
+        cell: ({ row }) =>
+          formatLocationLabel(row.original as Record<string, unknown>, 'location'),
       },
       {
         accessorKey: 'quantity_available',
@@ -273,7 +330,7 @@ export function InventoryReservationsSection() {
           'wms.backend.inventory.reservations.columns.variant',
           'Variant',
         ),
-        cell: ({ row }) => row.original.catalog_variant_id || '—',
+        cell: ({ row }) => formatVariantLabel(row.original),
       },
       {
         accessorKey: 'warehouse_id',
@@ -281,7 +338,7 @@ export function InventoryReservationsSection() {
           'wms.backend.inventory.reservations.columns.warehouse',
           'Warehouse',
         ),
-        cell: ({ row }) => row.original.warehouse_id || '—',
+        cell: ({ row }) => formatWarehouseLabel(row.original),
       },
       {
         accessorKey: 'quantity',
@@ -358,7 +415,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.variant',
           'Variant',
         ),
-        cell: ({ row }) => row.original.catalog_variant_id || '—',
+        cell: ({ row }) => formatVariantLabel(row.original),
       },
       {
         accessorKey: 'warehouse_id',
@@ -366,7 +423,25 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.warehouse',
           'Warehouse',
         ),
-        cell: ({ row }) => row.original.warehouse_id || '—',
+        cell: ({ row }) => formatWarehouseLabel(row.original),
+      },
+      {
+        accessorKey: 'location_from_id',
+        header: t(
+          'wms.backend.inventory.movements.columns.locationFrom',
+          'From',
+        ),
+        cell: ({ row }) =>
+          formatLocationLabel(row.original as Record<string, unknown>, 'location_from'),
+      },
+      {
+        accessorKey: 'location_to_id',
+        header: t(
+          'wms.backend.inventory.movements.columns.locationTo',
+          'To',
+        ),
+        cell: ({ row }) =>
+          formatLocationLabel(row.original as Record<string, unknown>, 'location_to'),
       },
       {
         accessorKey: 'quantity',
