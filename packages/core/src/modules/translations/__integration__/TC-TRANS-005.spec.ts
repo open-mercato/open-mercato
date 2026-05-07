@@ -123,8 +123,16 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
 
       const titleInput = page.locator('table input').first()
       await titleInput.fill('Deutscher Titel QA')
+      await expect(titleInput).toHaveValue('Deutscher Titel QA')
 
+      const saveResponsePromise = page.waitForResponse((response) =>
+        response.request().method() === 'PUT'
+        && response.url().includes(`/api/translations/${encodeURIComponent(ENTITY_TYPE)}/${productId}`),
+      )
       await page.getByRole('button', { name: 'Save translations' }).click()
+      const saveResponse = await saveResponsePromise
+      expect(saveResponse.ok()).toBeTruthy()
+      await expect(page.getByText('Translations saved').first()).toBeVisible()
       await expect.poll(async () => {
         const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
         if (!response.ok()) return null
