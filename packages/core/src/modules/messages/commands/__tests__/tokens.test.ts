@@ -37,14 +37,16 @@ type TokenRecord = {
   usedAt: Date | null
 }
 
-function createKnexChain(updateResult: number) {
-  const chain = {
+function createKyselyChain(updateResult: number) {
+  const builder = {
+    set: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
-    update: jest.fn().mockResolvedValue(updateResult),
+    executeTakeFirst: jest
+      .fn()
+      .mockResolvedValue({ numUpdatedRows: BigInt(updateResult) }),
   }
-  const knexFn = jest.fn().mockReturnValue(chain) as jest.Mock & { raw: jest.Mock }
-  knexFn.raw = jest.fn().mockReturnValue('use_count + 1')
-  return { chain, knexFn }
+  const db = { updateTable: jest.fn().mockReturnValue(builder) }
+  return { builder, db }
 }
 
 function buildCtx(tokenRecord: TokenRecord | null, knexUpdateResult = 1) {
@@ -58,12 +60,9 @@ function buildCtx(tokenRecord: TokenRecord | null, knexUpdateResult = 1) {
     status: 'unread' as 'unread' | 'read',
     readAt: null as Date | null,
   }
-  const { chain, knexFn } = createKnexChain(knexUpdateResult)
+  const { builder, db } = createKyselyChain(knexUpdateResult)
 
-  const findOneResults: (unknown | null)[] = []
-  let findOneCallIndex = 0
-
-  const em: Partial<EntityManager> & { findOne: jest.Mock; flush: jest.Mock; getKnex: jest.Mock; clear: jest.Mock } = {
+  const em: Partial<EntityManager> & { findOne: jest.Mock; flush: jest.Mock; getKysely: jest.Mock; clear: jest.Mock } = {
     findOne: jest.fn(async (cls: unknown, where: Record<string, unknown>) => {
       if (cls === MessageAccessToken) {
         if (!tokenRecord) return null
@@ -76,7 +75,7 @@ function buildCtx(tokenRecord: TokenRecord | null, knexUpdateResult = 1) {
       return null
     }) as unknown as jest.Mock,
     flush: jest.fn(async () => {}),
-    getKnex: jest.fn().mockReturnValue(knexFn),
+    getKysely: jest.fn().mockReturnValue(db),
     clear: jest.fn(),
   }
 
@@ -86,7 +85,7 @@ function buildCtx(tokenRecord: TokenRecord | null, knexUpdateResult = 1) {
       return { fork: () => em }
     },
   }
-  return { ctx: { container }, em, knexFn, chain }
+  return { ctx: { container }, em, db, builder }
 }
 
 describe('messages.tokens.consume command', () => {
@@ -152,16 +151,16 @@ describe('messages.tokens.consume command', () => {
         useCount: 0,
         usedAt: null,
       }
-      const { ctx, knexFn, chain } = buildCtx(stored, 1)
+      const { ctx, db, builder } = buildCtx(stored, 1)
 
       const result = await consumeCommand.execute({ token: 'valid-token' }, ctx)
 
-      expect(knexFn).toHaveBeenCalledWith('message_access_tokens')
-      expect(chain.where).toHaveBeenCalledWith('id', 'tok-1')
-      expect(chain.where).toHaveBeenCalledWith('use_count', '<', 25)
-      expect(chain.where).toHaveBeenCalledWith('expires_at', '>', expect.any(Date))
-      expect(chain.update).toHaveBeenCalledWith({
-        use_count: 'use_count + 1',
+      expect(db.updateTable).toHaveBeenCalledWith('message_access_tokens')
+      expect(builder.where).toHaveBeenCalledWith('id', '=', 'tok-1')
+      expect(builder.where).toHaveBeenCalledWith('use_count', '<', 25)
+      expect(builder.where).toHaveBeenCalledWith('expires_at', '>', expect.any(Date))
+      expect(builder.set).toHaveBeenCalledWith({
+        use_count: expect.anything(),
         used_at: expect.any(Date),
       })
       expect(result).toEqual({ messageId: 'msg-1', recipientUserId: 'user-1' })

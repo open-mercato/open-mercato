@@ -60,4 +60,41 @@ describe('customFieldValues encryption helpers', () => {
     expect(await decryptCustomFieldValue('plain', 'tenant-1', disabledService)).toBe('plain')
     expect(await encryptCustomFieldValue('plain', null, disabledService)).toBe('plain')
   })
+
+  it('preserves text-typed values verbatim when kind is provided (regression: issue #1734)', async () => {
+    const service = {
+      isEnabled: () => true,
+      getDek: async () => ({ key: fixedKey }),
+    } as any
+    const cache = new Map<string | null, string | null>()
+
+    const numericText = await encryptCustomFieldValue('123', 'tenant-1', service, cache)
+    const decryptedAsText = await decryptCustomFieldValue(numericText, 'tenant-1', service, cache, { kind: 'text' })
+    expect(decryptedAsText).toBe('123')
+    expect(typeof decryptedAsText).toBe('string')
+
+    const booleanText = await encryptCustomFieldValue('true', 'tenant-1', service, cache)
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'multiline' })).toBe('true')
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'select' })).toBe('true')
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'currency' })).toBe('true')
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'dictionary' })).toBe('true')
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'email' })).toBe('true')
+  })
+
+  it('still parses typed kinds (integer/float/boolean) so legacy round-trip stays correct', async () => {
+    const service = {
+      isEnabled: () => true,
+      getDek: async () => ({ key: fixedKey }),
+    } as any
+    const cache = new Map<string | null, string | null>()
+
+    const encryptedInt = await encryptCustomFieldValue(42, 'tenant-1', service, cache)
+    expect(await decryptCustomFieldValue(encryptedInt, 'tenant-1', service, cache, { kind: 'integer' })).toBe(42)
+
+    const encryptedFloat = await encryptCustomFieldValue(3.14, 'tenant-1', service, cache)
+    expect(await decryptCustomFieldValue(encryptedFloat, 'tenant-1', service, cache, { kind: 'float' })).toBe(3.14)
+
+    const encryptedBool = await encryptCustomFieldValue(true, 'tenant-1', service, cache)
+    expect(await decryptCustomFieldValue(encryptedBool, 'tenant-1', service, cache, { kind: 'boolean' })).toBe(true)
+  })
 })

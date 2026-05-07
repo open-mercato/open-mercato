@@ -6,11 +6,12 @@
  * always reflect the latest product image, even when the underlying attachment
  * changes. The snapshot serves as fallback for deleted products.
  *
- * Uses raw Knex queries because cross-module ORM entity class references
+ * Uses raw Kysely queries because cross-module ORM entity class references
  * do not resolve correctly at runtime (the imported class does not match the
  * entity registered in MikroORM's metadata by the app bootstrap).
  */
 
+import type { Kysely } from 'kysely'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { buildAttachmentImageUrl } from '../../attachments/lib/imageUrls'
 
@@ -19,12 +20,13 @@ type LineRecord = Record<string, unknown> & { id: string }
 type SnapshotNode = { thumbnailUrl?: string | null; [key: string]: unknown }
 type CatalogSnapshot = { product?: SnapshotNode; variant?: SnapshotNode; [key: string]: unknown }
 
-function getKnex(em: unknown): unknown {
-  return (em as any).getConnection?.()?.getKnex?.()
+function getDb(em: unknown): Kysely<any> | null {
+  const getter = (em as any)?.getKysely
+  return typeof getter === 'function' ? getter.call(em) : null
 }
 
 async function fetchMediaIds(
-  knex: unknown,
+  db: Kysely<any>,
   table: string,
   ids: Set<string>,
   organizationId: string,
@@ -32,11 +34,13 @@ async function fetchMediaIds(
   const map = new Map<string, string | null>()
   if (ids.size === 0) return map
 
-  const rows: Array<{ id: string; default_media_id: string | null }> = await (knex as any)(table)
-    .select('id', 'default_media_id')
-    .whereIn('id', [...ids])
-    .where('organization_id', organizationId)
-    .whereNull('deleted_at')
+  const rows = await (db as any)
+    .selectFrom(table)
+    .select(['id', 'default_media_id'])
+    .where('id', 'in', [...ids])
+    .where('organization_id', '=', organizationId)
+    .where('deleted_at', 'is', null)
+    .execute() as Array<{ id: string; default_media_id: string | null }>
 
   for (const row of rows) {
     map.set(row.id, row.default_media_id ? buildAttachmentImageUrl(row.default_media_id) : null)
@@ -93,8 +97,8 @@ function createCatalogImageEnricher(targetEntity: string): ResponseEnricher<Line
     async enrichMany(records, context: EnricherContext) {
       if (records.length === 0) return records
 
-      const knex = getKnex(context.em)
-      if (!knex) return records
+      const db = getDb(context.em)
+      if (!db) return records
 
       const productIds = new Set<string>()
       const variantIds = new Set<string>()
@@ -105,8 +109,8 @@ function createCatalogImageEnricher(targetEntity: string): ResponseEnricher<Line
       if (productIds.size === 0 && variantIds.size === 0) return records
 
       const [productMedia, variantMedia] = await Promise.all([
-        fetchMediaIds(knex, 'catalog_products', productIds, context.organizationId),
-        fetchMediaIds(knex, 'catalog_product_variants', variantIds, context.organizationId),
+        fetchMediaIds(db, 'catalog_products', productIds, context.organizationId),
+        fetchMediaIds(db, 'catalog_product_variants', variantIds, context.organizationId),
       ])
 
       return enrichRecords(records, productMedia, variantMedia)

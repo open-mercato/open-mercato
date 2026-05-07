@@ -20,6 +20,8 @@ const events = [
   { id: 'customers.deal.created', label: 'Deal Created', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
+  { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle' },
+  { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle' },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },
@@ -56,6 +58,26 @@ const events = [
   { id: 'customers.interaction.reverted', label: 'Interaction Reverted', entity: 'interaction', category: 'lifecycle' },
   { id: 'customers.interaction.deleted', label: 'Interaction Deleted', entity: 'interaction', category: 'crud' },
   { id: 'customers.next_interaction.updated', label: 'Next Interaction Updated', entity: 'interaction', category: 'lifecycle' },
+
+  // Entity Roles
+  { id: 'customers.entity_role.created', label: 'Entity Role Created', entity: 'entity_role', category: 'crud' },
+  { id: 'customers.entity_role.updated', label: 'Entity Role Updated', entity: 'entity_role', category: 'crud' },
+  { id: 'customers.entity_role.deleted', label: 'Entity Role Deleted', entity: 'entity_role', category: 'crud' },
+
+  // Labels
+  { id: 'customers.label.created', label: 'Label Created', entity: 'label', category: 'crud' },
+  { id: 'customers.label.updated', label: 'Label Updated', entity: 'label', category: 'crud' },
+  { id: 'customers.label.deleted', label: 'Label Deleted', entity: 'label', category: 'crud' },
+
+  // Label Assignments
+  { id: 'customers.label_assignment.created', label: 'Label Assigned', entity: 'label_assignment', category: 'crud' },
+  { id: 'customers.label_assignment.updated', label: 'Label Assignment Updated', entity: 'label_assignment', category: 'crud' },
+  { id: 'customers.label_assignment.deleted', label: 'Label Unassigned', entity: 'label_assignment', category: 'crud' },
+
+  // Person-Company Links
+  { id: 'customers.person_company_link.created', label: 'Person Linked To Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
+  { id: 'customers.person_company_link.updated', label: 'Person-Company Link Updated', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
+  { id: 'customers.person_company_link.deleted', label: 'Person Unlinked From Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

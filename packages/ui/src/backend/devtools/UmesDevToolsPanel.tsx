@@ -46,18 +46,18 @@ export function UmesDevToolsPanel() {
   const hasErrors = data.conflicts.some((c) => c.severity === 'error')
 
   return (
-    <div className="fixed inset-y-0 right-0 z-[9999] flex w-[440px] flex-col border-l bg-background text-foreground shadow-lg"
+    <div className="fixed inset-y-0 right-0 z-top flex w-[440px] flex-col border-l bg-background text-foreground shadow-lg"
       style={{ fontSize: '13px' }}
     >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b bg-muted/50 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <strong className="text-sm">UMES DevTools</strong>
-          <span className="rounded bg-blue-100 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+          <span className="rounded bg-status-info-bg px-1.5 py-px text-overline font-semibold text-status-info-text">
             {data.extensions.length} ext
           </span>
           {conflictCount > 0 && (
-            <span className={`rounded px-1.5 py-px text-[10px] font-semibold ${hasErrors ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'}`}>
+            <span className={`rounded px-1.5 py-px text-overline font-semibold ${hasErrors ? 'bg-status-error-bg text-status-error-text' : 'bg-status-warning-bg text-status-warning-text'}`}>
               {conflictCount} conflict{conflictCount !== 1 ? 's' : ''}
             </span>
           )}
@@ -67,7 +67,7 @@ export function UmesDevToolsPanel() {
             type="button"
             variant="outline"
             size="sm"
-            className="h-auto px-2 py-0.5 text-[11px]"
+            className="h-auto px-2 py-0.5 text-overline"
             onClick={() => data.refresh()}
           >
             Refresh
@@ -92,7 +92,7 @@ export function UmesDevToolsPanel() {
             type="button"
             variant="ghost"
             size="sm"
-            className={`h-auto flex-1 rounded-none border-b-2 px-1 py-2 text-[11px] hover:bg-transparent ${
+            className={`h-auto flex-1 rounded-none border-b-2 px-1 py-2 text-overline hover:bg-transparent ${
               activeTab === tab.id
                 ? 'border-primary font-semibold text-primary'
                 : 'border-transparent text-muted-foreground'
@@ -114,7 +114,7 @@ export function UmesDevToolsPanel() {
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t bg-muted/50 px-4 py-1.5 text-center text-[10px] text-muted-foreground">
+      <div className="shrink-0 border-t bg-muted/50 px-4 py-1.5 text-center text-overline text-muted-foreground">
         Ctrl+Shift+U to toggle | Dev mode only
       </div>
     </div>

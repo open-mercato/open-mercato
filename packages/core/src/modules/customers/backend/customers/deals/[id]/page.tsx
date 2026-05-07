@@ -2,349 +2,301 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Pencil, MousePointerClick } from 'lucide-react'
+import { Building2, Users } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
-import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection } from '@open-mercato/ui/backend/detail'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
-import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
-import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
-import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
+import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { E } from '#generated/entities.ids.generated'
+
+import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
+import { DealClosureActionBar } from '../../../../components/detail/DealClosureActionBar'
+import { DealDetailHeader } from '../../../../components/detail/DealDetailHeader'
+import { DealDetailTabs, resolveLegacyTab, type DealTabId } from '../../../../components/detail/DealDetailTabs'
+import { DealForm, useDealAssociationLookups } from '../../../../components/detail/DealForm'
+import { DealLinkedEntitiesTab } from '../../../../components/detail/DealLinkedEntitiesTab'
+import { ConfirmDealLostDialog } from '../../../../components/detail/ConfirmDealLostDialog'
+import { DealLostSummaryDialog } from '../../../../components/detail/DealLostSummaryDialog'
+import { DealWonPopup } from '../../../../components/detail/DealWonPopup'
+import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
+import { PipelineStepper } from '../../../../components/detail/PipelineStepper'
+import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
+import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
-type DealAssociation = {
-  id: string
-  label: string
-  subtitle: string | null
-  kind: 'person' | 'company'
-}
-
-type DealDetailPayload = {
-  deal: {
-    id: string
-    title: string
-    description: string | null
-    status: string | null
-    pipelineStage: string | null
-    pipelineId: string | null
-    pipelineStageId: string | null
-    valueAmount: string | null
-    valueCurrency: string | null
-    probability: number | null
-    expectedCloseAt: string | null
-    ownerUserId: string | null
-    source: string | null
-    organizationId: string | null
-    tenantId: string | null
-    createdAt: string
-    updatedAt: string
-  }
-  people: DealAssociation[]
-  companies: DealAssociation[]
-  customFields: Record<string, unknown>
-  viewer?: {
-    userId: string | null
-    name?: string | null
-    email?: string | null
-  } | null
-}
-
-const CRUD_FOCUSABLE_SELECTOR =
-  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-function formatCurrency(amount: string | null, currency: string | null): string | null {
-  if (!amount) return null
-  const value = Number(amount)
-  if (!Number.isFinite(value)) return currency ? `${amount} ${currency}` : amount
-  if (!currency) return value.toLocaleString()
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
-  } catch {
-    return `${value.toLocaleString()} ${currency}`
-  }
-}
-
-function formatDate(value: string | null, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
-function resolveDictionaryLabel(
-  value: string | null | undefined,
-  map: CustomerDictionaryMap | null | undefined,
-): string | null {
-  if (!value) return null
-  const entry = map?.[value]
-  if (entry && entry.label && entry.label.length) return entry.label
-  return value
-}
+import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
+import type { DealDetailPayload } from './hooks/types'
+import { useDealActivities } from './hooks/useDealActivities'
+import { useDealAssociations } from './hooks/useDealAssociations'
+import { useDealClosure } from './hooks/useDealClosure'
+import { useDealData } from './hooks/useDealData'
+import { useDealFormHandlers } from './hooks/useDealFormHandlers'
+import { useDealInjectedTabs } from './hooks/useDealInjectedTabs'
+import { useDealMutationContext } from './hooks/useDealMutationContext'
+import { useDealPipeline } from './hooks/useDealPipeline'
+import { useScheduleDialog } from './hooks/useScheduleDialog'
 
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
+  const id = params?.id ?? ''
   const t = useT()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
-  const router = useRouter()
-  const id = params?.id ?? ''
-  const scopeVersion = useOrganizationScopeVersion()
-  const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
-  const pipelineDictionaryQuery = useCustomerDictionary('pipeline-stages', scopeVersion)
-  const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
-  const pipelineDictionaryMap = pipelineDictionaryQuery.data?.map ?? null
-  const [data, setData] = React.useState<DealDetailPayload | null>(null)
-  const [isLoading, setIsLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
-  const [isSaving, setIsSaving] = React.useState(false)
-  const [isDeleting, setIsDeleting] = React.useState(false)
-  const [reloadToken, setReloadToken] = React.useState(0)
-  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
-  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
-  const handleNotesLoadingChange = React.useCallback(() => {}, [])
-  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
-  const focusDealField = React.useCallback(
-    (fieldId: 'title' | 'personIds' | 'companyIds') => {
-      if (typeof window === 'undefined' || typeof document === 'undefined') return
-      const focusOnce = () => {
-        const container = document.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
-        if (!container) return false
-        const target =
-          container.querySelector<HTMLElement>(CRUD_FOCUSABLE_SELECTOR) ?? container
-        if (!target || typeof target.focus !== 'function') return false
-        if (typeof container.scrollIntoView === 'function') {
-          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-        target.focus()
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-          try {
-            target.select()
-          } catch {}
-        }
-        return true
-      }
 
-      const schedule = () => {
-        const focused = focusOnce()
-        if (focused) return
-        window.setTimeout(() => {
-          focusOnce()
-        }, 60)
-      }
+  const { data, setData, isLoading, error, loadData } = useDealData(id)
+  const [isDirty, setIsDirty] = React.useState(false)
+  const {
+    scheduleDialogOpen,
+    scheduleEditData,
+    openSchedule,
+    openEdit: openScheduleEdit,
+    closeSchedule,
+  } = useScheduleDialog()
+  const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-      if (typeof window.requestAnimationFrame === 'function') {
-        window.requestAnimationFrame(schedule)
-      } else {
-        schedule()
-      }
-    },
-    [],
-  )
-  const dealSettingsRef = React.useRef<HTMLDivElement | null>(null)
-  const scrollToDealSettings = React.useCallback(() => {
-    if (typeof window === 'undefined') return
-    if (dealSettingsRef.current && typeof dealSettingsRef.current.scrollIntoView === 'function') {
-      dealSettingsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-    window.setTimeout(() => {
-      focusDealField('title')
-    }, 160)
-  }, [focusDealField])
+  const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
+  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
 
   React.useEffect(() => {
-    if (!id) {
-      setError(t('customers.deals.detail.missingId', 'Deal id is required.'))
-      setIsLoading(false)
-      return
-    }
-    let cancelled = false
-    async function loadDeal() {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const payload = await readApiResultOrThrow<DealDetailPayload>(
-          `/api/customers/deals/${encodeURIComponent(id)}`,
-          undefined,
-          { errorMessage: t('customers.deals.detail.loadError', 'Failed to load deal.') },
-        )
-        if (cancelled) return
-        setData(payload as DealDetailPayload)
-      } catch (err) {
-        if (cancelled) return
-        const message =
-          err instanceof Error && err.message
-            ? err.message
-            : t('customers.deals.detail.loadError', 'Failed to load deal.')
-        setError(message)
-        setData(null)
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
-    }
-    loadDeal().catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [id, reloadToken, t])
+    setActiveTab(initialTab)
+  }, [initialTab])
 
-  const handleFormSubmit = React.useCallback(
-    async ({ base, custom }: DealFormSubmitPayload) => {
-      if (!data || isSaving) return
-      setIsSaving(true)
-      try {
-        const payload: Record<string, unknown> = {
-          id: data.deal.id,
-          title: base.title,
-          status: base.status ?? undefined,
-          pipelineStage: base.pipelineStage ?? undefined,
-          pipelineId: base.pipelineId ?? undefined,
-          pipelineStageId: base.pipelineStageId ?? undefined,
-          valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
-          valueCurrency: base.valueCurrency ?? undefined,
-          probability: typeof base.probability === 'number' ? base.probability : undefined,
-          expectedCloseAt: base.expectedCloseAt ?? undefined,
-          description: base.description ?? undefined,
-          personIds: base.personIds && base.personIds.length ? base.personIds : undefined,
-          companyIds: base.companyIds && base.companyIds.length ? base.companyIds : undefined,
-        }
-        if (Object.keys(custom).length) payload.customFields = custom
+  const currentDealId = data?.deal.id ?? id
+  const { injectionContext, runMutationWithContext } = useDealMutationContext({
+    currentDealId,
+    fallbackId: id,
+    data,
+  })
 
-        await apiCallOrThrow(
-          '/api/customers/deals',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
-        )
-        flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
-        setReloadToken((token) => token + 1)
-      } catch (err) {
-        const message =
-          err instanceof Error && err.message
-            ? err.message
-            : t('customers.deals.detail.saveError', 'Failed to update deal.')
-        flash(message, 'error')
-        throw err instanceof Error ? err : new Error(message)
-      } finally {
-        setIsSaving(false)
-      }
-    },
-    [data, isSaving, t],
+  const notesAdapter = React.useMemo(
+    () => createCustomerNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
   )
 
-  const handleDelete = React.useCallback(async () => {
-    if (!data || isDeleting) return
-    const confirmed = await confirm({
-      title: t(
-        'customers.deals.detail.deleteConfirm',
-        'Delete this deal? This action cannot be undone.',
-      ),
-      variant: 'destructive',
+  const { injectedTabs, injectedTabMap } = useDealInjectedTabs({
+    injectionContext,
+    data,
+    setData,
+  })
+
+  const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
+    excludeLinkedDealId: data?.deal.id ?? null,
+  })
+
+  const {
+    plannedActivities,
+    activityRefreshKey,
+    loadPlannedActivities,
+    handleActivityCreated,
+    handleMarkDone,
+    handleCancelActivity,
+  } = useDealActivities({ dealId: id, runMutationWithContext })
+
+  React.useEffect(() => {
+    void Promise.all([loadData(), loadPlannedActivities()])
+  }, [loadData, loadPlannedActivities])
+
+  const activityEntities = React.useMemo(
+    () => (data
+      ? [...data.people, ...data.companies].map((entry) => ({
+          id: entry.id,
+          label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
+          kind: entry.kind,
+        }))
+      : []),
+    [data],
+  )
+  const [selectedActivityEntityId, setSelectedActivityEntityId] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setSelectedActivityEntityId((current) => {
+      if (activityEntities.length === 1) return activityEntities[0].id
+      if (current && activityEntities.some((entry) => entry.id === current)) return current
+      return null
     })
-    if (!confirmed) return
+  }, [activityEntities])
 
-    setIsDeleting(true)
-    try {
-      await apiCallOrThrow(
-        '/api/customers/deals',
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.deal.id }),
-        },
-        { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
-      )
-      flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
-      router.push('/backend/customers/deals')
-    } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : t('customers.deals.detail.deleteError', 'Failed to delete deal.')
-      flash(message, 'error')
-    } finally {
-      setIsDeleting(false)
-    }
-  }, [confirm, data, isDeleting, router, t])
-
-  React.useEffect(() => {
-    setSectionAction(null)
-  }, [activeTab])
-
-  const handleSectionAction = React.useCallback(() => {
-    if (!sectionAction || sectionAction.disabled) return
-    sectionAction.onClick()
-  }, [sectionAction])
+  const selectedActivityEntity = React.useMemo(
+    () => activityEntities.find((entry) => entry.id === selectedActivityEntityId) ?? null,
+    [activityEntities, selectedActivityEntityId],
+  )
 
   const dealOptions = React.useMemo(
-    () =>
-      data
-        ? [
-            {
-              id: data.deal.id,
-              label:
-                data.deal.title && data.deal.title.length
-                  ? data.deal.title
-                  : t('customers.deals.detail.untitled', 'Untitled deal'),
-            },
-          ]
-        : [],
+    () => data ? [{ id: data.deal.id, label: data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal') }] : [],
     [data, t],
   )
 
-  const entityOptions = React.useMemo(() => {
-    if (!data) return []
-    const entries: { id: string; label: string }[] = []
-    data.people.forEach((person) => {
-      if (!person.id) return
-      const suffix = person.subtitle ? ` · ${person.subtitle}` : ''
-      entries.push({ id: person.id, label: `${person.label}${suffix}` })
-    })
-    data.companies.forEach((company) => {
-      if (!company.id) return
-      const suffix = company.subtitle ? ` · ${company.subtitle}` : ''
-      entries.push({ id: company.id, label: `${company.label}${suffix}` })
-    })
-    return entries
-  }, [data])
-
-  const defaultEntityId = React.useMemo(() => {
-    if (entityOptions.length) return entityOptions[0].id
-    return null
-  }, [entityOptions])
-
-  const tabs = React.useMemo(
-    () => [
-      { id: 'notes' as const, label: t('customers.deals.detail.tabs.notes', 'Notes') },
-      { id: 'activities' as const, label: t('customers.deals.detail.tabs.activities', 'Activities') },
-    ],
-    [t],
+  const entityOptions = React.useMemo(
+    () => activityEntities.map(({ id, label }) => ({ id, label })),
+    [activityEntities],
   )
+
+  const confirmDiscardIfDirty = React.useCallback(async () => {
+    if (!isDirty) return true
+    return confirm({
+      title: t('customers.deals.detail.unsavedTitle', 'Discard unsaved changes?'),
+      description: t(
+        'customers.deals.detail.unsavedDescription',
+        'You have unsaved edits in this deal. Save them first or continue to discard them.',
+      ),
+      confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
+      cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
+      variant: 'destructive',
+    })
+  }, [confirm, isDirty, t])
+
+  const {
+    peopleEditorIds,
+    companiesEditorIds,
+    peopleSaving,
+    companiesSaving,
+    handlePeopleAssociationsChange,
+    handleCompaniesAssociationsChange,
+    loadLinkedPeoplePage,
+    loadLinkedCompaniesPage,
+  } = useDealAssociations({
+    currentDealId,
+    data,
+    setData,
+    runMutationWithContext,
+  })
+
+  const { isStageSaving, handleStageChange } = useDealPipeline({
+    currentDealId,
+    data,
+    runMutationWithContext,
+    confirmDiscardIfDirty,
+    onStageChanged: loadData,
+  })
+
+  const {
+    lostDialogOpen,
+    wonPopupOpen,
+    lostPopupOpen,
+    wonStats,
+    lostStats,
+    openLostDialog,
+    closeLostDialog,
+    closeWonPopup,
+    closeLostPopup,
+    handleWon,
+    handleLostConfirm,
+  } = useDealClosure({
+    currentDealId,
+    runMutationWithContext,
+    confirmDiscardIfDirty,
+    onClosed: loadData,
+  })
+
+  const handleTabChange = React.useCallback(async (tab: DealTabId) => {
+    if (!(await confirmDiscardIfDirty())) return
+    setActiveTab(tab)
+    const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+    nextParams.set('tab', tab)
+    router.replace(`/backend/customers/deals/${encodeURIComponent(id)}?${nextParams.toString()}`, { scroll: false })
+  }, [confirmDiscardIfDirty, id, router, searchParams])
+
+  const { isSaving, handleFormSubmit, handleDelete, handleHeaderSave } = useDealFormHandlers({
+    data,
+    currentDealId,
+    loadData,
+    runMutationWithContext,
+    formWrapperRef,
+    confirm,
+  })
+
+  const handleEditActivity = React.useCallback((activity: InteractionSummary) => {
+    if (activity.entityId && activityEntities.some((entry) => entry.id === activity.entityId)) {
+      setSelectedActivityEntityId(activity.entityId)
+    }
+    // Forward `customValues` so per-type chip state (callPhoneNumber,
+    // callDirection, taskPriority) round-trips on edit (#1808 phone persistence).
+    // Forward `occurredAt` so historical activity edits prefill from the
+    // original moment instead of "today" (#1807 prefill).
+    const rawActivity = activity as unknown as Record<string, unknown>
+    openScheduleEdit({
+      id: activity.id,
+      interactionType: activity.interactionType,
+      title: activity.title ?? null,
+      body: activity.body ?? null,
+      scheduledAt: activity.scheduledAt ?? null,
+      occurredAt: activity.occurredAt ?? null,
+      durationMinutes: activity.duration ?? null,
+      location: activity.location ?? null,
+      allDay: activity.allDay ?? null,
+      recurrenceRule: activity.recurrenceRule ?? null,
+      recurrenceEnd: activity.recurrenceEnd ?? null,
+      participants: activity.participants ?? null,
+      reminderMinutes: activity.reminderMinutes ?? null,
+      visibility: activity.visibility ?? null,
+      linkedEntities: activity.linkedEntities ?? null,
+      guestPermissions: activity.guestPermissions ?? null,
+      ...(rawActivity.customValues && typeof rawActivity.customValues === 'object'
+        ? { customValues: rawActivity.customValues as Record<string, unknown> }
+        : {}),
+      ...(typeof rawActivity.phoneNumber === 'string'
+        ? { phoneNumber: rawActivity.phoneNumber as string }
+        : {}),
+    } as ScheduleActivityEditData & { customValues?: Record<string, unknown> | null; phoneNumber?: string | null })
+  }, [activityEntities, openScheduleEdit])
+
+  const handleViewDashboard = React.useCallback(() => {
+    closeWonPopup()
+    router.push('/backend')
+  }, [closeWonPopup, router])
+
+  const handleBackToPipeline = React.useCallback(() => {
+    closeWonPopup()
+    closeLostPopup()
+    router.push('/backend/customers/deals/pipeline')
+  }, [closeLostPopup, closeWonPopup, router])
+
+  const handleScheduleLostFollowUp = React.useCallback(() => {
+    if (!data || !selectedActivityEntity) return
+    const nextQuarterDate = startOfNextQuarter(new Date())
+    closeLostPopup()
+    openScheduleEdit({
+      id: '',
+      interactionType: 'task',
+      title: data.deal.title
+        ? t('customers.deals.detail.lost.followUpTitle', 'Revisit {{title}}', { title: data.deal.title })
+        : t('customers.deals.detail.lost.followUpFallbackTitle', 'Revisit closed deal'),
+      body: data.deal.lossNotes ?? null,
+      scheduledAt: nextQuarterDate.toISOString(),
+      durationMinutes: 30,
+      location: null,
+      allDay: false,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      reminderMinutes: 1440,
+      visibility: 'team',
+      linkedEntities: [
+        {
+          id: data.deal.id,
+          type: 'deal',
+          label: data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal'),
+        },
+      ],
+    })
+  }, [closeLostPopup, data, openScheduleEdit, selectedActivityEntity, t])
 
   if (isLoading) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Spinner className="h-6 w-6" />
-            <span>{t('customers.deals.detail.loading', 'Loading deal…')}</span>
-          </div>
+          <LoadingMessage label={t('customers.deals.detail.loading', 'Loading deal…')} />
         </PageBody>
       </Page>
     )
@@ -354,338 +306,361 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-3 text-muted-foreground">
-            <p>{error || t('customers.deals.detail.notFound', 'Deal not found.')}</p>
-            <Button variant="outline" asChild>
-              <Link href="/backend/customers/deals">
-                {t('customers.deals.detail.backToList', 'Back to deals')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error || t('customers.deals.detail.error.notFound', 'Deal not found.')}
+            action={(
+              <Button asChild variant="outline">
+                <Link href="/backend/customers/deals">
+                  {t('customers.deals.detail.actions.backToList', 'Back to deals')}
+                </Link>
+              </Button>
+            )}
+          />
         </PageBody>
       </Page>
     )
   }
 
-  const probabilityLabel = data.deal.probability !== null && data.deal.probability !== undefined
-    ? `${data.deal.probability}%`
-    : t('customers.deals.detail.noValue', 'Not provided')
-  const valueLabel =
-    formatCurrency(data.deal.valueAmount, data.deal.valueCurrency) ??
-    t('customers.deals.detail.noValue', 'Not provided')
-  const expectedCloseLabel = formatDate(data.deal.expectedCloseAt, t('customers.deals.detail.noValue', 'Not provided'))
-  const statusLabel =
-    resolveDictionaryLabel(data.deal.status, statusDictionaryMap) ??
-    t('customers.deals.detail.noStatus', 'No status')
-  const statusDictEntry = data.deal.status ? statusDictionaryMap?.[data.deal.status] ?? null : null
-  const pipelineLabel = resolveDictionaryLabel(data.deal.pipelineStage, pipelineDictionaryMap)
-  const pipelineDictEntry = data.deal.pipelineStage ? pipelineDictionaryMap?.[data.deal.pipelineStage] ?? null : null
-  const previewValueAmount = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
-  const previewProbability = data.deal.probability !== null && data.deal.probability !== undefined
-    ? `${data.deal.probability}%`
-    : null
-  const dealPreviewMetadata: Record<string, string> = {}
-  if (previewValueAmount) dealPreviewMetadata[t('customers.deals.detail.fields.value')] = previewValueAmount
-  if (previewProbability) dealPreviewMetadata[t('customers.deals.detail.fields.probability')] = previewProbability
+  const amountLabel = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
+  const currentPipelineName = data.pipelineName ?? wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
+  const dealName = data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')
 
-  const peopleSummaryLabel =
-    data.people.length === 1
-      ? t('customers.deals.detail.peopleSummaryOne')
-      : t('customers.deals.detail.peopleSummaryMany', undefined, { count: data.people.length })
-  const companiesSummaryLabel =
-    data.companies.length === 1
-      ? t('customers.deals.detail.companiesSummaryOne')
-      : t('customers.deals.detail.companiesSummaryMany', undefined, { count: data.companies.length })
+  const zone1Content = (
+    <div ref={formWrapperRef}>
+      <DealForm
+        mode="edit"
+        embedded
+        trackDirtyWhenEmbedded
+        hideFooterActions
+        singleColumnGroups
+        showAssociationsGroup={false}
+        showVersionHistory={false}
+        showCancelAction={false}
+        onDirtyChange={setIsDirty}
+        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'left' }}
+        sortableGroups={{ pageType: 'deal-detail-v3' }}
+        initialValues={{
+          ...data.deal,
+          valueAmount:
+            typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
+              ? Number(data.deal.valueAmount)
+              : null,
+          personIds: data.linkedPersonIds,
+          companyIds: data.linkedCompanyIds,
+          customFields: data.customFields,
+          ...Object.fromEntries(Object.entries(data.customFields ?? {}).map(([key, value]) => [`cf_${key}`, value])),
+        }}
+        onSubmit={handleFormSubmit}
+        onCancel={() => { void loadData() }}
+        onDelete={handleDelete}
+      />
+    </div>
+  )
 
-  const viewer = data.viewer ?? null
+  const zone2Content = (
+    <div className="rounded-[10px] border border-border bg-card px-5 py-5">
+      {(() => {
+        const injected = injectedTabMap.get(activeTab)
+        if (injected) return injected()
+
+        if (activeTab === 'activities') {
+          const activityEntitySelection = activityEntities.length > 1 ? (
+            <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
+              <label htmlFor="deal-activity-entity" className="text-sm font-semibold text-foreground">
+                {t('customers.deals.detail.activities.selectEntityLabel', 'Choose customer record')}
+              </label>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {t(
+                  'customers.deals.detail.activities.selectEntityDescription',
+                  'Pick the person or company that should own new deal activities and follow-ups.',
+                )}
+              </div>
+              <select
+                id="deal-activity-entity"
+                aria-label={t('customers.deals.detail.activities.selectEntityLabel', 'Choose customer record')}
+                className="mt-4 h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                value={selectedActivityEntityId ?? ''}
+                onChange={(event) => setSelectedActivityEntityId(event.target.value || null)}
+              >
+                <option value="">
+                  {t('customers.deals.detail.activities.selectEntityPlaceholder', 'Select a person or company')}
+                </option>
+                {activityEntities.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null
+
+          return (
+            <div className="space-y-4">
+              {activityEntities.length > 1 ? activityEntitySelection : null}
+              {activityEntities.length === 0 ? (
+                <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
+                  <div className="text-sm font-semibold text-foreground">
+                    {t('customers.deals.detail.activities.linkEntityTitle', 'Link a person or company first')}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {t('customers.deals.detail.activities.linkEntityDescription', 'Activities on a deal still need a customer record for timeline ownership.')}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => handleTabChange('people')}>
+                      {t('customers.deals.detail.tabs.people', 'People')}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => handleTabChange('companies')}>
+                      {t('customers.deals.detail.tabs.companies', 'Companies')}
+                    </Button>
+                  </div>
+                </div>
+              ) : selectedActivityEntity ? (
+                <InlineActivityComposer
+                  entityType={selectedActivityEntity.kind}
+                  entityId={selectedActivityEntity.id}
+                  dealId={data.deal.id}
+                  onActivityCreated={() => { void handleActivityCreated() }}
+                  runGuardedMutation={runMutationWithContext}
+                  onScheduleRequested={openSchedule}
+                />
+              ) : (
+                <div className="rounded-[10px] border border-dashed border-border bg-muted/10 px-5 py-5">
+                  <div className="text-sm font-semibold text-foreground">
+                    {t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {t(
+                      'customers.deals.detail.activities.selectEntityRequiredDescription',
+                      'Select the customer record that should receive new deal activities before logging or scheduling anything.',
+                    )}
+                  </div>
+                </div>
+              )}
+              <PlannedActivitiesSection
+                activities={plannedActivities}
+                onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
+                onSchedule={selectedActivityEntity ? openSchedule : undefined}
+                onEdit={handleEditActivity}
+                onCancel={(interactionId) => { void handleCancelActivity(interactionId) }}
+              />
+              {selectedActivityEntity ? (
+                <ActivitiesSection
+                  entityId={selectedActivityEntity.id}
+                  entityName={selectedActivityEntity.label}
+                  dealId={data.deal.id}
+                  dealOptions={dealOptions}
+                  entityOptions={entityOptions}
+                  defaultEntityId={selectedActivityEntity.id}
+                  addActionLabel={t('customers.deals.detail.activitiesAdd', 'Log activity')}
+                  emptyState={{
+                    title: t('customers.deals.detail.activitiesEmptyTitle', 'No activities yet'),
+                    actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Log activity'),
+                  }}
+                  runGuardedMutation={runMutationWithContext}
+                  onDataRefresh={() => { void handleActivityCreated() }}
+                  refreshKey={activityRefreshKey}
+                  onEditActivity={handleEditActivity}
+                />
+              ) : null}
+            </div>
+          )
+        }
+
+        if (activeTab === 'people') {
+          return (
+            <DealLinkedEntitiesTab
+              entityLabel={t('customers.deals.detail.tabs.peopleSingular', 'Person')}
+              entityLabelPlural={t('customers.deals.detail.tabs.people', 'People')}
+              manageLabel={t('customers.deals.detail.peopleEditorTitle', 'Manage linked people')}
+              searchPlaceholder={t('customers.deals.detail.peopleSearch', 'Search linked people…')}
+              linkedItems={data.people}
+              linkedCount={data.counts.people}
+              selectedIds={peopleEditorIds}
+              disabled={peopleSaving || isSaving}
+              savePending={peopleSaving}
+              hrefBuilder={(personId) => `/backend/customers/people-v2/${encodeURIComponent(personId)}`}
+              onSaveSelection={(next) => handlePeopleAssociationsChange(next)}
+              loadLinkedPage={loadLinkedPeoplePage}
+              searchEntities={searchPeoplePage}
+              fetchEntitiesByIds={fetchPeopleByIds}
+              icon={<Users className="size-4" />}
+            />
+          )
+        }
+
+        if (activeTab === 'companies') {
+          return (
+            <DealLinkedEntitiesTab
+              entityLabel={t('customers.deals.detail.tabs.companySingular', 'Company')}
+              entityLabelPlural={t('customers.deals.detail.tabs.companies', 'Companies')}
+              manageLabel={t('customers.deals.detail.companiesEditorTitle', 'Manage linked companies')}
+              searchPlaceholder={t('customers.deals.detail.companiesSearch', 'Search linked companies…')}
+              linkedItems={data.companies}
+              linkedCount={data.counts.companies}
+              selectedIds={companiesEditorIds}
+              disabled={companiesSaving || isSaving}
+              savePending={companiesSaving}
+              hrefBuilder={(companyId) => `/backend/customers/companies-v2/${encodeURIComponent(companyId)}`}
+              onSaveSelection={(next) => handleCompaniesAssociationsChange(next)}
+              loadLinkedPage={loadLinkedCompaniesPage}
+              searchEntities={searchCompaniesPage}
+              fetchEntitiesByIds={fetchCompaniesByIds}
+              icon={<Building2 className="size-4" />}
+            />
+          )
+        }
+
+        if (activeTab === 'notes') {
+          return (
+            <NotesSection
+              entityId={null}
+              dealId={data.deal.id}
+              dealOptions={dealOptions}
+              entityOptions={entityOptions}
+              emptyLabel={t('customers.deals.detail.notesEmpty', 'No notes yet.')}
+              viewerUserId={data.viewer?.userId ?? null}
+              viewerName={data.viewer?.name ?? null}
+              viewerEmail={data.viewer?.email ?? null}
+              addActionLabel={t('customers.deals.detail.notesAdd', 'Add note')}
+              emptyState={{
+                title: t('customers.deals.detail.notesEmptyTitle', 'Keep everyone in the loop'),
+                actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
+              }}
+              translator={detailTranslator}
+              dataAdapter={notesAdapter}
+              renderIcon={renderDictionaryIcon}
+              renderColor={renderDictionaryColor}
+              iconSuggestions={ICON_SUGGESTIONS}
+              readMarkdownPreference={readMarkdownPreferenceCookie}
+              writeMarkdownPreference={writeMarkdownPreferenceCookie}
+            />
+          )
+        }
+
+        if (activeTab === 'files') {
+          return (
+            <AttachmentsSection
+              entityId={E.customers.customer_deal}
+              recordId={data.deal.id}
+              title={t('customers.deals.detail.tabs.files', 'Files')}
+              description={t('customers.deals.detail.files.subtitle', 'Upload and manage files linked to this deal.')}
+            />
+          )
+        }
+
+        if (activeTab === 'changelog') {
+          return <ChangelogTab entityId={data.deal.id} entityType="deal" />
+        }
+
+        return null
+      })()}
+    </div>
+  )
 
   return (
     <Page>
       <PageBody>
-        <div className="flex flex-col gap-6">
-          <FormHeader
-            mode="detail"
-            backHref="/backend/customers/deals"
-            backLabel={t('customers.deals.detail.backToList', 'Back to deals')}
-            utilityActions={(
-              <>
-                <SendObjectMessageDialog
-                  object={{
-                    entityModule: 'customers',
-                    entityType: 'deal',
-                    entityId: data.deal.id,
-                    sourceEntityType: 'customers.deal',
-                    sourceEntityId: data.deal.id,
-                    previewData: {
-                      title: data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal'),
-                      status: data.deal.status ? statusLabel : undefined,
-                      metadata: Object.keys(dealPreviewMetadata).length > 0 ? dealPreviewMetadata : undefined,
-                    },
-                  }}
-                  viewHref={`/backend/customers/deals/${data.deal.id}`}
-                  defaultValues={{
-                    sourceEntityType: 'customers.deal',
-                    sourceEntityId: data.deal.id,
-                  }}
-                />
-                <VersionHistoryAction
-                  config={{ resourceKind: 'customers.deal', resourceId: data.deal.id }}
-                  t={t}
-                />
-              </>
-            )}
-            title={
-              <div className="flex flex-wrap items-center gap-2">
-                <span>{data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1 text-muted-foreground hover:text-foreground"
-                  onClick={scrollToDealSettings}
-                >
-                  <Pencil className="h-4 w-4" aria-hidden />
-                  <MousePointerClick className="h-4 w-4" aria-hidden />
-                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
-                </Button>
-              </div>
-            }
-            subtitle={t('customers.deals.detail.summary', undefined, {
-              status: statusLabel,
-              pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
-            })}
+        <div className="space-y-6">
+          <InjectionSpot spotId="detail:customers.deal:header" context={injectionContext} data={data} />
+
+          <DealDetailHeader
+            deal={data.deal}
+            owner={data.owner}
+            people={data.people}
+            companies={data.companies}
+            pipelineName={currentPipelineName}
+            stageOptions={data.pipelineStages}
+            currentStageId={data.deal.pipelineStageId}
+            onStageChange={handleStageChange}
+            isStageSaving={isStageSaving}
+            onSave={handleHeaderSave}
             onDelete={handleDelete}
-            isDeleting={isDeleting}
-            deleteLabel={t('ui.actions.delete', 'Delete')}
+            isDirty={isDirty}
+            isSaving={isSaving}
           />
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
-            <div className="space-y-6">
-              <div className="rounded-lg border bg-card p-4">
-                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
-                  {t('customers.deals.detail.highlights', 'Highlights')}
-                </h2>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('customers.deals.detail.fields.value', 'Deal value')}
-                    </p>
-                    <p className="text-base font-semibold text-foreground">{valueLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('customers.deals.detail.fields.probability', 'Probability')}
-                    </p>
-                    <p className="text-base font-semibold text-foreground">{probabilityLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('customers.deals.detail.fields.status', 'Status')}
-                    </p>
-                    <p className="text-base text-foreground flex items-center gap-2">
-                      {statusDictEntry?.color ? renderDictionaryColor(statusDictEntry.color) : null}
-                      {statusDictEntry?.icon ? renderDictionaryIcon(statusDictEntry.icon) : null}
-                      {statusLabel}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('customers.deals.detail.fields.pipeline', 'Pipeline stage')}
-                    </p>
-                    <p className="text-base text-foreground flex items-center gap-2">
-                      {pipelineDictEntry?.color ? renderDictionaryColor(pipelineDictEntry.color) : null}
-                      {pipelineDictEntry?.icon ? renderDictionaryIcon(pipelineDictEntry.icon) : null}
-                      {pipelineLabel ?? t('customers.deals.detail.noValue', 'Not provided')}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('customers.deals.detail.fields.expectedClose', 'Expected close')}
-                    </p>
-                    <p className="text-base text-foreground">{expectedCloseLabel}</p>
-                  </div>
-                </div>
-              </div>
 
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    {tabs.map((tab) => (
-                      <Button
-                        key={tab.id}
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`h-auto rounded-none border-b-2 px-0 py-1 ${
-                          activeTab === tab.id
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
-                        }`}
-                      >
-                        {tab.label}
-                      </Button>
-                    ))}
-                  </div>
-                  {sectionAction ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={sectionAction.disabled}
-                      onClick={handleSectionAction}
-                    >
-                      {sectionAction.icon ?? null}
-                      {sectionAction.label}
-                    </Button>
-                  ) : null}
-                </div>
-                {activeTab === 'notes' ? (
-                  <NotesSection
-                    entityId={null}
-                    dealId={data.deal.id}
-                    dealOptions={dealOptions}
-                    entityOptions={entityOptions}
-                    emptyLabel={t('customers.deals.detail.notesEmpty', 'No notes yet.')}
-                    viewerUserId={viewer?.userId ?? null}
-                    viewerName={viewer?.name ?? null}
-                    viewerEmail={viewer?.email ?? null}
-                    addActionLabel={t('customers.deals.detail.notesAdd', 'Add note')}
-                    emptyState={{
-                      title: t('customers.deals.detail.notesEmptyTitle', 'Keep everyone in the loop'),
-                      actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
-                    }}
-                    onActionChange={setSectionAction}
-                    translator={detailTranslator}
-                    onLoadingChange={handleNotesLoadingChange}
-                    dataAdapter={notesAdapter}
-                    renderIcon={renderDictionaryIcon}
-                    renderColor={renderDictionaryColor}
-                    iconSuggestions={ICON_SUGGESTIONS}
-                    readMarkdownPreference={readMarkdownPreferenceCookie}
-                    writeMarkdownPreference={writeMarkdownPreferenceCookie}
-                  />
-                ) : null}
-                {activeTab === 'activities' ? (
-                  <ActivitiesSection
-                    entityId={null}
-                    dealId={data.deal.id}
-                    dealOptions={dealOptions}
-                    entityOptions={entityOptions}
-                    defaultEntityId={defaultEntityId ?? undefined}
-                    addActionLabel={t('customers.deals.detail.activitiesAdd', 'Log activity')}
-                    emptyState={{
-                      title: t('customers.deals.detail.activitiesEmptyTitle', 'No activities yet'),
-                      actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Add an activity'),
-                    }}
-                    onActionChange={setSectionAction}
-                    onLoadingChange={handleActivitiesLoadingChange}
-                  />
-                ) : null}
-              </div>
+          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} />
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="mb-3 space-y-1">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {t('customers.deals.detail.peopleSection', 'People')}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {peopleSummaryLabel}
-                    </p>
-                  </div>
-                  {data.people.length ? (
-                    <ul className="space-y-2 text-sm">
-                      {data.people.map((person) => (
-                        <li key={person.id} className="flex flex-col gap-1">
-                          <Link href={`/backend/customers/people-v2/${encodeURIComponent(person.id)}`} className="font-medium text-foreground hover:underline">
-                            {person.label}
-                          </Link>
-                          <span className="text-xs text-muted-foreground">
-                            {person.subtitle ?? t('customers.deals.detail.peopleNoDetails', 'No additional details')}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {t('customers.deals.detail.noPeople', 'No people linked to this deal yet.')}
-                    </p>
-                  )}
-                </div>
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="mb-3 space-y-1">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {t('customers.deals.detail.companiesSection', 'Companies')}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {companiesSummaryLabel}
-                    </p>
-                  </div>
-                  {data.companies.length ? (
-                    <ul className="space-y-2 text-sm">
-                      {data.companies.map((company) => (
-                        <li key={company.id} className="flex flex-col gap-1">
-                          <Link href={`/backend/customers/companies-v2/${encodeURIComponent(company.id)}`} className="font-medium text-foreground hover:underline">
-                            {company.label}
-                          </Link>
-                          <span className="text-xs text-muted-foreground">
-                            {company.subtitle ?? t('customers.deals.detail.companiesNoDetails', 'No additional details')}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {t('customers.deals.detail.noCompanies', 'No companies linked to this deal yet.')}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
+          <PipelineStepper
+            stages={data.pipelineStages}
+            transitions={data.stageTransitions}
+            currentStageId={data.deal.pipelineStageId}
+            pipelineName={currentPipelineName}
+            closureOutcome={data.deal.closureOutcome}
+            footer={data.deal.closureOutcome ? null : (
+              <DealClosureActionBar
+                embedded
+                closureOutcome={data.deal.closureOutcome}
+                onWon={() => { void handleWon() }}
+                onLost={openLostDialog}
+              />
+            )}
+          />
 
-            <div className="space-y-6">
-              <div
-                ref={dealSettingsRef}
-                id="deal-settings"
-                className="rounded-lg border bg-card p-4"
-              >
-                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
-                  {t('customers.deals.detail.formTitle', 'Deal settings')}
-                </h2>
-                <DealForm
-                  key={data.deal.updatedAt}
-                  mode="edit"
-                  initialValues={{
-                    id: data.deal.id,
-                    title: data.deal.title ?? '',
-                    status: data.deal.status ?? '',
-                    pipelineStage: data.deal.pipelineStage ?? '',
-                    pipelineId: data.deal.pipelineId ?? '',
-                    pipelineStageId: data.deal.pipelineStageId ?? '',
-                    valueAmount: data.deal.valueAmount ? Number(data.deal.valueAmount) : null,
-                    valueCurrency: data.deal.valueCurrency ?? undefined,
-                    probability: data.deal.probability ?? null,
-                    expectedCloseAt: data.deal.expectedCloseAt ?? null,
-                    description: data.deal.description ?? '',
-                    personIds: data.people.map((person) => person.id),
-                    companyIds: data.companies.map((company) => company.id),
-                    people: data.people.map((person) => ({ id: person.id, label: person.label })),
-                    companies: data.companies.map((company) => ({ id: company.id, label: company.label })),
-                    ...Object.fromEntries(
-                      Object.entries(data.customFields)
-                        .filter(([key]) => key.startsWith('cf_'))
-                        .map(([key, value]) => [key, value]),
-                    ),
-                  }}
-                  onSubmit={handleFormSubmit}
-                  onCancel={() => setReloadToken((token) => token + 1)}
-                  onDelete={handleDelete}
-                  isSubmitting={isSaving || isDeleting}
-                />
-              </div>
-            </div>
-          </div>
+          <DealDetailTabs
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+            peopleCount={data.counts.people}
+            companiesCount={data.counts.companies}
+          >
+            <CollapsibleZoneLayout
+              pageType="deal-detail-v3"
+              entityName={dealName}
+              isDirty={isDirty}
+              zone1DefaultWidth="540px"
+              zone1={zone1Content}
+              zone2={zone2Content}
+            />
+          </DealDetailTabs>
+
+          <InjectionSpot spotId="detail:customers.deal:footer" context={injectionContext} data={data} />
         </div>
+
+        {ConfirmDialogElement}
+
+        {selectedActivityEntity ? (
+          <ScheduleActivityDialog
+            open={scheduleDialogOpen}
+            onClose={closeSchedule}
+            entityId={selectedActivityEntity.id}
+            dealId={data.deal.id}
+            entityType={selectedActivityEntity.kind}
+            entityName={selectedActivityEntity.label}
+            companyName={selectedActivityEntity.kind === 'company' ? selectedActivityEntity.label : data.companies[0]?.label ?? null}
+            onActivityCreated={() => { void handleActivityCreated() }}
+            editData={scheduleEditData}
+          />
+        ) : null}
+
+        <ConfirmDealLostDialog
+          open={lostDialogOpen}
+          onClose={closeLostDialog}
+          dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+          dealValue={amountLabel}
+          companyName={data.companies[0]?.label ?? null}
+          onConfirm={handleLostConfirm}
+        />
+
+        <DealWonPopup
+          open={wonPopupOpen}
+          onClose={closeWonPopup}
+          dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+          stats={wonStats}
+          onViewDashboard={handleViewDashboard}
+          onBackToPipeline={handleBackToPipeline}
+        />
+
+        <DealLostSummaryDialog
+          open={lostPopupOpen}
+          onClose={closeLostPopup}
+          dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+          lossNotes={data.deal.lossNotes}
+          stats={lostStats}
+          onBackToPipeline={handleBackToPipeline}
+          onScheduleFollowUp={selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
+        />
       </PageBody>
-      {ConfirmDialogElement}
     </Page>
   )
 }

@@ -10,6 +10,13 @@ import {
   InlineDateRangeSelect,
   type DateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 
@@ -115,15 +122,18 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
           >
             {t('dashboards.analytics.settings.chartVariant', 'Chart Style')}
           </label>
-          <select
-            id="orders-by-status-variant"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          <Select
             value={hydrated.variant}
-            onChange={(e) => onSettingsChange({ ...hydrated, variant: e.target.value as 'pie' | 'donut' })}
+            onValueChange={(value) => onSettingsChange({ ...hydrated, variant: value as 'pie' | 'donut' })}
           >
-            <option value="donut">{t('dashboards.analytics.chartVariant.donut', 'Donut')}</option>
-            <option value="pie">{t('dashboards.analytics.chartVariant.pie', 'Pie')}</option>
-          </select>
+            <SelectTrigger id="orders-by-status-variant" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="donut">{t('dashboards.analytics.chartVariant.donut', 'Donut')}</SelectItem>
+              <SelectItem value="pie">{t('dashboards.analytics.chartVariant.pie', 'Pie')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     )

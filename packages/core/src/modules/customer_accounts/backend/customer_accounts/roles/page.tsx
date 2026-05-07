@@ -137,7 +137,7 @@ export default function CustomerRolesPage() {
       header: t('customer_accounts.admin.roles.columns.isSystem', 'System'),
       cell: ({ row }) => (
         row.original.isSystem ? (
-          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+          <span className="inline-flex items-center rounded-full bg-status-info-bg px-2 py-0.5 text-xs font-medium text-status-info-text">
             {t('customer_accounts.admin.roles.system', 'System')}
           </span>
         ) : null
@@ -148,7 +148,7 @@ export default function CustomerRolesPage() {
       header: t('customer_accounts.admin.roles.columns.isDefault', 'Default'),
       cell: ({ row }) => (
         row.original.isDefault ? (
-          <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+          <span className="inline-flex items-center rounded-full bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success-text">
             {t('customer_accounts.admin.roles.default', 'Default')}
           </span>
         ) : null

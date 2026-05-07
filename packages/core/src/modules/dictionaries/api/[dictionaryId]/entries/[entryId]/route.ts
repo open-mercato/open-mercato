@@ -101,6 +101,8 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       label: updated.label,
       color: updated.color,
       icon: updated.icon,
+      position: updated.position ?? 0,
+      isDefault: updated.isDefault ?? false,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     })

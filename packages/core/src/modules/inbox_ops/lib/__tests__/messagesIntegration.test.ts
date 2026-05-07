@@ -4,18 +4,20 @@ import { resolveMessageSenderUserId } from '../messagesIntegration'
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
-function createMockKnex(result: { id: string } | null) {
-  const chain = {
-    select: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    whereNull: jest.fn().mockReturnThis(),
-    first: jest.fn().mockResolvedValue(result),
+function createMockKysely(result: { id: string } | null) {
+  const chain: any = {}
+  chain.select = jest.fn().mockReturnValue(chain)
+  chain.where = jest.fn().mockReturnValue(chain)
+  chain.executeTakeFirst = jest.fn().mockResolvedValue(result)
+  return {
+    selectFrom: jest.fn().mockReturnValue(chain),
+    _chain: chain,
   }
-  return jest.fn().mockReturnValue(chain)
 }
 
-function createMockEm(knexResult: { id: string } | null = null) {
-  return { getKnex: jest.fn().mockReturnValue(createMockKnex(knexResult)) } as any
+function createMockEm(result: { id: string } | null = null) {
+  const db = createMockKysely(result)
+  return { getKysely: jest.fn().mockReturnValue(db), _db: db } as any
 }
 
 const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
@@ -51,9 +53,9 @@ describe('resolveMessageSenderUserId', () => {
     expect(result).toBe(SYSTEM_USER_ID)
   })
 
-  it('falls back gracefully when knex query throws', async () => {
+  it('falls back gracefully when the db query throws', async () => {
     const em = {
-      getKnex: jest.fn().mockImplementation(() => {
+      getKysely: jest.fn().mockImplementation(() => {
         throw new Error('DB connection failed')
       }),
     } as any
@@ -66,15 +68,13 @@ describe('resolveMessageSenderUserId', () => {
   })
 
   it('normalizes email to lowercase for lookup', async () => {
-    const mockKnex = createMockKnex({ id: 'user-ci' })
-    const em = { getKnex: jest.fn().mockReturnValue(mockKnex) } as any
+    const em = createMockEm({ id: 'user-ci' })
 
     await resolveMessageSenderUserId(
       em, '  Jane@Example.COM  ', ['admin-1'], scope,
     )
 
-    expect(mockKnex).toHaveBeenCalledWith('users')
-    const chain = mockKnex.mock.results[0].value
-    expect(chain.where).toHaveBeenCalledWith('email', 'jane@example.com')
+    expect((em as any)._db.selectFrom).toHaveBeenCalledWith('users')
+    expect((em as any)._db._chain.where).toHaveBeenCalledWith('email', '=', 'jane@example.com')
   })
 })

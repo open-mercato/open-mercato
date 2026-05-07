@@ -1,18 +1,20 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
   testEnvironment: 'jsdom',
   watchman: false,
   rootDir: '.',
+  maxWorkers: 4,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^react-markdown$': '<rootDir>/jest.markdown-mock.tsx',
+    '^remark-gfm$': '<rootDir>/jest.markdown-mock.tsx',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [
-      'ts-jest',
+      '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
           jsx: 'react-jsx',
@@ -21,6 +23,12 @@ module.exports = {
     ],
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(@mikro-orm)/)',
+  ],
+  testMatch: [
+    '<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)',
+    '<rootDir>/__integration__/**/*.spec.(ts|tsx)',
+  ],
   passWithNoTests: true,
 }

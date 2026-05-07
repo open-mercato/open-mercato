@@ -4,6 +4,13 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ProductMediaManager } from './ProductMediaManager'
 import { MetadataEditor } from './MetadataEditor'
@@ -160,18 +167,21 @@ export function VariantOptionValuesSection({
         {optionDefinitions.map((option) => (
           <div key={option.code} className="space-y-2">
             <Label className="text-xs uppercase text-muted-foreground">{option.label}</Label>
-            <select
-              className="w-full rounded border px-3 py-2 text-sm"
-              value={values.optionValues?.[option.code] ?? ''}
-              onChange={(event) => handleOptionChange(option.code, event.target.value)}
+            <Select
+              value={values.optionValues?.[option.code] || undefined}
+              onValueChange={(value) => handleOptionChange(option.code, value ?? '')}
             >
-              <option value="">{t('catalog.variants.form.optionPlaceholder', 'Select value')}</option>
-              {option.values.map((value) => (
-                <option key={value.id} value={value.label}>
-                  {value.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder={t('catalog.variants.form.optionPlaceholder', 'Select value')} />
+              </SelectTrigger>
+              <SelectContent>
+                {option.values.map((value) => (
+                  <SelectItem key={value.id} value={value.label}>
+                    {value.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         ))}
       </div>
@@ -294,34 +304,40 @@ export function VariantPricesSection({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              className="rounded border px-3 py-2 text-sm"
-              value={values.taxRateId ?? ''}
-              onChange={(event) => setValue('taxRateId', event.target.value || null)}
+            <Select
+              value={values.taxRateId || undefined}
+              onValueChange={(value) => setValue('taxRateId', value || null)}
             >
-              <option value="">{t('catalog.variants.form.pricesTaxNone', 'No tax override')}</option>
-              {taxRates.map((rate) => (
-                <option key={rate.id} value={rate.id}>
-                  {formatTaxRateLabel(rate)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+              </SelectTrigger>
+              <SelectContent>
+                {taxRates.map((rate) => (
+                  <SelectItem key={rate.id} value={rate.id}>
+                    {formatTaxRateLabel(rate)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       ) : (
         <div className="flex justify-end">
-          <select
-            className="rounded border px-3 py-2 text-sm"
-            value={values.taxRateId ?? ''}
-            onChange={(event) => setValue('taxRateId', event.target.value || null)}
+          <Select
+            value={values.taxRateId || undefined}
+            onValueChange={(value) => setValue('taxRateId', value || null)}
           >
-            <option value="">{t('catalog.variants.form.pricesTaxNone', 'No tax override')}</option>
-            {taxRates.map((rate) => (
-              <option key={rate.id} value={rate.id}>
-                {formatTaxRateLabel(rate)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+            </SelectTrigger>
+            <SelectContent>
+              {taxRates.map((rate) => (
+                <SelectItem key={rate.id} value={rate.id}>
+                  {formatTaxRateLabel(rate)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
       <div className="space-y-3">
@@ -329,7 +345,7 @@ export function VariantPricesSection({
           priceKinds.map((kind) => {
             const draft = values.prices?.[kind.id]
             return (
-              <div key={kind.id} className="rounded bg-muted/40 p-3">
+              <div key={kind.id} className="rounded bg-muted/50 p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">{kind.title}</p>

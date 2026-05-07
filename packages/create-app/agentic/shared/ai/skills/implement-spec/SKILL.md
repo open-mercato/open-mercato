@@ -40,14 +40,18 @@ For every piece of code, enforce these code-review rules inline:
 | Area | Rule |
 |------|------|
 | Types | No `any` — use zod + `z.infer` |
-| API routes | Export `openApi` and `metadata` with auth guards |
-| Entities | Standard columns, snake_case, UUID PKs, `organization_id` + `tenant_id` |
+| API routes | Export `openApi` and per-method `metadata` with `requireAuth` / `requireFeatures` (no top-level `export const requireAuth`) |
+| **CRUD APIs** | **Use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Custom write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success. See `AGENTS.md` → Mandatory Module Mechanisms.** |
+| Entities | Standard columns, snake_case, UUID PKs, indexed `organization_id` + `tenant_id` |
 | Security | `findWithDecryption`, tenant scoping, zod validation |
-| UI | `CrudForm`/`DataTable`, `apiCall`, `flash()`, `LoadingMessage`/`ErrorMessage` |
-| Events | `createModuleEvents()` with `as const`, subscribers export `metadata` |
+| **Encryption maps** | **For every PII / GDPR-relevant column the phase touches, declare in `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads via `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. NEVER hand-rolled AES/KMS, `crypto.subtle`, or "encrypt later" stubs. See `AGENTS.md` → CRITICAL Rule #11 (Encryption maps) + the "Encryption maps" row of the Mandatory Module Mechanisms table; `.ai/skills/data-model-design/SKILL.md` § Sensitive Data and Encryption Maps; `.ai/skills/module-scaffold/SKILL.md` § Encryption maps.** |
+| UI | `<CrudForm>`/`<DataTable>` (with stable `entityId` + `extensionTableId`), `apiCall` (never raw `fetch`), `flash()`, `<LoadingMessage>`/`<ErrorMessage>` |
+| **Design System** | **Semantic status tokens (no `text-red-*` / `bg-green-*`); Tailwind text scale (no `text-[13px]` / `text-[11px]`); shared primitives `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `Spinner` / `DataLoader` / `EmptyState`; lucide-react icons in PAGE BODY (never inline `<svg>`); `aria-label` on every icon-only button; Boy Scout rule on touched lines. See `AGENTS.md` → CRITICAL Rule #10 (Strict Design System alignment) + `.ai/skills/backend-ui-design/SKILL.md`.** |
+| **Cache** | **Resolve via DI (`container.resolve('cache')`); tag with `tenant:<id>` / `org:<id>`; declare invalidation per write path. NEVER `new Redis(...)` or raw SQLite.** |
+| Events | `createModuleEvents()` with `as const`, subscribers export `metadata`; cross-module side effects via subscribers, never direct imports |
 | i18n | `useT()` client, `resolveTranslations()` server, no hardcoded strings |
 | Imports | Package-level `@open-mercato/<pkg>/...` for framework imports |
-| Mutations | `useGuardedMutation` when not using CrudForm |
+| Mutations | `useGuardedMutation` when not using CrudForm; pass `retryLastMutation` in injection context |
 | Keyboard | `Cmd/Ctrl+Enter` submit, `Escape` cancel on dialogs |
 | Naming | Modules plural snake_case, events `module.entity.past_tense`, features `module.action` |
 
@@ -129,7 +133,7 @@ After all targeted phases are complete:
 3. **Build check**: `yarn build` — must pass
 4. **Unit test check**: `yarn test` — must pass
 5. **Integration test check**: run any new integration tests — must pass
-6. **Migration check**: `yarn mercato db generate` — if any entities changed (verify generated migration is scoped correctly)
+6. **Migration check**: `yarn db:generate` — if any entities changed (verify the resulting SQL is scoped correctly; manual SQL is acceptable only when avoiding unrelated churn, and the touched `.snapshot-open-mercato.json` must match)
 
 Report results to the user. If any check fails, fix and re-verify.
 
@@ -159,4 +163,4 @@ Report results to the user. If any check fails, fix and re-verify.
 - MUST keep subagents focused — one task per subagent, clear boundaries
 - MUST report blockers to the user immediately rather than working around them silently
 - MUST run `yarn generate` after creating or modifying module convention files
-- MUST run `yarn mercato db generate` after creating or modifying entities (and confirm migration with user before applying)
+- MUST run `yarn db:generate` after creating or modifying entities (and confirm migration with user before applying)

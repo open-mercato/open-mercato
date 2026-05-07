@@ -29,7 +29,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
@@ -305,7 +305,7 @@ function toTemplateOption(template: TemplateSummary): ComboboxOption {
 }
 
 function errorInputClassName(error?: string): string | undefined {
-  return error ? 'border-destructive focus-visible:ring-destructive/30' : undefined
+  return error ? 'border-destructive aria-invalid:ring-destructive' : undefined
 }
 
 function SectionLabel({
@@ -402,9 +402,11 @@ function PriceListEditor({
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.linkTemplateForm.priceList.notices.singleCurrency')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.linkTemplateForm.priceList.notices.singleCurrency')}
+        </AlertDescription>
+      </Alert>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
@@ -478,9 +480,11 @@ function PriceListEditor({
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Notice compact>
-              {t('checkout.linkTemplateForm.priceList.notices.empty')}
-            </Notice>
+            <Alert variant="info">
+              <AlertDescription>
+                {t('checkout.linkTemplateForm.priceList.notices.empty')}
+              </AlertDescription>
+            </Alert>
           </div>
         )}
       </div>
@@ -572,7 +576,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
           </SectionLabel>
 
           <div className="flex items-end">
-            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={readBoolean(values.fixedPriceIncludesTax, true)}
@@ -848,7 +852,7 @@ function AppearanceSection({
         </select>
       </SectionLabel>
 
-      <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+      <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
         <input
           type="checkbox"
           checked={readBoolean(values.displayCustomFieldsOnPage)}
@@ -916,7 +920,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
 
   return (
     <div className="space-y-4">
-      <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm">
+      <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm">
         <input
           type="checkbox"
           checked={collectCustomerDetails}
@@ -936,9 +940,11 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
 
       {collectCustomerDetails ? (
         <>
-          <Notice compact>
-            {t('checkout.linkTemplateForm.customerDetails.notices.simpleLink')}
-          </Notice>
+          <Alert variant="info">
+            <AlertDescription>
+              {t('checkout.linkTemplateForm.customerDetails.notices.simpleLink')}
+            </AlertDescription>
+          </Alert>
           {customerFieldsError ? <p className="text-xs text-destructive">{customerFieldsError}</p> : null}
           <CustomerFieldsEditor
             value={readCustomerFields(values.customerFieldsSchema, t)}
@@ -947,9 +953,11 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
           />
         </>
       ) : (
-        <Notice compact>
-          {t('checkout.linkTemplateForm.customerDetails.notices.disabled')}
-        </Notice>
+        <Alert variant="info">
+          <AlertDescription>
+            {t('checkout.linkTemplateForm.customerDetails.notices.disabled')}
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   )
@@ -979,9 +987,11 @@ function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps)
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.linkTemplateForm.legal.notice')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.linkTemplateForm.legal.notice')}
+        </AlertDescription>
+      </Alert>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'terms' | 'privacyPolicy')}>
         <TabsList className={SETTINGS_TABS_LIST_CLASS}>
@@ -1087,9 +1097,11 @@ function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentPro
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.linkTemplateForm.messages.notice')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.linkTemplateForm.messages.notice')}
+        </AlertDescription>
+      </Alert>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'success' | 'cancel' | 'error')}>
         <TabsList className={SETTINGS_TABS_LIST_CLASS}>
@@ -1184,9 +1196,11 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.linkTemplateForm.emails.notice')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.linkTemplateForm.emails.notice')}
+        </AlertDescription>
+      </Alert>
       <VariableHint />
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'start' | 'success' | 'error')}>
@@ -1204,7 +1218,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
         {(['start', 'success', 'error'] as const).map((item) => (
           <TabsContent key={item} value={item} className="space-y-4">
-            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={readBoolean(values[config[item].enabledKey], true)}
@@ -1531,14 +1545,13 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     [mode, recordId],
   )
   const lockedNotice = isLocked ? (
-    <Notice
-      variant="warning"
-      title={t('checkout.linkTemplateForm.locked.title')}
-      message={t('checkout.linkTemplateForm.locked.description')}
-    />
+    <Alert variant="warning">
+      <AlertTitle>{t('checkout.linkTemplateForm.locked.title')}</AlertTitle>
+      <AlertDescription>{t('checkout.linkTemplateForm.locked.description')}</AlertDescription>
+    </Alert>
   ) : undefined
   const lockedOverlay = isLocked ? (
-    <div className="mx-auto mt-6 max-w-md rounded-2xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
+    <div className="mx-auto mt-6 max-w-md rounded-xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
       <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
         <Shield className="h-5 w-5" />
       </div>

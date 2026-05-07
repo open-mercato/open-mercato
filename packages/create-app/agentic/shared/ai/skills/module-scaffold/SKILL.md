@@ -41,8 +41,9 @@ Before writing any code, ask the developer:
    - [ ] Background workers
    - [ ] CLI commands
    - [ ] Custom fields support
+   - [ ] **Sensitive / GDPR-relevant fields** (PII, contact info, addresses, free-text notes about people, integration credentials, secrets) — if yes, an `encryption.ts` declaring `defaultEncryptionMaps` is mandatory; see section 11 → Encryption maps
 
-If the developer provides a brief description, infer reasonable defaults and confirm.
+If the developer provides a brief description, infer reasonable defaults and confirm. When key fields include names, emails, phones, addresses, free-text comments, or external API keys, treat the encryption checkbox as `yes` by default and confirm with the user rather than skipping it silently.
 
 ---
 
@@ -57,9 +58,9 @@ src/modules/<module_id>/
 ├── setup.ts                    # Tenant init, role features
 ├── di.ts                       # Awilix DI registrations
 ├── events.ts                   # Typed event declarations (if needed)
-├── entities/
-│   └── <Entity>.ts             # MikroORM entity class
+├── encryption.ts               # Tenant data encryption maps (only if entity has sensitive/GDPR fields)
 ├── data/
+│   ├── entities.ts             # MikroORM entity classes
 │   └── validators.ts           # Zod validation schemas
 ├── api/
 │   ├── get/
@@ -81,12 +82,12 @@ src/modules/<module_id>/
 
 ## 3. Create Entity
 
-**File**: `src/modules/<module_id>/entities/<Entity>.ts`
+**File**: `src/modules/<module_id>/data/entities.ts`
 
 ### Template
 
 ```typescript
-import { Entity, Property, PrimaryKey, Index } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { v4 } from 'uuid'
 
 @Entity({ tableName: '<entities>' })  // plural, snake_case
@@ -132,6 +133,7 @@ export class <Entity> {
 - PK: always `uuid` with `v4()` default
 - MUST include `organization_id` + `tenant_id` with `@Index()`
 - MUST include `created_at`, `updated_at`, `deleted_at`, `is_active`
+- Entity decorators MUST come from `@mikro-orm/decorators/legacy`
 - Cross-module references: store FK as `uuid` field (e.g., `customer_id`) — never use ORM `@ManyToOne`
 - Use `@Property({ type: 'jsonb' })` for flexible/nested data
 - Use `@Property({ type: 'varchar', length: N })` for bounded strings
@@ -178,8 +180,8 @@ Use `makeCrudRoute` for standard CRUD. Each HTTP method lives in its own file.
 **File**: `src/modules/<module_id>/api/get/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({
   entity: <Entity>,
@@ -201,8 +203,8 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/post/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { <Entity> } from '../../data/entities'
 import { create<Entity>Schema } from '../../data/validators'
 
 const handler = makeCrudRoute({
@@ -225,8 +227,8 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/put/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { <Entity> } from '../../data/entities'
 import { update<Entity>Schema } from '../../data/validators'
 
 const handler = makeCrudRoute({
@@ -249,8 +251,8 @@ export const openApi = {
 **File**: `src/modules/<module_id>/api/delete/<entities>.ts`
 
 ```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/make-crud-route'
-import { <Entity> } from '../../entities/<Entity>'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { <Entity> } from '../../data/entities'
 
 const handler = makeCrudRoute({
   entity: <Entity>,
@@ -346,7 +348,7 @@ export const metadata = {
 
 ```tsx
 'use client'
-import { CrudForm } from '@open-mercato/ui/backend/crud'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export default function Create<Entity>Page() {
@@ -384,7 +386,7 @@ export const metadata = {
 
 ```tsx
 'use client'
-import { CrudForm } from '@open-mercato/ui/backend/crud'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export default function Edit<Entity>Page({ params }: { params: { id: string } }) {
@@ -573,6 +575,52 @@ export default function registerCli(program: any) {
 }
 ```
 
+### Encryption maps (sensitive / GDPR-relevant fields)
+
+**Mandatory** when the entity stores PII, contact info, addresses, free-text notes about people, integration credentials, secrets, or anything subject to a data-processing agreement. Do NOT hand-roll AES, KMS calls, or "TODO encrypt later" stubs — the framework provides per-tenant DEKs and a declarative field-level map.
+
+**File**: `src/modules/<module_id>/encryption.ts`
+
+```typescript
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: '<module_id>:<entity>',  // matches data/entities.ts table id, colon-separated
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'phone' },
+      // Add a hashField for deterministic equality lookups (e.g. login by email):
+      { field: 'email', hashField: 'email_hash' },
+    ],
+  },
+]
+
+export default defaultEncryptionMaps
+```
+
+**Read paths** — never `em.find` an encrypted column directly:
+
+```typescript
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// Signature: (em, entityName, where, options?, scope?) — MikroORM FindOptions in slot 4
+// (pass `undefined` when none), decryption scope in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
+```
+
+**Apply to existing tenants** after declaring or updating maps:
+
+```bash
+yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
+```
+
+New tenants pick up `defaultEncryptionMaps` automatically during `auth:setup`. Toggling the **Encrypted** flag for a field only applies to data written **after** the change — historical plaintext rows stay as they were until backfilled via `yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>` (without `--old-key` the command only encrypts plaintext and skips already-encrypted fields). Use `yarn mercato entities decrypt-database` to roll back. For end-to-end usage and admin UI flows see <https://docs.open-mercato.dev/user-guide/encryption>.
+
+> Tip: when `email` (or any other column) needs deterministic lookups while encrypted, declare a sibling `hashField` in the map and add a matching `varchar` column to the entity. The framework keeps the hash in sync on writes; queries can target the hash instead of the cleartext column.
+
 ---
 
 ## 12. Wire & Verify
@@ -589,7 +637,7 @@ Add to `src/modules.ts`:
 
 ```bash
 yarn generate          # Discover module files, update .mercato/generated/
-yarn db:generate       # Create migration for new entity
+yarn db:generate       # Probe/create migration for the new entity
 ```
 
 ### Step 3: Review Migration
@@ -599,11 +647,13 @@ Check the generated migration file in `src/modules/<module_id>/migrations/`. Ver
 - All columns present with correct types
 - Indexes on `organization_id`, `tenant_id`
 - No unexpected changes
+- `migrations/.snapshot-open-mercato.json` was updated to the post-change schema
+- Unrelated generated migrations were deleted from the diff
 
 ### Step 4: Apply & Test
 
 ```bash
-yarn db:migrate        # Apply migration (confirm with user first)
+yarn db:migrate        # Apply migration only after explicit user confirmation
 yarn dev               # Start dev server
 ```
 
@@ -631,7 +681,7 @@ yarn dev               # Start dev server
 - [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
 - [ ] `yarn generate` run after creating files
-- [ ] `yarn db:generate` run after creating entity
+- [ ] Migration SQL is scoped to this entity and `.snapshot-open-mercato.json` is updated
 - [ ] No `any` types
 - [ ] No hardcoded user-facing strings
 - [ ] No direct ORM relationships to other modules
@@ -651,6 +701,10 @@ yarn dev               # Start dev server
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
 - **MUST** register module in `src/modules.ts` with `from: '@app'`
 - **MUST** run `yarn generate` after creating module files
-- **MUST** run `yarn db:generate` after creating/modifying entities
+- **MUST** create or keep a scoped migration after creating/modifying entities and update `.snapshot-open-mercato.json`
+- **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
+- **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST NOT** create ORM relationships (`@ManyToOne`, `@OneToMany`) to entities in other modules
 - **MUST NOT** edit `.mercato/generated/*` files manually
+- **MUST** declare `<module>/encryption.ts` exporting `defaultEncryptionMaps` whenever the entity stores sensitive / GDPR-relevant fields (PII, contact info, addresses, free-text notes about people, integration credentials, secrets) — and read those columns via `findWithDecryption` / `findOneWithDecryption`
+- **MUST NOT** hand-roll AES/KMS calls or store "we'll encrypt this later" plaintext for sensitive columns — use the encryption-maps mechanism described in section 11 → Encryption maps

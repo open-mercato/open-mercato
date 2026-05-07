@@ -1,4 +1,5 @@
-import { Entity, PrimaryKey, Property, Index, OneToMany, ManyToOne, Collection, Unique } from '@mikro-orm/core'
+import { Collection } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'resources_resource_types' })
 @Index({ name: 'resources_resource_types_tenant_org_idx', properties: ['tenantId', 'organizationId'] })

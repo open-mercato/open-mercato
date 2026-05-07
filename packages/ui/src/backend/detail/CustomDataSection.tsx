@@ -32,7 +32,9 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -628,7 +630,7 @@ function CustomDataSectionImpl({
         ) : (
           <div
             className={cn(
-              'rounded-lg border bg-muted/20 p-3 sm:p-4 space-y-2 sm:space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'rounded-lg border bg-muted/30 p-3 sm:p-4 space-y-2 sm:space-y-3 transition hover:border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               hasFields && !loading ? 'cursor-pointer' : 'cursor-default',
             )}
             role={hasFields && !loading ? 'button' : undefined}

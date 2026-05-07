@@ -16,7 +16,8 @@ Design entities, relationships, and manage the migration lifecycle following Ope
 5. [Cross-Module References](#5-cross-module-references)
 6. [Migration Lifecycle](#6-migration-lifecycle)
 7. [Advanced Patterns](#7-advanced-patterns)
-8. [Anti-Patterns](#8-anti-patterns)
+8. [Sensitive Data and Encryption Maps](#8-sensitive-data-and-encryption-maps)
+9. [Anti-Patterns](#9-anti-patterns)
 
 ---
 
@@ -37,8 +38,10 @@ When the developer describes data requirements:
 
 ### Standard Entity Template
 
+Define entities in `src/modules/<module_id>/data/entities.ts`. Standalone apps keep the module's entity classes together there unless the file becomes large enough that a split is justified.
+
 ```typescript
-import { Entity, Property, PrimaryKey, Index, Enum } from '@mikro-orm/core'
+import { Entity, Enum, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { v4 } from 'uuid'
 
 @Entity({ tableName: '<entities>' })
@@ -322,14 +325,15 @@ const enricher: ResponseEnricher = {
 ### Creating a Migration
 
 ```bash
-# 1. Modify or create entity files
-# 2. Generate migration
+# 1. Modify src/modules/<module_id>/data/entities.ts
+# 2. Probe/generate migration
 yarn db:generate
 
-# 3. Review the generated migration
+# 3. Review the generated migration or use it as the baseline for scoped manual SQL
 # Check src/modules/<module_id>/migrations/Migration_YYYYMMDD_HHMMSS.ts
 
-# 4. Apply migration (confirm with user first)
+# 4. Update src/modules/<module_id>/migrations/.snapshot-open-mercato.json
+# 5. Apply migration only after explicit user confirmation
 yarn db:migrate
 ```
 
@@ -337,9 +341,12 @@ yarn db:migrate
 
 1. **Review every migration** — auto-generated doesn't mean correct
 2. **Check for unintended changes** — sometimes generators pick up unrelated diffs
-3. **New columns should have defaults** — prevents breaking existing rows
-4. **Never rename columns** — add new column, migrate data, remove old column (across releases)
-5. **Never drop tables** — soft delete or archive first
+3. **Do not commit unrelated generated migrations** — delete them from the diff
+4. **Scoped manual SQL is allowed** when generator churn is unrelated, but the migration and `.snapshot-open-mercato.json` must still describe the same post-change schema
+5. **Update `.snapshot-open-mercato.json`** — it is the baseline that prevents duplicate future migrations
+6. **New columns should have defaults** — prevents breaking existing rows
+7. **Never rename columns** — add new column, migrate data, remove old column (across releases)
+8. **Never drop tables** — soft delete or archive first
 
 ### Adding a Column to Existing Entity
 
@@ -355,8 +362,8 @@ new_field: string | null = null
 
 Then:
 ```bash
-yarn db:generate   # Creates ALTER TABLE ADD COLUMN migration
-yarn db:migrate    # Applies it
+yarn db:generate   # Probes/creates ALTER TABLE ADD COLUMN migration
+yarn db:migrate    # Applies it only after explicit user confirmation
 ```
 
 ### Removing a Column
@@ -477,20 +484,107 @@ export class TicketHistory {
 
 ---
 
-## 8. Anti-Patterns
+## 8. Sensitive Data and Encryption Maps
+
+When the developer asks for "we need this column encrypted", "store this securely", "this is PII", "GDPR", or "encryption at rest" — and whenever you are designing a column that will hold names, addresses, contact information, free-text notes about people, integration credentials, secrets, or any data subject to a data-processing agreement — use the framework's **encryption-maps mechanism**. Do NOT hand-roll AES, raw `crypto.subtle`, custom KMS calls, or "TODO encrypt later" stubs.
+
+The mechanism gives you:
+
+- Per-tenant Data Encryption Keys (DEKs) resolved through the configured KMS (Vault by default, env-fallback in dev).
+- Declarative, per-entity, per-field encryption with optional deterministic-hash sibling columns for equality lookups (for example login by email).
+- Boot-time auto-application: every enabled module's `defaultEncryptionMaps` is collected during `auth:setup` and applied when `TENANT_DATA_ENCRYPTION=yes`.
+- A `findWithDecryption` / `findOneWithDecryption` read API that transparently decrypts on read.
+
+### When encryption is mandatory
+
+| Field example | Encrypt? |
+|---|---|
+| First name, last name, preferred name | Yes |
+| Email, phone | Yes — usually with a `hashField` for lookups |
+| Postal address (line 1/2, city, region, postal code, country) | Yes |
+| Free-text comments / notes / activity bodies that mention people | Yes |
+| Integration secrets, API keys, OAuth tokens, webhook signing keys | Yes |
+| Document numbers (tax IDs, national IDs) | Yes |
+| Status enums, counters, timestamps, FKs, currency codes | No |
+| Public catalog metadata (product titles for a public storefront) | Usually no |
+
+If you are unsure, default to encrypting and confirm with the user — re-introducing encryption later requires a backfill, but turning it off later is a single map edit.
+
+### Declare the map in `<module>/encryption.ts`
+
+```typescript
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: '<module_id>:<entity>',  // matches the entity's table id (colon-separated)
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'phone' },
+      // Sibling deterministic hash for equality lookups (e.g. login by email).
+      // Add a matching `<field>_hash varchar` column to the entity.
+      { field: 'email', hashField: 'email_hash' },
+    ],
+  },
+]
+
+export default defaultEncryptionMaps
+```
+
+### Read with decryption — never raw `em.find`
+
+```typescript
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// Signature: (em, entityName, where, options?, scope?). MikroORM FindOptions go in slot 4
+// (pass `undefined` if you have none), the decryption scope `{ tenantId, organizationId }` in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
+```
+
+Calling `em.find` on an encrypted column returns ciphertext, breaks search, and silently leaks bug surface. The `findWithDecryption` family is the one entry point.
+
+### Apply maps to existing tenants
+
+```bash
+yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
+```
+
+New tenants pick up the maps automatically during `auth:setup`. Toggling the **Encrypted** flag on a custom field via the admin UI also only applies to data written **after** the change — backfill historical plaintext rows by running `yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>` (without `--old-key` it skips already-encrypted fields and just encrypts plaintext). Use `yarn mercato entities decrypt-database` to roll back. For full UI flows and CLI options see <https://docs.open-mercato.dev/user-guide/encryption>.
+
+### Vector search caveat
+
+The `vector` module stores raw embeddings unencrypted in the vector store (e.g. pgvector). Even though the source text is decrypted only transiently to compute embeddings, treat the embeddings as sensitive: avoid embedding raw high-sensitivity text and rely on disk-level / managed-database encryption-at-rest for the vector column.
+
+### Environment switches
+
+- `TENANT_DATA_ENCRYPTION=yes|no` (default `yes`) — set to `no` to run the hooks as no-op (validation still applies).
+- `TENANT_DATA_ENCRYPTION_DEBUG=yes` — log map evaluation, KMS calls, cache hits.
+- `VAULT_ADDR` / `VAULT_TOKEN` / `VAULT_KV_PATH` — HashiCorp Vault KMS configuration.
+- `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` — local/dev fallback key when Vault is unavailable. In dev, `AUTH_SECRET` / `NEXTAUTH_SECRET` is used as a last resort; production falls back to noop KMS.
+
+---
+
+## 9. Anti-Patterns
 
 | Anti-Pattern | Problem | Correct Pattern |
 |-------------|---------|-----------------|
 | `@ManyToOne` across modules | Tight coupling, breaks module isolation | Store FK as `uuid` column, use enrichers |
 | Storing computed values | Stale data, maintenance burden | Compute on read via enrichers or queries |
 | Using `any` for JSONB fields | No type safety | Define a Zod schema, use `z.infer` |
-| Manual migration SQL | Fragile, version-dependent | Use `yarn db:generate` |
+| Blindly committing all generated migrations | Captures unrelated snapshot drift | Keep only scoped SQL and update the matching snapshot |
+| Manual migration SQL without snapshot update | Future `yarn db:generate` recreates the same migration | Update `.snapshot-open-mercato.json` in the same change |
 | Renaming columns | Breaks existing data/queries | Add new column, migrate data, drop old |
 | Missing `organization_id` | Cross-tenant data leaks | Always include and index |
 | Using `varchar` without `length` | Defaults vary by DB | Always specify `length` |
 | Storing arrays as comma-separated strings | Can't query, no integrity | Use `jsonb` arrays or junction tables |
 | UUID FK without index | Slow joins | Always `@Index()` on FK columns |
 | Nullable required fields | Data integrity issues | Use `!` assertion for required, `null` for optional |
+| Hand-rolled AES / `crypto.subtle` / custom KMS for sensitive columns | Per-tenant key isolation, hash lookups, key rotation, and admin UI all break | Declare `<module>/encryption.ts` with `defaultEncryptionMaps`; let the framework manage DEKs and Vault |
+| Reading encrypted columns with raw `em.find` / `em.findOne` | Returns ciphertext, breaks search, silent data corruption | Use `findWithDecryption` / `findOneWithDecryption` with `{ tenantId, organizationId }` |
+| Storing PII as plaintext "for now" / TODO comments | GDPR violation, leaks at rest, expensive backfill later | Encrypt from day one; toggling later only protects new writes |
+| Encrypting an `email` column without a `hashField` | Login / equality lookups stop working | Declare a sibling `hashField` (e.g. `email_hash`) in the encryption map and add the matching `varchar` column |
 
 ---
 
@@ -500,13 +594,16 @@ export class TicketHistory {
 - **MUST** include standard columns (`id`, `created_at`, `updated_at`, `deleted_at`, `is_active`)
 - **MUST** use UUID v4 for primary keys
 - **MUST** index all FK columns and `organization_id` / `tenant_id`
-- **MUST** run `yarn db:generate` after entity changes, never hand-write migrations
+- **MUST** create or keep a scoped migration after entity changes and update `.snapshot-open-mercato.json`
 - **MUST** review generated migration before applying
+- **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
+- **MUST NOT** run `yarn db:migrate` without explicit user confirmation
 - **MUST** use `nullable: true` with `= null` default for optional fields
 - **MUST** specify `length` on all `varchar` columns
 - **MUST NOT** use ORM relationship decorators across module boundaries
 - **MUST NOT** rename or drop columns in a single release
-- **MUST NOT** store sensitive data without encryption (use `findWithDecryption`)
+- **MUST** declare encrypted columns in `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`, and read them via `findWithDecryption` / `findOneWithDecryption` from `@open-mercato/shared/lib/encryption/find` — see section 8
+- **MUST NOT** hand-roll AES / KMS calls or store sensitive columns as plaintext "for now" — use the encryption-maps mechanism in section 8
 - Use `jsonb` for flexible/nested data, proper columns for queryable/sortable data
 - Use junction tables for many-to-many relationships
 - Derive TypeScript types from Zod schemas, never duplicate type definitions

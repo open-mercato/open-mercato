@@ -1,7 +1,16 @@
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+
+const INSERT_BATCH_SIZE = 500
+
+function chunk<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items]
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
 
 export type SearchTokenRow = {
   entity_type: string
@@ -130,7 +139,7 @@ function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null)
 }
 
 export async function replaceSearchTokensForRecord(
-  knex: Knex,
+  db: Kysely<any>,
   params: BuildTokenOptions
 ): Promise<void> {
   const rows = buildSearchTokenRows(params)
@@ -140,38 +149,48 @@ export async function replaceSearchTokensForRecord(
   const tenantId = params.tenantId ?? null
   const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
 
-  await knex.transaction(async (trx) => {
-    const deleteQuery = trx('search_tokens')
-      .where({ entity_type: params.entityType })
-      .andWhereRaw('organization_id is not distinct from ?', [organizationId])
-      .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
-    if (fieldPairs.length) deleteQuery.whereIn(['entity_id', 'field'], fieldPairs)
-    else deleteQuery.where('entity_id', String(params.recordId))
-    await deleteQuery.del()
+  await db.transaction().execute(async (trx) => {
+    let deleteQuery = trx
+      .deleteFrom('search_tokens' as any)
+      .where('entity_type' as any, '=', params.entityType)
+      .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+      .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+    if (fieldPairs.length) {
+      deleteQuery = deleteQuery.where((eb: any) => eb.or(
+        fieldPairs.map(([rid, field]) => eb.and([
+          eb('entity_id' as any, '=', rid),
+          eb('field' as any, '=', field),
+        ])),
+      ))
+    } else {
+      deleteQuery = deleteQuery.where('entity_id' as any, '=', String(params.recordId))
+    }
+    await deleteQuery.execute()
     if (!rows.length) return
-    const payloads = rows.map((row) => ({
-      ...row,
-      created_at: trx.fn.now(),
-    }))
-    await trx.batchInsert('search_tokens', payloads, 500)
+    const payloads = rows.map((row) => ({ ...row, created_at: sql`now()` }))
+    for (const batch of chunk(payloads, INSERT_BATCH_SIZE)) {
+      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+    }
   })
 }
 
 export async function deleteSearchTokensForRecord(
-  knex: Knex,
+  db: Kysely<any>,
   params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
 ): Promise<void> {
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
-  await knex('search_tokens')
-    .where({ entity_type: params.entityType, entity_id: String(params.recordId) })
-    .andWhereRaw('organization_id is not distinct from ?', [organizationId])
-    .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
-    .del()
+  await db
+    .deleteFrom('search_tokens' as any)
+    .where('entity_type' as any, '=', params.entityType)
+    .where('entity_id' as any, '=', String(params.recordId))
+    .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+    .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+    .execute()
 }
 
 export async function replaceSearchTokensForBatch(
-  knex: Knex,
+  db: Kysely<any>,
   payloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
 ): Promise<void> {
   if (!payloads.length) return
@@ -183,7 +202,11 @@ export async function replaceSearchTokensForBatch(
     const entityType = payloads[0]?.entityType
     if (!entityType) return
     const ids = payloads.map((p) => String(p.recordId))
-    await knex('search_tokens').where({ entity_type: entityType }).whereIn('entity_id', ids).del()
+    await db
+      .deleteFrom('search_tokens' as any)
+      .where('entity_type' as any, '=', entityType)
+      .where('entity_id' as any, 'in', ids)
+      .execute()
     return
   }
 
@@ -218,21 +241,29 @@ export async function replaceSearchTokensForBatch(
     seenPairsByScope.set(key, seen)
   }
 
-  await knex.transaction(async (trx) => {
+  await db.transaction().execute(async (trx) => {
     for (const [key, bucket] of scopeBuckets.entries()) {
       const pairs = fieldPairsByScope.get(key) ?? []
-      const deleteQuery = trx('search_tokens')
-        .where({ entity_type: payloads[0].entityType })
-        .andWhereRaw('organization_id is not distinct from ?', [bucket.organizationId])
-        .andWhereRaw('tenant_id is not distinct from ?', [bucket.tenantId])
-      if (pairs.length) deleteQuery.whereIn(['entity_id', 'field'], pairs)
-      else deleteQuery.whereIn('entity_id', Array.from(bucket.ids))
-      await deleteQuery.del()
+      let deleteQuery = trx
+        .deleteFrom('search_tokens' as any)
+        .where('entity_type' as any, '=', payloads[0].entityType)
+        .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
+        .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
+      if (pairs.length) {
+        deleteQuery = deleteQuery.where((eb: any) => eb.or(
+          pairs.map(([rid, field]) => eb.and([
+            eb('entity_id' as any, '=', rid),
+            eb('field' as any, '=', field),
+          ])),
+        ))
+      } else {
+        deleteQuery = deleteQuery.where('entity_id' as any, 'in', Array.from(bucket.ids))
+      }
+      await deleteQuery.execute()
     }
-    const payloadWithTimestamps = rows.map((row) => ({
-      ...row,
-      created_at: trx.fn.now(),
-    }))
-    await trx.batchInsert('search_tokens', payloadWithTimestamps, 500)
+    const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))
+    for (const batch of chunk(payloadWithTimestamps, INSERT_BATCH_SIZE)) {
+      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+    }
   })
 }

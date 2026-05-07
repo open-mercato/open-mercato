@@ -119,6 +119,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
       const titleInput = page.locator('table input').first()
       await titleInput.fill('Deutscher Titel QA')
@@ -170,6 +171,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
       await expect(page.locator('table input').first()).toHaveValue('Persistenter Titel')
     } finally {

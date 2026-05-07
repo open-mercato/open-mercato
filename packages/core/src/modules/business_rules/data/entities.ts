@@ -1,12 +1,5 @@
-import {
-  Entity,
-  PrimaryKey,
-  Property,
-  Index,
-  Unique,
-  OptionalProps,
-  ManyToOne,
-} from '@mikro-orm/core'
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type RuleType = 'GUARD' | 'VALIDATION' | 'CALCULATION' | 'ACTION' | 'ASSIGNMENT'
 export type ExecutionResult = 'SUCCESS' | 'FAILURE' | 'ERROR'

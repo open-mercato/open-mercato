@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -110,14 +112,13 @@ function ResetPasswordDialog({
             <label className="text-sm font-medium" htmlFor="reset-password">
               {t('customer_accounts.admin.detail.resetPassword.fields.newPassword', 'New Password')}
             </label>
-            <input
+            <Input
               id="reset-password"
               type="password"
               required
               minLength={8}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               placeholder={t('customer_accounts.admin.detail.resetPassword.fields.placeholder', 'Min. 8 characters')}
             />
           </div>
@@ -491,16 +492,16 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
         />
 
-        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              <h3 className="text-sm font-medium text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.title', 'Customer Portal Access')}
               </h3>
-              <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+              <p className="mt-1 text-sm text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.description', 'This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.')}
               </p>
-              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+              <p className="mt-2 text-xs text-status-info-text">
                 {t('customer_accounts.admin.detail.portalAccess.url', 'Portal URL: {url}', {
                   url: `${typeof window !== 'undefined' ? window.location.origin : ''}/[org-slug]/portal`,
                 })}
@@ -522,8 +523,8 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <dd className="flex items-center gap-2">
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     data.emailVerifiedAt
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                      ? 'bg-status-success-bg text-status-success-text'
+                      : 'bg-status-warning-bg text-status-warning-text'
                   }`}>
                     {data.emailVerifiedAt
                       ? t('customer_accounts.admin.verified', 'Yes')
@@ -571,12 +572,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 ) : (
                   <div className="space-y-1">
                     <div className="relative">
-                      <input
+                      <Input
                         type="text"
                         value={personSearchQuery}
                         onChange={(event) => { void handleSearchPeople(event.target.value) }}
                         placeholder={t('customer_accounts.admin.detail.fields.searchPerson', 'Search people by name...')}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       />
                       {personResults.length > 0 && (
                         <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
@@ -615,12 +615,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 ) : (
                   <div className="space-y-1">
                     <div className="relative">
-                      <input
+                      <Input
                         type="text"
                         value={companySearchQuery}
                         onChange={(event) => { void handleSearchCompanies(event.target.value) }}
                         placeholder={t('customer_accounts.admin.detail.fields.searchCompany', 'Search companies by name...')}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       />
                       {companyResults.length > 0 && (
                         <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
@@ -660,34 +659,20 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <label className="text-sm font-medium" htmlFor="user-display-name">
                   {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
                 </label>
-                <input
+                <Input
                   id="user-display-name"
                   type="text"
                   value={editDisplayName}
                   onChange={(event) => setEditDisplayName(event.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </div>
 
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium" htmlFor="user-active-toggle">
-                  {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
-                </label>
-                <button
-                  id="user-active-toggle"
-                  type="button"
-                  role="switch"
-                  aria-checked={editActive ?? data.isActive}
-                  onClick={() => setEditActive((prev) => !(prev ?? data.isActive))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    (editActive ?? data.isActive) ? 'bg-primary' : 'bg-muted'
-                  }`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    (editActive ?? data.isActive) ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
-                </button>
-              </div>
+              <SwitchField
+                id="user-active-toggle"
+                label={t('customer_accounts.admin.detail.fields.isActive', 'Active')}
+                checked={editActive ?? data.isActive}
+                onCheckedChange={(next) => setEditActive(next)}
+              />
             </div>
 
             <div className="space-y-2">
@@ -748,12 +733,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
             </Button>
           </div>
           {resetLinkUrl && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
-              <p className="mb-1.5 text-sm font-medium text-blue-900 dark:text-blue-100">
+            <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
+              <p className="mb-1.5 text-sm font-medium text-status-info-text">
                 {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 break-all rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
                   {resetLinkUrl}
                 </code>
                 <Button
@@ -768,7 +753,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                   {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
                 </Button>
               </div>
-              <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
+              <p className="mt-1.5 text-xs text-status-info-text">
                 {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
               </p>
             </div>

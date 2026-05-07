@@ -42,7 +42,7 @@ test.describe('TC-AUTH-010: Edit Existing User', () => {
       await page.getByRole('button', { name: 'Save' }).first().click()
 
       await expect(page).toHaveURL(/\/backend\/users(?:\?.*)?$/)
-      const searchInput = page.getByRole('textbox', { name: 'Search' })
+      const searchInput = page.getByRole('textbox', { name: 'Search', exact: true })
       await expect(searchInput).toBeVisible()
       await searchInput.fill(updatedEmail)
       await expect(page.getByRole('row', { name: new RegExp(updatedEmail, 'i') })).toBeVisible()

@@ -53,7 +53,7 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
   if (!mounted) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex w-full items-end justify-center bg-black/30 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-modal flex w-full items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
       <button
         type="button"
         aria-label={t('audit_logs.actions.details.close')}

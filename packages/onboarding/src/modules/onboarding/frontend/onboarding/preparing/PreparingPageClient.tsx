@@ -79,7 +79,7 @@ export default function PreparingPageClient() {
   }, [router, tenantId])
 
   return (
-    <div className="relative flex min-h-svh items-center justify-center bg-muted/40 px-4 pb-24">
+    <div className="relative flex min-h-svh items-center justify-center bg-muted/50 px-4 pb-24">
       <Card className="relative w-full max-w-lg overflow-hidden shadow-lg">
         <CardHeader className="flex flex-col gap-4 p-10 text-center">
           <div className="flex flex-col items-center gap-4">

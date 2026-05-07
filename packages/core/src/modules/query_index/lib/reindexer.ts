@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
@@ -41,7 +41,7 @@ const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
 
 async function cleanupLegacyJobScopes(
-  knex: Knex,
+  db: Kysely<any>,
   options: {
     entityType: string
     organizationId: string | null
@@ -49,12 +49,13 @@ async function cleanupLegacyJobScopes(
     activePartitionCount: number | null
   },
 ): Promise<void> {
-  await knex('entity_index_jobs')
-    .where('entity_type', options.entityType)
-    .andWhereRaw('organization_id is not distinct from ?', [options.organizationId])
-    .andWhereRaw('tenant_id is not distinct from ?', [options.tenantId])
-    .andWhereRaw('partition_count is distinct from ?', [options.activePartitionCount])
-    .del()
+  await db
+    .deleteFrom('entity_index_jobs' as any)
+    .where('entity_type' as any, '=', options.entityType)
+    .where(sql<boolean>`organization_id is not distinct from ${options.organizationId}`)
+    .where(sql<boolean>`tenant_id is not distinct from ${options.tenantId}`)
+    .where(sql<boolean>`partition_count is distinct from ${options.activePartitionCount}`)
+    .execute()
 }
 
 function toNumber(value: unknown): number {
@@ -66,10 +67,15 @@ function toNumber(value: unknown): number {
   return 0
 }
 
-async function getColumnSet(knex: Knex, tableName: string): Promise<Set<string>> {
+async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string>> {
   try {
-    const info = await knex(tableName).columnInfo()
-    return new Set(Object.keys(info).map((key) => key.toLowerCase()))
+    const rows = await db
+      .selectFrom('information_schema.columns' as any)
+      .select(['column_name' as any])
+      .where(sql<boolean>`table_schema = current_schema()`)
+      .where('table_name' as any, '=', tableName)
+      .execute() as Array<{ column_name: string }>
+    return new Set(rows.map((row) => String(row.column_name).toLowerCase()))
   } catch {
     return new Set<string>()
   }
@@ -111,7 +117,7 @@ export async function reindexEntity(
     : null
   const resetCoverage = options?.resetCoverage ?? (!usingPartitions || partitionIndex === 0)
 
-  const knex = (em as any).getConnection().getKnex() as Knex
+  const db = (em as any).getKysely() as Kysely<any>
   const table = resolveEntityTableName(em, entityType)
   if (entityType === 'query_index:search_token' || table === 'search_tokens') {
     return {
@@ -121,7 +127,7 @@ export async function reindexEntity(
       scopes: [],
     }
   }
-  const columns = await getColumnSet(knex, table)
+  const columns = await getColumnSet(db, table)
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
@@ -135,16 +141,16 @@ export async function reindexEntity(
   }
 
   if (!force) {
-    const activeJob = await (async () => {
-      let query = knex('entity_index_jobs')
-        .where('entity_type', entityType)
-        .whereNull('finished_at')
-      query = query.whereRaw('organization_id is not distinct from ?', [null])
-      query = query.whereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-      query = query.whereRaw('partition_index is not distinct from ?', [partitionIndex])
-      query = query.whereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
-      return query.first()
-    })()
+    const activeJob = await db
+      .selectFrom('entity_index_jobs' as any)
+      .select(['id' as any])
+      .where('entity_type' as any, '=', entityType)
+      .where('finished_at' as any, 'is', null as any)
+      .where(sql<boolean>`organization_id is not distinct from ${null}`)
+      .where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
+      .where(sql<boolean>`partition_index is not distinct from ${partitionIndex}`)
+      .where(sql<boolean>`partition_count is not distinct from ${usingPartitions ? partitionCountRaw : null}`)
+      .executeTakeFirst()
     if (activeJob) {
       return {
         processed: 0,
@@ -156,7 +162,7 @@ export async function reindexEntity(
   }
 
   if (resetCoverage) {
-    await cleanupLegacyJobScopes(knex, {
+    await cleanupLegacyJobScopes(db, {
       entityType,
       organizationId: jobScope.organizationId ?? null,
       tenantId: jobScope.tenantId ?? null,
@@ -165,19 +171,24 @@ export async function reindexEntity(
   }
 
   const scopeKey = (tenantValue: string | null, orgValue: string | null) => `${tenantValue ?? '__null__'}|${orgValue ?? '__null__'}`
-  const baseWhere = (builder: Knex.QueryBuilder<any, any>) => {
-    if (hasDeletedCol) builder.whereNull('b.deleted_at')
+
+  const applyBaseWhere = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+    let chain = q
+    if (hasDeletedCol) chain = chain.where('b.deleted_at' as any, 'is', null as any)
     if (tenantId !== undefined && hasTenantCol) {
-      if (tenantId === null) builder.whereNull('b.tenant_id')
-      else builder.where('b.tenant_id', tenantId)
+      chain = tenantId === null
+        ? chain.where('b.tenant_id' as any, 'is', null as any)
+        : chain.where('b.tenant_id' as any, '=', tenantId)
     }
     if (organizationId !== undefined && hasOrgCol) {
-      if (organizationId === null) builder.whereNull('b.organization_id')
-      else builder.where('b.organization_id', organizationId)
+      chain = organizationId === null
+        ? chain.where('b.organization_id' as any, 'is', null as any)
+        : chain.where('b.organization_id' as any, '=', organizationId)
     }
     if (usingPartitions && partitionIndex !== null) {
-      builder.whereRaw('mod(abs(hashtext(b.id::text)), ?) = ?', [partitionCountRaw, partitionIndex])
+      chain = chain.where(sql<boolean>`mod(abs(hashtext(b.id::text)), ${partitionCountRaw}) = ${partitionIndex}`)
     }
+    return chain
   }
 
   type ScopeStats = { tenantId: string | null; organizationId: string | null; count: number }
@@ -191,17 +202,16 @@ export async function reindexEntity(
   const groupByOrg = hasOrgCol && organizationId === undefined
 
   if (groupByTenant || groupByOrg) {
-    const rows = await knex({ b: table })
-      .modify(baseWhere)
-      .modify((qb) => {
-        if (groupByTenant) qb.select(knex.raw('b.tenant_id as tenant_id'))
-        if (groupByOrg) qb.select(knex.raw('b.organization_id as organization_id'))
-      })
-      .count<{ count: unknown }[]>({ count: '*' })
-      .modify((qb) => {
-        if (groupByTenant) qb.groupBy('b.tenant_id')
-        if (groupByOrg) qb.groupBy('b.organization_id')
-      })
+    let groupQuery = applyBaseWhere(
+      db.selectFrom(`${table} as b` as any).select(sql<number>`count(*)`.as('count')),
+    )
+    if (groupByTenant) {
+      groupQuery = groupQuery.select('b.tenant_id as tenant_id' as any).groupBy('b.tenant_id' as any)
+    }
+    if (groupByOrg) {
+      groupQuery = groupQuery.select('b.organization_id as organization_id' as any).groupBy('b.organization_id' as any)
+    }
+    const rows = await groupQuery.execute() as Array<Record<string, unknown>>
     for (const row of rows) {
       const bucketTenant = groupByTenant
         ? ((row as any)?.tenant_id ?? null)
@@ -212,25 +222,26 @@ export async function reindexEntity(
       registerBaseCount(bucketTenant, bucketOrg, toNumber((row as any)?.count))
     }
   } else {
-    const row = await knex({ b: table })
-      .modify(baseWhere)
-      .count({ count: '*' })
-      .first()
+    const row = await applyBaseWhere(
+      db.selectFrom(`${table} as b` as any).select(sql<number>`count(*)`.as('count')),
+    ).executeTakeFirst() as { count: unknown } | undefined
     const bucketTenant = tenantId === undefined ? null : tenantId ?? null
     const bucketOrg = organizationId === undefined ? null : organizationId ?? null
     registerBaseCount(bucketTenant, bucketOrg, toNumber(row?.count))
   }
 
   const total = Array.from(baseCounts.values()).reduce((acc, value) => acc + (Number.isFinite(value.count) ? value.count : 0), 0)
-  await prepareJob(knex, jobScope, 'reindexing', { totalCount: total })
-  const jobRow = await knex('entity_index_jobs')
-    .where({ entity_type: entityType })
-    .whereNull('organization_id')
-    .andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-    .andWhereRaw('partition_index is not distinct from ?', [partitionIndex])
-    .andWhereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
-    .orderBy('started_at', 'desc')
-    .first<{ started_at: Date }>()
+  await prepareJob(db, jobScope, 'reindexing', { totalCount: total })
+  const jobRow = await db
+    .selectFrom('entity_index_jobs' as any)
+    .select(['started_at' as any])
+    .where('entity_type' as any, '=', entityType)
+    .where('organization_id' as any, 'is', null as any)
+    .where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
+    .where(sql<boolean>`partition_index is not distinct from ${partitionIndex}`)
+    .where(sql<boolean>`partition_count is not distinct from ${usingPartitions ? partitionCountRaw : null}`)
+    .orderBy('started_at' as any, 'desc')
+    .executeTakeFirst() as { started_at: Date | string } | undefined
   const jobStartedAt = jobRow?.started_at ? new Date(jobRow.started_at) : new Date()
   const deriveOrg = deriveOrgFromId.has(entityType)
     ? (row: AnyRow) => String(row.id)
@@ -259,25 +270,25 @@ export async function reindexEntity(
 
   if (resetCoverage) {
     if (force) {
-      await knex('entity_indexes')
-        .where('entity_type', entityType)
-        .modify((qb) => {
-          if (tenantId !== undefined) {
-            qb.andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-          }
-          if (organizationId !== undefined) {
-            qb.andWhereRaw('organization_id is not distinct from ?', [organizationId ?? null])
-          }
+      try {
+        let purgeQuery = db
+          .deleteFrom('entity_indexes' as any)
+          .where('entity_type' as any, '=', entityType)
+        if (tenantId !== undefined) {
+          purgeQuery = purgeQuery.where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
+        }
+        if (organizationId !== undefined) {
+          purgeQuery = purgeQuery.where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
+        }
+        await purgeQuery.execute()
+      } catch (error) {
+        console.warn('[HybridQueryEngine] Failed to purge index rows before force reindex', {
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          error: error instanceof Error ? error.message : error,
         })
-        .del()
-        .catch((error) => {
-          console.warn('[HybridQueryEngine] Failed to purge index rows before force reindex', {
-            entityType,
-            tenantId: tenantId ?? null,
-            organizationId: organizationId ?? null,
-            error: error instanceof Error ? error.message : error,
-          })
-        })
+      }
 
       if (emitVectorize && eventBus) {
         if (tenantId !== undefined) {
@@ -326,15 +337,17 @@ export async function reindexEntity(
 
   try {
     while (true) {
-      let query = knex({ b: table })
-        .modify(baseWhere)
-        .select('b.*')
-        .orderBy('b.id', 'asc')
-        .limit(batchSize)
+      let query = applyBaseWhere(
+        db
+          .selectFrom(`${table} as b` as any)
+          .selectAll('b' as any)
+          .orderBy('b.id' as any, 'asc')
+          .limit(batchSize),
+      )
       if (lastId !== null) {
-        query = query.where('b.id', '>', lastId)
+        query = query.where('b.id' as any, '>', lastId)
       }
-      const rows = await query as AnyRow[]
+      const rows = await query.execute() as AnyRow[]
       if (!rows.length) break
 
       const encryption = resolveTenantEncryptionService(em as any)
@@ -380,7 +393,7 @@ export async function reindexEntity(
         return result
       }
 
-      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
+      await upsertIndexBatch(db, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
       for (const row of rows) {
@@ -439,10 +452,10 @@ export async function reindexEntity(
       processed += rows.length
       lastId = String(rows[rows.length - 1]!.id)
       options?.onProgress?.({ processed, total, chunkSize: rows.length })
-      await updateJobProgress(knex, jobScope, rows.length)
+      await updateJobProgress(db, jobScope, rows.length)
     }
 
-    await purgeOrphans(knex, {
+    await purgeOrphans(db, {
       entityType,
       tenantId,
       organizationId,
@@ -481,7 +494,7 @@ export async function reindexEntity(
       )
     }
   } finally {
-    await finalizeJob(knex, jobScope)
+    await finalizeJob(db, jobScope)
   }
 
   return {

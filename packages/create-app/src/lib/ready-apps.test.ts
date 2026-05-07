@@ -195,6 +195,7 @@ test('published CLI bin executes the dist entrypoint', () => {
     `expected bin wrapper to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   )
   assert.match(result.stdout, /--app-url/)
+  assert.match(result.stdout, /--init-git/)
   assert.match(result.stdout, /--skip-agentic-setup/)
 })
 
@@ -220,11 +221,14 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
       `expected CLI scaffold with --skip-agentic-setup to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}\nerror:\n${result.error instanceof Error ? result.error.message : 'none'}`,
     )
     assert.match(result.stdout, /Skipped agentic setup/)
+    assert.match(result.stdout, /No starter preset selected; using classic\./)
     assert.equal(existsSync(join(targetDir, 'package.json')), true)
     assert.equal(existsSync(join(targetDir, '.claude')), false)
     assert.equal(existsSync(join(targetDir, '.cursor')), false)
     assert.equal(existsSync(join(targetDir, '.codex')), false)
+    assert.equal(existsSync(join(targetDir, '.git')), false)
     assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example', '__integration__')), false)
+    assert.match(result.stdout, /Optional GitHub publish/)
 
     const nextConfig = readFileSync(join(targetDir, 'next.config.ts'), 'utf8')
     assert.match(nextConfig, /resolveAllowedDevOrigins/)
@@ -232,6 +236,70 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
     const devOriginsHelper = readFileSync(join(targetDir, 'src', 'lib', 'dev-origins.ts'), 'utf8')
     assert.match(devOriginsHelper, /APP_ALLOWED_ORIGINS/)
     assert.match(devOriginsHelper, /NEXT_PUBLIC_APP_URL/)
+  } finally {
+    rmSync(targetRoot, { recursive: true, force: true })
+  }
+})
+
+test('CLI bare scaffold initializes git when --init-git is passed', () => {
+  const targetRoot = makeTempDir('create-mercato-app-cli-git-')
+  const targetDir = join(targetRoot, 'git-app')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_ENTRY, targetDir, '--skip-agentic-setup', '--init-git'],
+      {
+        cwd: PACKAGE_ROOT,
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 15000,
+      },
+    )
+
+    assert.equal(
+      result.status,
+      0,
+      `expected CLI scaffold with --init-git to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}\nerror:\n${result.error instanceof Error ? result.error.message : 'none'}`,
+    )
+    assert.equal(existsSync(join(targetDir, '.git')), true)
+    assert.match(result.stdout, /Initialized local Git repository/)
+    assert.match(result.stdout, /gh repo create --source=\./)
+  } finally {
+    rmSync(targetRoot, { recursive: true, force: true })
+  }
+})
+
+test('CLI bare scaffold applies explicit crm preset without prompting', () => {
+  const targetRoot = makeTempDir('create-mercato-app-cli-preset-')
+  const targetDir = join(targetRoot, 'crm-app')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_ENTRY, targetDir, '--skip-agentic-setup', '--preset', 'crm'],
+      {
+        cwd: PACKAGE_ROOT,
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 15000,
+      },
+    )
+
+    assert.equal(
+      result.status,
+      0,
+      `expected CLI scaffold with --preset crm to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}\nerror:\n${result.error instanceof Error ? result.error.message : 'none'}`,
+    )
+    assert.doesNotMatch(result.stdout, /No starter preset selected/)
+
+    const modulesTs = readFileSync(join(targetDir, 'src', 'modules.ts'), 'utf8')
+    assert.match(modulesTs, /id: 'customers'/)
+    assert.match(modulesTs, /id: 'dictionaries'/)
+    assert.match(modulesTs, /id: 'feature_toggles'/)
+    assert.doesNotMatch(modulesTs, /id: 'example'/)
+    assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example')), false)
+    assert.equal(existsSync(join(targetDir, '.mercato', 'starter-preset.json')), true)
   } finally {
     rmSync(targetRoot, { recursive: true, force: true })
   }

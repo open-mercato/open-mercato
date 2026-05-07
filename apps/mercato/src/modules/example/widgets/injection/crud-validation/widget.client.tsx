@@ -72,7 +72,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       <div data-testid="widget-transform-display-data" className="text-xs text-muted-foreground">transformDisplayData={print(lastTransformDisplayData)}</div>
       <div data-testid="widget-transform-validation" className="text-xs text-muted-foreground">transformValidation={print(lastTransformValidation)}</div>
       <div data-testid="widget-recursive-before-save" className="text-xs text-muted-foreground">recursiveBeforeSave={print(lastRecursiveAddonBeforeSave)}</div>
-      <div data-testid="widget-recursive-addon-host" className="mt-2 rounded border border-dashed border-border/80 bg-background/60 p-2">
+      <div data-testid="widget-recursive-addon-host" className="mt-2 rounded border border-dashed border-border/70 bg-background/80 p-2">
         <InjectionSpot
           spotId="widget:example.injection.crud-validation:addon"
           context={context}

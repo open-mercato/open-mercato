@@ -54,16 +54,17 @@ export async function resolveMessageSenderUserId(
   scope: { tenantId: string; organizationId: string },
 ): Promise<string> {
   try {
-    // Direct knex: users.email is a plaintext login field, not encrypted at
-    // field level, so findOneWithDecryption is unnecessary here.
-    const knex = em.getKnex()
+    // users.email is a plaintext login field, not encrypted at field level,
+    // so findOneWithDecryption is unnecessary here.
+    const db = em.getKysely<any>() as any
     const normalizedEmail = forwardedByEmail.trim().toLowerCase()
     if (normalizedEmail) {
-      const row = await knex('users')
+      const row = await db
+        .selectFrom('users')
         .select('id')
-        .where('email', normalizedEmail)
-        .whereNull('deleted_at')
-        .first()
+        .where('email', '=', normalizedEmail)
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst() as { id?: string } | undefined
       if (row?.id) return row.id
     }
   } catch {
@@ -100,9 +101,9 @@ export async function createMessageRecordForEmail(
     if (!commandBus) return null
 
     const em = ctx.container.resolve('em') as EntityManager
-    const knex = em.getKnex()
+    const db = em.getKysely<any>()
     const recipientUserIds = await getRecipientUserIdsForFeature(
-      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+      db, ctx.scope.tenantId, 'inbox_ops.proposals.view',
     )
 
     const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
@@ -174,9 +175,9 @@ export async function createMessageRecordForReply(
     if (!commandBus) return null
 
     const em = ctx.container.resolve('em') as EntityManager
-    const knex = em.getKnex()
+    const db = em.getKysely<any>()
     const recipientUserIds = await getRecipientUserIdsForFeature(
-      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+      db, ctx.scope.tenantId, 'inbox_ops.proposals.view',
     )
     if (recipientUserIds.length === 0) return null
 

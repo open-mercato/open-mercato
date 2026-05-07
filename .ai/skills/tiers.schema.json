@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/skills/tiers.schema.json",
+  "title": "Open Mercato skills tier manifest",
+  "description": "Manifest mapping skill folders under .ai/skills/ to install tiers consumed by scripts/install-skills.sh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default", "tiers"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "default": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Tier names installed when install-skills.sh is invoked with no flags."
+    },
+    "tiers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "skills"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

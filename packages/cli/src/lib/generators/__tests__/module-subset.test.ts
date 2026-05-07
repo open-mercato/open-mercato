@@ -416,6 +416,76 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('subscriber_meta:on-event')
   })
 
+  it('extracts worker metadata from imported queue constants when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'lib', 'queue.ts'),
+      "export const IMPORTED_QUEUE = 'worker.meta.queue'\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'workers', 'process-job.ts'),
+      [
+        "import { IMPORTED_QUEUE } from '../lib/queue'",
+        "import { helper } from '../lib/helper'",
+        "export const metadata = { queue: IMPORTED_QUEUE, id: 'worker_meta:process-job', concurrency: 4 }",
+        'export default async function handle() { return helper }',
+        '',
+      ].join('\n'),
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'worker_meta', from: '@open-mercato/core' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('queue: "worker.meta.queue"')
+    expect(output).toContain('id: "worker_meta:process-job"')
+    expect(output).toContain('concurrency: 4')
+  })
+
+  it('extracts subscriber metadata from imported event objects when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'lib', 'events.ts'),
+      [
+        'export const SUBSCRIBER_EVENTS = {',
+        "  CREATED: 'subscriber.event.created',",
+        "} as const",
+        '',
+      ].join('\n'),
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'subscribers', 'on-created.ts'),
+      [
+        "import { helper } from '../lib/helper'",
+        "import { SUBSCRIBER_EVENTS } from '../lib/events'",
+        "export const metadata = { event: SUBSCRIBER_EVENTS.CREATED, persistent: true, id: 'subscriber_event_meta:on-created' }",
+        'export default async function handle() { return helper }',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'subscriber_event_meta', from: '@open-mercato/core' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('subscriber.event.created')
+    expect(output).toContain('subscriber_event_meta:on-created')
+  })
+
   it('keeps backend route metadata runtime-backed when icons are non-serializable', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.tsx'),
@@ -1313,6 +1383,7 @@ describe('all generated files are valid with varying subsets', () => {
       'search.generated.ts',
       'notifications.generated.ts',
       'ai-tools.generated.ts',
+      'ai-agents.generated.ts',
       'events.generated.ts',
       'analytics.generated.ts',
       'translations-fields.generated.ts',
@@ -1369,6 +1440,19 @@ describe('all generated files are valid with varying subsets', () => {
     const aiTools = readGenerated(tmpDir, 'ai-tools.generated.ts')!
     expect(aiTools).toContain('export const aiToolConfigEntries')
     expect(aiTools).not.toContain('no_ai')
+  })
+
+  it('ai-agents.generated.ts is empty when no module provides ai-agents.ts', async () => {
+    scaffoldModule(tmpDir, 'no_ai_agents', 'pkg', ['setup.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_ai_agents', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const aiAgents = readGenerated(tmpDir, 'ai-agents.generated.ts')!
+    expect(aiAgents).toContain('export const aiAgentConfigEntries')
+    expect(aiAgents).toContain('export const allAiAgents')
+    expect(aiAgents).not.toContain('no_ai_agents')
   })
 
   it('security generated registries are empty when no module provides security convention files', async () => {

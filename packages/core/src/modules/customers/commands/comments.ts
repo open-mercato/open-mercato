@@ -133,6 +133,8 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
+      relatedResourceKind: snapshot?.dealId ? 'customers.deal' : null,
+      relatedResourceId: snapshot?.dealId ?? null,
       payload: {
         undo: {
           after: snapshot ?? null,
@@ -226,6 +228,8 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
+      relatedResourceKind: (afterSnapshot?.dealId ?? before.dealId) ? 'customers.deal' : null,
+      relatedResourceId: afterSnapshot?.dealId ?? before.dealId ?? null,
       changes,
       payload: {
         undo: {
@@ -332,6 +336,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,
+        relatedResourceKind: before.dealId ? 'customers.deal' : null,
+        relatedResourceId: before.dealId ?? null,
         payload: {
           undo: {
             before,

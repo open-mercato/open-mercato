@@ -413,7 +413,7 @@ describe('RuleEngine', () => {
 
   it('executes applicable rules', async () => {
     const rule = createTestRule()
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
 
     const result = await executeRules({ entityType: 'Order', data: {} })
     expect(result.executedRules).toHaveLength(1)

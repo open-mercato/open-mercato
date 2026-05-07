@@ -18,6 +18,10 @@ TODO: Fix that latter to have reference by the package names
 
 @custom-variant dark (&:is(.dark *));
 
+@utility z-popover {
+  z-index: var(--z-index-popover);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -47,7 +51,13 @@ TODO: Fix that latter to have reference by the package names
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-primary: var(--primary);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-foreground: var(--brand-violet-foreground);
+  --color-bg-disabled: var(--bg-disabled);
+  --color-text-disabled: var(--text-disabled);
+  --color-border-disabled: var(--border-disabled);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -55,7 +65,7 @@ TODO: Fix that latter to have reference by the package names
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 6px);
 
   /* ═══ Design System: Semantic Status Colors ═══ */
   --color-status-error-bg: var(--status-error-bg);
@@ -83,18 +93,60 @@ TODO: Fix that latter to have reference by the package names
   --color-status-neutral-border: var(--status-neutral-border);
   --color-status-neutral-icon: var(--status-neutral-icon);
 
+  /* ═══ Design System: Accent Colors ═══ */
+  --color-accent-indigo: var(--accent-indigo);
+  --color-accent-indigo-foreground: var(--accent-indigo-foreground);
+
+  /* ═══ Design System: Brand Colors ═══ */
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-lime: var(--brand-lime);
+
+  /* ═══ Design System: Social Brand Colors (theme-invariant) ═══ */
+  --color-brand-apple: var(--brand-apple);
+  --color-brand-github: var(--brand-github);
+  --color-brand-x: var(--brand-x);
+  --color-brand-google-stroke: var(--brand-google-stroke);
+  --color-brand-facebook: var(--brand-facebook);
+  --color-brand-dropbox: var(--brand-dropbox);
+  --color-brand-linkedin: var(--brand-linkedin);
+
   /* ═══ Design System: Typography ═══ */
   --font-size-overline: 0.6875rem;
   --font-size-overline--line-height: 1rem;
 
   /* ═══ Design System: Z-Index Scale ═══ */
-  --z-base: 0;
-  --z-sticky: 10;
-  --z-dropdown: 20;
-  --z-overlay: 30;
-  --z-modal: 40;
-  --z-toast: 50;
-  --z-tooltip: 60;
+  --z-index-base: 0;
+  --z-index-sticky: 10;
+  --z-index-dropdown: 20;
+  --z-index-overlay: 30;
+  --z-index-modal: 40;
+  --z-index-popover: 45;
+  --z-index-toast: 50;
+  --z-index-tooltip: 60;
+  --z-index-banner: 70;
+  --z-index-top: 100;
+
+  /* ═══ Design System: Shadow Scale ═══
+     Tuned to ink #101828. Dark mode overrides in .dark below.
+     xs  → flat controls (button, input, icon-button)
+     sm  → cards, panels, sections
+     md  → hover elevation, slightly raised cards
+     lg  → dialogs, overlays, popovers
+     xl  → floating panels (drawers, side sheets)
+     2xl → top-level modals, command palette
+  */
+  --shadow-xs:  0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-sm:  0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md:  0 4px 12px rgb(16 24 40 / 0.08);
+  --shadow-lg:  0 12px 32px rgb(16 24 40 / 0.10);
+  --shadow-xl:  0 20px 40px rgb(16 24 40 / 0.12);
+  --shadow-2xl: 0 25px 50px rgb(16 24 40 / 0.20);
+
+  /* Figma button focus: 2px white inner + 4px slate-alpha-16 outer */
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
+
+  /* Switch thumb: thin drop shadow + hairline outline (matches Figma switch spec). */
+  --shadow-switch-thumb: 0 1px 2px rgb(10 13 20 / 0.10), 0 0 0 0.5px rgb(10 13 20 / 0.04);
 }
 
 :root {
@@ -102,6 +154,19 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
+  /* Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
+  --brand-lime: #D4F372;
+  /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
+  --focus-ring-inner: rgba(255, 255, 255, 1);
+  --focus-ring-outer: rgba(153, 160, 174, 0.16);
+  /* Social brand colors — theme-invariant */
+  --brand-apple: #000000;
+  --brand-github: #181717;
+  --brand-x: #000000;
+  --brand-google-stroke: #DADCE0;
+  --brand-facebook: #1877F2;
+  --brand-dropbox: #0061FF;
+  --brand-linkedin: #0A66C2;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -110,6 +175,16 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --brand-violet: oklch(0.55 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
+  --primary-hover: oklch(0.145 0 0);
+  /* Accent indigo — used for selection controls (checkbox, radio, switch) */
+  --accent-indigo: #6366f1;
+  --accent-indigo-foreground: #ffffff;
+  /* Disabled control tokens (Figma: bg/weak-25, text/disabled-300, stroke-soft-200) */
+  --bg-disabled: #f7f7f7;
+  --text-disabled: #d1d1d1;
+  --border-disabled: #ebebeb;
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -164,11 +239,11 @@ TODO: Fix that latter to have reference by the package names
   --status-warning-border: oklch(0.830 0.070 80);
   --status-warning-icon: oklch(0.700 0.160 70);
 
-  /* Info (hue ~260° — aligned with --chart-blue) */
-  --status-info-bg: oklch(0.965 0.015 260);
-  --status-info-text: oklch(0.370 0.100 260);
-  --status-info-border: oklch(0.830 0.060 260);
-  --status-info-icon: oklch(0.546 0.245 262.881);  /* = --chart-blue */
+  /* Info (hue ~277° — indigo, bridges to brand violet) */
+  --status-info-bg: oklch(0.962 0.018 272.314);    /* indigo-50 #EEF2FF */
+  --status-info-text: oklch(0.359 0.144 278.697);  /* indigo-800 #3730A3 */
+  --status-info-border: oklch(0.870 0.065 274.039);/* indigo-200 #C7D2FE */
+  --status-info-icon: oklch(0.511 0.262 276.966);  /* indigo-600 #4F46E5 = --chart-indigo */
 
   /* Neutral (achromatic — aligned with --muted) */
   --status-neutral-bg: oklch(0.965 0 0);
@@ -177,8 +252,29 @@ TODO: Fix that latter to have reference by the package names
   --status-neutral-icon: oklch(0.556 0 0);  /* = --muted-foreground */
 }
 
+/* Opt-in Figma-style focus ring: 2px inner ring + 4px outer ring */
+.focus-ring-fancy:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--focus-ring-inner),
+    0 0 0 6px var(--focus-ring-outer);
+}
+
 .dark {
   color-scheme: dark;
+  /* Focus ring tokens — dark variant */
+  --focus-ring-inner: var(--background);
+  --focus-ring-outer: rgba(255, 255, 255, 0.18);
+  /* Shadow scale — dark mode: use pure black, higher opacity for visibility */
+  --shadow-xs:  0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-sm:  0 1px 3px rgb(0 0 0 / 0.40), 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-md:  0 4px 12px rgb(0 0 0 / 0.50);
+  --shadow-lg:  0 12px 32px rgb(0 0 0 / 0.60);
+  --shadow-xl:  0 20px 40px rgb(0 0 0 / 0.70);
+  --shadow-2xl: 0 25px 50px rgb(0 0 0 / 0.80);
+
+  /* Switch thumb: brighter outline in dark mode for visibility against the muted track. */
+  --shadow-switch-thumb: 0 1px 2px rgb(0 0 0 / 0.40), 0 0 0 0.5px rgb(0 0 0 / 0.30);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -187,6 +283,16 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
+  --brand-violet: oklch(0.65 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
+  --primary-hover: oklch(0.85 0 0);
+  /* Accent indigo — slightly lighter in dark mode for contrast */
+  --accent-indigo: #818cf8;
+  --accent-indigo-foreground: #ffffff;
+  /* Disabled control tokens (dark) */
+  --bg-disabled: oklch(0.25 0 0);
+  --text-disabled: oklch(0.45 0 0);
+  --border-disabled: oklch(0.30 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -241,11 +347,11 @@ TODO: Fix that latter to have reference by the package names
   --status-warning-border: oklch(0.420 0.060 80);
   --status-warning-icon: oklch(0.820 0.160 84.429);  /* = dark --chart-amber */
 
-  /* Info */
-  --status-info-bg: oklch(0.220 0.025 260);
-  --status-info-text: oklch(0.840 0.080 260);
-  --status-info-border: oklch(0.400 0.060 260);
-  --status-info-icon: oklch(0.623 0.214 259.815);  /* = dark --chart-blue */
+  /* Info (indigo — bridges to brand violet in dark mode) */
+  --status-info-bg: oklch(0.220 0.040 276);
+  --status-info-text: oklch(0.785 0.115 274.713);  /* indigo-300 #A5B4FC */
+  --status-info-border: oklch(0.359 0.144 278.697);/* indigo-800 #3730A3 */
+  --status-info-icon: oklch(0.585 0.233 277.117); /* indigo-500 #6366F1 */
 
   /* Neutral */
   --status-neutral-bg: oklch(0.230 0 0);
@@ -260,6 +366,11 @@ TODO: Fix that latter to have reference by the package names
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Native form controls — use the DS indigo accent instead of browser default */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent-indigo);
   }
   select,
   select option {
@@ -432,4 +543,26 @@ TODO: Fix that latter to have reference by the package names
 /* Conic gradient for AI dot */
 .bg-gradient-conic {
   background: conic-gradient(from 0deg, var(--tw-gradient-stops));
+}
+
+/* Hide floating demo feedback button while the column chooser panel is open */
+body[data-column-chooser-open="true"] .om-demo-feedback-floating {
+  display: none !important;
+}
+
+/* Hide floating demo feedback button while an AI chat (e.g. the merchandising
+   assistant sheet) is open — the FAB sits at z-[60] and otherwise overlaps
+   the chat composer's send button. The data attribute is set/cleared by the
+   shared <AiChat> component. */
+body[data-ai-chat-open="true"] .om-demo-feedback-floating {
+  display: none !important;
+}
+
+/* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

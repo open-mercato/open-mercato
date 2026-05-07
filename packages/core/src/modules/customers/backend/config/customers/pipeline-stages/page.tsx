@@ -8,6 +8,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, type AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
@@ -316,22 +323,28 @@ export default function PipelineStagesPage() {
           ) : (
             <>
               <div className="flex items-center gap-3">
-                <select
-                  className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  value={selectedPipelineId ?? ''}
-                  onChange={(e) => setSelectedPipelineId(e.target.value || null)}
+                <Select
+                  value={selectedPipelineId || undefined}
+                  onValueChange={(value) => setSelectedPipelineId(value || null)}
+                  disabled={pipelines.length === 0}
                 >
-                  {pipelines.length === 0 && (
-                    <option value="">
-                      {t('customers.config.pipelineStages.noPipelines', 'No pipelines yet')}
-                    </option>
-                  )}
-                  {pipelines.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.isDefault ? ` (${t('customers.config.pipelineStages.default', 'default')})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue
+                      placeholder={
+                        pipelines.length === 0
+                          ? t('customers.config.pipelineStages.noPipelines', 'No pipelines yet')
+                          : undefined
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pipelines.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}{p.isDefault ? ` (${t('customers.config.pipelineStages.default', 'default')})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {selectedPipeline && (
                   <>
                     <Button variant="outline" size="sm" onClick={() => openEditPipeline(selectedPipeline)}>
@@ -379,7 +392,7 @@ export default function PipelineStagesPage() {
                           <div className="flex flex-col gap-1">
                             <button
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
                               onClick={() => moveStage(index, 'up')}
                               disabled={index === 0}
                               aria-label={t('customers.config.pipelineStages.moveUp', 'Move up')}
@@ -388,7 +401,7 @@ export default function PipelineStagesPage() {
                             </button>
                             <button
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
                               onClick={() => moveStage(index, 'down')}
                               disabled={index === stages.length - 1}
                               aria-label={t('customers.config.pipelineStages.moveDown', 'Move down')}

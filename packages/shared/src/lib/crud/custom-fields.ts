@@ -406,6 +406,32 @@ export async function loadCustomFieldDefinitionIndex(opts: {
   return index
 }
 
+export type ApplyCustomFieldsNormalizationOptions = {
+  /**
+   * When true, removes raw `cf_*` and `cf:*` keys from the record once they
+   * have been extracted into `customValues` / `customFields`. Produces a single
+   * canonical response shape (issue #1769). Defaults to `false` to preserve the
+   * existing wire format for callers that read `cf_*` from the top level.
+   */
+  stripPrefixedKeys?: boolean
+}
+
+export function applyCustomFieldsNormalization(
+  record: Record<string, unknown>,
+  decorated: CustomFieldDisplayPayload,
+  options: ApplyCustomFieldsNormalizationOptions = {},
+): Record<string, unknown> {
+  const stripPrefixedKeys = options.stripPrefixedKeys === true
+  const base: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (stripPrefixedKeys && (key.startsWith('cf_') || key.startsWith('cf:'))) continue
+    base[key] = value
+  }
+  base.customValues = decorated.customValues
+  base.customFields = decorated.customFields
+  return base
+}
+
 export function decorateRecordWithCustomFields(
   record: Record<string, unknown>,
   definitions: CustomFieldDefinitionIndex,
@@ -427,20 +453,22 @@ export function decorateRecordWithCustomFields(
     const bareKey = prefixedKey.replace(/^cf_/, '')
     const normalizedKey = normalizeDefinitionKey(bareKey)
     if (!normalizedKey) return
-    values[bareKey] = value
     const defsForKey = definitions.get(normalizedKey) ?? []
     const resolvedDef = selectDefinitionForRecord(defsForKey, organizationId, tenantId)
+    // Skip custom field values without active definitions to prevent orphaned fields
+    if (!resolvedDef) return
+    values[bareKey] = value
     const entry: CustomFieldDisplayEntry = {
       key: bareKey,
-      label: resolvedDef?.label ?? bareKey,
+      label: resolvedDef.label ?? bareKey,
       value,
-      kind: resolvedDef?.kind ?? null,
-      multi: resolvedDef?.multi ?? Array.isArray(value),
+      kind: resolvedDef.kind ?? null,
+      multi: resolvedDef.multi ?? Array.isArray(value),
     }
     entries.push({
       entry,
-      priority: resolvedDef?.priority ?? Number.MAX_SAFE_INTEGER,
-      updatedAt: resolvedDef?.updatedAt ?? 0,
+      priority: resolvedDef.priority ?? Number.MAX_SAFE_INTEGER,
+      updatedAt: resolvedDef.updatedAt ?? 0,
     })
   })
 
@@ -582,7 +610,13 @@ export async function loadCustomFieldValues(opts: {
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
     const decrypted = encrypted
-      ? await decryptCustomFieldValue(value, resolvedTenantId ?? tenantId ?? null, getEncryptionService(), encryptionCache)
+      ? await decryptCustomFieldValue(
+          value,
+          resolvedTenantId ?? tenantId ?? null,
+          getEncryptionService(),
+          encryptionCache,
+          { kind: def?.kind ?? null },
+        )
       : value
     const existing = buckets.get(bucketKey)
     if (existing) {

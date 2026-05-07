@@ -5,7 +5,8 @@ const createRequestContainer = jest.fn()
 const findApiKeyBySecret = jest.fn()
 const emFind = jest.fn()
 const emFindOne = jest.fn()
-const emPersistAndFlush = jest.fn()
+const emPersist = jest.fn()
+const emFlush = jest.fn()
 
 jest.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined }),
@@ -41,7 +42,11 @@ jest.mock('@open-mercato/core/modules/directory/data/entities', () => ({
 const em = {
   find: (...args: unknown[]) => emFind(...args),
   findOne: (...args: unknown[]) => emFindOne(...args),
-  persistAndFlush: (...args: unknown[]) => emPersistAndFlush(...args),
+  persist: (...args: unknown[]) => {
+    emPersist(...args)
+    return { flush: (...flushArgs: unknown[]) => emFlush(...flushArgs) }
+  },
+  flush: (...args: unknown[]) => emFlush(...args),
 }
 
 describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
@@ -52,7 +57,8 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     })
     emFind.mockResolvedValue([])
     emFindOne.mockResolvedValue(null)
-    emPersistAndFlush.mockResolvedValue(undefined)
+    emPersist.mockReturnValue(undefined)
+    emFlush.mockResolvedValue(undefined)
     const { resetSharedApiKeyAuthCacheForTests } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
     resetSharedApiKeyAuthCacheForTests()
   })
@@ -85,7 +91,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(second).toEqual(first)
     expect(third).toEqual(first)
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
-    expect(emPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
   it('caches negative lookups so invalid keys skip the bcrypt+DB path', async () => {

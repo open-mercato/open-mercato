@@ -1,10 +1,13 @@
 import {
+  applyCustomFieldsNormalization,
   buildCustomFieldFiltersFromQuery,
+  decorateRecordWithCustomFields,
   extractAllCustomFieldEntries,
   loadCustomFieldDefinitionIndex,
   loadCustomFieldValues,
   splitCustomFieldPayload,
 } from '../custom-fields'
+import type { CustomFieldDefinitionIndex, CustomFieldDefinitionSummary } from '../custom-fields'
 import { encryptWithAesGcm } from '../../encryption/aes'
 
 const mockEntityManager = (defs: any[]) => ({
@@ -145,9 +148,10 @@ describe('extractAllCustomFieldEntries', () => {
 })
 
 describe('loadCustomFieldValues (encryption)', () => {
-  it('decrypts encrypted custom field payloads when definitions mark them encrypted', async () => {
+  it('decrypts encrypted text custom field payloads as strings', async () => {
     const dek = Buffer.alloc(32, 2).toString('base64')
-    const encrypted = encryptWithAesGcm(JSON.stringify('secret-note'), dek).value
+    // Mirrors production encrypt path: strings stored unwrapped, non-strings JSON-stringified.
+    const encrypted = encryptWithAesGcm('secret-note', dek).value
     const em = {
       find: jest.fn().mockImplementation((_, where) => {
         if ((where as any).recordId) {
@@ -169,6 +173,185 @@ describe('loadCustomFieldValues (encryption)', () => {
       encryptionService: mockService as any,
     })
     expect(values['rec-1'].cf_note).toBe('secret-note')
+  })
+
+  it('preserves numeric-looking text values as strings (regression: issue #1734)', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    const encrypted = encryptWithAesGcm('123', dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'note', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('123')
+    expect(typeof values['rec-1'].cf_note).toBe('string')
+  })
+
+  it('still parses typed integer custom field payloads back to numbers', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    // Numeric kinds are JSON-stringified by encryptCustomFieldValue in production.
+    const encrypted = encryptWithAesGcm(JSON.stringify(42), dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'priority', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'priority', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'integer', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_priority).toBe(42)
+  })
+})
+
+describe('decorateRecordWithCustomFields', () => {
+  const buildDefinition = (
+    overrides: Partial<CustomFieldDefinitionSummary> = {},
+  ): CustomFieldDefinitionSummary => ({
+    key: 'priority',
+    label: 'Priority',
+    kind: 'integer',
+    multi: false,
+    organizationId: null,
+    tenantId: null,
+    priority: 0,
+    updatedAt: 1,
+    ...overrides,
+  })
+
+  const buildIndex = (
+    entries: Array<[string, CustomFieldDefinitionSummary[]]>,
+  ): CustomFieldDefinitionIndex => new Map(entries)
+
+  it('returns the value in customValues and customFields when an active definition exists', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition()]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      { cf_priority: 3 },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 3 })
+    expect(result.customFields).toEqual([
+      { key: 'priority', label: 'Priority', value: 3, kind: 'integer', multi: false },
+    ])
+  })
+
+  it('skips orphaned custom field values whose definition was deleted (regression for #1749)', () => {
+    const result = decorateRecordWithCustomFields(
+      { cf_my_test_key: 'leftover' },
+      buildIndex([]),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+  })
+
+  it('keeps active fields and drops orphaned ones in mixed payloads', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition({ key: 'priority', label: 'Priority' })]],
+      ['severity', [buildDefinition({ key: 'severity', label: 'Severity', kind: 'text', priority: 1 })]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      {
+        cf_priority: 5,
+        cf_severity: 'high',
+        cf_my_test_key: 'should-not-leak',
+      },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 5, severity: 'high' })
+    expect(result.customFields.map((entry) => entry.key)).toEqual(['priority', 'severity'])
+    expect(result.customFields.find((entry) => entry.key === 'my_test_key')).toBeUndefined()
+  })
+})
+
+describe('applyCustomFieldsNormalization', () => {
+  const definitionIndex: CustomFieldDefinitionIndex = new Map([
+    [
+      'priority',
+      [
+        {
+          key: 'priority',
+          label: 'Priority',
+          kind: 'integer',
+          multi: false,
+          organizationId: null,
+          tenantId: null,
+          priority: 0,
+          updatedAt: 1,
+        },
+      ],
+    ],
+  ])
+
+  it('preserves cf_* keys by default for backward compatibility', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated)
+
+    expect(result.id).toBe('r-1')
+    expect(result.cf_priority).toBe(5)
+    expect(result['cf:priority']).toBe(5)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+    expect((result.customFields as any[])[0]).toMatchObject({ key: 'priority', value: 5 })
+  })
+
+  it('strips cf_* and cf:* keys when stripPrefixedKeys is enabled (issue #1769)', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.id).toBe('r-1')
+    expect(result.name).toBe('Item')
+    expect('cf_priority' in result).toBe(false)
+    expect('cf:priority' in result).toBe(false)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+  })
+
+  it('emits null customValues when no active definitions match', () => {
+    const record = { id: 'r-1', cf_unknown: 'leftover' }
+    const decorated = decorateRecordWithCustomFields(record, new Map(), {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+    expect('cf_unknown' in result).toBe(false)
   })
 })
 

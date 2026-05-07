@@ -6,7 +6,6 @@ import {
   createRuntimeNoiseFilter,
   isStatelessRuntimeNoiseLine,
 } from './dev-runtime-log-policy.mjs'
-import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -21,6 +20,21 @@ function resolveSplashHelpersImport() {
   }
 
   throw new Error('Unable to resolve dev splash helpers module')
+}
+
+function resolveSpawnUtilsImport() {
+  const candidates = [
+    new URL('./dev-spawn-utils.mjs', import.meta.url),
+    new URL('../../../scripts/dev-spawn-utils.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev spawn utils module')
 }
 
 function isEnabledEnvFlag(value) {
@@ -41,6 +55,7 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
+const { resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -1511,7 +1526,10 @@ async function runClassicRuntime() {
     return
   }
 
-  shutdown(resolveChildExitCode(result, 0))
+  // Unexpected child exit MUST surface as non-zero even if the child reported
+  // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+  const childCode = resolveChildExitCode(result, 1)
+  shutdown(childCode === 0 ? 1 : childCode)
 }
 
 if (classic) {
@@ -1528,5 +1546,8 @@ const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServ
 
 const result = await Promise.race([waitForExit(watch), waitForExit(server)])
 if (!isGracefulShutdownResult(result)) {
-  shutdown(resolveChildExitCode(result, 0))
+  // Unexpected child exit MUST surface as non-zero even if the child reported
+  // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+  const childCode = resolveChildExitCode(result, 1)
+  shutdown(childCode === 0 ? 1 : childCode)
 }

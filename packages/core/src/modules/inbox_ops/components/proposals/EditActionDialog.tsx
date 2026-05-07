@@ -2,6 +2,13 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -130,14 +137,18 @@ function ContactPayloadEditor({
         )}
         <div>
           <Label>{t('inbox_ops.edit_dialog.type', 'Type')}</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+          <Select
             value={type}
-            onChange={(event) => updateField('type', event.target.value)}
+            onValueChange={(value) => updateField('type', value)}
           >
-            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
-            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="person">{t('inbox_ops.contact_type.person', 'Person')}</SelectItem>
+              <SelectItem value="company">{t('inbox_ops.contact_type.company', 'Company')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -187,14 +198,18 @@ function LinkContactPayloadEditor({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>{t('inbox_ops.edit_dialog.contact_type', 'Contact Type')}</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+          <Select
             value={(payload.contactType as string) || 'person'}
-            onChange={(event) => updateField('contactType', event.target.value)}
+            onValueChange={(value) => updateField('contactType', value)}
           >
-            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
-            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="person">{t('inbox_ops.contact_type.person', 'Person')}</SelectItem>
+              <SelectItem value="company">{t('inbox_ops.contact_type.company', 'Company')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label>{t('inbox_ops.edit_dialog.contact_name', 'Contact Name')}</Label>
@@ -366,28 +381,36 @@ function LogActivityPayloadEditor({
         </div>
         <div>
           <Label>{t('inbox_ops.edit_dialog.contact_type', 'Contact Type')}</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+          <Select
             value={(payload.contactType as string) || 'person'}
-            onChange={(event) => updateField('contactType', event.target.value)}
+            onValueChange={(value) => updateField('contactType', value)}
           >
-            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
-            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="person">{t('inbox_ops.contact_type.person', 'Person')}</SelectItem>
+              <SelectItem value="company">{t('inbox_ops.contact_type.company', 'Company')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <div>
         <Label>{t('inbox_ops.edit_dialog.activity_type', 'Activity Type')}</Label>
-        <select
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+        <Select
           value={(payload.activityType as string) || 'email'}
-          onChange={(event) => updateField('activityType', event.target.value)}
+          onValueChange={(value) => updateField('activityType', value)}
         >
-          <option value="email">{t('inbox_ops.activity_type.email', 'Email')}</option>
-          <option value="call">{t('inbox_ops.activity_type.call', 'Call')}</option>
-          <option value="meeting">{t('inbox_ops.activity_type.meeting', 'Meeting')}</option>
-          <option value="note">{t('inbox_ops.activity_type.note', 'Note')}</option>
-        </select>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="email">{t('inbox_ops.activity_type.email', 'Email')}</SelectItem>
+            <SelectItem value="call">{t('inbox_ops.activity_type.call', 'Call')}</SelectItem>
+            <SelectItem value="meeting">{t('inbox_ops.activity_type.meeting', 'Meeting')}</SelectItem>
+            <SelectItem value="note">{t('inbox_ops.activity_type.note', 'Note')}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div>
         <Label>{t('inbox_ops.edit_dialog.subject', 'Subject')}</Label>

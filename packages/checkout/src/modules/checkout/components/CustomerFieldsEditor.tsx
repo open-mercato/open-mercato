@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 
@@ -133,15 +133,17 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
   )
 
   const inputClassName = React.useCallback(
-    (error?: string) => (error ? 'border-destructive focus-visible:ring-destructive/30' : undefined),
+    (error?: string) => (error ? 'border-destructive aria-invalid:ring-destructive' : undefined),
     [],
   )
 
   return (
     <div className="space-y-4">
-      <Notice compact>
-        {t('checkout.customerFieldsEditor.notices.defaultFields')}
-      </Notice>
+      <Alert variant="info">
+        <AlertDescription>
+          {t('checkout.customerFieldsEditor.notices.defaultFields')}
+        </AlertDescription>
+      </Alert>
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
         <div className="hidden grid-cols-[1fr_1fr_1fr_180px_90px_110px] gap-3 border-b bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
@@ -208,7 +210,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       <Label>{t('checkout.customerFieldsEditor.columns.type')}</Label>
                       <select
                         className={kindError
-                          ? 'w-full rounded-md border border-destructive bg-background px-3 py-2 text-sm focus-visible:ring-destructive/30'
+                          ? 'w-full rounded-md border border-destructive bg-background px-3 py-2 text-sm aria-invalid:ring-destructive'
                           : 'w-full rounded-md border bg-background px-3 py-2 text-sm'}
                         value={field.kind}
                         onChange={(event) => updateField(index, { kind: event.target.value as CustomerFieldDefinitionInput['kind'] })}
@@ -224,7 +226,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       {kindError ? <p className="text-xs text-destructive">{kindError}</p> : null}
                     </div>
 
-                    <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3 text-sm">
+                    <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-3 text-sm">
                       <input
                         type="checkbox"
                         checked={field.required}
@@ -253,7 +255,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                   </div>
 
                   {(field.kind === 'select' || field.kind === 'radio') ? (
-                    <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
+                    <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/30 p-3">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <Settings2 className="h-4 w-4 text-muted-foreground" />
                         {t('checkout.customerFieldsEditor.options.title')}
@@ -326,9 +328,11 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Notice compact>
-              {t('checkout.customerFieldsEditor.notices.empty')}
-            </Notice>
+            <Alert variant="info">
+              <AlertDescription>
+                {t('checkout.customerFieldsEditor.notices.empty')}
+              </AlertDescription>
+            </Alert>
           </div>
         )}
       </div>

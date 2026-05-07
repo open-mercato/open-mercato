@@ -412,7 +412,7 @@ function TagsSectionImpl({
         </div>
       ) : (
         <div
-          className="group/tags relative rounded-lg border bg-muted/20 p-4 transition-colors hover:border-primary/40 focus-visible:border-primary focus-visible:outline-none"
+          className="group/tags relative rounded-lg border bg-muted/30 p-4 transition-colors hover:border-primary/40 focus-visible:border-primary focus-visible:outline-none"
           role={disableInteraction ? undefined : 'button'}
           tabIndex={disableInteraction ? -1 : 0}
           onClick={disableInteraction ? undefined : startEditing}

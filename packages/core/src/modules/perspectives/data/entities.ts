@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index, Unique } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'perspectives' })
 @Index({ name: 'perspectives_user_scope_idx', properties: ['userId', 'tenantId', 'organizationId', 'tableId'] })

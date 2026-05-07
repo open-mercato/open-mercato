@@ -88,6 +88,8 @@
   "dictionaries.customFields.selector.placeholder": "Wybierz wpis",
   "dictionaries.entries.audit.create": "Dodaj wpis słownika",
   "dictionaries.entries.audit.delete": "Usuń wpis słownika",
+  "dictionaries.entries.audit.reorder": "Zmień kolejność wpisów słownika",
+  "dictionaries.entries.audit.set_default": "Ustaw domyślny wpis słownika",
   "dictionaries.entries.audit.update": "Zaktualizuj wpis słownika",
   "dictionaries.entries.create": "Dodaj wpis słownika",
   "dictionaries.entries.delete": "Usuń wpis słownika",

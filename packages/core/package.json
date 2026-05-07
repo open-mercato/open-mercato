@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -223,6 +223,9 @@
     }
   },
   "dependencies": {
+    "@mikro-orm/core": "^7.0.14",
+    "@mikro-orm/decorators": "^7.0.14",
+    "@mikro-orm/postgresql": "^7.0.14",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.168",
     "date-fns": "^4.1.0",
@@ -234,9 +237,11 @@
     "ts-pattern": "^5.0.0"
   },
   "peerDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

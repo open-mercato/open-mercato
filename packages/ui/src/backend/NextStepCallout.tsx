@@ -46,7 +46,7 @@ const STEP_STYLES: Record<NonNullable<NextStepCalloutStep['state']>, string> = {
 }
 
 const STATUS_STYLES: Record<NextStepCalloutStatusTone, string> = {
-  default: 'border-border bg-background/70 text-foreground',
+  default: 'border-border bg-background/80 text-foreground',
   info: 'border-primary/20 bg-primary/5 text-primary',
   success: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200',
   warning: 'border-amber-500/20 bg-amber-500/5 text-amber-200',

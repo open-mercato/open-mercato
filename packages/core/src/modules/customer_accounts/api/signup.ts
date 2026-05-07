@@ -28,7 +28,6 @@ export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth:
 // response latency between the existing-user and new-user signup branches so the endpoint's
 // 202-for-both contract is not undone by a timing side channel.
 const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
-
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
     ? `${baseUrl}/${organizationSlug}/portal/login`
@@ -71,13 +70,13 @@ export async function POST(req: Request) {
 
   let baseUrl: string
   try {
-    baseUrl = getSecurityEmailBaseUrl(req.url)
+    baseUrl = getSecurityEmailBaseUrl(req)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
       scope: 'customer_accounts.signup',
-      configMessage: 'Signup email is not configured',
+      configMessage: 'Customer signup is not configured',
     })
-    if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
     throw error
   }
 
@@ -139,7 +138,7 @@ export async function POST(req: Request) {
     em.persist(userRole)
   }
 
-  await em.persistAndFlush(user)
+  await em.persist(user).flush()
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
   const verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)

@@ -6,7 +6,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Dialog,
@@ -403,14 +410,13 @@ export function DefinitionTriggersEditor({
             </div>
 
             {/* Enabled Switch */}
-            <div className="flex items-center gap-2">
-              <Switch
-                id="trigger-enabled"
-                checked={formValues.enabled}
-                onCheckedChange={checked => setFormValues(prev => ({ ...prev, enabled: checked }))}
-              />
-              <Label htmlFor="trigger-enabled">{t('workflows.triggers.fields.enabled', 'Enabled')}</Label>
-            </div>
+            <SwitchField
+              id="trigger-enabled"
+              label={t('workflows.triggers.fields.enabled', 'Enabled')}
+              flip
+              checked={formValues.enabled}
+              onCheckedChange={checked => setFormValues(prev => ({ ...prev, enabled: checked }))}
+            />
 
             {/* Filter Conditions */}
             <div className="space-y-2">
@@ -432,17 +438,21 @@ export function DefinitionTriggersEditor({
                     placeholder="status"
                     className="w-full sm:w-1/3"
                   />
-                  <select
+                  <Select
                     value={fc.operator}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateFilterCondition(index, 'operator', e.target.value)}
-                    className="h-10 w-full sm:w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    onValueChange={(value) => updateFilterCondition(index, 'operator', value)}
                   >
-                    {FILTER_OPERATORS.map(op => (
-                      <option key={op.value} value={op.value}>
-                        {op.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger size="lg" className="w-full sm:w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FILTER_OPERATORS.map(op => (
+                        <SelectItem key={op.value} value={op.value}>
+                          {op.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Input
                     value={fc.value}
                     onChange={e => updateFilterCondition(index, 'value', e.target.value)}

@@ -36,6 +36,8 @@ npx create-mercato-app <app-name> [options]
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
+| `--init-git` | Initialize a local Git repository after scaffolding |
+| `--no-init-git` | Do not prompt for or initialize a local Git repository |
 | `--registry <url>` | Custom npm registry URL |
 | `--verdaccio` | Use local Verdaccio registry (http://localhost:4873) |
 | `--help`, `-h` | Show help |
@@ -61,6 +63,9 @@ npx create-mercato-app my-store --registry http://localhost:4873
 
 # Create a new app without the agentic setup wizard
 npx create-mercato-app my-store --skip-agentic-setup
+
+# Create a new app and initialize a local Git repository
+npx create-mercato-app my-store --init-git
 ```
 
 ## Ready App Behavior
@@ -72,6 +77,34 @@ npx create-mercato-app my-store --skip-agentic-setup
 - Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files
 - Imported ready apps skip the interactive agentic setup wizard; if you want agentic tooling later, run `yarn mercato agentic:init` inside the generated app
 - Imported ready apps must not contain `.template` files; the scaffold fails closed if template files are found
+
+## Git And GitHub
+
+Interactive scaffolds ask whether to initialize a local Git repository after the app is created. Non-interactive scaffolds skip Git initialization unless `--init-git` is passed.
+
+To publish the generated app to GitHub after creation:
+
+```bash
+cd my-app
+git add -A
+git commit -m "Initial commit"
+gh repo create --source=. --remote=origin --push
+```
+
+If you did not initialize Git during scaffolding, run this first:
+
+```bash
+git init -b main
+```
+
+Without GitHub CLI, create an empty repository on GitHub and connect it manually:
+
+```bash
+git remote add origin https://github.com/<owner>/<repo>.git
+git push -u origin main
+```
+
+The standalone dev splash also exposes a GitHub publishing panel after `yarn dev` when `gh` is installed.
 
 ## After Creating A Bare Scaffold
 

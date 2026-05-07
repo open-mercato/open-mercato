@@ -12,6 +12,7 @@ const events = [
   { id: 'customer_accounts.email.verified', label: 'Customer Email Verified', category: 'lifecycle', portalBroadcast: true },
   { id: 'customer_accounts.password.reset_requested', label: 'Customer Password Reset Requested', category: 'lifecycle' },
   { id: 'customer_accounts.password.reset', label: 'Customer Password Reset', category: 'lifecycle', portalBroadcast: true },
+  { id: 'customer_accounts.password.changed', label: 'Customer Password Changed', category: 'lifecycle' },
   { id: 'customer_accounts.role.created', label: 'Customer Role Created', entity: 'role', category: 'crud' },
   { id: 'customer_accounts.role.updated', label: 'Customer Role Updated', entity: 'role', category: 'crud', portalBroadcast: true },
   { id: 'customer_accounts.role.deleted', label: 'Customer Role Deleted', entity: 'role', category: 'crud' },

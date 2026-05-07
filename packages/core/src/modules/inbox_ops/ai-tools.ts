@@ -278,6 +278,10 @@ Returns on error: error message with appropriate detail.`,
     actionId: z.string().uuid().describe('The UUID of the action to accept'),
   }),
   requiredFeatures: ['inbox_ops.proposals.manage'],
+  // Accepting an inbox action creates downstream entities (orders, contacts,
+  // etc.) in target modules — must surface as a write so any agent that
+  // whitelists it routes through the approval card.
+  isMutation: true,
   handler: async (input: { proposalId: string; actionId: string }, ctx: ToolContext) => {
     const scope = requireTenantContext(ctx)
     if (!ctx.userId) {

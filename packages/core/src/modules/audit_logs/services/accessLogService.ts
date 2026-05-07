@@ -8,6 +8,7 @@ import {
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
@@ -23,6 +24,7 @@ const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTI
 const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
 const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -137,13 +139,11 @@ export class AccessLogService {
         context: undefined,
       }
     }
+    const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
     const toNullableUuid = (value: unknown) => {
       if (typeof value !== 'string' || value.length === 0) return null
-      // Extract UUID from "api_key:<uuid>" format (used by workflow authentication)
-      if (value.startsWith('api_key:')) {
-        return value.slice('api_key:'.length)
-      }
-      return value
+      const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
+      return UUID_REGEX.test(candidate) ? candidate : null
     }
     const fields = Array.isArray(input.fields)
       ? input.fields.filter((f): f is string => typeof f === 'string' && f.length > 0)
@@ -190,6 +190,25 @@ export class AccessLogService {
         offset,
       },
     )
+
+    // Encrypted jsonb columns (`fields_json`, `context_json`) come back as raw
+    // JSON strings from the encryption subscriber after issue #1810 follow-up
+    // (entity-field decryption no longer auto-parses). Restore the structured
+    // shape on read so API consumers see typed objects/arrays.
+    for (const item of items) {
+      const rawFieldsJson = (item as { fieldsJson?: unknown }).fieldsJson
+      if (typeof rawFieldsJson === 'string') {
+        const parsed = parseDecryptedFieldValue(rawFieldsJson)
+        item.fieldsJson = Array.isArray(parsed) ? (parsed as string[]) : null
+      }
+      const rawContextJson = (item as { contextJson?: unknown }).contextJson
+      if (typeof rawContextJson === 'string') {
+        const parsed = parseDecryptedFieldValue(rawContextJson)
+        item.contextJson = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : null
+      }
+    }
 
     const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
     return { items, total, page, pageSize, totalPages }

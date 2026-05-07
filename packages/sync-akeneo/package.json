@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/sync-akeneo",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -57,7 +57,7 @@
     "node-html-markdown": "^2.0.0"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/postgresql": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

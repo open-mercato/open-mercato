@@ -3,8 +3,13 @@ import {
   validateTableName,
   makeConstraintDropsIdempotent,
   getMigrationSnapshotName,
+  shouldCreateInitialModuleMigration,
+  resolveGeneratedMigrationPath,
   dbGreenfield,
 } from '../commands'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 describe('db commands security', () => {
   describe('sanitizeModuleId', () => {
@@ -139,6 +144,58 @@ describe('getMigrationSnapshotName', () => {
     })
 
     expect(snapshotName).toBe('.snapshot-open-mercato')
+  })
+})
+
+describe('shouldCreateInitialModuleMigration', () => {
+  function createTempMigrationsDir() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-migrations-'))
+  }
+
+  it('uses initial migration mode when a module has no snapshot and no migrations', () => {
+    const dir = createTempMigrationsDir()
+
+    expect(shouldCreateInitialModuleMigration(dir, '.snapshot-open-mercato')).toBe(true)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('does not use initial migration mode when a snapshot exists', () => {
+    const dir = createTempMigrationsDir()
+    fs.writeFileSync(path.join(dir, '.snapshot-open-mercato.json'), '{}')
+
+    expect(shouldCreateInitialModuleMigration(dir, '.snapshot-open-mercato')).toBe(false)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('does not use initial migration mode when migration files already exist', () => {
+    const dir = createTempMigrationsDir()
+    fs.writeFileSync(path.join(dir, 'Migration20260506100652.ts'), 'export {}')
+
+    expect(shouldCreateInitialModuleMigration(dir, '.snapshot-open-mercato')).toBe(false)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('resolveGeneratedMigrationPath', () => {
+  it('resolves MikroORM basename results inside the migrations directory', () => {
+    const result = resolveGeneratedMigrationPath(
+      'Migration20260506101927.ts',
+      '/repo/src/modules/example/migrations',
+    )
+
+    expect(result).toBe('/repo/src/modules/example/migrations/Migration20260506101927.ts')
+  })
+
+  it('keeps absolute MikroORM results unchanged', () => {
+    const result = resolveGeneratedMigrationPath(
+      '/repo/src/modules/example/migrations/Migration20260506101927.ts',
+      '/other/migrations',
+    )
+
+    expect(result).toBe('/repo/src/modules/example/migrations/Migration20260506101927.ts')
   })
 })
 

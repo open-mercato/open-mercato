@@ -219,7 +219,7 @@ export function JobLogsModal({
               <TabsContent value="error" className="space-y-4">
                 <div>
                   <Label className="text-sm font-medium">{t('scheduler.job_logs.error_message', 'Error Message')}</Label>
-                  <pre className="mt-1 bg-red-50 dark:bg-red-950 p-3 rounded text-sm text-red-900 dark:text-red-100">
+                  <pre className="mt-1 bg-status-error-bg p-3 rounded text-sm text-status-error-text">
                     {job.failedReason}
                   </pre>
                 </div>

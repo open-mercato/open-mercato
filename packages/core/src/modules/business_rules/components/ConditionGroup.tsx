@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { ConditionRow } from './ConditionRow'
 import type { GroupCondition, ConditionExpression, SimpleCondition } from './utils/conditionValidation'
 import type { LogicalOperator } from './../data/validators'
@@ -104,17 +111,21 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
         <span className="text-xs font-medium text-muted-foreground">
           {t('business_rules.components.conditionGroup.group', { depth: depth + 1 })}
         </span>
-        <select
+        <Select
           value={group.operator}
-          onChange={handleOperatorChange}
-          className="px-3 py-1.5 text-sm font-semibold border border-border rounded bg-card focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onValueChange={(value) => handleOperatorChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
         >
-          {logicalOperators.map((op) => (
-            <option key={op.value} value={op.value}>
-              {op.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="sm" className="w-auto min-w-[6rem] font-semibold">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {logicalOperators.map((op) => (
+              <SelectItem key={op.value} value={op.value}>
+                {op.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <span className="text-xs text-muted-foreground">
           ({t('business_rules.components.conditionGroup.ruleCount', { count: group.rules.length })})
@@ -124,7 +135,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            className="ml-auto p-1 text-muted-foreground hover:text-status-error-text hover:bg-status-error-bg rounded transition-colors"
             title={t('business_rules.components.conditionGroup.deleteGroup')}
           >
             <X className="w-4 h-4" />

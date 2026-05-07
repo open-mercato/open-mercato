@@ -56,9 +56,10 @@ import {
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
+import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/config'
 import { fetchGlobalSearchResults } from '../utils'
 
-const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = resolveSearchMinTokenLength()
 
 /** Default strategies used when none are configured */
 const DEFAULT_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
@@ -375,7 +376,7 @@ export function GlobalSearchDialog({
               <p className="rounded bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
             ) : null}
             {showVectorWarning ? (
-              <p className="rounded bg-amber-100 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{missingConfigMessage}</p>
+              <p className="rounded bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">{missingConfigMessage}</p>
             ) : null}
             {showScopeHint ? (
               <p className="text-xs text-muted-foreground">
@@ -387,7 +388,7 @@ export function GlobalSearchDialog({
             {results.length === 0 && !loading && !error ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {query.trim().length < MIN_QUERY_LENGTH
-                  ? t('search.dialog.empty.hint')
+                  ? t('search.dialog.empty.hint', { count: MIN_QUERY_LENGTH })
                   : t('search.dialog.empty.none')}
               </div>
             ) : null}
@@ -407,7 +408,7 @@ export function GlobalSearchDialog({
                         'w-full rounded-lg px-4 py-3 text-left transition border',
                         isActive
                           ? 'border-primary bg-primary/10 text-foreground shadow-sm'
-                          : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/60',
+                          : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/50',
                         !hasLink && 'opacity-60'
                       )}
                     >
@@ -419,7 +420,7 @@ export function GlobalSearchDialog({
                               {formatEntityId(result.entityId)}
                             </span>
                             {!hasLink && (
-                              <span className="rounded-full border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+                              <span className="rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs text-status-warning-text">
                                 {t('search.dialog.noLink')}
                               </span>
                             )}

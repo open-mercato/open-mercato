@@ -7,9 +7,11 @@
 - The permanent fix is two-part:
   1. add a generator watch pipeline so structural file changes regenerate `.mercato/generated` during `yarn dev` without restart
   2. replace the eager catch-all route graph with generated lightweight route manifests plus lazy route loaders and partitioned bootstrap domains.
+- May 5, 2026 amendment: app `.env*` changes are runtime inputs, not structural inputs. `mercato server dev` now watches app env files and restarts the managed Next.js + worker + scheduler group so changed secrets, provider settings, ports, and runtime toggles are picked up without manually restarting `yarn dev`.
 
 **Scope:**
 - Modify the dev workflow so structural module changes trigger targeted generator runs during `yarn dev`.
+- Restart the managed dev runtime group when app environment files change.
 - Add generated route manifests for `frontend`, `backend`, and `api` catch-all routing.
 - Keep monorepo and standalone-app behavior aligned.
 - Keep existing generated-file contracts additive and backward-compatible.
@@ -72,6 +74,11 @@ Status on April 2, 2026 after implementation and rerun:
   - structural additions are handled without restart
   - structural deletions still trigger a brief transient Next compile error before the regenerated manifest lands, because the stale generated manifest still references the removed route during invalidation
   - `instrumentation.ts` must keep the warmup import behind `process.env.NEXT_RUNTIME === 'nodejs'` to avoid Edge-runtime dependency resolution errors
+- May 5, 2026 amendment:
+  - `mercato server dev` watches `.env`, `.env.development`, `.env.local`, and `.env.development.local` in the app directory
+  - when one changes, the CLI reloads app env files while preserving shell-provided variables as authoritative
+  - the managed runtime group restarts together: Next.js dev server, queue workers, and scheduler polling engine
+  - structural generation remains separate; env changes do not run generators
 
 ## Overview
 
@@ -630,6 +637,13 @@ Interpretation:
 - **Mitigation**: Ignore `.mercato/generated/**`, debounce events, and track the write set produced by the current generation cycle.
 - **Residual risk**: Low.
 
+#### Environment Reload Drift
+- **Scenario**: A developer edits `.env` during `yarn dev`, but only Next.js sees the update while workers or scheduler keep stale values.
+- **Severity**: Medium
+- **Affected area**: local development correctness, AI provider keys, queue/scheduler toggles, app URLs, database/cache configuration.
+- **Mitigation**: Watch app env files inside `mercato server dev` and restart the full managed runtime group after a debounced change. Reload env files from disk before respawn and preserve shell-provided variables so explicit terminal exports still win.
+- **Residual risk**: Low.
+
 ## Final Compliance Report — 2026-04-02
 
 ### AGENTS.md Files Reviewed
@@ -672,6 +686,10 @@ Interpretation:
 ### 2026-04-02
 - Initial specification based on measured cold-dev profiling.
 - Implementation updated with route manifests, generator watch, route-free app bootstrap, lazy subscriber/worker handlers, and dev background warmup.
+
+### 2026-05-05
+- Added env-file reload behavior for `mercato server dev`: app `.env*` changes now restart the full managed dev runtime group instead of relying on Next.js-only config reload behavior.
+- Added unit coverage for env precedence/reload cleanup and the managed runtime restart path.
 
 ### Review — 2026-04-02
 - **Reviewer**: Agent

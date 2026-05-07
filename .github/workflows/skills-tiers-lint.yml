@@ -1,0 +1,43 @@
+name: Skills Tiers Lint
+
+permissions:
+  contents: read
+
+# Lint .ai/skills/tiers.json so a new skill folder cannot land without a
+# tier assignment. Triggers only on changes under .ai/skills/** so it
+# stays out of the way of unrelated PRs. Also runs on pushes to the
+# protected branches as a defensive backstop in case a change bypasses
+# the PR flow.
+on:
+  pull_request:
+    paths:
+      - '.ai/skills/**'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - '.ai/skills/**'
+
+concurrency:
+  group: skills-tiers-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-skills-tiers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # jq is preinstalled on GitHub-hosted ubuntu runners — no install step
+      # needed. Do not add `apt-get install jq` here.
+
+      - name: Validate .ai/skills/tiers.json (see .ai/specs/2026-05-05-tiered-skills-install.md)
+        run: bash scripts/validate-skills-tiers.sh
+
+      - name: Failure hint
+        if: failure()
+        run: |
+          echo "::error::Skill folder(s) under .ai/skills/ are not registered in .ai/skills/tiers.json."
+          echo "::error::See .ai/specs/2026-05-05-tiered-skills-install.md for the tier manifest contract."

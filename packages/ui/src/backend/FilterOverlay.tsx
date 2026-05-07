@@ -1,6 +1,14 @@
 "use client"
 import * as React from 'react'
 import { Button } from '../primitives/button'
+import { Checkbox } from '../primitives/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -190,8 +198,8 @@ export function FilterOverlay({
   return (
     <>
       {open && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
+        <div className="fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => onOpenChange(false)} role="presentation" />
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-base font-semibold">{defaultTitle}</h2>
@@ -249,15 +257,14 @@ export function FilterOverlay({
                             const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                             const checked = arr.includes(opt.value)
                             return (
-                              <label key={opt.value} className="inline-flex items-center gap-2">
-                                <input
-                                  type="checkbox"
+                              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                                <Checkbox
                                   checked={checked}
-                                  onChange={(e) => {
-                                    const next = new Set(arr)
-                                    if (e.target.checked) next.add(opt.value)
-                                    else next.delete(opt.value)
-                                    setValue(f.id, Array.from(next))
+                                  onCheckedChange={(next) => {
+                                    const set = new Set(arr)
+                                    if (next === true) set.add(opt.value)
+                                    else set.delete(opt.value)
+                                    setValue(f.id, Array.from(set))
                                   }}
                                 />
                                 <span className="text-sm">{opt.label}</span>
@@ -266,16 +273,21 @@ export function FilterOverlay({
                           })}
                         </div>
                       ) : (
-                        <select
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id] ?? ''}
-                          onChange={(e) => setValue(f.id, e.target.value || undefined)}
+                        <Select
+                          value={values[f.id] || undefined}
+                          onValueChange={(next) => setValue(f.id, next || undefined)}
                         >
-                          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-                          {(f.options || dynamicOptions[f.id] || []).map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger size="lg">
+                            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(f.options || dynamicOptions[f.id] || [])
+                              .filter((opt) => opt.value !== '')
+                              .map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </div>
                   )}
@@ -354,20 +366,22 @@ export function FilterOverlay({
                   })()}
                   {f.type === 'checkbox' && (
                     <div>
-                      <select
-                        className="w-full h-11 rounded border px-2 text-sm"
-                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          if (v === '') setValue(f.id, undefined)
-                          else if (v === 'true') setValue(f.id, true)
-                          else if (v === 'false') setValue(f.id, false)
+                      <Select
+                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : undefined}
+                        onValueChange={(next) => {
+                          if (!next) setValue(f.id, undefined)
+                          else if (next === 'true') setValue(f.id, true)
+                          else if (next === 'false') setValue(f.id, false)
                         }}
                       >
-                        <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-                        <option value="true">{t('common.yes', 'Yes')}</option>
-                        <option value="false">{t('common.no', 'No')}</option>
-                      </select>
+                        <SelectTrigger size="lg">
+                          <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">{t('common.yes', 'Yes')}</SelectItem>
+                          <SelectItem value="false">{t('common.no', 'No')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </div>

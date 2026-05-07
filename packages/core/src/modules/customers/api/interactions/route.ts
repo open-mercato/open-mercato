@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -20,6 +22,8 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
+import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -31,6 +35,7 @@ const interactionSortFieldSchema = z.enum([
   'status',
   'priority',
   'interactionType',
+  'title',
 ])
 
 const listSchema = z
@@ -41,9 +46,12 @@ const listSchema = z
     dealId: z.string().uuid().optional(),
     status: z.string().optional(),
     interactionType: z.string().optional(),
+    type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
+    search: z.string().trim().min(1).optional(),
     from: z.string().optional(),
     to: z.string().optional(),
+    pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -87,7 +95,32 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate)
+        // Bridge legacy `customer_activities` rows into `customer_interactions`
+        // before the canonical update runs so historical activities (#1807)
+        // remain editable through the new dialog. No-op when the canonical
+        // record already exists.
+        const tenantId = ctx.auth?.tenantId ?? null
+        if (typeof parsed.id === 'string' && tenantId) {
+          try {
+            const em = ctx.container.resolve('em') as EntityManager
+            const commandBus = ctx.container.resolve('commandBus') as CommandBus
+            const commandContext: CommandRuntimeContext = {
+              container: ctx.container,
+              auth: ctx.auth ?? null,
+              organizationScope: ctx.organizationScope ?? null,
+              selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+              organizationIds: ctx.organizationIds ?? null,
+              request: ctx.request,
+            }
+            await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, tenantId)
+          } catch (err) {
+            // Bridging is best-effort; downstream lookup will surface a 404
+            // when neither canonical nor legacy rows exist.
+            console.warn('[customers.interactions.put] legacy bridge failed', { id: parsed.id, error: err })
+          }
+        }
+        return parsed
       },
       response: () => ({ ok: true }),
     },
@@ -133,6 +166,17 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  duration_minutes: number | null
+  location: string | null
+  all_day: boolean | null
+  recurrence_rule: string | null
+  recurrence_end: Date | null
+  participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  reminder_minutes: number | null
+  visibility: string | null
+  linked_entities: Array<{ id: string; type: string; label: string }> | null
+  guest_permissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
+  pinned: boolean
   organization_id: string
   tenant_id: string
   created_at: Date
@@ -162,6 +206,7 @@ const interactionSortConfig = {
   status: { column: 'status', type: 'text' as const, defaultDir: 'asc' as const },
   priority: { column: 'priority', type: 'number' as const, defaultDir: 'desc' as const },
   interactionType: { column: 'interaction_type', type: 'text' as const, defaultDir: 'asc' as const },
+  title: { column: 'title', type: 'text' as const, defaultDir: 'asc' as const },
 } as const
 
 function toIsoString(value: unknown): string | null {
@@ -298,7 +343,7 @@ export async function GET(req: Request) {
         : []
     const selectedOrganizationId = scope?.selectedId ?? auth.orgId ?? organizationIds[0] ?? null
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
+    const db = em.getKysely<any>() as any
 
     const requestedSortField = query.sortField ?? 'scheduledAt'
     const sortConfig = interactionSortConfig[requestedSortField]
@@ -311,8 +356,9 @@ export async function GET(req: Request) {
       })
     }
 
-    const rowsQuery = knex('customer_interactions')
-      .select<InteractionListRow[]>([
+    let rowsQuery = db
+      .selectFrom('customer_interactions')
+      .select([
         'id',
         'entity_id',
         'deal_id',
@@ -328,53 +374,73 @@ export async function GET(req: Request) {
         'appearance_icon',
         'appearance_color',
         'source',
+        'duration_minutes',
+        'location',
+        'all_day',
+        'recurrence_rule',
+        'recurrence_end',
+        'participants',
+        'reminder_minutes',
+        'visibility',
+        'linked_entities',
+        'guest_permissions',
+        'pinned',
         'organization_id',
         'tenant_id',
         'created_at',
         'updated_at',
-        knex.raw(`${sortSql} as __sort_value`),
+        sql`${sql.raw(sortSql)}`.as('__sort_value'),
       ])
-      .whereNull('deleted_at')
-      .andWhere('tenant_id', auth.tenantId)
+      .where('deleted_at', 'is', null)
+      .where('tenant_id', '=', auth.tenantId)
       .limit(query.limit + 1)
 
     if (organizationIds.length > 0) {
-      rowsQuery.whereIn('organization_id', organizationIds)
+      rowsQuery = rowsQuery.where('organization_id', 'in', organizationIds)
     }
-    if (query.entityId) {
-      rowsQuery.andWhere('entity_id', query.entityId)
+    if (query.entityId) rowsQuery = rowsQuery.where('entity_id', '=', query.entityId)
+    if (query.dealId) rowsQuery = rowsQuery.where('deal_id', '=', query.dealId)
+    if (query.status) rowsQuery = rowsQuery.where('status', '=', query.status)
+    if (query.interactionType) rowsQuery = rowsQuery.where('interaction_type', '=', query.interactionType)
+    if (query.type) {
+      const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
+      if (types.length > 0) {
+        rowsQuery = rowsQuery.where('interaction_type', 'in', types)
+      }
     }
-    if (query.dealId) {
-      rowsQuery.andWhere('deal_id', query.dealId)
+    if (query.pinned === 'true') {
+      rowsQuery = rowsQuery.where('pinned', '=', true)
+    } else if (query.pinned === 'false') {
+      rowsQuery = rowsQuery.where('pinned', '=', false)
     }
-    if (query.status) {
-      rowsQuery.andWhere('status', query.status)
-    }
-    if (query.interactionType) {
-      rowsQuery.andWhere('interaction_type', query.interactionType)
-    }
-    if (query.excludeInteractionType) {
-      rowsQuery.andWhereNot('interaction_type', query.excludeInteractionType)
+    if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
+    if (query.search) {
+      const searchTerm = `%${query.search}%`
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
     }
     if (query.from) {
-      rowsQuery.andWhere('scheduled_at', '>=', new Date(query.from))
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
     }
     if (query.to) {
-      rowsQuery.andWhere('scheduled_at', '<=', new Date(query.to))
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
     }
+
     if (cursor) {
       const op = sortDir === 'asc' ? '>' : '<'
-      rowsQuery.andWhere(function applyCursor() {
-        this.whereRaw(`${sortSql} ${op} ?`, [cursor.sortValue]).orWhere(function applyTieBreaker() {
-          this.whereRaw(`${sortSql} = ?`, [cursor.sortValue]).andWhere('id', op, cursor.id)
-        })
-      })
+      const opRaw = sql.raw(op)
+      const sortRaw = sql.raw(sortSql)
+      rowsQuery = rowsQuery.where((eb: any) => eb.or([
+        sql<boolean>`${sortRaw} ${opRaw} ${cursor.sortValue}`,
+        eb.and([
+          sql<boolean>`${sortRaw} = ${cursor.sortValue}`,
+          eb('id', op, cursor.id),
+        ]),
+      ]))
     }
 
-    rowsQuery.orderByRaw(`${sortSql} ${sortDir}`)
-    rowsQuery.orderBy('id', sortDir)
+    rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
 
-    const rows = await rowsQuery
+    const rows = await rowsQuery.execute() as InteractionListRow[]
     const pageRows = rows.slice(0, query.limit)
     const hasMore = rows.length > query.limit
 
@@ -438,6 +504,18 @@ export async function GET(req: Request) {
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
+      duration: row.duration_minutes ?? null,
+      durationMinutes: row.duration_minutes ?? null,
+      location: row.location ?? null,
+      allDay: row.all_day ?? null,
+      recurrenceRule: row.recurrence_rule ?? null,
+      recurrenceEnd: toIsoString(row.recurrence_end),
+      participants: row.participants ?? null,
+      reminderMinutes: row.reminder_minutes ?? null,
+      visibility: row.visibility ?? null,
+      linkedEntities: row.linked_entities ?? null,
+      guestPermissions: row.guest_permissions ?? null,
+      pinned: row.pinned ?? false,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
@@ -445,7 +523,7 @@ export async function GET(req: Request) {
       authorName: row.author_user_id ? userMap.get(row.author_user_id)?.name ?? null : null,
       authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
-      customValues: customFieldValues[row.id] ?? null,
+      customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }))
 
     const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId)
@@ -500,6 +578,37 @@ const interactionListItemSchema = z
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
+    duration: z.number().nullable().optional(),
+    durationMinutes: z.number().nullable().optional(),
+    location: z.string().nullable().optional(),
+    allDay: z.boolean().nullable().optional(),
+    recurrenceRule: z.string().nullable().optional(),
+    recurrenceEnd: z.string().nullable().optional(),
+    participants: z.array(
+      z.object({
+        userId: z.string().uuid(),
+        name: z.string().optional(),
+        email: z.string().optional(),
+        status: z.string().optional(),
+      }),
+    ).nullable().optional(),
+    reminderMinutes: z.number().nullable().optional(),
+    visibility: z.string().nullable().optional(),
+    linkedEntities: z.array(
+      z.object({
+        id: z.string().uuid(),
+        type: z.string(),
+        label: z.string(),
+      }),
+    ).nullable().optional(),
+    guestPermissions: z
+      .object({
+        canInviteOthers: z.boolean().optional(),
+        canModify: z.boolean().optional(),
+        canSeeList: z.boolean().optional(),
+      })
+      .nullable()
+      .optional(),
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     createdAt: z.string().nullable(),

@@ -7,6 +7,15 @@ import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { coerceDisplayName, deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   Dialog,
   DialogContent,
@@ -31,6 +40,7 @@ import {
   DictionaryEntrySelect,
   type DictionarySelectLabels,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { RolesSection } from './detail/RolesSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
@@ -96,6 +106,11 @@ type DictionarySelectFieldProps = {
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
   selectClassName?: string
+  manageHref?: string
+  allowInlineCreate?: boolean
+  allowAppearance?: boolean
+  showManage?: boolean
+  showLabelInput?: boolean
 }
 
 const emailValidationSchema = z.string().email()
@@ -119,6 +134,11 @@ export function DictionarySelectField({
   onChange,
   labels,
   selectClassName,
+  manageHref,
+  allowInlineCreate = false,
+  allowAppearance = false,
+  showManage = false,
+  showLabelInput = true,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -209,12 +229,12 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
+      manageHref={manageHref}
       selectClassName={selectClassName}
-      allowInlineCreate
-      allowAppearance
-      appearanceLabels={appearanceLabels}
-      manageHref="/backend/config/customers"
-      showLabelInput
+      allowInlineCreate={allowInlineCreate}
+      allowAppearance={allowAppearance}
+      showManage={showManage}
+      showLabelInput={showLabelInput}
     />
   )
 }
@@ -243,9 +263,8 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <input
+        <Input
           type="email"
-          className="w-full h-9 rounded border px-2 text-sm"
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -275,8 +294,8 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 })
 
 type DictionaryFieldDefinition = {
-  id: 'jobTitle' | 'status' | 'lifecycleStage' | 'source'
-  kind: 'job-titles' | 'statuses' | 'lifecycle-stages' | 'sources'
+  id: 'status' | 'lifecycleStage' | 'source'
+  kind: 'statuses' | 'lifecycle-stages' | 'sources'
   labelKey: string
   placeholderKey: string
   addLabelKey: string
@@ -287,16 +306,6 @@ type DictionaryFieldDefinition = {
 
 const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
   {
-    id: 'jobTitle',
-    kind: 'job-titles',
-    labelKey: 'customers.people.form.jobTitle',
-    placeholderKey: 'customers.people.form.jobTitle.placeholder',
-    addLabelKey: 'customers.people.form.dictionary.addJobTitle',
-    promptKey: 'customers.people.form.dictionary.promptJobTitle',
-    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleJobTitle',
-    layout: 'half',
-  },
-  {
     id: 'status',
     kind: 'statuses',
     labelKey: 'customers.people.form.status',
@@ -304,6 +313,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addStatus',
     promptKey: 'customers.people.form.dictionary.promptStatus',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleStatus',
+    layout: 'half',
   },
   {
     id: 'lifecycleStage',
@@ -313,6 +323,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addLifecycleStage',
     promptKey: 'customers.people.form.dictionary.promptLifecycleStage',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleLifecycleStage',
+    layout: 'half',
   },
   {
     id: 'source',
@@ -322,6 +333,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addSource',
     promptKey: 'customers.people.form.dictionary.promptSource',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleSource',
+    layout: 'half',
   },
 ]
 
@@ -556,19 +568,22 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <select
-          className="w-full h-9 rounded border px-2 text-sm"
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(next || undefined)}
           disabled={loading}
         >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder={labels.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button
@@ -590,8 +605,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{labels.inputLabel}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                <Input
                   placeholder={labels.inputPlaceholder}
                   value={newCompany}
                   onChange={(event) => {
@@ -699,16 +713,18 @@ export const createDisplayNameSection = (t: Translator) =>
   function DisplayNameSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
     const [editing, setEditing] = React.useState(false)
     const [manualOverride, setManualOverride] = React.useState(() => {
-      const current = typeof values.displayName === 'string' ? values.displayName.trim() : ''
-      return current.length > 0
+      const current = typeof values.displayName === 'string' ? values.displayName : ''
+      const firstInit = typeof values.firstName === 'string' ? values.firstName : ''
+      const lastInit = typeof values.lastName === 'string' ? values.lastName : ''
+      // Sticky-manual: treat as user-customized only when the persisted display name
+      // doesn't match the first+last derivation (matches the server-side rule in
+      // updatePersonCommand). Empty values are considered derived.
+      return !isDerivedDisplayName(current, firstInit, lastInit)
     })
 
     const first = typeof values.firstName === 'string' ? values.firstName.trim() : ''
     const last = typeof values.lastName === 'string' ? values.lastName.trim() : ''
-    const derived = React.useMemo(() => {
-      const parts = [first, last].filter((part) => !!part)
-      return parts.join(' ').trim()
-    }, [first, last])
+    const derived = React.useMemo(() => deriveDisplayName(first, last), [first, last])
 
     React.useEffect(() => {
       if (!manualOverride) {
@@ -753,8 +769,7 @@ export const createDisplayNameSection = (t: Translator) =>
             </div>
             {editing ? (
               <div className="mt-2 space-y-2">
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                <Input
                   value={currentValue}
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}
@@ -793,17 +808,20 @@ export const createDisplayNameSection = (t: Translator) =>
 export const createPersonFormFields = (t: Translator): CrudField[] => {
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
-const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
-  id: definition.id,
-  label: t(definition.labelKey),
-  type: 'custom',
-  layout: definition.layout ?? 'third',
-  component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
-    <DictionarySelectField
-      kind={definition.kind}
-      value={typeof value === 'string' ? value : undefined}
-      onChange={(next) => setValue(next)}
+  const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
+    id: definition.id,
+    label: t(definition.labelKey),
+    type: 'custom',
+    layout: definition.layout ?? 'third',
+    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      <DictionarySelectField
+        kind={definition.kind}
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
+        allowInlineCreate
+        allowAppearance
+        showManage
       />
     ),
   }))
@@ -812,6 +830,40 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
     { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
     { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
     { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
+    {
+      id: 'jobTitle',
+      label: t('customers.people.form.jobTitle', 'Job title'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+        <DictionarySelectField
+          kind="job-titles"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.jobTitle.placeholder', 'Select a job title'),
+            addLabel: t('customers.people.form.dictionary.addJobTitle', 'Add job title'),
+            addPrompt: t('customers.people.form.dictionary.promptJobTitle', 'Enter a new job title'),
+            dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle', 'Add job title'),
+            valueLabel: t('customers.people.form.dictionary.valueLabel', 'Value'),
+            valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Value'),
+            labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+            labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            successCreateLabel: undefined,
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.dictionary.loading'),
+            manageTitle: t('customers.people.form.dictionary.manage'),
+          }}
+          allowInlineCreate
+          allowAppearance
+          showManage
+        />
+      ),
+    },
     contactSection,
     createPrimaryEmailField(t),
     createPrimaryPhoneField(t),
@@ -924,6 +976,7 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'details',
     title: t('customers.people.form.groups.details'),
     column: 1,
+    component: createDisplayNameSection(t),
     fields: [
       'firstName',
       'lastName',
@@ -937,7 +990,6 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
       'lifecycleStage',
       'source',
     ],
-    component: createDisplayNameSection(t),
   },
   {
     id: 'addresses',
@@ -1508,6 +1560,20 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     fields: ['displayName', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
   },
   {
+    id: 'roles',
+    title: t('customers.roles.groupTitle', 'Roles'),
+    column: 1,
+    component: ({ values }: CrudFormGroupComponentProps) => (
+      values.id ? (
+        <RolesSection
+          entityType="company"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
+    ),
+  },
+  {
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
@@ -1523,6 +1589,50 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     id: 'customFields',
     title: t('customers.companies.form.groups.custom'),
     column: 2,
+    kind: 'customFields',
+  },
+]
+
+/**
+ * Groups for the "Dane firmy" tab layout (Figma SPEC-048 mockup).
+ * All zone-1 groups stay in a single vertical stack so drag-and-drop ordering
+ * applies consistently across every section and persists per page type.
+ */
+export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'identity',
+    title: t('customers.companies.form.groups.identity', 'Tożsamość').toUpperCase(),
+    column: 1,
+    fields: ['displayName', 'legalName', 'brandName'],
+  },
+  {
+    id: 'contact',
+    title: t('customers.companies.form.groups.contact', 'Kontakt').toUpperCase(),
+    column: 1,
+    fields: ['primaryEmail', 'primaryPhone', 'domain', 'websiteUrl'],
+  },
+  {
+    id: 'classification',
+    title: t('customers.companies.form.groups.classification', 'Klasyfikacja').toUpperCase(),
+    column: 1,
+    fields: ['status', 'lifecycleStage', 'source'],
+  },
+  {
+    id: 'businessProfile',
+    title: t('customers.companies.form.groups.businessProfile', 'Profil biznesowy').toUpperCase(),
+    column: 1,
+    fields: ['industry', 'sizeBucket', 'annualRevenue'],
+  },
+  {
+    id: 'notes',
+    title: t('customers.companies.form.groups.notes', 'Notatki'),
+    column: 1,
+    fields: ['description'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.companies.form.groups.customAttributes', 'Atrybuty niestandardowe'),
+    column: 1,
     kind: 'customFields',
   },
 ]
@@ -1548,6 +1658,20 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     component: createDisplayNameSection(t),
   },
   {
+    id: 'roles',
+    title: t('customers.roles.groupTitle', 'Roles'),
+    column: 1,
+    component: ({ values }: CrudFormGroupComponentProps) => (
+      values.id ? (
+        <RolesSection
+          entityType="person"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
+    ),
+  },
+  {
     id: 'social',
     title: t('customers.people.form.groups.social', 'Social & links'),
     column: 1,
@@ -1566,6 +1690,61 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     kind: 'customFields',
   },
 ]
+
+/**
+ * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
+ * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
+ */
+export const createPersonPersonalDataGroups = (
+  t: Translator,
+  options?: { entityName?: string | null },
+): CrudFormGroup[] => {
+  const entityName = options?.entityName?.trim() || null
+  const rolesTitle = entityName
+    ? t('customers.roles.groupTitle.person', 'My roles with {{name}}', { name: entityName })
+    : t('customers.people.form.groups.roles', 'My roles')
+  return [
+    {
+      id: 'personalDataDisplay',
+      title: t('customers.people.form.groups.displayName', 'Display name'),
+      column: 1,
+      bare: true,
+      component: createDisplayNameSection(t),
+    },
+    {
+      id: 'personalData',
+      title: t('customers.people.form.groups.personalData', 'Personal data'),
+      column: 1,
+      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+    },
+    {
+      id: 'companyRole',
+      title: t('customers.people.form.groups.companyRole', 'Company & role'),
+      column: 1,
+      fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+    },
+    {
+      id: 'customFields',
+      title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
+      column: 1,
+      kind: 'customFields',
+    },
+    {
+      id: 'roles',
+      title: rolesTitle,
+      column: 1,
+      component: ({ values }: CrudFormGroupComponentProps) => (
+        values.id ? (
+          <RolesSection
+            entityType="person"
+            entityId={values.id as string}
+            entityName={typeof values.displayName === 'string' ? values.displayName : null}
+          />
+        ) : null
+      ),
+    },
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Edit-mode payload builders
@@ -1612,7 +1791,16 @@ export type CompanyPersonSummary = {
   id: string
   displayName: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
+  status?: string | null
+  lifecycleStage?: string | null
   jobTitle?: string | null
+  department?: string | null
+  createdAt?: string | null
+  organizationId?: string | null
+  source?: string | null
+  temperature?: string | null
+  linkedAt?: string | null
 }
 
 export type CompanyOverview = {
@@ -1631,6 +1819,8 @@ export type CompanyOverview = {
     nextInteractionRefId?: string | null
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
+    temperature?: string | null
+    renewalQuarter?: string | null
     organizationId?: string | null
   }
   profile: {
@@ -1651,6 +1841,30 @@ export type CompanyOverview = {
   deals: DealSummary[]
   todos: TodoLinkSummary[]
   people: CompanyPersonSummary[]
+  counts?: {
+    comments: number
+    activities: number
+    interactions: number
+    todos: number
+    deals: number
+    people: number
+    addresses: number
+    tags: number
+  }
+  plannedActivitiesPreview?: InteractionSummary[]
+  kpis?: {
+    activeDealsCount: number
+    activeDealsValue: number | null
+    dealCurrency: string | null
+    activityCount: number
+    activityTrend: {
+      value: number
+      direction: 'up' | 'down' | 'unchanged'
+    } | null
+    ltvValue: number | null
+    completedDealsCount: number
+    clientTenureYears: number | null
+  }
   interactionMode?: 'canonical' | 'legacy'
   viewer?: {
     userId: string | null
@@ -1670,6 +1884,8 @@ export type PersonOverview = {
     status?: string | null
     lifecycleStage?: string | null
     source?: string | null
+    temperature?: string | null
+    renewalQuarter?: string | null
     nextInteractionAt?: string | null
     nextInteractionName?: string | null
     nextInteractionRefId?: string | null
@@ -1697,7 +1913,25 @@ export type PersonOverview = {
   interactions: InteractionSummary[]
   deals: DealSummary[]
   todos: TodoLinkSummary[]
+  counts?: {
+    comments: number
+    activities: number
+    interactions: number
+    todos: number
+    deals: number
+    companies: number
+    addresses: number
+    tags: number
+  }
+  plannedActivitiesPreview?: InteractionSummary[]
   interactionMode?: 'canonical' | 'legacy'
+  /** Whether this person is the primary contact for any linked company. */
+  isPrimary?: boolean
+  companies?: Array<{
+    id: string
+    displayName: string
+    isPrimary: boolean
+  }>
   company?: {
     id: string
     displayName: string
@@ -1718,7 +1952,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
-    displayName: overview.company.displayName,
+    displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
     status: overview.company.status ?? '',
@@ -1741,7 +1975,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
-    displayName: overview.person.displayName,
+    displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',

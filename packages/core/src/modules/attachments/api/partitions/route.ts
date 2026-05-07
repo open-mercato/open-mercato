@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         : resolveDefaultAttachmentOcrEnabled(),
     ocrModel: parsed.data.ocrModel?.trim() || null,
   })
-  await em.persistAndFlush(entry)
+  await em.persist(entry).flush()
   return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
 }
 
@@ -146,7 +146,7 @@ export async function PUT(req: Request) {
   if (parsed.data.ocrModel !== undefined) {
     entry.ocrModel = parsed.data.ocrModel?.trim() || null
   }
-  await em.persistAndFlush(entry)
+  await em.persist(entry).flush()
   return NextResponse.json({ item: serializePartition(entry) })
 }
 
@@ -179,7 +179,7 @@ export async function DELETE(req: Request) {
   if (usage > 0) {
     return NextResponse.json({ error: 'Partition is in use and cannot be removed.' }, { status: 409 })
   }
-  await em.removeAndFlush(entry)
+  await em.remove(entry).flush()
   return NextResponse.json({ ok: true })
 }
 
