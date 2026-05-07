@@ -213,7 +213,7 @@ Practical consequences:
 Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
 
 - Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
-- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.openmercato.dev/framework/ai-assistant/ui-parts).
+- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.open-mercato.dev/framework/ai-assistant/ui-parts).
 - Replace or disable an agent / tool that another module shipped through three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module), inline on a `ModuleEntry` in `src/modules.ts` (per-app), or programmatically via `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → modules.ts → file-based → base**.
 
 Example per-module override (preferred when the override should ship with a module):
@@ -322,6 +322,80 @@ Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) 
 Do this automatically unless the user has explicitly said otherwise. If the current user has a default role that should access the module, they should see the feature you just built — not stare at a blank admin because their role is missing the grant. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 Feature IDs are FROZEN once shipped (they are stored in the DB as `role_features.feature_id`). If a rename is required, add the new ID, grant it, and keep the old one alongside as a deprecated alias until downstream data can be migrated.
+
+## Mandatory Module Mechanisms (no DIY substitutes)
+
+When building a new application or a new module under `src/modules/<id>/`, do not invent custom routing, auth, persistence, forms, or caching. The framework provides one canonical primitive for each concern. If a feature is not on this list, ask before adding it.
+
+| Concern | Canonical mechanism | Reference |
+|---|---|---|
+| Module structure & auto-discovery | `src/modules/<id>/{api,backend,frontend,data,subscribers,workers,widgets}` + `index.ts` + `src/modules.ts` (`from: '@app'`); discovered by `yarn generate` | <https://docs.open-mercato.dev/framework/modules/overview> |
+| Backend admin pages | Auto-discovered files under `backend/**` with paired `page.meta.ts` (`requireAuth`, `requireFeatures`, `pageGroup`, `pageGroupKey`, `pageOrder`) | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| Frontend public pages and customer portal | Auto-discovered files under `frontend/**`. Portal pages live at `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| API routes (auth + OpenAPI) | `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi` | <https://docs.open-mercato.dev/framework/api/api-development-guide> |
+| CRUD APIs (factory) | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory` | <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| CRUD forms in admin | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>` or raw `fetch` | <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
+| DataTables in admin | `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable`; keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, filters, toolbar) keeps working | <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
+| Authorization (RBAC) | Declare features in `<module>/acl.ts`, grant in `<module>/setup.ts` `defaultRoleFeatures`, gate routes/pages with `requireFeatures` in `metadata`. NEVER use `requireRoles`. Run `yarn mercato auth sync-role-acls` after adding features | <https://docs.open-mercato.dev/framework/rbac/overview> |
+| Multi-tenant scoping (default) | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id`; every read/write filters by them. The CRUD factory injects the scope automatically — do not bypass it | <https://docs.open-mercato.dev/architecture/system-overview> |
+| **Encryption maps for sensitive data** | Declare `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`; read via `findWithDecryption` / `findOneWithDecryption`. NEVER hand-roll AES/KMS — see the next section | <https://docs.open-mercato.dev/user-guide/encryption> |
+| Cache | Resolve from DI (`container.resolve('cache')`); never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` for tenant-scoped invalidation | <https://docs.open-mercato.dev/user-guide/cache-management> |
+| Background workers | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | <https://docs.open-mercato.dev/framework/events/queue-workers> |
+| Events between modules | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`; subscribers in `subscribers/*.ts` | <https://docs.open-mercato.dev/framework/events/overview> |
+| i18n (every user-facing string) | `useT()` client-side from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations()` server-side from `@open-mercato/shared/lib/i18n/server`; keys in `src/i18n/<locale>.json` | The `@open-mercato/shared` package (`node_modules/@open-mercato/shared/lib/i18n/`) |
+
+> Rule of thumb: if you reach for raw `fetch`, raw `<form>`, ad-hoc `crypto`, ad-hoc `Redis`, or a manual cross-module ORM join, stop and check the row above first.
+
+## Data Encryption (sensitive / GDPR-relevant fields)
+
+The framework ships a tenant-data-encryption mechanism with per-tenant DEKs, KMS-backed key resolution (Vault by default), declarative field-level maps per module, and deterministic-hash sibling columns for equality lookups. **Use it. Never hand-roll AES, `crypto.subtle`, or custom KMS calls. Never store sensitive columns as plaintext "for now".**
+
+When the user asks for "we need this column encrypted", "store this securely", "this is PII", "GDPR", or "encryption at rest" — and whenever you are designing a column that holds names, addresses, contact info, free-text notes about people, integration credentials, secrets, or anything subject to a data-processing agreement — declare an `encryption.ts` at the module root.
+
+```ts
+// src/modules/<module>/encryption.ts
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: '<module>:<entity>',
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'phone' },
+      // For deterministic equality lookups (e.g. login by email), add a sibling hash column.
+      { field: 'email', hashField: 'email_hash' },
+    ],
+  },
+]
+
+export default defaultEncryptionMaps
+```
+
+Read with decryption — never raw `em.find` / `em.findOne` on encrypted columns:
+
+```ts
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// Signature: (em, entityName, where, options?, scope?). Pass MikroORM FindOptions in slot 4
+// (or `undefined`), and the decryption scope in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
+```
+
+Apply maps to existing tenants after declaring them (new tenants pick them up automatically during `auth:setup`):
+
+```bash
+yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
+```
+
+Notes:
+
+- Toggling the **Encrypted** flag on a custom field via the admin UI only applies to data written *after* the change. Backfill historical plaintext rows with `yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>` (without `--old-key` it only encrypts plaintext and skips already-encrypted fields). Use `yarn mercato entities decrypt-database` to roll back.
+- The `vector` module stores raw embeddings unencrypted in the vector store — treat embeddings as sensitive even when the source text is encrypted.
+- Env switches: `TENANT_DATA_ENCRYPTION` (default `yes`), `TENANT_DATA_ENCRYPTION_DEBUG`, Vault (`VAULT_ADDR` / `VAULT_TOKEN` / `VAULT_KV_PATH`), and dev fallback (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`).
+
+Full guide: <https://docs.open-mercato.dev/user-guide/encryption>.
 
 ## Design System (Strict — applies to every UI change)
 
