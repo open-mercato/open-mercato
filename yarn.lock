@@ -6656,7 +6656,7 @@ __metadata:
     jest: "npm:^30.3.0"
     rate-limiter-flexible: "npm:^11.0.1"
     reflect-metadata: "npm:^0.2.2"
-    sanitize-html: "npm:^2.17.2"
+    sanitize-html: "npm:^2.17.3"
     ts-jest: "npm:^29.4.9"
     undici: "npm:^7.24.0"
   languageName: unknown
@@ -24890,9 +24890,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sanitize-html@npm:^2.17.2":
-  version: 2.17.2
-  resolution: "sanitize-html@npm:2.17.2"
+"sanitize-html@npm:^2.17.3":
+  version: 2.17.3
+  resolution: "sanitize-html@npm:2.17.3"
   dependencies:
     deepmerge: "npm:^4.2.2"
     escape-string-regexp: "npm:^4.0.0"
@@ -24900,7 +24900,7 @@ __metadata:
     is-plain-object: "npm:^5.0.0"
     parse-srcset: "npm:^1.0.2"
     postcss: "npm:^8.3.11"
-  checksum: 10/ea3cc6f8ef81839fa88879611a5c355b3075941ee4219d0e7a5b79282d4f998c61deb1e2a3af55f733b949d7283553cad160c26125d8957bee05e1b9f95a8e0b
+  checksum: 10/adced2038708745c9cc2d079dd66f504c61ee232d30e205ee89e554bc5e6514626f8ffd01146abd637295d9910cf26e72511cf1e2937a448d722ee3ef6b813ce
   languageName: node
   linkType: hard
 
