@@ -376,7 +376,7 @@ export async function POST(req: Request) {
   if (requestedPublicOverride) {
     return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
-  const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code)
+  const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code, { tenantId, organizationId: orgId })
   let storedPath: string
   try {
     const stored = await uploadDriver.store({

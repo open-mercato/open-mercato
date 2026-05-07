@@ -1055,7 +1055,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dialogFooterClass = isInDialog
     ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
     : ''
-  const dialogFormPadding = isInDialog ? 'pb-4' : ''
+  // When CrudForm renders inside a Dialog, the sticky footer can overlap the last fields.
+  // Give the form enough bottom padding so inputs (esp. Radix Select triggers) remain clickable.
+  const dialogFormPadding = isInDialog ? 'pb-20' : ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {

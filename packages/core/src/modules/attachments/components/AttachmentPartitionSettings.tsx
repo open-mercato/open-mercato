@@ -62,9 +62,9 @@ const DEFAULT_FORM = {
   s3ForcePathStyle: false,
 }
 
-const STORAGE_DRIVER_OPTIONS = [
+const ALL_STORAGE_DRIVER_OPTIONS = [
   { value: 'local', label: 'Local filesystem' },
-  { value: 's3', label: 'Amazon S3 / S3-compatible' },
+  { value: 's3', label: 'Amazon S3 / S3-compatible', requiresModule: 's3' },
 ]
 
 const OCR_MODEL_DEFAULT_VALUE = '__default__'
@@ -75,7 +75,14 @@ const OCR_MODEL_OPTIONS = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, Lower Cost)' },
 ]
 
-export function AttachmentPartitionSettings() {
+export type AttachmentPartitionSettingsProps = {
+  s3Enabled: boolean
+}
+
+export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSettingsProps) {
+  const storageDriverOptions = ALL_STORAGE_DRIVER_OPTIONS.filter(
+    (opt) => !opt.requiresModule || (opt.requiresModule === 's3' && s3Enabled),
+  )
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [items, setItems] = React.useState<Partition[]>([])
@@ -85,6 +92,9 @@ export function AttachmentPartitionSettings() {
   const [form, setForm] = React.useState(DEFAULT_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+
+  const s3Unavailable = !s3Enabled
+  const s3SelectedWhileUnavailable = s3Unavailable && form.storageDriver === 's3'
 
   const loadErrorMessage = t('attachments.partitions.errors.load', 'Failed to load partitions.')
 
@@ -494,12 +504,24 @@ export function AttachmentPartitionSettings() {
                 value={form.storageDriver}
                 onChange={(event) => setForm((prev) => ({ ...prev, storageDriver: event.target.value }))}
               >
-                {STORAGE_DRIVER_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
+                {storageDriverOptions.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    disabled={option.value === 's3' && s3Unavailable}
+                  >
                     {option.label}
                   </option>
                 ))}
               </select>
+              {s3Unavailable ? (
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'attachments.partitions.form.storageDriverS3DisabledHelp',
+                    'S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart to enable S3 partitions.',
+                  )}
+                </p>
+              ) : null}
             </div>
             {form.storageDriver === 's3' && (
               <div className="space-y-3 rounded-md border bg-muted/30 p-3">
@@ -585,13 +607,21 @@ export function AttachmentPartitionSettings() {
                 </code>
               </div>
             ) : null}
+            {s3SelectedWhileUnavailable ? (
+              <p className="text-sm text-status-error-text">
+                {t(
+                  'attachments.partitions.errors.s3Disabled',
+                  'This partition uses S3, but S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart the app.',
+                )}
+              </p>
+            ) : null}
             {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
           </form>
           <DialogFooter>
             <Button variant="ghost" onClick={closeDialog}>
               {t('attachments.partitions.actions.cancel', 'Cancel')}
             </Button>
-            <Button onClick={() => void handleSubmit()} disabled={submitting}>
+            <Button onClick={() => void handleSubmit()} disabled={submitting || s3SelectedWhileUnavailable}>
               {dialog?.mode === 'edit'
                 ? t('attachments.partitions.actions.save', 'Save changes')
                 : t('attachments.partitions.actions.create', 'Create partition')}

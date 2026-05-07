@@ -69,7 +69,11 @@ If the check fails, review the error message. Common causes: wrong region, bucke
 1. Open **Settings → Attachments → Partitions**.
 2. Click **Edit** on the partition you want to move to S3 (or create a new partition).
 3. In the **Storage Driver** dropdown, select **Amazon S3**.
-4. Click **Save**.
+   - If you don't see (or can't select) **Amazon S3**, make sure `OM_ENABLE_STORAGE_S3=true` is set and the app was restarted.
+4. Fill in the S3 settings for this partition.
+   - The **Bucket/Region/Endpoint** here are the ones used by the attachments S3 driver for this partition.
+   - In most setups you should keep them consistent with the S3 Integration credentials to avoid confusion, but they are applied separately.
+5. Click **Save**.
 
 ![Attachment partition settings with Storage Driver dropdown set to S3](/screenshots/open-mercato-storage-s3-partition.png)
 

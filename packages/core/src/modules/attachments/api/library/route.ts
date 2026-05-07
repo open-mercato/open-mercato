@@ -11,6 +11,7 @@ import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { ensureDefaultPartitions } from '../../lib/partitions'
 import {
   attachmentsTag,
   attachmentListQuerySchema as openApiListQuerySchema,
@@ -70,6 +71,7 @@ export async function GET(req: Request) {
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  await ensureDefaultPartitions(em)
   let queryEngine: QueryEngine | null = null
   try {
     queryEngine = resolve('queryEngine') as QueryEngine
