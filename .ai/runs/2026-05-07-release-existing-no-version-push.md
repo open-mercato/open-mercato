@@ -46,7 +46,7 @@ Non-goals:
 
 ### Phase 1: Workflow Guard
 
-- [ ] 1.1 Add existing-mode no-op guard to release commit step
+- [x] 1.1 Add existing-mode no-op guard to release commit step — a1c593136
 
 ### Phase 2: Regression Coverage
 
