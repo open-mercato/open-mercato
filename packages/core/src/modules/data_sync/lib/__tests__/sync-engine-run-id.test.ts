@@ -252,4 +252,61 @@ describe('data sync engine forwards run context to adapters', () => {
       runId: 'run-export-1',
     }))
   })
+
+  it('does not cancel a progress job when a duplicate import worker sees a non-pending run', async () => {
+    const streamImport = jest.fn(async function* () {
+      yield {
+        items: [],
+        cursor: 'cursor-1',
+        hasMore: false,
+        batchIndex: 0,
+      }
+    })
+    const adapter: DataSyncAdapter = {
+      providerKey: 'excel',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      getMapping: jest.fn(async () => ({
+        entityType: 'customers.person',
+        matchStrategy: 'externalId',
+        fields: [],
+      })),
+      streamImport,
+    }
+    const progressService = createProgressService()
+    const syncRunService = {
+      getRun: jest.fn(async () => ({
+        id: 'run-import-duplicate',
+        integrationId: 'sync_excel',
+        entityType: 'customers.person',
+        direction: 'import',
+        status: 'pending',
+        cursor: null,
+        progressJobId: 'job-import-duplicate',
+      })),
+      markStatus: jest.fn(async () => null),
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(adapter)
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({ uploadId: 'upload-1' })),
+      } as unknown as CredentialsService,
+      integrationLogService: {
+        write: jest.fn(async () => undefined),
+      } as unknown as IntegrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
+      progressService,
+    })
+
+    await engine.runImport('run-import-duplicate', 100, createScope())
+
+    expect(progressService.markCancelled).not.toHaveBeenCalled()
+    expect(streamImport).not.toHaveBeenCalled()
+  })
 })

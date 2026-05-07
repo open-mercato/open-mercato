@@ -363,13 +363,6 @@ export function createSyncEngine(deps: EngineDeps) {
 
       const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
       if (!activeRun || activeRun.status !== 'running') {
-        if (run.progressJobId) {
-          await progressService.markCancelled(run.progressJobId, {
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            userId: scope.userId,
-          })
-        }
         return
       }
       await emitDataSyncEvent('data_sync.run.started', {
@@ -511,13 +504,6 @@ export function createSyncEngine(deps: EngineDeps) {
 
       const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
       if (!activeRun || activeRun.status !== 'running') {
-        if (run.progressJobId) {
-          await progressService.markCancelled(run.progressJobId, {
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            userId: scope.userId,
-          })
-        }
         return
       }
       await emitDataSyncEvent('data_sync.run.started', {
