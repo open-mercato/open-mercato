@@ -1,4 +1,5 @@
-import { asClass } from 'awilix'
+import { asClass, asFunction } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
@@ -13,5 +14,11 @@ export function register(container: AppContainer) {
   container.register({ customerTokenService: asClass(CustomerTokenService).scoped() })
   container.register({ customerRbacService: asClass(CustomerRbacService).scoped() })
   container.register({ customerInvitationService: asClass(CustomerInvitationService).scoped() })
-  container.register({ domainMappingService: asClass(DomainMappingService).scoped() })
+  container.register({
+    domainMappingService: asFunction(
+      function domainMappingServiceFactory(em: EntityManager) {
+        return new DomainMappingService(em)
+      },
+    ).scoped(),
+  })
 }

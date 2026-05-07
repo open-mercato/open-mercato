@@ -117,12 +117,13 @@ export async function proxy(req: NextRequest) {
 // request pathname without receiving params, preventing full client-tree
 // remounts on navigation (see issue #1083).
 //
-// Custom-domain routing requires the Node runtime so the proxy can call our
-// own /api/customer_accounts/domain-resolve endpoint to populate its in-memory
+// Next.js 16 renamed middleware.ts → proxy.ts and pinned proxy to the Node
+// runtime; the `runtime` field is no longer accepted in the config object.
+// Custom-domain routing relies on Node so the proxy can call our own
+// /api/customer_accounts/domain-resolve endpoint to populate its in-memory
 // cache (per spec 2026-04-08-portal-custom-domain-routing.md, Phase 2).
 export const config = {
   matcher: [
     '/((?!api/|_next/|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|map|txt|xml|json|woff|woff2|ttf|eot)$).*)',
   ],
-  runtime: 'nodejs',
 }

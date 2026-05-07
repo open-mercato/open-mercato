@@ -109,9 +109,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     )
   }
   const scoped = scopedHeaders.resolveScopedHeaders()
-  const mergedInit = Object.keys(scoped).length
+  const baseInit: RequestInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
-    : init
+    : init ?? {}
+  // Default to credentials: 'include' so cookies are sent + stored consistently
+  // across browsers, even when a Next.js proxy.ts rewrite makes the browser
+  // classify the fetch as cross-origin (custom-domain portal flows).
+  const mergedInit: RequestInit = baseInit.credentials
+    ? baseInit
+    : { ...baseInit, credentials: 'include' }
   const requestHeaders = new Headers(mergedInit?.headers)
   const disableUnauthorizedRedirect = readRedirectOverride(requestHeaders, 'x-om-unauthorized-redirect')
   const disableForbiddenRedirect = readRedirectOverride(requestHeaders, 'x-om-forbidden-redirect')
