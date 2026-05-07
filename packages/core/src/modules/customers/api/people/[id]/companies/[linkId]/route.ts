@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -225,7 +225,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
@@ -323,7 +323,7 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
