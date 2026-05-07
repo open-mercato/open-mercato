@@ -24,6 +24,7 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - ✨ CRM activity new UI. (#1791) *(@haxiorz)*
 - ✨ Introduce optional module orchestration and improve CLI errors. (#1698) *(@dominikpalatynski)*
 - ✨ AI framework unification + testing subagents flow with better agent-to-human communication. (#1593) *(@pkarw)*
+- ✨ Tiered, per-skill install with the core tier as the default (closes #1744). (#1813) *(@pat-lewczuk)*
 
 ## 🔒 Security
 - 🔒 Atomic password change + audit event for customer_accounts. (#1692) *(@pkarw)*
@@ -81,6 +82,7 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🔐 [Customer Portal] Password reset link leads to 404 — reset page does not exist at generated URL (#1740). (#1758) *(@pat-lewczuk)*
 - 🔧 Remove explicit NODE_ENV from env files to silence Next.js warning. (#1728) *(@pkarw)*
 - 🐛 Keep organization switcher in topbar at all viewport widths (#1795). (#1798) *(@pkarw)*
+- 🐛 Show variant duplicate-name errors inline inside add-variant dialog (#1793). (#1799) *(@pkarw)*
 
 ## 🛠️ Improvements
 - 🛠️ Memoize Tabs context value to prevent consumer re-renders (#1409). (#1610) *(@pkarw)*
@@ -93,7 +95,6 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 🛠️ Update README.md. (#1765) *(@pat-lewczuk)*
 - 🛠️ Add priority labels (low/medium/high/extreme). (#1785) *(@pkarw)*
 - 🛠️ Migrate Dependabot PRs #1724 + #1723 to develop. (#1775) *(@pkarw)*
-- 🛠️ Tiered agent skills install: `yarn install-skills` now installs the 13-skill `core` tier by default; opt into more via `--with`, `--tiers`, or `--all`. New `--list` and `--clean` flags. (Refs #1744)
 
 ## 📝 Specs & Documentation
 - 📝 Add local development walkthrough (#1435). (#1611) *(@pkarw)*
@@ -103,7 +104,6 @@ Open Mercato `0.6.0` turns the post-0.5.0 work into a broader platform release: 
 - 📝 Add CRM call transcriptions + Zoom + tl;dv adapter specs. (#1645) *(@matgren)*
 - 📝 Push notifications and devices modules. (#1746) *(@jtomaszewski)*
 - 📝 Telemetry package with pluggable OTEL backend. (#1747) *(@jtomaszewski)*
-- 📝 Document the tiered skills install scheme in `.ai/skills/README.md` and add the `2026-05-05-tiered-skills-install` spec. (Refs #1744)
 
 ## 👥 Contributors
 - @pkarw
