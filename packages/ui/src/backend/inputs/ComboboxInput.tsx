@@ -242,7 +242,7 @@ export function ComboboxInput({
       />
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
-        <div className="absolute z-dropdown w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
+        <div className="absolute z-popover w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">Loading suggestions…</div>
           ) : (

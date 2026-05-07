@@ -116,6 +116,7 @@ TODO: Fix that latter to have reference by the package names
   --z-index-dropdown: 20;
   --z-index-overlay: 30;
   --z-index-modal: 40;
+  --z-index-popover: 45;
   --z-index-toast: 50;
   --z-index-tooltip: 60;
   --z-index-banner: 70;

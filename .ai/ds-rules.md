@@ -163,15 +163,16 @@ Decision tree — ask "is this a brand moment?":
 |-----------------------|-------|-------|
 | Normal page content | no class / `z-base` | 0 |
 | Sticky header/footer | `z-sticky` | 10 |
-| Dropdown, popover, combobox, select menu | `z-dropdown` | 20 |
+| Inline dropdown rendered in-place (no portal) | `z-dropdown` | 20 |
 | Backdrop behind modal/drawer | `z-overlay` | 30 |
 | Modal, dialog, drawer, side panel | `z-modal` | 40 |
+| Portaled overlay content (popover, select menu, combobox suggestions) | `z-popover` | 45 |
 | Toast / flash message | `z-toast` | 50 |
 | Tooltip | `z-tooltip` | 60 |
 | Global notice bar (cookie banner, system-wide) | `z-banner` | 70 |
 | Always-on-top (dev tools, AI chat, command palette) | `z-top` | 100 |
 
-Tooltip sits above modals (60 > 40) because you may hover a button inside a modal. Tokens defined in `globals.css` as `--z-index-*`. Do NOT add new numeric values — add a token to the scale.
+`z-popover` (45) sits above `z-modal` (40) so dropdowns/selects/popovers opened from inside a modal, drawer, or filter side panel render above the panel rather than behind it. Tooltips stay highest among floating UI (60 > 45) because a tooltip on a button inside a popover must remain visible. Tokens defined in `globals.css` as `--z-index-*`. Do NOT add new numeric values — add a token to the scale.
 
 ## Shadows
 - NEVER use arbitrary shadow values (`shadow-[...]`)
