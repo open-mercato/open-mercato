@@ -18,6 +18,10 @@ TODO: Fix that latter to have reference by the package names
 
 @custom-variant dark (&:is(.dark *));
 
+@utility z-popover {
+  z-index: var(--z-index-popover);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

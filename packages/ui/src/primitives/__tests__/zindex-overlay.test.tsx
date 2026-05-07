@@ -114,4 +114,19 @@ describe('Issue #1836: portaled overlay primitives sit above modals (z-popover >
       expect(popoverZ).toBeLessThan(toastZ)
     }
   })
+
+  it('globals.css explicitly emits the z-popover utility used by portaled UI package overlays', () => {
+    const repoRoot = path.resolve(__dirname, '../../../../..')
+    const cssPaths = [
+      path.join(repoRoot, 'apps/mercato/src/app/globals.css'),
+      path.join(repoRoot, 'packages/create-app/template/src/app/globals.css'),
+    ]
+
+    for (const cssPath of cssPaths) {
+      const css = fs.readFileSync(cssPath, 'utf8')
+
+      expect(css).toContain('@utility z-popover')
+      expect(css).toContain('z-index: var(--z-index-popover);')
+    }
+  })
 })
