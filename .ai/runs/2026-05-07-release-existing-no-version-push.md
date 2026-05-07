@@ -55,4 +55,4 @@ Non-goals:
 
 ### Phase 3: Review And PR
 
-- [ ] 3.1 Complete self-review and open PR
+- [x] 3.1 Complete self-review and open PR — a5dc45e8b
