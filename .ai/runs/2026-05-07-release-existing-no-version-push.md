@@ -51,7 +51,7 @@ Non-goals:
 ### Phase 2: Regression Coverage
 
 - [x] 2.1 Add workflow regression test — 557aac351
-- [ ] 2.2 Run targeted validation
+- [x] 2.2 Run targeted validation — dc582804a
 
 ### Phase 3: Review And PR
 
