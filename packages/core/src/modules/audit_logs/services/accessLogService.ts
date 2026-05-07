@@ -8,6 +8,7 @@ import {
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
@@ -189,6 +190,25 @@ export class AccessLogService {
         offset,
       },
     )
+
+    // Encrypted jsonb columns (`fields_json`, `context_json`) come back as raw
+    // JSON strings from the encryption subscriber after issue #1810 follow-up
+    // (entity-field decryption no longer auto-parses). Restore the structured
+    // shape on read so API consumers see typed objects/arrays.
+    for (const item of items) {
+      const rawFieldsJson = (item as { fieldsJson?: unknown }).fieldsJson
+      if (typeof rawFieldsJson === 'string') {
+        const parsed = parseDecryptedFieldValue(rawFieldsJson)
+        item.fieldsJson = Array.isArray(parsed) ? (parsed as string[]) : null
+      }
+      const rawContextJson = (item as { contextJson?: unknown }).contextJson
+      if (typeof rawContextJson === 'string') {
+        const parsed = parseDecryptedFieldValue(rawContextJson)
+        item.contextJson = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : null
+      }
+    }
 
     const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
     return { items, total, page, pageSize, totalPages }

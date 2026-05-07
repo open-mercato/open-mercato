@@ -22,6 +22,8 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
+import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -93,7 +95,32 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate)
+        // Bridge legacy `customer_activities` rows into `customer_interactions`
+        // before the canonical update runs so historical activities (#1807)
+        // remain editable through the new dialog. No-op when the canonical
+        // record already exists.
+        const tenantId = ctx.auth?.tenantId ?? null
+        if (typeof parsed.id === 'string' && tenantId) {
+          try {
+            const em = ctx.container.resolve('em') as EntityManager
+            const commandBus = ctx.container.resolve('commandBus') as CommandBus
+            const commandContext: CommandRuntimeContext = {
+              container: ctx.container,
+              auth: ctx.auth ?? null,
+              organizationScope: ctx.organizationScope ?? null,
+              selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+              organizationIds: ctx.organizationIds ?? null,
+              request: ctx.request,
+            }
+            await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, tenantId)
+          } catch (err) {
+            // Bridging is best-effort; downstream lookup will surface a 404
+            // when neither canonical nor legacy rows exist.
+            console.warn('[customers.interactions.put] legacy bridge failed', { id: parsed.id, error: err })
+          }
+        }
+        return parsed
       },
       response: () => ({ ok: true }),
     },

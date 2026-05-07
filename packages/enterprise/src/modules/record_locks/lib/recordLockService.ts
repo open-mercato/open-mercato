@@ -6,6 +6,8 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { emitRecordLocksEvent } from '../events'
 import {
   RecordLock,
@@ -293,6 +295,29 @@ const MISSING_CONFLICT_VALUE = Symbol('record_lock_conflict_missing_value')
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function parseDecryptedJsonLike(value: unknown): unknown {
+  return typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+}
+
+function readJsonRecordValue(value: unknown): Record<string, unknown> | null {
+  const parsed = parseDecryptedJsonLike(value)
+  return isRecordValue(parsed) ? parsed : null
+}
+
+function readActionLogChangesJson(log: ActionLog | null): Record<string, unknown> | null {
+  return readJsonRecordValue(log?.changesJson ?? null)
+}
+
+function normalizeActionLogPayload(log: ActionLog | null): ActionLog | null {
+  if (!log) return null
+  log.changesJson = readJsonRecordValue(log.changesJson)
+  log.snapshotBefore = parseDecryptedJsonLike(log.snapshotBefore)
+  log.snapshotAfter = parseDecryptedJsonLike(log.snapshotAfter)
+  log.contextJson = readJsonRecordValue(log.contextJson)
+  log.commandPayload = parseDecryptedJsonLike(log.commandPayload)
+  return log
 }
 
 function toIsoDate(value: unknown): string | null {
@@ -1491,7 +1516,13 @@ export class RecordLockService {
       where.organizationId = normalizeScopeOrganization(input.organizationId)
     }
 
-    return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    return normalizeActionLogPayload(await findOneWithDecryption(
+      this.em,
+      ActionLog,
+      where,
+      { orderBy: { createdAt: 'desc' } },
+      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
+    ))
   }
 
   private async findLatestActionLogWithScopeFallback(
@@ -1524,14 +1555,21 @@ export class RecordLockService {
       where.organizationId = normalizeScopeOrganization(input.organizationId)
     }
 
-    return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    return normalizeActionLogPayload(await findOneWithDecryption(
+      this.em,
+      ActionLog,
+      where,
+      { orderBy: { createdAt: 'desc' } },
+      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
+    ))
   }
 
   private summarizeChangedFieldsFromActionLog(log: ActionLog | null): string {
     if (!log) return ''
 
-    if (isRecordValue(log.changesJson)) {
-      const fromChanges = Object.keys(log.changesJson)
+    const changesJson = readActionLogChangesJson(log)
+    if (changesJson) {
+      const fromChanges = Object.keys(changesJson)
         .filter((field) => !shouldSkipConflictField(field))
         .slice(0, 12)
         .map(formatChangedFieldLabel)
@@ -1539,8 +1577,8 @@ export class RecordLockService {
       if (fromChanges) return fromChanges
     }
 
-    const before = isRecordValue(log.snapshotBefore) ? log.snapshotBefore : null
-    const after = isRecordValue(log.snapshotAfter) ? log.snapshotAfter : null
+    const before = readJsonRecordValue(log.snapshotBefore)
+    const after = readJsonRecordValue(log.snapshotAfter)
     if (!before || !after) return ''
 
     const diffPaths = new Set<string>()
@@ -1559,10 +1597,11 @@ export class RecordLockService {
     incoming: string
     current: string
   }> {
-    if (!log || !isRecordValue(log.changesJson)) return []
+    const changesJson = readActionLogChangesJson(log)
+    if (!changesJson) return []
 
     const rows: Array<{ field: string; incoming: string; current: string }> = []
-    for (const [rawField, rawChange] of Object.entries(log.changesJson)) {
+    for (const [rawField, rawChange] of Object.entries(changesJson)) {
       if (rows.length >= 12) break
       if (shouldSkipConflictField(rawField)) continue
 
@@ -1792,8 +1831,15 @@ export class RecordLockService {
       ? await this.actionLogService.findById(logId)
       : null
     if (!resolved) {
-      resolved = await this.em.findOne(ActionLog, { id: logId, deletedAt: null })
+      resolved = await findOneWithDecryption(
+        this.em,
+        ActionLog,
+        { id: logId, deletedAt: null },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: normalizeScopeOrganization(scope.organizationId) },
+      )
     }
+    resolved = normalizeActionLogPayload(resolved)
     if (!resolved || resolved.deletedAt) return null
 
     if (resolved.tenantId !== scope.tenantId) return null
@@ -1857,14 +1903,14 @@ export class RecordLockService {
     const baseLog = await this.findActionLogById(conflict.baseActionLogId, scope)
     const incomingLog = await this.findActionLogById(conflict.incomingActionLogId, scope)
 
-    const baseSnapshot = isRecordValue(baseLog?.snapshotAfter) ? baseLog.snapshotAfter : null
-    const incomingBeforeSnapshot = isRecordValue(incomingLog?.snapshotBefore) ? incomingLog.snapshotBefore : null
-    const incomingAfterSnapshot = isRecordValue(incomingLog?.snapshotAfter) ? incomingLog.snapshotAfter : null
+    const baseSnapshot = readJsonRecordValue(baseLog?.snapshotAfter ?? null)
+    const incomingBeforeSnapshot = readJsonRecordValue(incomingLog?.snapshotBefore ?? null)
+    const incomingAfterSnapshot = readJsonRecordValue(incomingLog?.snapshotAfter ?? null)
     const fallbackBaseSnapshot = baseSnapshot ?? incomingBeforeSnapshot
 
     const changeMap = new Map<string, { baseValue: unknown; incomingValue: unknown }>()
 
-    const incomingChanges = isRecordValue(incomingLog?.changesJson) ? incomingLog.changesJson : null
+    const incomingChanges = readActionLogChangesJson(incomingLog)
     if (incomingChanges) {
       for (const [fieldPathRaw, rawChange] of Object.entries(incomingChanges)) {
         const fieldPath = fieldPathRaw.trim()

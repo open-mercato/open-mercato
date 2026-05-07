@@ -185,19 +185,24 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     logContext: 'customers.companies-v2',
   })
 
-  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; occurredAt?: string | null; [key: string]: unknown }) => {
     const raw = activity as Record<string, unknown>
     const durationValue = typeof raw.duration === 'number'
       ? raw.duration
       : typeof raw.durationMinutes === 'number'
         ? raw.durationMinutes as number
         : null
-    setScheduleEditData({
+    // Forward `customValues` so per-type chip state (callPhoneNumber, callDirection,
+    // taskPriority, …) round-trips on edit (#1808 phone persistence).
+    // Forward `occurredAt` so historical activity edits prefill from the original
+    // moment instead of "today" (#1807 prefill).
+    const editPayload = {
       id: activity.id,
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
+      occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
@@ -210,7 +215,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       guestPermissions: raw.guestPermissions && typeof raw.guestPermissions === 'object'
         ? raw.guestPermissions as ScheduleActivityEditData['guestPermissions']
         : null,
-    })
+      customValues: raw.customValues && typeof raw.customValues === 'object'
+        ? raw.customValues as Record<string, unknown>
+        : null,
+      phoneNumber: typeof raw.phoneNumber === 'string' ? raw.phoneNumber as string : null,
+    } as ScheduleActivityEditData & { customValues?: Record<string, unknown> | null; phoneNumber?: string | null }
+    setScheduleEditData(editPayload)
     setScheduleDialogOpen(true)
   }, [])
 

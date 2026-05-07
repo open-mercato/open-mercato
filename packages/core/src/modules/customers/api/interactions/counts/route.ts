@@ -21,6 +21,7 @@ const responseSchema = z.object({
     email: z.number(),
     meeting: z.number(),
     note: z.number(),
+    task: z.number(),
     total: z.number(),
   }),
 })
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
       .groupBy('interaction_type')
       .execute() as Array<{ interaction_type: string; count: string | number }>
 
-    const counts: Record<string, number> = { call: 0, email: 0, meeting: 0, note: 0 }
+    const counts: Record<string, number> = { call: 0, email: 0, meeting: 0, note: 0, task: 0 }
     let total = 0
     for (const row of rows) {
       const count = typeof row.count === 'string' ? parseInt(row.count, 10) : row.count
