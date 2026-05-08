@@ -262,6 +262,13 @@ export class AiAgentRuntimeOverride {
     | 'baseUrl'
     | 'updatedByUserId'
     | 'deletedAt'
+    | 'loopDisabled'
+    | 'loopMaxSteps'
+    | 'loopMaxToolCalls'
+    | 'loopMaxWallClockMs'
+    | 'loopMaxTokens'
+    | 'loopStopWhenJson'
+    | 'loopActiveToolsJson'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -295,6 +302,57 @@ export class AiAgentRuntimeOverride {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+
+  /**
+   * Kill switch — when `true`, runtime forces `stopWhen: stepCountIs(1)` and
+   * ignores all other loop config. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_disabled', type: 'boolean', nullable: true })
+  loopDisabled?: boolean | null
+
+  /**
+   * Override `loop.maxSteps`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_steps', type: 'int', nullable: true })
+  loopMaxSteps?: number | null
+
+  /**
+   * Override `loop.budget.maxToolCalls`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_tool_calls', type: 'int', nullable: true })
+  loopMaxToolCalls?: number | null
+
+  /**
+   * Override `loop.budget.maxWallClockMs`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_wall_clock_ms', type: 'int', nullable: true })
+  loopMaxWallClockMs?: number | null
+
+  /**
+   * Override `loop.budget.maxTokens`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_tokens', type: 'int', nullable: true })
+  loopMaxTokens?: number | null
+
+  /**
+   * Override `loop.stopWhen`. JSON-safe variants only (`stepCount`,
+   * `hasToolCall`); validator rejects `kind: 'custom'`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_stop_when_json', type: 'jsonb', nullable: true })
+  loopStopWhenJson?: unknown | null
+
+  /**
+   * Override `loop.activeTools` (must be subset of `agent.allowedTools`).
+   * Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_active_tools_json', type: 'jsonb', nullable: true })
+  loopActiveToolsJson?: unknown | null
 }
 
 /**
