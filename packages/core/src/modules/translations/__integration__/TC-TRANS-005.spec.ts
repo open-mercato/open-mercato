@@ -80,6 +80,24 @@ async function fillTranslationInput(locator: import('@playwright/test').Locator,
   await expect(locator).toHaveValue(value)
 }
 
+async function getTranslationField(
+  managerCard: import('@playwright/test').Locator,
+  preferredPlaceholder?: string,
+) {
+  const normalizedPlaceholder = preferredPlaceholder?.trim()
+  if (normalizedPlaceholder) {
+    const preferredField = managerCard.getByPlaceholder(normalizedPlaceholder).first()
+    if (await preferredField.count()) {
+      await expect(preferredField).toBeEditable({ timeout: 10_000 })
+      return preferredField
+    }
+  }
+
+  const firstField = managerCard.locator('table').locator('input, textarea').first()
+  await expect(firstField).toBeEditable({ timeout: 10_000 })
+  return firstField
+}
+
 async function saveTranslations(
   page: import('@playwright/test').Page,
   managerCard: import('@playwright/test').Locator,
@@ -88,8 +106,9 @@ async function saveTranslations(
 ) {
   const encodedEntityType = encodeURIComponent(entityType)
   const encodedEntityId = encodeURIComponent(entityId)
-  const isSaveRequest = (request: import('@playwright/test').Request) => {
-    const url = request.url()
+  const isSaveResponse = (response: import('@playwright/test').Response) => {
+    const request = response.request()
+    const url = response.url()
     return (
       request.method() === 'PUT' &&
       url.includes('/api/translations/') &&
@@ -97,23 +116,12 @@ async function saveTranslations(
       (url.includes(encodedEntityId) || url.includes(entityId))
     )
   }
-  const waitForSaveRequest = () =>
-    page.waitForRequest(
-      (request) => isSaveRequest(request),
-      { timeout: 2_000 },
-    )
-
-  let requestPromise = waitForSaveRequest()
-  await managerCard.getByRole('button', { name: 'Save translations' }).click()
-  let request = await requestPromise.catch(() => null)
-
-  if (!request) {
-    requestPromise = waitForSaveRequest()
-    await managerCard.getByRole('button', { name: 'Save translations' }).click()
-    request = await requestPromise
-  }
-
-  expect(request.method()).toBe('PUT')
+  const saveButton = managerCard.getByRole('button', { name: 'Save translations' })
+  await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+  const responsePromise = page.waitForResponse((response) => isSaveResponse(response), { timeout: 10_000 })
+  await saveButton.click()
+  const response = await responsePromise
+  expect(response.ok()).toBeTruthy()
 }
 
 /**
@@ -173,7 +181,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      const titleInput = page.locator('table input').first()
+      const titleInput = await getTranslationField(managerCard, productTitle)
       await fillTranslationInput(titleInput, 'Deutscher Titel QA')
 
       await saveTranslations(page, managerCard, ENTITY_TYPE, productId!)
@@ -225,7 +233,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      await expect(page.locator('table input').first()).toHaveValue('Persistenter Titel')
+      await expect(await getTranslationField(managerCard, productTitle)).toHaveValue('Persistenter Titel')
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
