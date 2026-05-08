@@ -67,6 +67,7 @@ interface AiAgentDefinition {
   systemPrompt: string
   allowedTools: string[]
   executionMode?: AiAgentExecutionMode
+  defaultProvider?: string
   defaultModel?: string
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
