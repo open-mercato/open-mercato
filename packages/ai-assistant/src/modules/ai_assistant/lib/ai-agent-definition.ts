@@ -139,6 +139,15 @@ export interface AiAgentLoopConfig {
    * should set this to `false`.
    */
   allowRuntimeOverride?: boolean
+  /**
+   * Kill switch — when `true`, the runtime forces `stopWhen: stepCountIs(1)` and
+   * ignores all other loop config. Used by the per-tenant operator override to
+   * collapse an agent to a single model call (no tool execution) without
+   * disabling the agent entirely.
+   *
+   * Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  disabled?: boolean
 }
 
 export type AiAgentMutationPolicy =

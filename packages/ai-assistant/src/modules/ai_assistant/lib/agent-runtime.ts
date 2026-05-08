@@ -349,12 +349,18 @@ export function resolveEffectiveLoopConfig(
       : {}),
   }
 
-  if (!callerLoop) return withEnv
+  const withCaller: AiAgentLoopConfig = callerLoop
+    ? { ...withEnv, ...callerLoop }
+    : withEnv
 
-  return {
-    ...withEnv,
-    ...callerLoop,
+  // Phase 3 — kill switch: when disabled is set to true, force maxSteps: 1 so the
+  // agent executes as a single model call with no tool looping. All other loop config
+  // is preserved (budget, etc.) but the step cap wins.
+  if (withCaller.disabled === true) {
+    return { ...withCaller, maxSteps: 1 }
   }
+
+  return withCaller
 }
 
 /**
