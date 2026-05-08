@@ -204,6 +204,82 @@ describe('customDomainCache', () => {
     expect(resolver).toHaveBeenCalledTimes(2)
   })
 
+  it('caps inFlight to bound memory under hostname-flood probing', async () => {
+    const releases: Array<(value: DomainResolution | null) => void> = []
+    const resolver = jest.fn(
+      (host: string) =>
+        new Promise<DomainResolution | null>((resolve) => {
+          releases.push(resolve)
+          void host
+        }),
+    )
+    const onInFlightCapReached = jest.fn()
+    const cache = createCustomDomainCache({
+      positiveTtlMs: 60_000,
+      negativeTtlMs: 300_000,
+      maxEntries: 100,
+      maxInFlight: 2,
+      resolver,
+      onInFlightCapReached,
+    })
+
+    // Two concurrent unique probes saturate the cap (one slot each).
+    const first = cache.resolve('a.example.com')
+    const second = cache.resolve('b.example.com')
+    expect(resolver).toHaveBeenCalledTimes(2)
+    expect((cache as any)._internals.inFlight.size).toBe(2)
+
+    // Third unique probe must be dropped — no resolver call, returns null.
+    const dropped = await cache.resolve('c.example.com')
+    expect(dropped).toBeNull()
+    expect(resolver).toHaveBeenCalledTimes(2)
+    expect(onInFlightCapReached).toHaveBeenCalledWith('c.example.com')
+    expect((cache as any)._internals.inFlight.size).toBe(2)
+
+    // Concurrent resolves for an already in-flight hostname still coalesce
+    // (they reuse the existing promise and do not count against the cap).
+    const coalesced = cache.resolve('a.example.com')
+    expect(resolver).toHaveBeenCalledTimes(2)
+    expect((cache as any)._internals.inFlight.size).toBe(2)
+
+    // Drain the in-flight slots; subsequent unique probes succeed again.
+    releases[0]!(makeResolution('a.example.com', { orgSlug: 'a' }))
+    releases[1]!(null)
+    await Promise.all([first, second, coalesced])
+
+    const recovered = cache.resolve('d.example.com')
+    expect(resolver).toHaveBeenCalledTimes(3)
+    releases[2]!(makeResolution('d.example.com', { orgSlug: 'd' }))
+    await recovered
+  })
+
+  it('defaults maxInFlight to maxEntries when not specified', async () => {
+    const releases: Array<(value: DomainResolution | null) => void> = []
+    const resolver = jest.fn(
+      () =>
+        new Promise<DomainResolution | null>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const onInFlightCapReached = jest.fn()
+    const cache = createCustomDomainCache({
+      positiveTtlMs: 60_000,
+      negativeTtlMs: 300_000,
+      maxEntries: 1,
+      resolver,
+      onInFlightCapReached,
+    })
+
+    const first = cache.resolve('a.example.com')
+    const dropped = await cache.resolve('b.example.com')
+    expect(dropped).toBeNull()
+    expect(resolver).toHaveBeenCalledTimes(1)
+    expect(onInFlightCapReached).toHaveBeenCalledWith('b.example.com')
+
+    releases[0]!(null)
+    await first
+  })
+
   it('rejects un-normalizable hostnames without invoking the resolver', async () => {
     const resolver = jest.fn(async () => makeResolution('shop.acme.com'))
     const cache = createCustomDomainCache({

@@ -36,6 +36,19 @@ export type CustomDomainCacheOptions = {
   now?: () => number
   onWarmupError?: (error: unknown) => void
   onResolveError?: (hostname: string, error: unknown) => void
+  /**
+   * Maximum number of in-flight resolver promises. When exceeded, new unique
+   * hostnames are dropped (resolved as `null`) instead of starting another
+   * fetch. Prevents unbounded `inFlight` growth under hostname-flood probing.
+   * Defaults to `maxEntries` when omitted.
+   */
+  maxInFlight?: number
+  /**
+   * Invoked once when an in-flight slot is denied to a new hostname because
+   * the cap is saturated. The cache rate-limits its own warning, so this hook
+   * fires every time but the default warning logger does not spam.
+   */
+  onInFlightCapReached?: (hostname: string) => void
 }
 
 const POSITIVE_TTL_DEFAULT_SECONDS = 60
@@ -58,6 +71,8 @@ function readMaxEntriesEnv(): number {
   return Math.floor(parsed)
 }
 
+const IN_FLIGHT_CAP_WARN_INTERVAL_MS = 60_000
+
 export function createCustomDomainCache(options: CustomDomainCacheOptions) {
   const {
     positiveTtlMs,
@@ -66,11 +81,14 @@ export function createCustomDomainCache(options: CustomDomainCacheOptions) {
     resolver,
     now = Date.now,
     onResolveError,
+    onInFlightCapReached,
   } = options
+  const maxInFlight = Math.max(1, Math.floor(options.maxInFlight ?? maxEntries))
 
   // Map preserves insertion order — re-inserting on access yields LRU semantics.
   const store = new Map<string, CacheEntry>()
   const inFlight = new Map<string, Promise<DomainResolution | null>>()
+  let lastCapWarnAt = 0
 
   function touch(key: string, entry: CacheEntry): void {
     store.delete(key)
@@ -101,9 +119,28 @@ export function createCustomDomainCache(options: CustomDomainCacheOptions) {
     touch(hostname, { isNegative: true, expiresAt: now() + negativeTtlMs })
   }
 
+  function reportInFlightCap(hostname: string): void {
+    if (onInFlightCapReached) {
+      onInFlightCapReached(hostname)
+      return
+    }
+    const ts = now()
+    if (ts - lastCapWarnAt >= IN_FLIGHT_CAP_WARN_INTERVAL_MS) {
+      lastCapWarnAt = ts
+      console.warn('[customDomainCache] inFlight cap reached, dropping fetch for', hostname)
+    }
+  }
+
   async function fetchAndStore(hostname: string): Promise<DomainResolution | null> {
     const existing = inFlight.get(hostname)
     if (existing) return existing
+    if (inFlight.size >= maxInFlight) {
+      // Cap saturated: refuse to start another fetch. Returning null mirrors
+      // the resolver's "unknown host" path (HTTP 404) so callers degrade
+      // gracefully without poisoning the cache or pinning more promises.
+      reportInFlightCap(hostname)
+      return null
+    }
     const promise = (async () => {
       try {
         const result = await resolver(hostname)
@@ -152,6 +189,7 @@ export function createCustomDomainCache(options: CustomDomainCacheOptions) {
   function clear(): void {
     store.clear()
     inFlight.clear()
+    lastCapWarnAt = 0
   }
 
   function size(): number {
