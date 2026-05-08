@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { secretEqual } from '@open-mercato/core/modules/customer_accounts/lib/secretCompare'
 import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const ORIGIN_HEADER_NAME = process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin'
@@ -18,6 +19,7 @@ function withOriginHeader(response: NextResponse): NextResponse {
 export async function GET(req: Request) {
   const expected = process.env.DOMAIN_RESOLVE_SECRET
   if (!expected) {
+    // Fail closed when the gating secret is not configured on the server.
     return withOriginHeader(
       NextResponse.json(
         { ok: false, error: 'DOMAIN_RESOLVE_SECRET is not configured on the server' },
@@ -26,7 +28,7 @@ export async function GET(req: Request) {
     )
   }
   const supplied = req.headers.get('x-domain-resolve-secret')
-  if (!supplied || supplied !== expected) {
+  if (!secretEqual(supplied, expected)) {
     return withOriginHeader(NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 }))
   }
 
