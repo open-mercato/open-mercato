@@ -11,6 +11,7 @@ import type {
   StreamTextResult,
   ToolSet,
   UIMessage,
+  ToolLoopAgentSettings,
 } from 'ai'
 import {
   convertToModelMessages,
@@ -19,6 +20,7 @@ import {
   stepCountIs,
   streamObject,
   streamText,
+  Experimental_Agent as ToolLoopAgent,
 } from 'ai'
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
@@ -301,6 +303,16 @@ export interface PreparedAiSdkOptions {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   finalizeLoopTrace: () => LoopTrace
+  /**
+   * Present only when `agent.executionEngine === 'tool-loop-agent'`. Callers
+   * can invoke `agent.generate(...)` / `agent.stream(...)` directly with their
+   * own `providerOptions` as an escape-hatch — the `ToolLoopAgent` instance is
+   * already wired with the wrapper-owned `prepareStep`, `stopWhen`, and
+   * `onStepFinish` at construction.
+   *
+   * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  toolLoopAgent?: ToolLoopAgent<never, ToolSet>
 }
 
 /**
@@ -1386,6 +1398,32 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     }, effectiveLoop.budget.maxWallClockMs)
   }
 
+  // Phase 5 — construct ToolLoopAgent when executionEngine === 'tool-loop-agent'.
+  // The agent is built ONCE per turn (not pooled) with:
+  //   - model + tools from the wrapper-resolved registry
+  //   - stopWhen wired at construction (ToolLoopAgentSettings field)
+  //   - prepareStep wired at construction (NOT via prepareCall — it is not in
+  //     prepareCall's Pick list per spec §Phase 5 correction)
+  //   - onStepFinish wired at construction (budget + trace collector)
+  //   - prepareCall used only for per-turn narrowing of model/tools/stopWhen/
+  //     activeTools/providerOptions (per spec §Phase 5 correction)
+  let builtToolLoopAgent: ToolLoopAgent<never, ToolSet> | undefined
+  if (agent.executionEngine === 'tool-loop-agent') {
+    const agentSettings: ToolLoopAgentSettings<never, ToolSet> = {
+      model,
+      tools: tools as ToolSet,
+      stopWhen: stopConditions,
+      prepareStep: wrapperPrepareStep,
+      onStepFinish: wiredOnStepFinish,
+      ...(effectiveLoop.repairToolCall !== undefined
+        ? { experimental_repairToolCall: effectiveLoop.repairToolCall }
+        : {}),
+      ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
+      ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+    }
+    builtToolLoopAgent = new ToolLoopAgent(agentSettings)
+  }
+
   const preparedOptions: PreparedAiSdkOptions = {
     model,
     tools,
@@ -1403,6 +1441,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     toolChoice: effectiveLoop.toolChoice,
     abortSignal: abortController.signal,
     finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
+    ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
   }
 
   if (input.generateText) {
@@ -1424,6 +1463,35 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     }
   }
 
+  // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
+  if (builtToolLoopAgent !== undefined) {
+    // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
+    // pipeline. prepareStep is already wired at construction (security-critical).
+    const agentStreamResult = await builtToolLoopAgent.stream({
+      messages: modelMessages,
+      abortSignal: abortController.signal,
+      onStepFinish: wiredOnStepFinish,
+    })
+    if (wallClockTimer !== undefined) {
+      agentStreamResult
+        .consumeStream()
+        .then(() => clearTimeout(wallClockTimer!))
+        .catch(() => clearTimeout(wallClockTimer!))
+    }
+    const baseResponse = agentStreamResult.toUIMessageStreamResponse({
+      sendReasoning: true,
+      headers: {
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    })
+    if (input.emitLoopTrace) {
+      return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+    }
+    return baseResponse
+  }
+
+  // Default stream-text path (executionEngine === 'stream-text' or unset).
   const result = streamText({
     model,
     system: systemPrompt,
