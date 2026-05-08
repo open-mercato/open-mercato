@@ -30,6 +30,7 @@ import {
 } from './attachment-parts'
 import { AiAgentPromptOverrideRepository } from '../data/repositories/AiAgentPromptOverrideRepository'
 import { AiAgentMutationPolicyOverrideRepository } from '../data/repositories/AiAgentMutationPolicyOverrideRepository'
+import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRuntimeOverrideRepository'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
@@ -83,6 +84,19 @@ export interface RunAiAgentTextInput {
    */
   baseUrlOverride?: string
   /**
+   * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
+   * `?baseUrl=`). Validated by the dispatcher route before being forwarded
+   * here. Wins over tenantOverride and all lower-priority sources when
+   * `agent.allowRuntimeModelOverride !== false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  requestOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
+  /**
    * Optional DI container used by `resolvePageContext` callbacks. When omitted
    * and the agent declares a `resolvePageContext`, hydration is skipped with a
    * warning (callbacks that need database/DI cannot run safely without one).
@@ -110,8 +124,11 @@ function resolveAgentModel(
   providerOverride: string | undefined,
   container: AwilixContainer | undefined,
   baseUrlOverride?: string,
+  tenantOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
+  requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
+  const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
   const resolution = createModelFactory(effectiveContainer).resolveModel({
     moduleId: agent.moduleId,
     agentDefaultModel: agent.defaultModel,
@@ -120,6 +137,9 @@ function resolveAgentModel(
     callerOverride: modelOverride,
     providerOverride,
     baseUrlOverride,
+    allowRuntimeModelOverride,
+    tenantOverride: tenantOverride ?? undefined,
+    requestOverride: requestOverride ?? undefined,
   })
   return {
     model: resolution.model as LanguageModel,
@@ -262,6 +282,53 @@ async function resolveMutationPolicyOverride(
   } catch (error) {
     console.warn(
       `[AI Agents] mutationPolicy override lookup failed for agent "${agentId}"; falling back to code-declared policy.`,
+      error,
+    )
+    return null
+  }
+}
+
+/**
+ * Looks up the per-tenant AI runtime override (provider / model / baseURL) for
+ * the given agent (Phase 4a of spec
+ * `2026-04-27-ai-agents-provider-model-baseurl-overrides`).
+ *
+ * Mirrors the fail-open contract of {@link resolveMutationPolicyOverride}: any
+ * error — missing container, missing `em`, repository throw, missing migration
+ * — is logged at `warn` level and returns null so the model factory falls
+ * through to lower-priority sources. A chat turn MUST never fail on override
+ * lookup.
+ */
+async function resolveRuntimeModelOverride(
+  agentId: string,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<{ providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null> {
+  if (!tenantId || !container) return null
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return null
+  try {
+    const repo = new AiAgentRuntimeOverrideRepository(em)
+    const row = await repo.getDefault({
+      tenantId,
+      organizationId: organizationId ?? null,
+      agentId,
+    })
+    if (!row) return null
+    return {
+      providerId: row.providerId ?? null,
+      modelId: row.modelId ?? null,
+      baseURL: row.baseUrl ?? null,
+    }
+  } catch (error) {
+    console.warn(
+      `[AI Agents] Runtime model override lookup failed for agent "${agentId}"; falling back to lower-priority sources.`,
       error,
     )
     return null
@@ -485,12 +552,20 @@ function appendRuntimeMutationPolicy(
  * invariant #7 still holds.
  */
 export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Response> {
-  const mutationPolicyOverride = await resolveMutationPolicyOverride(
-    input.agentId,
-    input.container,
-    input.authContext.tenantId,
-    input.authContext.organizationId,
-  )
+  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+    resolveMutationPolicyOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveRuntimeModelOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+  ])
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -521,7 +596,15 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container, input.baseUrlOverride)
+  const { model } = resolveAgentModel(
+    agent,
+    input.modelOverride,
+    input.providerOverride,
+    input.container,
+    input.baseUrlOverride,
+    tenantRuntimeOverride,
+    input.requestOverride,
+  )
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -600,6 +683,19 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   baseUrlOverride?: string
+  /**
+   * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
+   * `?baseUrl=`). Validated by the dispatcher route before being forwarded
+   * here. Wins over tenantOverride and all lower-priority sources when
+   * `agent.allowRuntimeModelOverride !== false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  requestOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
@@ -682,12 +778,20 @@ function resolveStructuredOutput<TSchema>(
 export async function runAiAgentObject<TSchema = unknown>(
   input: RunAiAgentObjectInput<TSchema>,
 ): Promise<RunAiAgentObjectResult<TSchema>> {
-  const mutationPolicyOverride = await resolveMutationPolicyOverride(
-    input.agentId,
-    input.container,
-    input.authContext.tenantId,
-    input.authContext.organizationId,
-  )
+  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+    resolveMutationPolicyOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveRuntimeModelOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+  ])
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -720,7 +824,15 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container, input.baseUrlOverride)
+  const { model } = resolveAgentModel(
+    agent,
+    input.modelOverride,
+    input.providerOverride,
+    input.container,
+    input.baseUrlOverride,
+    tenantRuntimeOverride,
+    input.requestOverride,
+  )
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
