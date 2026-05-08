@@ -5,10 +5,12 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentText } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 
 const MAX_MESSAGES = 100
 
@@ -50,6 +52,29 @@ const agentQuerySchema = z.object({
   agent: z
     .string()
     .regex(agentIdPattern, 'agent must match "<module>.<agent>" (lowercase, digits, underscores only)'),
+  /**
+   * Per-request provider override. Must match a registered + configured
+   * provider id. Validated against `llmProviderRegistry` at dispatch time.
+   * Rejected when the agent has `allowRuntimeModelOverride: false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  provider: z.string().optional(),
+  /**
+   * Per-request model id override. Free-form string. Logged (not rejected)
+   * when not in the provider's curated `defaultModels` catalog.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  model: z.string().optional(),
+  /**
+   * Per-request base URL override. Must parse as a URL and match
+   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated host patterns). When the
+   * env var is unset or empty, any non-empty value is rejected.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrl: z.string().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -63,7 +88,12 @@ export const openApi: OpenApiRouteDoc = {
         'Dispatches a chat turn to the focused AI agent identified by `?agent=<module>.<agent>`. ' +
         'Enforces agent-level `requiredFeatures`, tool whitelisting, read-only / mutationPolicy, ' +
         'execution-mode compatibility, and attachment media-type policy. The streaming response ' +
-        'body uses an AI SDK-compatible `text/event-stream` transport.',
+        'body uses an AI SDK-compatible `text/event-stream` transport. ' +
+        'Optional `?provider=`, `?model=`, and `?baseUrl=` query params let callers ' +
+        'override the resolved provider/model/base-URL for this turn (Phase 4a). ' +
+        'Provider must be registered and configured; baseUrl must match ' +
+        '`AI_RUNTIME_BASEURL_ALLOWLIST` when set. Both are suppressed when the ' +
+        'agent declares `allowRuntimeModelOverride: false`.',
       query: agentQuerySchema,
       requestBody: {
         contentType: 'application/json',
@@ -74,7 +104,15 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Streaming text/event-stream response compatible with AI SDK chat transports.', mediaType: 'text/event-stream' },
       ],
       errors: [
-        { status: 400, description: 'Invalid query param, malformed payload, or message count above the cap.' },
+        {
+          status: 400,
+          description:
+            'Invalid query param, malformed payload, or message count above the cap. ' +
+            'Typed codes: `runtime_override_disabled` (agent has allowRuntimeModelOverride:false), ' +
+            '`provider_unknown` (provider id not registered), ' +
+            '`provider_not_configured` (provider registered but no API key in env), ' +
+            '`baseurl_not_allowlisted` (baseUrl not in AI_RUNTIME_BASEURL_ALLOWLIST).',
+        },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks agent-level or tool-level required features.' },
         { status: 404, description: 'Unknown agent id.' },
@@ -127,6 +165,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   const requestUrl = new URL(req.url)
   const queryResult = agentQuerySchema.safeParse({
     agent: requestUrl.searchParams.get('agent') ?? undefined,
+    provider: requestUrl.searchParams.get('provider') ?? undefined,
+    model: requestUrl.searchParams.get('model') ?? undefined,
+    baseUrl: requestUrl.searchParams.get('baseUrl') ?? undefined,
   })
   if (!queryResult.success) {
     return jsonError(400, 'Invalid or missing "agent" query parameter.', 'validation_error', {
@@ -134,6 +175,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     })
   }
   const agentId = queryResult.data.agent
+  const rawProvider = queryResult.data.provider
+  const rawModel = queryResult.data.model
+  const rawBaseUrl = queryResult.data.baseUrl
 
   let parsedBody: unknown
   try {
@@ -177,6 +221,63 @@ export async function POST(req: NextRequest): Promise<Response> {
       return jsonError(statusForDenyCode(decision.code), decision.message, decision.code)
     }
 
+    const agentDef = decision.agent
+
+    // --- Phase 4a: validate runtime override query params ---
+    const hasRuntimeOverride =
+      (rawProvider && rawProvider.trim().length > 0) ||
+      (rawModel && rawModel.trim().length > 0) ||
+      (rawBaseUrl && rawBaseUrl.trim().length > 0)
+
+    if (hasRuntimeOverride) {
+      if (agentDef.allowRuntimeModelOverride === false) {
+        return jsonError(
+          400,
+          `Agent "${agentId}" has runtime model override disabled (allowRuntimeModelOverride: false).`,
+          'runtime_override_disabled',
+        )
+      }
+    }
+
+    if (rawProvider && rawProvider.trim().length > 0) {
+      const providerEntry = llmProviderRegistry.get(rawProvider.trim())
+      if (!providerEntry) {
+        return jsonError(
+          400,
+          `Provider "${rawProvider}" is not registered. Registered provider ids: ${llmProviderRegistry.list().map((p) => p.id).join(', ')}.`,
+          'provider_unknown',
+        )
+      }
+      if (!providerEntry.isConfigured()) {
+        return jsonError(
+          400,
+          `Provider "${rawProvider}" is registered but not configured in this environment (missing API key).`,
+          'provider_not_configured',
+        )
+      }
+    }
+
+    if (rawBaseUrl && rawBaseUrl.trim().length > 0) {
+      const allowlist = readBaseurlAllowlist()
+      if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
+        return jsonError(
+          400,
+          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed host patterns to enable per-request baseUrl overrides.`,
+          'baseurl_not_allowlisted',
+        )
+      }
+    }
+    // --- end Phase 4a validation ---
+
+    const requestOverride =
+      hasRuntimeOverride
+        ? {
+            providerId: rawProvider && rawProvider.trim().length > 0 ? rawProvider.trim() : null,
+            modelId: rawModel && rawModel.trim().length > 0 ? rawModel.trim() : null,
+            baseURL: rawBaseUrl && rawBaseUrl.trim().length > 0 ? rawBaseUrl.trim() : null,
+          }
+        : undefined
+
     return await runAiAgentText({
       agentId,
       messages: bodyResult.data.messages as unknown as UIMessage[],
@@ -192,6 +293,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         isSuperAdmin: acl.isSuperAdmin,
       },
       container,
+      requestOverride,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {
