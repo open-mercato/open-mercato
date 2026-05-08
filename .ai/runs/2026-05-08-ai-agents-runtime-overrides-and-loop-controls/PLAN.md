@@ -16,12 +16,12 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1780-0 | 0.1 | Add `AI_DEFAULT_PROVIDER` + `AI_DEFAULT_MODEL` resolution to `model-factory.ts`; add `'env_default'` to `AiModelResolution.source` | done | 064e832b4 |
-| 1780-0 | 0.2 | Update `model-factory.test.ts` with the 5 cases from spec 1780 §Phase 0 Tests | done | pending |
-| 1780-0 | 0.3 | Update `model-factory.integration.test.ts` with end-to-end smoke for `AI_DEFAULT_PROVIDER` | done | pending |
-| 1780-0 | 0.4 | Update `apps/mercato/.env.example` and `packages/create-app/template/.env.example` | done | pending |
-| 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | done | pending |
-| 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | done | pending |
-| 1780-0 | 0.7 | Replace hardcoded provider order in `api/route/route.ts` with env-aware resolver | done | pending |
+| 1780-0 | 0.2 | Update `model-factory.test.ts` with the 5 cases from spec 1780 §Phase 0 Tests | done | 80ad3c567 |
+| 1780-0 | 0.3 | Update `model-factory.integration.test.ts` with end-to-end smoke for `AI_DEFAULT_PROVIDER` | done | ad78f1aec |
+| 1780-0 | 0.4 | Update `apps/mercato/.env.example` and `packages/create-app/template/.env.example` | done | f602ddb97 |
+| 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | done | 267f0ae26 |
+| 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | done | 54585d9b8 |
+| 1780-0 | 0.7 | Replace hardcoded provider order in `api/route/route.ts` with env-aware resolver | done | 4d3b5bdc4 |
 | 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | todo | — |
 | 1780-1 | 1.2 | Add slash-shorthand parser (`parseModelToken`) honored at every model-axis source | todo | — |
 | 1780-1 | 1.3 | Add `agentDefaultProvider` and `<MODULE>_AI_PROVIDER` env axis to `AiModelFactoryInput` | todo | — |
