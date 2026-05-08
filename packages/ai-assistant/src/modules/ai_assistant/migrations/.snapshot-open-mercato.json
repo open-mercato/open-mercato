@@ -1128,6 +1128,72 @@
       "checks": [],
       "foreignKeys": {},
       "nativeEnums": {}
+    },
+    {
+      "name": "ai_token_usage_events",
+      "schema": "public",
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": true, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "gen_random_uuid()", "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "tenant_id": { "name": "tenant_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "organization_id": { "name": "organization_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "user_id": { "name": "user_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "agent_id": { "name": "agent_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "module_id": { "name": "module_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "session_id": { "name": "session_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "turn_id": { "name": "turn_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "step_index": { "name": "step_index", "type": "int4", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "integer" },
+        "provider_id": { "name": "provider_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "model_id": { "name": "model_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "input_tokens": { "name": "input_tokens", "type": "int4", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "integer" },
+        "output_tokens": { "name": "output_tokens", "type": "int4", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "integer" },
+        "cached_input_tokens": { "name": "cached_input_tokens", "type": "int4", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "integer" },
+        "reasoning_tokens": { "name": "reasoning_tokens", "type": "int4", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "integer" },
+        "finish_reason": { "name": "finish_reason", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "loop_abort_reason": { "name": "loop_abort_reason", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "datetime" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "datetime" }
+      },
+      "indexes": [
+        { "keyName": "ai_token_usage_events_tenant_created_idx", "columnNames": ["tenant_id", "created_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "ai_token_usage_events_tenant_agent_created_idx", "columnNames": ["tenant_id", "agent_id", "created_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "ai_token_usage_events_tenant_model_created_idx", "columnNames": ["tenant_id", "model_id", "created_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "ai_token_usage_events_tenant_session_turn_step_idx", "columnNames": ["tenant_id", "session_id", "turn_id", "step_index"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "ai_token_usage_events_pkey", "columnNames": ["id"], "composite": false, "constraint": true, "primary": true, "unique": true }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "name": "ai_token_usage_daily",
+      "schema": "public",
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": true, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "gen_random_uuid()", "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "tenant_id": { "name": "tenant_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "organization_id": { "name": "organization_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "uuid" },
+        "day": { "name": "day", "type": "date", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "date" },
+        "agent_id": { "name": "agent_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "model_id": { "name": "model_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "provider_id": { "name": "provider_id", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "text" },
+        "input_tokens": { "name": "input_tokens", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "output_tokens": { "name": "output_tokens", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "cached_input_tokens": { "name": "cached_input_tokens", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "reasoning_tokens": { "name": "reasoning_tokens", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "step_count": { "name": "step_count", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "turn_count": { "name": "turn_count", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "session_count": { "name": "session_count", "type": "bigint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": "0", "comment": null, "enumItems": [], "mappedType": "bigint" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "datetime" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "unique": false, "length": null, "precision": null, "scale": null, "default": null, "comment": null, "enumItems": [], "mappedType": "datetime" }
+      },
+      "indexes": [
+        { "keyName": "ai_token_usage_daily_tenant_day_agent_model_org_uq", "columnNames": [], "composite": false, "constraint": false, "primary": false, "unique": false, "expression": "create unique index \"ai_token_usage_daily_tenant_day_agent_model_org_uq\" on \"ai_token_usage_daily\" (\"tenant_id\", \"day\", \"agent_id\", \"model_id\", \"organization_id\") where \"organization_id\" is not null" },
+        { "keyName": "ai_token_usage_daily_tenant_day_agent_model_null_org_uq", "columnNames": [], "composite": false, "constraint": false, "primary": false, "unique": false, "expression": "create unique index \"ai_token_usage_daily_tenant_day_agent_model_null_org_uq\" on \"ai_token_usage_daily\" (\"tenant_id\", \"day\", \"agent_id\", \"model_id\") where \"organization_id\" is null" },
+        { "keyName": "ai_token_usage_daily_tenant_day_idx", "columnNames": ["tenant_id", "day"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "ai_token_usage_daily_pkey", "columnNames": ["id"], "composite": false, "constraint": true, "primary": true, "unique": true }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
     }
   ],
   "nativeEnums": {}
