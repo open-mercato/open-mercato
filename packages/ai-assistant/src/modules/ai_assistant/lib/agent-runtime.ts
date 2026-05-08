@@ -52,6 +52,7 @@ import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRu
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { recordTokenUsage } from './token-usage-recorder'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -1383,7 +1384,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -1392,6 +1393,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     tenantRuntimeOverride,
     input.requestOverride,
   )
+  const { model } = resolvedModel
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -1410,7 +1412,49 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const loopTraceCollector = buildLoopTraceCollector(agent.id, effectiveSessionId, turnId, effectiveLoop.onStepFinish)
   const abortController = new AbortController()
   const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
-  const wiredOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
+  const tracedOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
+
+  // Phase 6.3 — wire the token-usage recorder into the wrapper-owned onStepFinish.
+  // The recorder fires AFTER the trace collector so modelId is already in the trace.
+  // It is invoked as void (detached) and MUST NEVER throw per R12.
+  // resolvedModel is already computed above (model, modelId, providerId).
+
+  let currentStepIndex = 0
+  const wiredOnStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
+    const capturedStepIndex = currentStepIndex
+    currentStepIndex += 1
+
+    if (tracedOnStepFinish) {
+      await tracedOnStepFinish(event)
+    }
+    if (input.container) {
+      const rawEvent = event as unknown as {
+        usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
+        finishReason?: string
+      }
+      void recordTokenUsage(
+        {
+          authContext: input.authContext,
+          agentId: agent.id,
+          moduleId: agent.moduleId,
+          sessionId: effectiveSessionId,
+          turnId,
+          stepIndex: capturedStepIndex,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          usage: {
+            inputTokens: rawEvent.usage?.inputTokens,
+            outputTokens: rawEvent.usage?.outputTokens,
+            cachedInputTokens: rawEvent.usage?.cachedInputTokens,
+            reasoningTokens: rawEvent.usage?.reasoningTokens,
+          },
+          finishReason: rawEvent.finishReason,
+          loopAbortReason: budgetEnforcer.abortReason ?? undefined,
+        },
+        input.container,
+      )
+    }
+  }
 
   let wallClockTimer: ReturnType<typeof setTimeout> | undefined
   if (effectiveLoop.budget?.maxWallClockMs) {
