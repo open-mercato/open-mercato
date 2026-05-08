@@ -82,18 +82,18 @@
 | 1782-2 | l2.2 | Extend prepared-options bag with `stopWhen` / `prepareStep` / `onStepFinish` / repair / activeTools / toolChoice / abortSignal | todo | — |
 | 1782-2 | l2.3 | Wrapper-composed `prepareStep` documented as security-critical contract | todo | — |
 | 1782-2 | l2.4 | Tests for native callback path with full bag | todo | — |
-| 1782-3 | l3.1 | Migration adding 7 loop columns to `ai_agent_runtime_overrides` | todo | — |
-| 1782-3 | l3.2 | Repository validates `loop_stop_when_json` (JSON-safe variants only) and `loop_active_tools_json` subset rule | todo | — |
-| 1782-3 | l3.3 | Settings UI "Loop policy" section (read/write/kill-switch) + `<AiChat>` banner when disabled | todo | — |
-| 1782-3 | l3.4 | `<MODULE>_AI_LOOP_*` env shorthands lower precedence than DB override | todo | — |
-| 1782-3 | l3.5 | Budget enforcement (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) via AbortController | todo | — |
-| 1782-3 | l3.6 | Tests for kill-switch + budget aborts + tenant abort reason surfaced | todo | — |
-| 1782-4 | l4.1 | `LoopTrace` shape + wrapper aggregator | todo | — |
-| 1782-4 | l4.2 | Playground "Loop" panel rendering trace per turn | todo | — |
-| 1782-4 | l4.3 | `<AiChat>` debug panel exposes loop trace | todo | — |
-| 1782-4 | l4.4 | Dispatcher `?loopBudget=tight\|default\|loose` query param gated by `allowRuntimeOverride` | todo | — |
-| 1782-4 | l4.5 | Rename `allowRuntimeModelOverride` → `allowRuntimeOverride` (deprecated alias for one minor) | todo | — |
-| 1782-4 | l4.6 | Tests + i18n + integration coverage TC-AI-AGENT-LOOP-{001..006} | todo | — |
+| 1782-3 | l3.1 | Migration adding 7 loop columns to `ai_agent_runtime_overrides` | done | 30f4d6dec |
+| 1782-3 | l3.2 | Repository validates `loop_stop_when_json` (JSON-safe variants only) and `loop_active_tools_json` subset rule | done | 0ce75e423 |
+| 1782-3 | l3.3 | Settings UI "Loop policy" section (read/write/kill-switch) + `<AiChat>` banner when disabled | done | 4ae84aed0 |
+| 1782-3 | l3.4 | `<MODULE>_AI_LOOP_*` env shorthands lower precedence than DB override | done | 28380fd16 |
+| 1782-3 | l3.5 | Budget enforcement (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) via AbortController | done | 13bcdc206 |
+| 1782-3 | l3.6 | Tests for kill-switch + budget aborts + tenant abort reason surfaced | done | 62a5196f0 |
+| 1782-4 | l4.1 | `LoopTrace` shape + wrapper aggregator | done | 9beb9e2bb |
+| 1782-4 | l4.2 | Playground "Loop" panel rendering trace per turn | done | 5b833e1e3 |
+| 1782-4 | l4.3 | `<AiChat>` debug panel exposes loop trace | done | 68ee75ccc |
+| 1782-4 | l4.4 | Dispatcher `?loopBudget=tight\|default\|loose` query param gated by `allowRuntimeOverride` | done | a9508a7d1 |
+| 1782-4 | l4.5 | Rename `allowRuntimeModelOverride` → `allowRuntimeOverride` (deprecated alias for one minor) | done | 78d96e420 |
+| 1782-4 | l4.6 | Tests + i18n + integration coverage TC-AI-AGENT-LOOP-{001..006} | done | 2c08f8b74 |
 | 1782-5 | l5.1 | Add `executionEngine?: 'stream-text' \| 'tool-loop-agent'` to `AiAgentDefinition` | todo | — |
 | 1782-5 | l5.2 | Construct `Experimental_Agent` per agent registry entry; wire `prepareCall` + `prepareStep` correctly | todo | — |
 | 1782-5 | l5.3 | Mutation-approval integration test for `tool-loop-agent` engine (TC-AI-AGENT-LOOP-006) | todo | — |
