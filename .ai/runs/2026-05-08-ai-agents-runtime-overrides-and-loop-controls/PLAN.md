@@ -20,7 +20,7 @@
 | 1780-0 | 0.3 | Update `model-factory.integration.test.ts` with end-to-end smoke for `AI_DEFAULT_PROVIDER` | done | pending |
 | 1780-0 | 0.4 | Update `apps/mercato/.env.example` and `packages/create-app/template/.env.example` | done | pending |
 | 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | done | pending |
-| 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | todo | — |
+| 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | done | pending |
 | 1780-0 | 0.7 | Replace hardcoded provider order in `api/route/route.ts` with env-aware resolver | todo | — |
 | 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | todo | — |
 | 1780-1 | 1.2 | Add slash-shorthand parser (`parseModelToken`) honored at every model-axis source | todo | — |
