@@ -324,6 +324,137 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('agent_default')
     })
   })
+
+  describe('Phase 1 — agentDefaultProvider, <MODULE>_AI_PROVIDER, providerOverride, slash-shorthand on every source', () => {
+    it('agentDefaultProvider seeds the provider-axis order hint', () => {
+      const anthropic = makeProvider({ id: 'anthropic', defaultModel: 'claude-sonnet' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      const resolution = factory.resolveModel({ agentDefaultProvider: 'openai' })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-4o-mini')
+      expect(resolution.source).toBe('provider_default')
+    })
+
+    it('<MODULE>_AI_PROVIDER env beats agentDefaultProvider for the provider axis', () => {
+      const anthropic = makeProvider({ id: 'anthropic', defaultModel: 'claude-sonnet' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const google = makeProvider({ id: 'google', defaultModel: 'gemini-1.5-pro' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai, google])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { CATALOG_AI_PROVIDER: 'google' },
+      })
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        agentDefaultProvider: 'openai',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['google'] }),
+      )
+      expect(resolution.providerId).toBe('google')
+    })
+
+    it('providerOverride beats <MODULE>_AI_PROVIDER for the provider axis', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const google = makeProvider({ id: 'google', defaultModel: 'gemini-1.5-pro' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai, google])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { CATALOG_AI_PROVIDER: 'google' },
+      })
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        providerOverride: 'openai',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+    })
+
+    it('slash-qualified agentDefaultModel provides both provider hint and model id', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      const resolution = factory.resolveModel({
+        agentDefaultModel: 'openai/gpt-5-mini',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('agent_default')
+    })
+
+    it('slash-qualified <MODULE>_AI_MODEL provides both provider hint and model id', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { CATALOG_AI_MODEL: 'openai/gpt-5' },
+      })
+      const resolution = factory.resolveModel({ moduleId: 'catalog' })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5')
+      expect(resolution.source).toBe('module_env')
+    })
+
+    it('slash-qualified callerOverride provides both provider hint and model id', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      const resolution = factory.resolveModel({ callerOverride: 'openai/gpt-5-mini' })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('caller_override')
+    })
+
+    it('cross-axis tie-break: slash-qualified higher-priority model wins over lower-priority plain provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', defaultModel: 'claude-sonnet' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      const resolution = factory.resolveModel({
+        callerOverride: 'openai/gpt-5-mini',
+        agentDefaultProvider: 'anthropic',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+    })
+
+    it('DeepInfra-style model id in agentDefaultModel is not split (registry guard)', () => {
+      const deepinfra = makeProvider({ id: 'deepinfra' })
+      const { registry, spy } = makeMultiProviderRegistry([deepinfra])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      const resolution = factory.resolveModel({
+        agentDefaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: undefined }),
+      )
+      expect(resolution.modelId).toBe('meta-llama/Llama-3.3-70B-Instruct-Turbo')
+      expect(resolution.source).toBe('agent_default')
+    })
+  })
 })
 
 describe('parseSlashShorthand', () => {
