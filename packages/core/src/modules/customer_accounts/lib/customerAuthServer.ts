@@ -6,8 +6,12 @@
  */
 
 import { cookies } from 'next/headers'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
-import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { CUSTOMER_JWT_AUDIENCE, CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { validateUserState } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
 
@@ -15,10 +19,6 @@ export type { CustomerAuthContext }
 
 async function assertSessionStillActive(sessionId: string): Promise<boolean> {
   try {
-    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
-      import('@open-mercato/shared/lib/di/container'),
-      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
-    ])
     const container = await createRequestContainer()
     const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
     const session = await service.findActiveSessionById(sessionId)
@@ -104,22 +104,11 @@ export async function getCustomerAuthForHost(
   if (!host) return getCustomerAuthFromCookies()
 
   try {
-    const [{ tryNormalizeHostname }, { createRequestContainer }] = await Promise.all([
-      import('@open-mercato/core/modules/customer_accounts/lib/hostname'),
-      import('@open-mercato/shared/lib/di/container'),
-    ])
     const hostname = tryNormalizeHostname(host)
     if (!hostname) return getCustomerAuthFromCookies()
-    const platformDomains = (process.env.PLATFORM_DOMAINS ?? 'localhost,openmercato.com')
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-    if (platformDomains.includes(hostname)) return getCustomerAuthFromCookies()
+    if (platformDomains().includes(hostname)) return getCustomerAuthFromCookies()
 
     const container = await createRequestContainer()
-    const { DomainMappingService } = await import(
-      '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
-    )
     const service = container.resolve('domainMappingService') as InstanceType<typeof DomainMappingService>
     const resolved = await service.resolveByHostname(hostname)
     if (!resolved || resolved.status !== 'active') return null
