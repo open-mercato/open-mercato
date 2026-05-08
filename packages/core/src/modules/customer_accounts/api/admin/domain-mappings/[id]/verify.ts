@@ -4,6 +4,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import {
+  validateCrudMutationGuard,
+  runCrudMutationGuardAfterSuccess,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
@@ -29,6 +33,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const record = await service.findById(id, { tenantId: auth.tenantId })
   if (!record) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: record.organizationId,
+    userId: auth.sub,
+    resourceKind: 'customer_accounts.domain_mapping',
+    resourceId: id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   let result
   try {
     result = await service.verify(id)
@@ -37,6 +55,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       { ok: false, error: err instanceof Error ? err.message : 'DNS verification failed' },
       { status: 500 },
     )
+  }
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId,
+      organizationId: record.organizationId,
+      userId: auth.sub,
+      resourceKind: 'customer_accounts.domain_mapping',
+      resourceId: id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
   }
 
   return NextResponse.json({

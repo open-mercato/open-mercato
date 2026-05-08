@@ -169,7 +169,39 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
 
   const service = container.resolve('domainMappingService') as DomainMappingService
+  const existing = await service.findById(id, { tenantId: auth.tenantId })
+  if (!existing) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: existing.organizationId,
+    userId: auth.sub,
+    resourceKind: 'customer_accounts.domain_mapping',
+    resourceId: id,
+    operation: 'delete',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   await service.remove(id, { tenantId: auth.tenantId })
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId,
+      organizationId: existing.organizationId,
+      userId: auth.sub,
+      resourceKind: 'customer_accounts.domain_mapping',
+      resourceId: id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
   return NextResponse.json({ ok: true })
 }
 
