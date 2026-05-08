@@ -438,3 +438,39 @@ export const catalogToolLoopAssistant: AiAgentDefinition = {
 ```
 
 Omitting `executionEngine` (or setting it to `'stream-text'`) leaves the existing dispatch path completely unchanged.
+
+## Demo: `customers.deal_analyzer` agentic loop
+
+The `customers.deal_analyzer` agent in `packages/core/src/modules/customers/ai-agents.ts` is the canonical reference implementation that exercises every loop primitive in one place.
+
+### What it demonstrates
+
+| Primitive | How it is set | Effect |
+|-----------|--------------|--------|
+| Per-agent provider + slash shorthand | `defaultModel: 'anthropic/claude-haiku-4-5-20251001'` | Model factory resolves both provider and model from the slash prefix |
+| Explicit `defaultProvider` | `defaultProvider: 'anthropic'` | Redundant here (slash prefix sets it), proves dual declaration is accepted |
+| Runtime model override | `allowRuntimeOverride: true` | `<ModelPicker>` visible in the chat composer toolbar |
+| Loop step cap | `loop.maxSteps: 12` | Prevents runaway multi-step loops |
+| Stop-when | `loop.stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }]` | Loop halts immediately after the mutation tool call; mutation card surfaces right away |
+| Per-step model swap | `loop.prepareStep: buildDealAnalyzerPrepareStep()` | Step 0 uses Sonnet (deep analysis), steps 1+ use Haiku (mutation proposal) |
+| Budget | `loop.budget: { maxToolCalls: 12, maxWallClockMs: 60_000 }` | Hard wall-clock and tool-call ceiling |
+| Both engines | `executionEngine: 'stream-text'` (default) + sibling `customers.deal_analyzer_tool_loop` with `'tool-loop-agent'` | Proves mutation gate holds for both dispatch paths (TC-AI-AGENT-LOOP-006) |
+| `uiParts` | `uiParts: ['open-mercato:deal']` | Deal record cards auto-rendered in the chat |
+
+### Key files
+
+- **Tool**: `packages/core/src/modules/customers/ai-tools/deal-analyzer-pack.ts` — `customers.analyze_deals` read-only tool (health score computation, bounded DB reads)
+- **Agents**: `packages/core/src/modules/customers/ai-agents.ts` — `dealAnalyzer` + `dealAnalyzerToolLoop` definitions, `buildDealAnalyzerPrepareStep()`
+- **UI widget**: `packages/core/src/modules/customers/widgets/injection/ai-deal-analyzer-trigger/` — `<AiChat>` embedded in Deals list `:search-trailing` slot
+- **Injection table**: `packages/core/src/modules/customers/widgets/injection-table.ts` — `data-table:customers.deals.list:search-trailing` spot
+- **Tests**: `packages/core/src/modules/customers/__integration__/TC-AI-AGENT-DEAL-ANALYZER-001-007.spec.ts`
+
+### Loop flow
+
+1. User opens the Deal Analyzer sheet on `/backend/customers/deals` (or the playground).
+2. Agent calls `customers.analyze_deals` (step 0, Sonnet) — returns deals ranked by health score.
+3. Agent identifies the highest-value stalled deal and calls `customers.update_deal_stage` (step 1, Haiku).
+4. `loop.stopWhen` fires — the loop halts and the mutation-preview card surfaces.
+5. Operator approves or rejects the stage move in the approval card.
+
+The `buildDealAnalyzerPrepareStep()` function returns a `PrepareStepFunction` that creates a lazy model-factory singleton bound to `null` container (the factory only reads `process.env` and `llmProviderRegistry`, not the DI container). Step 0 resolves Sonnet for broad analysis; subsequent steps resolve Haiku for the cheaper mutation call.
