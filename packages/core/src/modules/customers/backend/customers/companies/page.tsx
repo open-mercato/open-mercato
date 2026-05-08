@@ -17,8 +17,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
-import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
-import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
@@ -147,7 +148,7 @@ export default function CustomersCompaniesPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>({ logic: 'and', conditions: [] })
+  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterTree>(() => createEmptyTree())
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
@@ -393,7 +394,7 @@ export default function CustomersCompaniesPage() {
         if (stringValue) params.set(key, stringValue)
       }
     })
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -808,7 +809,7 @@ export default function CustomersCompaniesPage() {
               value: advancedFilterState,
               onChange: setAdvancedFilterState,
               onApply: () => { setPage(1) },
-              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
+              onClear: () => { setAdvancedFilterState(createEmptyTree()); setPage(1) },
             }}
           virtualized
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}

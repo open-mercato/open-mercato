@@ -51,8 +51,11 @@ import type {
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { AdvancedFilterState, FilterFieldDef as AdvancedFilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
-import { createEmptyCondition, getDefaultOperator } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { FilterFieldDef as AdvancedFilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
+import { getDefaultOperator } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { treeReducer } from './filters/treeReducer'
 import { AdvancedFilterBuilder } from './filters/AdvancedFilterBuilder'
 import { type ColumnChooserField } from './columns/ColumnChooserPanel'
 import { useAutoDiscoveredFields } from './utils/useAutoDiscoveredFields'
@@ -240,8 +243,8 @@ export type DataTableProps<T> = {
   advancedFilter?: {
     fields?: AdvancedFilterFieldDef[]
     auto?: boolean
-    value: AdvancedFilterState
-    onChange: (state: AdvancedFilterState) => void
+    value: AdvancedFilterTree
+    onChange: (state: AdvancedFilterTree) => void
     onApply: () => void
     onClear: () => void
   }
@@ -1968,6 +1971,19 @@ export function DataTable<T>({
   const resolvedAdvancedFilterFields = isAutoAdvancedFilter
     ? autoDiscovered.advancedFilterFields
     : advancedFilter?.fields ?? []
+
+  const advancedFilterRuleCount = React.useMemo<number>(() => {
+    if (!advancedFilter) return 0
+    function countRules(group: AdvancedFilterTree['root']): number {
+      let n = 0
+      for (const c of group.children) {
+        if (c.type === 'rule') n += 1
+        else n += countRules(c)
+      }
+      return n
+    }
+    return countRules(advancedFilter.value.root)
+  }, [advancedFilter])
   const resolvedColumnChooserFields = isAutoColumnChooser
     ? autoDiscovered.columnChooserFields
     : columnChooser?.availableColumns ?? []
@@ -2323,17 +2339,25 @@ export function DataTable<T>({
                   {advancedFilter ? (
                     <Button
                       type="button"
-                      variant={advancedFilter.value.conditions.length > 0 ? 'secondary' : 'ghost'}
+                      variant={advancedFilterRuleCount > 0 ? 'secondary' : 'ghost'}
                       size="icon"
                       onClick={() => {
                         const opening = !isAdvancedFilterOpen
-                        if (opening && advancedFilter.value.conditions.length === 0) {
-                          const newCondition = createEmptyCondition()
-                          if (resolvedAdvancedFilterFields.length > 0) {
-                            newCondition.field = resolvedAdvancedFilterFields[0].key
-                            newCondition.operator = getDefaultOperator(resolvedAdvancedFilterFields[0].type)
+                        if (opening && advancedFilterRuleCount === 0) {
+                          const defaultField = resolvedAdvancedFilterFields[0]
+                          const seeded = treeReducer(advancedFilter.value, {
+                            type: 'addRule',
+                            groupId: advancedFilter.value.root.id,
+                            defaultField: defaultField?.key,
+                          })
+                          // Patch operator default for the seeded rule's field type
+                          if (defaultField) {
+                            const newRule = seeded.root.children[seeded.root.children.length - 1]
+                            if (newRule && newRule.type === 'rule') {
+                              newRule.operator = getDefaultOperator(defaultField.type)
+                            }
                           }
-                          advancedFilter.onChange({ ...advancedFilter.value, conditions: [newCondition] })
+                          advancedFilter.onChange(seeded)
                         }
                         setAdvancedFilterOpen(opening)
                       }}
@@ -2341,9 +2365,9 @@ export function DataTable<T>({
                       title={t('ui.advancedFilter.toggle', 'Advanced filters')}
                     >
                       <Filter className="h-4 w-4" />
-                      {advancedFilter.value.conditions.length > 0 ? (
+                      {advancedFilterRuleCount > 0 ? (
                         <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-overline text-primary-foreground">
-                          {advancedFilter.value.conditions.length}
+                          {advancedFilterRuleCount}
                         </span>
                       ) : null}
                     </Button>
@@ -2389,10 +2413,10 @@ export function DataTable<T>({
           />
         </div>
       ) : null}
-      {advancedFilter && advancedFilter.value.conditions.length > 0 && !isAdvancedFilterOpen ? (
+      {advancedFilter && advancedFilterRuleCount > 0 && !isAdvancedFilterOpen ? (
         <div className="flex items-center gap-2 flex-wrap px-4 py-2 border-b text-sm">
           <span className="text-muted-foreground">
-            {t('ui.advancedFilter.activeCount', '{count} active filters', { count: advancedFilter.value.conditions.length })}
+            {t('ui.advancedFilter.activeCount', '{count} active filters', { count: advancedFilterRuleCount })}
           </span>
           <Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0.5 text-xs" onClick={() => setAdvancedFilterOpen(true)}>
             {t('ui.advancedFilter.edit', 'Edit')}

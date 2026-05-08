@@ -8,8 +8,9 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
-import { deserializeAdvancedFilter, serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { deserializeTree, deserializeAdvancedFilter, flatToTree, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -292,15 +293,18 @@ export default function CustomersDealsPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>(() => {
+  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterTree>(() => {
     const params = searchParams
-    if (!params) return { logic: 'and', conditions: [] }
+    if (!params) return createEmptyTree()
     const record: Record<string, string> = {}
     params.forEach((value, key) => {
       if (key.startsWith('filter[')) record[key] = value
     })
-    const hydrated = deserializeAdvancedFilter(record)
-    return hydrated ?? { logic: 'and', conditions: [] }
+    const v2 = deserializeTree(record)
+    if (v2) return v2
+    const flat = deserializeAdvancedFilter(record)
+    if (flat) return flatToTree(flat)
+    return createEmptyTree()
   })
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
@@ -621,7 +625,7 @@ export default function CustomersDealsPage() {
         if (stringValue) params.set(key, stringValue)
       }
     })
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -699,7 +703,7 @@ export default function CustomersDealsPage() {
     if (selectedPersonIds.length) selectedPersonIds.forEach((id) => params.append('personId', id))
     if (selectedCompanyIds.length) selectedCompanyIds.forEach((id) => params.append('companyId', id))
     if (page > 1) params.set('page', String(page))
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -1102,7 +1106,7 @@ export default function CustomersDealsPage() {
               value: advancedFilterState,
               onChange: setAdvancedFilterState,
               onApply: () => { setPage(1) },
-              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
+              onClear: () => { setAdvancedFilterState(createEmptyTree()); setPage(1) },
             }}
           virtualized
         />

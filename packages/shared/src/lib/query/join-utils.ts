@@ -7,86 +7,139 @@ type AnyBuilder = any
 
 export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown; orGroup?: string; qualified?: string | null }
 
+const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists'] as const
+
+const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice(3)}` : key)
+
+type LeafClause = { field: string; op: FilterOp; value?: unknown }
+
+/**
+ * Expand a Mongo-style filter object (with arbitrary nesting of `$and`/`$or` and
+ * implicit AND between sibling keys) into Disjunctive Normal Form: `Clause[][]`,
+ * where the outer array is OR'd alternatives and each inner array is the AND'd
+ * leaves of one alternative.
+ *
+ * Empty filter -> `[[]]` (one empty disjunct, treated as "no constraint").
+ */
+function compileToDnf(filter: unknown): LeafClause[][] {
+  if (filter === null || filter === undefined) return [[]]
+  if (Array.isArray(filter) || typeof filter !== 'object') return [[]]
+  const obj = filter as Record<string, unknown>
+  const partialDnfs: LeafClause[][][] = []
+
+  for (const [rawKey, rawVal] of Object.entries(obj)) {
+    if (rawKey === '$and' && Array.isArray(rawVal)) {
+      partialDnfs.push(cartesianAnd((rawVal as unknown[]).map(compileToDnf)))
+      continue
+    }
+    if (rawKey === '$or' && Array.isArray(rawVal)) {
+      partialDnfs.push((rawVal as unknown[]).flatMap(compileToDnf))
+      continue
+    }
+    const field = normalizeField(rawKey)
+    if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+      const clauses: LeafClause[] = []
+      for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
+        const op = (opKey.startsWith('$') ? opKey.slice(1) : opKey) as FilterOp
+        if (VALID_OPS.includes(op as (typeof VALID_OPS)[number])) {
+          clauses.push({ field, op, value: opVal })
+        }
+      }
+      if (clauses.length > 0) partialDnfs.push([clauses])
+    } else {
+      partialDnfs.push([[{ field, op: 'eq' as FilterOp, value: rawVal }]])
+    }
+  }
+
+  return cartesianAnd(partialDnfs)
+}
+
+function cartesianAnd(dnfs: LeafClause[][][]): LeafClause[][] {
+  if (dnfs.length === 0) return [[]]
+  let result: LeafClause[][] = [[]]
+  for (const dnf of dnfs) {
+    if (dnf.length === 0) {
+      // An empty DNF means an unsatisfiable subexpression; the AND becomes unsatisfiable
+      // too. Represent that as an empty outer array (no disjuncts).
+      return []
+    }
+    const next: LeafClause[][] = []
+    for (const left of result) {
+      for (const right of dnf) {
+        next.push([...left, ...right])
+      }
+    }
+    result = next
+  }
+  return result
+}
+
+function clauseKey(c: LeafClause): string {
+  return JSON.stringify([c.field, c.op, c.value])
+}
+
+/**
+ * Lift clauses that appear in every disjunct into a "common" set so the engine
+ * can treat them as regular ANDed base filters (preserving the search-tokens
+ * optimization for like/ilike clauses) instead of duplicating them across OR
+ * groups.
+ */
+function liftCommonClauses(dnf: LeafClause[][]): { common: LeafClause[]; remaining: LeafClause[][] } {
+  if (dnf.length <= 1) return { common: [], remaining: dnf }
+  const counts = new Map<string, { clause: LeafClause; count: number }>()
+  for (const disjunct of dnf) {
+    const seen = new Set<string>()
+    for (const c of disjunct) {
+      const key = clauseKey(c)
+      if (seen.has(key)) continue // count once per disjunct even if duplicated
+      seen.add(key)
+      const entry = counts.get(key)
+      if (entry) entry.count += 1
+      else counts.set(key, { clause: c, count: 1 })
+    }
+  }
+  const total = dnf.length
+  const commonKeys = new Set<string>()
+  const common: LeafClause[] = []
+  for (const [key, { clause, count }] of counts) {
+    if (count === total) {
+      commonKeys.add(key)
+      common.push(clause)
+    }
+  }
+  if (common.length === 0) return { common: [], remaining: dnf }
+  const remaining = dnf.map((d) => d.filter((c) => !commonKeys.has(clauseKey(c))))
+  return { common, remaining }
+}
+
 export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedFilter[] {
   if (!filters) return []
-  const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice(3)}` : key)
   if (Array.isArray(filters)) {
     return (filters as any[]).map((f) => ({
       ...f,
       field: normalizeField(String((f as any).field)),
     }))
   }
+  const dnf = compileToDnf(filters)
+  if (dnf.length === 0) return []
+  const nonEmpty = dnf.filter((disjunct) => disjunct.length > 0)
+  if (nonEmpty.length === 0) return []
+  if (nonEmpty.length === 1) {
+    return nonEmpty[0].map((c) => ({ field: c.field, op: c.op, value: c.value }))
+  }
+  const { common, remaining } = liftCommonClauses(nonEmpty)
   const out: NormalizedFilter[] = []
-  const obj = filters as Record<string, unknown>
-  const push = (field: string, op: FilterOp, value?: unknown, orGroup?: string) => {
-    out.push({ field, op, value, orGroup })
+  for (const c of common) out.push({ field: c.field, op: c.op, value: c.value })
+  // Drop disjuncts that became empty after lifting (they're already represented in `common`).
+  const remainingNonEmpty = remaining.filter((d) => d.length > 0)
+  if (remainingNonEmpty.length === 0) return out
+  if (remainingNonEmpty.length === 1) {
+    for (const c of remainingNonEmpty[0]) out.push({ field: c.field, op: c.op, value: c.value })
+    return out
   }
-  // Handle $or at top level — one group id per disjunct so fields inside a clause are ANDed by the engine.
-  if (Array.isArray(obj.$or)) {
-    const clauses = obj.$or as Record<string, unknown>[]
-    for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex++) {
-      const clause = clauses[clauseIndex]
-      const orGroupId = `or_${clauseIndex}`
-      if (clause && typeof clause === 'object') {
-        for (const [rawKey, rawVal] of Object.entries(clause)) {
-          const field = normalizeField(rawKey)
-          if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
-            for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
-              const op = opKey.replace('$', '') as FilterOp
-              if (['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists'].includes(op)) {
-                push(field, op, opVal, orGroupId)
-              }
-            }
-          } else {
-            push(field, 'eq', rawVal, orGroupId)
-          }
-        }
-      }
-    }
-  }
-  for (const [rawKey, rawVal] of Object.entries(obj)) {
-    if (rawKey === '$or') continue
-    const field = normalizeField(rawKey)
-    if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
-      for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
-        switch (opKey) {
-          case '$eq':
-            push(field, 'eq', opVal)
-            break
-          case '$ne':
-            push(field, 'ne', opVal)
-            break
-          case '$gt':
-            push(field, 'gt', opVal)
-            break
-          case '$gte':
-            push(field, 'gte', opVal)
-            break
-          case '$lt':
-            push(field, 'lt', opVal)
-            break
-          case '$lte':
-            push(field, 'lte', opVal)
-            break
-          case '$in':
-            push(field, 'in', opVal)
-            break
-          case '$nin':
-            push(field, 'nin', opVal)
-            break
-          case '$like':
-            push(field, 'like', opVal)
-            break
-          case '$ilike':
-            push(field, 'ilike', opVal)
-            break
-          case '$exists':
-            push(field, 'exists', opVal)
-            break
-        }
-      }
-    } else {
-      push(field, 'eq', rawVal)
+  for (let i = 0; i < remainingNonEmpty.length; i++) {
+    for (const c of remainingNonEmpty[i]) {
+      out.push({ field: c.field, op: c.op, value: c.value, orGroup: `or_${i}` })
     }
   }
   return out
