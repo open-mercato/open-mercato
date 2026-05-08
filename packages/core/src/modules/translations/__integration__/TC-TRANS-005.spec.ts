@@ -64,6 +64,40 @@ async function selectEntityForRecordPicker(
   await expect(recordInput).toBeEnabled({ timeout: 10_000 })
 }
 
+async function fillTranslationInput(locator: import('@playwright/test').Locator, value: string) {
+  await expect(locator).toBeEditable({ timeout: 10_000 })
+  await locator.fill(value)
+  await expect(locator).toHaveValue(value)
+  await locator.press('Tab')
+  await expect(locator).toHaveValue(value)
+}
+
+async function saveTranslations(
+  page: import('@playwright/test').Page,
+  managerCard: import('@playwright/test').Locator,
+  entityType: string,
+  entityId: string,
+) {
+  const path = `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`
+  const waitForSaveResponse = () =>
+    page.waitForResponse(
+      (response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === path,
+      { timeout: 2_000 },
+    )
+
+  let responsePromise = waitForSaveResponse()
+  await managerCard.getByRole('button', { name: 'Save translations' }).click()
+  let response = await responsePromise.catch(() => null)
+
+  if (!response) {
+    responsePromise = waitForSaveResponse()
+    await managerCard.getByRole('button', { name: 'Save translations' }).click()
+    response = await responsePromise
+  }
+
+  expect(response.ok()).toBeTruthy()
+}
+
 /**
  * TC-TRANS-005: Translation Manager Standalone
  * Covers selecting entity/record, entering translations, saving, and verifying persistence.
@@ -122,9 +156,9 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
       const titleInput = page.locator('table input').first()
-      await titleInput.fill('Deutscher Titel QA')
+      await fillTranslationInput(titleInput, 'Deutscher Titel QA')
 
-      await page.getByRole('button', { name: 'Save translations' }).click()
+      await saveTranslations(page, managerCard, ENTITY_TYPE, productId!)
       await expect.poll(async () => {
         const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
         if (!response.ok()) return null
