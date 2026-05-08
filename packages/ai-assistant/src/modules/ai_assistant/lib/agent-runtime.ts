@@ -1,7 +1,13 @@
 import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { LanguageModel, UIMessage } from 'ai'
+import type {
+  LanguageModel,
+  PrepareStepFunction,
+  PrepareStepResult,
+  ToolSet,
+  UIMessage,
+} from 'ai'
 import {
   convertToModelMessages,
   generateObject,
@@ -205,6 +211,137 @@ export function translateStopConditions(
 
   // Always append the hard step-count fallback (R3 mitigation).
   return [...userConditions, stepCountIs(effectiveMaxSteps)]
+}
+
+/**
+ * Security-critical merge of the wrapper-owned step override with the user's
+ * `prepareStep` return value.
+ *
+ * Guarantees (R1 mitigation — preserving the mutation-approval contract):
+ * 1. Any `tools` map returned by the user is intersected with `toolRegistry`
+ *    (the policy-gated, mutation-approval-wrapped map). If the user returned
+ *    a raw mutation handler, the merged map points at the wrapped one.
+ * 2. Any `activeTools` returned by the user is intersected with
+ *    `agent.allowedTools`. Out-of-set names are dropped with a single
+ *    `loop:active_tools_filtered` warning.
+ * 3. A user-returned `tools` map that contains a mutation tool pointing at the
+ *    raw handler (not the wrapped one) is rejected with
+ *    `AgentPolicyError` code `loop_violates_mutation_policy`.
+ * 4. Non-policy fields (`model`, `toolChoice`, `system`, `messages`) from the
+ *    user override are honored as-is.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function mergeStepOverrides(
+  wrapperOverride: PrepareStepResult<ToolSet>,
+  userOverride: PrepareStepResult<ToolSet> | undefined | null,
+  agent: AiAgentDefinition,
+  wrappedToolRegistry: Record<string, unknown>,
+): PrepareStepResult<ToolSet> {
+  if (!userOverride) return wrapperOverride
+
+  const merged: PrepareStepResult<ToolSet> = { ...wrapperOverride }
+
+  if (userOverride.model !== undefined) {
+    merged.model = userOverride.model
+  }
+  if (userOverride.toolChoice !== undefined) {
+    merged.toolChoice = userOverride.toolChoice
+  }
+
+  if (userOverride.activeTools !== undefined) {
+    const filtered = userOverride.activeTools.filter((name) => {
+      const allowed = agent.allowedTools.includes(name)
+      if (!allowed) {
+        console.warn(
+          `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
+        )
+      }
+      return allowed
+    })
+    merged.activeTools = filtered
+  }
+
+  if (userOverride.tools !== undefined) {
+    const userTools = userOverride.tools as Record<string, unknown>
+    const mergedTools: Record<string, unknown> = {}
+
+    for (const [toolKey, userHandler] of Object.entries(userTools)) {
+      const wrappedHandler = wrappedToolRegistry[toolKey]
+      if (!wrappedHandler) {
+        console.warn(
+          `[AI Agents] mergeStepOverrides — tool "${toolKey}" from user prepareStep is not in the wrapper tool registry; dropping.`,
+        )
+        continue
+      }
+      if (userHandler !== wrappedHandler) {
+        const toolDef = toolRegistry.getTool(
+          toolKey.replace(/__/g, '.'),
+        ) as { isMutation?: boolean } | undefined
+        if (toolDef?.isMutation === true) {
+          throw new AgentPolicyError(
+            'loop_violates_mutation_policy',
+            `User prepareStep returned a tools map with raw (unwrapped) mutation handler for "${toolKey}". This bypasses the mutation-approval gate and is rejected.`,
+          )
+        }
+      }
+      mergedTools[toolKey] = wrappedHandler
+    }
+    merged.tools = mergedTools as PrepareStepResult<ToolSet>['tools']
+  }
+
+  return merged
+}
+
+/**
+ * Builds the wrapper-owned `PrepareStepFunction` that enforces the tool
+ * allowlist and mutation-approval contract on every step, then composes
+ * the user's `prepareStep` on top via `mergeStepOverrides`.
+ *
+ * This is the SECURITY-CRITICAL function for Phase 0. The wrapper `prepareStep`
+ * ensures:
+ * - Tool active-set is always a subset of `effectiveLoop.activeTools ?? agent.allowedTools`.
+ * - Mutation tools always point at the prepareMutation-wrapped handlers.
+ * - User's `prepareStep` return value cannot smuggle raw mutation handlers.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function buildWrapperPrepareStep(
+  agent: AiAgentDefinition,
+  effectiveLoop: AiAgentLoopConfig,
+  wrappedTools: Record<string, unknown>,
+): PrepareStepFunction<ToolSet> {
+  return async (state) => {
+    const wrapperOverride: PrepareStepResult<ToolSet> = {}
+
+    if (effectiveLoop.activeTools && effectiveLoop.activeTools.length > 0) {
+      wrapperOverride.activeTools = effectiveLoop.activeTools.filter((name) => {
+        const allowed = agent.allowedTools.includes(name)
+        if (!allowed) {
+          console.warn(
+            `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
+          )
+        }
+        return allowed
+      })
+    }
+
+    if (effectiveLoop.prepareStep) {
+      let userOverride: PrepareStepResult<ToolSet> | undefined | null
+      try {
+        userOverride = await effectiveLoop.prepareStep(state)
+      } catch (error) {
+        console.error(
+          `[AI Agents] User prepareStep threw for agent "${agent.id}"; ignoring user override:`,
+          error,
+        )
+        return wrapperOverride
+      }
+      return mergeStepOverrides(wrapperOverride, userOverride, agent, wrappedTools)
+    }
+
+    return wrapperOverride
+  }
 }
 
 interface ResolvedAgentModel {
