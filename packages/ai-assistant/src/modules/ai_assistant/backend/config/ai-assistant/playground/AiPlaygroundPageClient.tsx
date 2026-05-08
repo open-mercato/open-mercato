@@ -175,6 +175,76 @@ function buildDebugPromptSections(agent: PlaygroundAgent): AiChatDebugPromptSect
   return sections
 }
 
+type AgentModelResolution = {
+  agentId: string
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
+}
+
+type SettingsAgentResolutionResponse = {
+  agents: AgentModelResolution[]
+}
+
+async function fetchAgentResolutions(): Promise<SettingsAgentResolutionResponse> {
+  const result = await apiCall<SettingsAgentResolutionResponse>('/api/ai_assistant/settings')
+  if (!result.ok || !result.result) return { agents: [] }
+  return { agents: result.result.agents ?? [] }
+}
+
+function ModelResolutionPanel({ agentId }: { agentId: string }) {
+  const t = useT()
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'settings', 'agents'],
+    queryFn: fetchAgentResolutions,
+    staleTime: 30000,
+  })
+
+  const resolution = data?.agents.find((agent) => agent.agentId === agentId)
+  if (!resolution) return null
+
+  return (
+    <dl
+      className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 p-3 text-xs sm:grid-cols-4"
+      data-ai-playground-model-resolution={agentId}
+    >
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.provider', 'Provider')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-provider>
+          {resolution.providerId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.model', 'Model')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-model>
+          {resolution.modelId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.baseUrl', 'Base URL')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-base-url>
+          {resolution.baseURL ?? t('ai_assistant.playground.resolution.none', '—')}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.source', 'Source')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-source>
+          {resolution.source}
+        </dd>
+      </div>
+    </dl>
+  )
+}
+
 type PlaygroundUiPartSeed = {
   componentId: string
   pendingActionId?: string
@@ -574,6 +644,7 @@ export function AiPlaygroundPageClient() {
           </div>
         </div>
         {selectedAgent ? <AgentDetails agent={selectedAgent} /> : null}
+        {selectedAgent ? <ModelResolutionPanel agentId={selectedAgent.id} /> : null}
       </section>
 
       {selectedAgent ? (
