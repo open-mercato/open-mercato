@@ -150,6 +150,55 @@ export interface AiAgentLoopConfig {
   disabled?: boolean
 }
 
+/**
+ * Per-step record aggregated by the wrapper-owned `onStepFinish` hook into
+ * `LoopTrace`. Each completed agentic step produces one record.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface LoopStepRecord {
+  stepIndex: number
+  /** Model id resolved for this step (relevant when prepareStep swaps models). */
+  modelId: string
+  toolCalls: Array<{
+    toolName: string
+    args: unknown
+    result?: unknown
+    error?: { code: string; message: string }
+    repairAttempted: boolean
+    durationMs: number
+  }>
+  /** Raw assistant text emitted in this step. */
+  textDelta: string
+  usage: { inputTokens: number; outputTokens: number }
+  finishReason: 'stop' | 'tool-calls' | 'length' | 'content-filter' | 'error'
+}
+
+/**
+ * Per-turn trace aggregated by the wrapper-owned `buildLoopTraceCollector`.
+ * Not persisted — in-memory only; surfaced via the dispatcher SSE stream and
+ * the playground/`<AiChat>` debug panel.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface LoopTrace {
+  agentId: string
+  turnId: string
+  steps: LoopStepRecord[]
+  stopReason:
+    | 'step-count'
+    | 'has-tool-call'
+    | 'custom-stop'
+    | 'budget-tokens'
+    | 'budget-tool-calls'
+    | 'budget-wall-clock'
+    | 'tenant-disabled'
+    | 'finish-reason'
+    | 'abort'
+  totalDurationMs: number
+  totalUsage: { inputTokens: number; outputTokens: number }
+}
+
 export type AiAgentMutationPolicy =
   | 'read-only'
   | 'confirm-required'

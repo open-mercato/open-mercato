@@ -215,7 +215,12 @@ describe('Phase 2: generateText callback on runAiAgentText', () => {
     })
 
     expect(capturedOptions[0].maxSteps).toBe(3)
-    expect(capturedOptions[0].onStepFinish).toBe(callerOnStepFinish)
+    // Phase 4: the trace collector wraps onStepFinish; verify it chains down to
+    // the caller's hook by invoking the wired function.
+    expect(typeof capturedOptions[0].onStepFinish).toBe('function')
+    const fakeEvent = { usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [] }
+    await capturedOptions[0].onStepFinish!(fakeEvent as never)
+    expect(callerOnStepFinish).toHaveBeenCalledWith(fakeEvent)
   })
 
   it('stopWhen array always ends with stepCountIs(maxSteps)', async () => {

@@ -28,6 +28,8 @@ import type {
   AiAgentLoopConfig,
   AiAgentPageContextInput,
   AiAgentStructuredOutput,
+  LoopStepRecord,
+  LoopTrace,
 } from './ai-agent-definition'
 import type {
   AiChatRequestContext,
@@ -208,6 +210,14 @@ export interface PreparedAiSdkOptions {
    * (Phases 0–2); the SDK treats `undefined` the same as no signal.
    */
   abortSignal: AbortSignal | undefined
+  /**
+   * Finalizes the per-turn `LoopTrace` and returns it. Callers that use the
+   * `generateText` escape-hatch SHOULD call this after the SDK call resolves so
+   * the trace is available for logging or SSE emission.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  finalizeLoopTrace: () => LoopTrace
 }
 
 /**
@@ -461,6 +471,119 @@ export class BudgetEnforcer {
       }
     }
   }
+}
+
+/**
+ * Builds a wrapper-owned `onStepFinish` collector that aggregates per-step
+ * usage and tool-call data into a `LoopTrace` object. The collector chains
+ * the user's `onStepFinish` after it aggregates (exceptions from the user's
+ * hook are caught and logged but do not abort the turn).
+ *
+ * Returns both the wired `onStepFinish` hook and a `finalize()` function that
+ * resolves the `LoopTrace` once the turn is complete. The `budgetEnforcer`
+ * is already wired into `onStepFinish` at a lower layer — this collector sits
+ * above it.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function buildLoopTraceCollector(
+  agentId: string,
+  turnId: string,
+  userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+): {
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
+} {
+  const turnStartMs = Date.now()
+  const steps: LoopStepRecord[] = []
+
+  const onStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
+    const stepIndex = steps.length
+    const toolCalls = (event.toolCalls ?? []).map((tc) => {
+      const raw = tc as unknown as {
+        toolName?: string
+        args?: unknown
+        result?: unknown
+        experimental_toToolResultError?: { code?: string; message?: string }
+        repairAttempted?: boolean
+        startTime?: number
+        endTime?: number
+      }
+      return {
+        toolName: raw.toolName ?? 'unknown',
+        args: raw.args ?? {},
+        result: raw.result,
+        error: raw.experimental_toToolResultError
+          ? {
+              code: String(raw.experimental_toToolResultError?.code ?? 'unknown'),
+              message: String(raw.experimental_toToolResultError?.message ?? ''),
+            }
+          : undefined,
+        repairAttempted: raw.repairAttempted === true,
+        durationMs:
+          typeof raw.startTime === 'number' && typeof raw.endTime === 'number'
+            ? raw.endTime - raw.startTime
+            : 0,
+      }
+    })
+
+    const textDelta =
+      (event as unknown as { text?: string }).text ?? ''
+
+    const finishReason = (
+      (event as unknown as { finishReason?: string }).finishReason ?? 'stop'
+    ) as LoopStepRecord['finishReason']
+
+    const modelId =
+      (event as unknown as { response?: { modelId?: string } }).response?.modelId ?? 'unknown'
+
+    steps.push({
+      stepIndex,
+      modelId,
+      toolCalls,
+      textDelta,
+      usage: {
+        inputTokens: event.usage?.inputTokens ?? 0,
+        outputTokens: event.usage?.outputTokens ?? 0,
+      },
+      finishReason,
+    })
+
+    if (userOnStepFinish) {
+      try {
+        await userOnStepFinish(event)
+      } catch (err) {
+        console.error('[AI Agents] User onStepFinish in LoopTrace collector threw; ignoring:', err)
+      }
+    }
+  }
+
+  function finalize(abortReason: LoopBudgetAbortReason | null): LoopTrace {
+    const totalDurationMs = Date.now() - turnStartMs
+    const totalUsage = steps.reduce(
+      (acc, step) => ({
+        inputTokens: acc.inputTokens + step.usage.inputTokens,
+        outputTokens: acc.outputTokens + step.usage.outputTokens,
+      }),
+      { inputTokens: 0, outputTokens: 0 },
+    )
+
+    let stopReason: LoopTrace['stopReason'] = 'finish-reason'
+    if (abortReason === 'budget-tool-calls') stopReason = 'budget-tool-calls'
+    else if (abortReason === 'budget-wall-clock') stopReason = 'budget-wall-clock'
+    else if (abortReason === 'budget-tokens') stopReason = 'budget-tokens'
+
+    return {
+      agentId,
+      turnId,
+      steps,
+      stopReason,
+      totalDurationMs,
+      totalUsage,
+    }
+  }
+
+  return { onStepFinish, finalize }
 }
 
 /**
@@ -1163,15 +1286,16 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const stopConditions = translateStopConditions(effectiveLoop)
   const wrapperPrepareStep = buildWrapperPrepareStep(agent, effectiveLoop, tools)
 
-  // Phase 3 — budget enforcement via AbortController.
-  // The BudgetEnforcer wires into onStepFinish to track tool calls, wall-clock
-  // time, and token usage per step. When any limit is exceeded it aborts the
-  // in-flight request via the signal forwarded to the SDK call.
-  // Wall-clock enforcement is also applied eagerly via a timeout so that a
-  // single very long step doesn't escape the limit.
+  // Phase 3 + Phase 4 — budget enforcement + LoopTrace collection.
+  // Layer order (outer → inner):
+  //   budgetEnforcer.wire(traceOnStepFinish) → traceOnStepFinish calls userOnStepFinish
+  // The trace collector builds the per-turn LoopTrace; the budget enforcer
+  // aborts via AbortController when any limit is exceeded.
+  const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  const loopTraceCollector = buildLoopTraceCollector(agent.id, turnId, effectiveLoop.onStepFinish)
   const abortController = new AbortController()
   const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
-  const wiredOnStepFinish = budgetEnforcer.wire(effectiveLoop.onStepFinish)
+  const wiredOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
 
   let wallClockTimer: ReturnType<typeof setTimeout> | undefined
   if (effectiveLoop.budget?.maxWallClockMs) {
@@ -1196,6 +1320,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     activeTools: effectiveLoop.activeTools,
     toolChoice: effectiveLoop.toolChoice,
     abortSignal: abortController.signal,
+    finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
   }
 
   if (input.generateText) {
