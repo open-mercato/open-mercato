@@ -550,10 +550,6 @@ when the registry has no configured provider and `code: 'api_key_missing'`
 when the picked provider returns an empty key — every current call site
 already relies on the throw bubbling up, do not swallow it.
 
-The `agent-runtime.ts` inline `resolveAgentModel` will migrate to
-`createModelFactory` in a follow-up Step (5.2+). New agents should accept
-the factory-backed path from day one.
-
 ## MANDATORY: Use AskUserQuestion for Confirmations
 
 > **This is the MOST IMPORTANT rule. NEVER skip this.**
@@ -1366,6 +1362,14 @@ if (tool.requiredFeatures?.length) {
 ---
 
 ## Changelog
+
+### 2026-05-08 - Phase 3 call-site cleanup (spec 2026-04-27-ai-agents-provider-model-baseurl-overrides)
+
+**What changed**:
+- `agent-runtime.ts` `resolveAgentModel` fully migrated to `createModelFactory`. The inline fallback resolver (which ignored `AI_DEFAULT_PROVIDER`, `agentDefaultProvider`, `providerOverride`, `baseUrlOverride`) is removed. A throwaway `createContainer()` is used when no Awilix container is provided, keeping the function signature unchanged.
+- `api/route/route.ts` no-config fallback now delegates to `createModelFactory` instead of a manual `llmProviderRegistry.resolveFirstConfigured` call, ensuring `AI_DEFAULT_PROVIDER` / `AI_DEFAULT_MODEL` / all registered preset providers are honored in the routing path.
+- `inbox_ops/lib/llmProvider.ts` received a doc-comment explaining why `OPENCODE_PROVIDER` / `OPENCODE_MODEL` remain at the bottom of the resolution chain (BC isolation from the new `AI_DEFAULT_*` envs per spec R1 mitigation).
+- `customers/ai-agents.ts` and `catalog/ai-agents.ts` removed duplicate local `AiAgentDefinition` / `AiAgentPageContextInput` type declarations; both now import from `@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition`.
 
 ### 2026-02-22 - Code Mode Tools (search + execute)
 
