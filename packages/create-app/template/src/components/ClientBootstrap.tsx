@@ -5,7 +5,7 @@ import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.g
 // Side-effect: registers translatable fields for client-side TranslationManager
 import '@/.mercato/generated/translations-fields.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
-import { modules as enabledModules } from '@/.mercato/generated/modules.app.generated'
+import { enabledModuleIds } from '@/.mercato/generated/enabled-module-ids.generated'
 import { registerCoreInjectionWidgets, registerCoreInjectionTables, registerEnabledModuleIds } from '@open-mercato/core/modules/widgets/lib/injection'
 import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
@@ -29,11 +29,7 @@ function clientBootstrap() {
   registerInjectionWidgets(injectionWidgetEntries)
   registerCoreInjectionWidgets(injectionWidgetEntries)
   registerCoreInjectionTables(injectionTables)
-  registerEnabledModuleIds(
-    enabledModules
-      .map((module) => module.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0),
-  )
+  registerEnabledModuleIds(enabledModuleIds)
 
   // Register dashboard widgets
   registerDashboardWidgets(dashboardWidgetEntries)
