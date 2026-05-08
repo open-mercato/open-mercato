@@ -1,4 +1,4 @@
-import { Entity, Enum, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Enum, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type DomainProvider = 'traefik'
 export type DomainStatus = 'pending' | 'verified' | 'active' | 'dns_failed' | 'tls_failed'
@@ -320,6 +320,25 @@ export class CustomerUserInvitation {
 @Unique({ properties: ['hostname'], name: 'domain_mappings_hostname_unique' })
 @Index({ properties: ['organizationId'], name: 'domain_mappings_organization_id_idx' })
 @Index({ properties: ['tenantId'], name: 'domain_mappings_tenant_id_idx' })
+@Unique({
+  name: 'domain_mappings_replaces_domain_id_unique',
+  expression:
+    `create unique index "domain_mappings_replaces_domain_id_unique" on "domain_mappings" ("replaces_domain_id") where "replaces_domain_id" is not null`,
+})
+@Index({
+  name: 'domain_mappings_pending_verification_idx',
+  expression:
+    `create index "domain_mappings_pending_verification_idx" on "domain_mappings" ("status", "last_dns_check_at") where "status" in ('pending', 'dns_failed')`,
+})
+@Index({
+  name: 'domain_mappings_pending_tls_idx',
+  expression:
+    `create index "domain_mappings_pending_tls_idx" on "domain_mappings" ("status", "updated_at") where "status" in ('verified', 'tls_failed')`,
+})
+@Check({
+  name: 'domain_mappings_hostname_normalized_chk',
+  expression: `"hostname" = lower("hostname") and "hostname" not like '%.'`,
+})
 export class DomainMapping {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
