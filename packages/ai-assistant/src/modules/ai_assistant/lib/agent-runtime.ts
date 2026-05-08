@@ -344,6 +344,38 @@ export function buildWrapperPrepareStep(
   }
 }
 
+/**
+ * Validates that a loop config does not set any primitives that are
+ * unsupported by the object-mode SDK path (`generateObject` / `streamObject`).
+ *
+ * Object mode accepts ONLY: `maxSteps`, `budget`, `onStepFinish`,
+ * `onStepStart`, `allowRuntimeOverride`. The remaining fields
+ * (`prepareStep`, `repairToolCall`, `stopWhen`, `activeTools`,
+ * `toolChoice`) are chat-only and will never reach `generateObject`.
+ *
+ * Throws `AgentPolicyError` code `loop_unsupported_in_object_mode` if any
+ * unsupported field is set. This provides an explicit, actionable error
+ * rather than a silent no-op.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function assertLoopObjectModeCompatible(loopConfig: Partial<AiAgentLoopConfig>): void {
+  const unsupportedFields: string[] = []
+
+  if (loopConfig.prepareStep !== undefined) unsupportedFields.push('prepareStep')
+  if (loopConfig.repairToolCall !== undefined) unsupportedFields.push('repairToolCall')
+  if (loopConfig.stopWhen !== undefined) unsupportedFields.push('stopWhen')
+  if (loopConfig.activeTools !== undefined) unsupportedFields.push('activeTools')
+  if (loopConfig.toolChoice !== undefined) unsupportedFields.push('toolChoice')
+
+  if (unsupportedFields.length > 0) {
+    throw new AgentPolicyError(
+      'loop_unsupported_in_object_mode',
+      `Object-mode agents do not support these loop primitives: ${unsupportedFields.join(', ')}. Use runAiAgentText for agents that require these loop controls.`,
+    )
+  }
+}
+
 interface ResolvedAgentModel {
   model: LanguageModel
   modelId: string
