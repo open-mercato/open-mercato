@@ -2,16 +2,21 @@ import type { AwilixContainer } from 'awilix'
 import {
   AiModelFactoryError,
   createModelFactory,
+  parseSlashShorthand,
   type AiModelFactoryInput,
+  type AiModelFactoryRegistry,
   type CreateModelFactoryDependencies,
 } from '../model-factory'
 
-function makeProvider(overrides: Partial<{
+type FakeProvider = {
   id: string
   defaultModel: string
   resolveApiKey: () => string | null
   createModel: (options: { modelId: string; apiKey: string }) => unknown
-}> = {}) {
+  isConfigured: () => boolean
+}
+
+function makeProvider(overrides: Partial<FakeProvider> = {}): FakeProvider {
   const createModel =
     overrides.createModel ??
     ((options: { modelId: string; apiKey: string }) => ({
@@ -24,11 +29,12 @@ function makeProvider(overrides: Partial<{
     defaultModel: overrides.defaultModel ?? 'provider-default-model',
     resolveApiKey: overrides.resolveApiKey ?? (() => 'test-api-key'),
     createModel,
+    isConfigured: overrides.isConfigured ?? (() => true),
   }
 }
 
 function makeFactoryDeps(
-  provider: ReturnType<typeof makeProvider> | null,
+  provider: FakeProvider | null,
   env: Record<string, string | undefined> = {},
 ): CreateModelFactoryDependencies {
   return {
@@ -40,6 +46,47 @@ function makeFactoryDeps(
     },
     env,
   }
+}
+
+/**
+ * Builds a registry mock that simulates the real
+ * `LlmProviderRegistry.resolveFirstConfigured({ order })` semantics —
+ * walks the supplied order first, falls through registration order, only
+ * returns providers whose `isConfigured` returns true. Used for the Phase
+ * 0 cases that exercise `AI_DEFAULT_PROVIDER` resolution.
+ */
+function makeMultiProviderRegistry(
+  providers: FakeProvider[],
+): { registry: AiModelFactoryRegistry; spy: jest.Mock } {
+  const spy = jest.fn(
+    (
+      options?: Parameters<AiModelFactoryRegistry['resolveFirstConfigured']>[0],
+    ): FakeProvider | null => {
+      const order = options?.order
+      if (order && order.length > 0) {
+        for (const id of order) {
+          const found = providers.find((p) => p.id === id)
+          if (found && found.isConfigured()) return found
+        }
+        const listed = new Set(order)
+        for (const provider of providers) {
+          if (listed.has(provider.id)) continue
+          if (provider.isConfigured()) return provider
+        }
+        return null
+      }
+      for (const provider of providers) {
+        if (provider.isConfigured()) return provider
+      }
+      return null
+    },
+  )
+  const registry: AiModelFactoryRegistry = {
+    resolveFirstConfigured: (options) =>
+      spy(options) as ReturnType<AiModelFactoryRegistry['resolveFirstConfigured']>,
+    get: (id: string) => providers.find((p) => p.id === id) ?? null,
+  }
+  return { registry, spy }
 }
 
 const fakeContainer = {} as unknown as AwilixContainer
@@ -115,8 +162,6 @@ describe('createModelFactory', () => {
 
   it('skips env-override lookup when moduleId is undefined (does not crash)', () => {
     const provider = makeProvider()
-    // Even if an `_AI_MODEL` var is present, an absent moduleId means no
-    // module-scoped env var name can be constructed, so the lookup is skipped.
     const env = { INBOX_OPS_AI_MODEL: 'env-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({
@@ -163,6 +208,168 @@ describe('createModelFactory', () => {
     expect(createModel).toHaveBeenCalledWith({
       modelId: 'catalog-env-model',
       apiKey: 'test-api-key',
+    })
+  })
+
+  describe('Phase 0 — AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL', () => {
+    it('forwards AI_DEFAULT_PROVIDER to resolveFirstConfigured order', () => {
+      const anthropic = makeProvider({ id: 'anthropic', defaultModel: 'claude-sonnet' })
+      const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { AI_DEFAULT_PROVIDER: 'openai' },
+      })
+      const resolution = factory.resolveModel({})
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-4o-mini')
+      expect(resolution.source).toBe('provider_default')
+    })
+
+    it('uses AI_DEFAULT_MODEL as the env_default fallback when nothing higher applies', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const { registry } = makeMultiProviderRegistry([anthropic])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { AI_DEFAULT_MODEL: 'claude-haiku-4-5' },
+      })
+      const resolution = factory.resolveModel({})
+      expect(resolution.source).toBe('env_default')
+      expect(resolution.modelId).toBe('claude-haiku-4-5')
+      expect(resolution.providerId).toBe('anthropic')
+    })
+
+    it('honors both AI_DEFAULT_PROVIDER and AI_DEFAULT_MODEL together', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_DEFAULT_MODEL: 'gpt-5-mini',
+        },
+      })
+      const resolution = factory.resolveModel({})
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('env_default')
+    })
+
+    it('falls through when AI_DEFAULT_PROVIDER is registered but unconfigured', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => true })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => false })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_DEFAULT_MODEL: 'gpt-5-mini',
+        },
+      })
+      const resolution = factory.resolveModel({})
+      expect(resolution.providerId).toBe('anthropic')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('env_default')
+    })
+
+    it('slash-qualified AI_DEFAULT_MODEL resets the provider for that resolution', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const openai = makeProvider({ id: 'openai' })
+      const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { AI_DEFAULT_MODEL: 'openai/gpt-5-mini' },
+      })
+      const resolution = factory.resolveModel({})
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['openai'] }),
+      )
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('env_default')
+    })
+
+    it('does not split DeepInfra-style model ids that look like slash shorthand', () => {
+      const deepinfra = makeProvider({ id: 'deepinfra' })
+      const { registry, spy } = makeMultiProviderRegistry([deepinfra])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { AI_DEFAULT_MODEL: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+      })
+      const resolution = factory.resolveModel({})
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: undefined }),
+      )
+      expect(resolution.providerId).toBe('deepinfra')
+      expect(resolution.modelId).toBe('meta-llama/Llama-3.3-70B-Instruct-Turbo')
+      expect(resolution.source).toBe('env_default')
+    })
+
+    it('agent_default still beats env_default at lower priority', () => {
+      const anthropic = makeProvider({ id: 'anthropic' })
+      const { registry } = makeMultiProviderRegistry([anthropic])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: { AI_DEFAULT_MODEL: 'fallback-model' },
+      })
+      const resolution = factory.resolveModel({ agentDefaultModel: 'agent-wins' })
+      expect(resolution.modelId).toBe('agent-wins')
+      expect(resolution.source).toBe('agent_default')
+    })
+  })
+})
+
+describe('parseSlashShorthand', () => {
+  const registry = {
+    get: (id: string) =>
+      id === 'openai'
+        ? ({ id: 'openai', defaultModel: 'gpt-4o-mini' } as never)
+        : null,
+  }
+
+  it('returns the model id unchanged when there is no slash', () => {
+    expect(parseSlashShorthand('gpt-5-mini', registry)).toEqual({
+      providerHint: null,
+      modelId: 'gpt-5-mini',
+    })
+  })
+
+  it('splits a slash-qualified token when the prefix matches a registered provider', () => {
+    expect(parseSlashShorthand('openai/gpt-5-mini', registry)).toEqual({
+      providerHint: 'openai',
+      modelId: 'gpt-5-mini',
+    })
+  })
+
+  it('returns the whole token when the prefix does not match a registered provider', () => {
+    expect(parseSlashShorthand('meta-llama/Llama-3.3-70B', registry)).toEqual({
+      providerHint: null,
+      modelId: 'meta-llama/Llama-3.3-70B',
+    })
+  })
+
+  it('treats empty prefixes or suffixes as plain model ids', () => {
+    expect(parseSlashShorthand('/gpt-5-mini', registry)).toEqual({
+      providerHint: null,
+      modelId: '/gpt-5-mini',
+    })
+    expect(parseSlashShorthand('openai/', registry)).toEqual({
+      providerHint: null,
+      modelId: 'openai/',
+    })
+  })
+
+  it('disables parsing when the registry does not expose `get`', () => {
+    expect(parseSlashShorthand('openai/gpt-5-mini', {})).toEqual({
+      providerHint: null,
+      modelId: 'openai/gpt-5-mini',
     })
   })
 })

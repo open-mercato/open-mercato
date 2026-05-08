@@ -15,8 +15,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1780-0 | 0.1 | Add `AI_DEFAULT_PROVIDER` + `AI_DEFAULT_MODEL` resolution to `model-factory.ts`; add `'env_default'` to `AiModelResolution.source` | done | pending |
-| 1780-0 | 0.2 | Update `model-factory.test.ts` with the 5 cases from spec 1780 §Phase 0 Tests | todo | — |
+| 1780-0 | 0.1 | Add `AI_DEFAULT_PROVIDER` + `AI_DEFAULT_MODEL` resolution to `model-factory.ts`; add `'env_default'` to `AiModelResolution.source` | done | 064e832b4 |
+| 1780-0 | 0.2 | Update `model-factory.test.ts` with the 5 cases from spec 1780 §Phase 0 Tests | done | c4e20af59 |
 | 1780-0 | 0.3 | Update `model-factory.integration.test.ts` with end-to-end smoke for `AI_DEFAULT_PROVIDER` | todo | — |
 | 1780-0 | 0.4 | Update `apps/mercato/.env.example` and `packages/create-app/template/.env.example` | todo | — |
 | 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | todo | — |
