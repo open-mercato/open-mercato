@@ -409,3 +409,32 @@ The matching hook on `runAiAgentObject` is named `generateObject` and additional
 - UI streaming parts (`AiUiPart` tags consumed by `<AiChat>`) are produced by the default runtime path; if your callback returns a stream that does not emit those parts, the embedded chat UI degrades to plain text.
 
 Pick Option B by default when you "just need one extra AI SDK option" — it keeps every other guardrail in place. Reach for Option A only when you are deliberately working outside the agent contract.
+
+## Choosing an execution engine
+
+The `executionEngine` field on `AiAgentDefinition` selects the underlying Vercel AI SDK dispatch strategy. The default (`'stream-text'`) is unchanged from previous releases; `'tool-loop-agent'` is opt-in.
+
+| Feature | `'stream-text'` (default) | `'tool-loop-agent'` |
+|---------|--------------------------|---------------------|
+| SDK primitive | `streamText(...)` | `ToolLoopAgent` (`Experimental_Agent`) |
+| `prepareStep` | Supported — passed to `streamText` | Supported — wired at **construction** (`settings.prepareStep`), NOT via `prepareCall` |
+| `stopWhen` | Supported | Supported — wired at construction |
+| `repairToolCall` | Supported (`experimental_repairToolCall`) | Present in `ToolLoopAgentSettings` in current SDK, but behaviour parity across SDK versions is not guaranteed — prefer `'stream-text'` when repair logic correctness is critical |
+| Mutation-approval contract | Guaranteed — `buildWrapperPrepareStep` wraps all mutation tools | Guaranteed — same `buildWrapperPrepareStep` is wired at construction; `prepareMutation` runs identically |
+| Multi-agent handoff (future) | Not planned | SDK-native; agents on `'tool-loop-agent'` receive this feature first |
+| `prepareCall` hook | N/A | Per-turn narrowing of `model`, `tools`, `stopWhen`, `activeTools`, `providerOptions` only — `prepareStep` is **not** in the pick list |
+
+**Key rule for `'tool-loop-agent'`**: the wrapper-owned `prepareStep` (mutation-approval enforcement) MUST be wired at agent construction time via `settings.prepareStep`. It cannot be threaded through `prepareCall` because `prepareStep` is not in `prepareCall`'s `Pick` list. The runtime handles this automatically — agent authors who use the `generateText` escape-hatch MUST NOT reconstruct a `ToolLoopAgent` without forwarding `preparedOptions.prepareStep`.
+
+To opt in to the `ToolLoopAgent` backend for an agent:
+
+```ts
+export const catalogToolLoopAssistant: AiAgentDefinition = {
+  id: 'catalog.tool_loop_assistant',
+  moduleId: 'catalog',
+  executionEngine: 'tool-loop-agent',
+  // ...rest of the definition
+}
+```
+
+Omitting `executionEngine` (or setting it to `'stream-text'`) leaves the existing dispatch path completely unchanged.
