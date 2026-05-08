@@ -124,7 +124,8 @@ export async function getCustomerAuthForHost(
     const resolved = await service.resolveByHostname(hostname)
     if (!resolved || resolved.status !== 'active') return null
     return getCustomerAuthFromCookies({ expectedTenantId: resolved.tenantId })
-  } catch {
+  } catch (err) {
+    console.warn('[customer_accounts] getCustomerAuthForHost: domain resolve failed; falling back to platform cookie', err)
     return getCustomerAuthFromCookies()
   }
 }

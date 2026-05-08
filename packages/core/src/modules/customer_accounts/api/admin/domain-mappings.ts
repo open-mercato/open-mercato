@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -23,6 +24,16 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: [FEATURE] },
   POST: { requireAuth: true, requireFeatures: [FEATURE] },
   DELETE: { requireAuth: true, requireFeatures: [FEATURE] },
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: string }).code
+  if (code === '23505') return true
+  const messageRaw = (error as { message?: string }).message
+  const message = typeof messageRaw === 'string' ? messageRaw : ''
+  return message.toLowerCase().includes('duplicate key')
 }
 
 function serializeRecord(record: DomainMapping) {
@@ -125,13 +136,13 @@ export async function POST(req: Request) {
       replacesDomainId: parsed.data.replacesDomainId,
     })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to register domain'
-    if (message.toLowerCase().includes('unique') || message.toLowerCase().includes('duplicate')) {
+    if (isUniqueViolation(err)) {
       return NextResponse.json(
         { ok: false, error: 'This domain is already in use by another organization' },
         { status: 409 },
       )
     }
+    const message = err instanceof Error ? err.message : 'Failed to register domain'
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 
