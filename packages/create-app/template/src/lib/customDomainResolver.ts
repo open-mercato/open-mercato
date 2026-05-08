@@ -1,3 +1,4 @@
+import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import {
   createCustomDomainCache,
   readMaxEntries,
@@ -186,10 +187,7 @@ export function resetSharedRouterForTests(): void {
 }
 
 export function platformDomainList(): string[] {
-  return (process.env.PLATFORM_DOMAINS ?? 'localhost,openmercato.com')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
+  return platformDomains()
 }
 
 export function isPlatformHost(hostname: string): boolean {

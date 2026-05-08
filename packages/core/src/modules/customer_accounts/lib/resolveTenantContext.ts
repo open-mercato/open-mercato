@@ -13,6 +13,7 @@
  */
 
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
@@ -28,13 +29,6 @@ export type ResolvedTenantContext = {
   tenantId: string
   organizationId: string | null
   hostname: string | null
-}
-
-function platformDomains(): string[] {
-  return (process.env.PLATFORM_DOMAINS ?? 'localhost,openmercato.com')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
 }
 
 function readForcedHost(req: Request): string | null {

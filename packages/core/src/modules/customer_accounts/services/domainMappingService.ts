@@ -9,6 +9,7 @@ import {
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { normalizeHostname, tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { detectProxy, isInKnownProxyRange } from '@open-mercato/core/modules/customer_accounts/lib/proxyRanges'
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
@@ -120,13 +121,6 @@ const defaultHealthCheck: HealthCheckContract = (hostname, timeoutMs) =>
     })
     req.end()
   })
-
-function platformDomains(): string[] {
-  return (process.env.PLATFORM_DOMAINS ?? 'localhost,openmercato.com')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-}
 
 export class DomainMappingService {
   private cache: CacheService | null
