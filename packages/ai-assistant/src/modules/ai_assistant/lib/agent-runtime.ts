@@ -1002,6 +1002,17 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
+  /**
+   * Optional per-call loop config override for object mode. Only the
+   * object-safe subset is accepted: `maxSteps`, `budget`, `onStepFinish`,
+   * `onStepStart`, and `allowRuntimeOverride`. Providing any chat-only
+   * field (`prepareStep`, `repairToolCall`, `stopWhen`, `activeTools`,
+   * `toolChoice`) throws `AgentPolicyError` code
+   * `loop_unsupported_in_object_mode`.
+   *
+   * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loop?: Pick<AiAgentLoopConfig, 'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride'>
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
