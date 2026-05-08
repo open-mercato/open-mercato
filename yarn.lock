@@ -6320,6 +6320,7 @@ __metadata:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
+    "@open-mercato/forms": "workspace:*"
     "@open-mercato/gateway-stripe": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -6536,6 +6537,26 @@ __metadata:
     jest: "npm:^30.3.0"
     pg: "npm:8.20.0"
     ts-jest: "npm:^29.4.9"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/forms@workspace:*, @open-mercato/forms@workspace:packages/forms":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/forms@workspace:packages/forms"
+  dependencies:
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    ajv: "npm:^8.17.1"
+    ajv-formats: "npm:^3.0.1"
+    esbuild: "npm:^0.28.0"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.3.0"
+    ts-jest: "npm:^29.4.9"
+  peerDependencies:
+    "@mikro-orm/core": ^7.0.14
+    "@mikro-orm/decorators": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
+    zod: ^4.3.6
   languageName: unknown
   linkType: soft
 

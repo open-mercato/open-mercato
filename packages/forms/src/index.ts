@@ -1,0 +1,10 @@
+// Barrel for @open-mercato/forms
+export { metadata, features } from './modules/forms/index'
+export { FormVersionCompiler, FormCompilationError } from './modules/forms/services/form-version-compiler'
+export { defaultFieldTypeRegistry, FieldTypeRegistry } from './modules/forms/schema/field-type-registry'
+export type { FieldTypeSpec } from './modules/forms/schema/field-type-registry'
+export type { CompiledFormVersion, FieldDescriptor, RolePolicyLookup } from './modules/forms/services/form-version-compiler'
+export { eventsConfig as formsEventsConfig, emitFormsEvent } from './modules/forms/events'
+export type { FormsEventId } from './modules/forms/events'
+export { formsEventPayloadSchemas } from './modules/forms/events-payloads'
+export type { FormsEventPayload } from './modules/forms/events-payloads'

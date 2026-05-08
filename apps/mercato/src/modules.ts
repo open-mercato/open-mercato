@@ -57,6 +57,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
+  { id: 'forms', from: '@open-mercato/forms' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
   { id: 'example', from: '@app' },
