@@ -181,6 +181,18 @@ export class DomainMappingService {
     return result
   }
 
+  async isAllowedForTls(input: string): Promise<{ organizationId: string; status: DomainStatus } | null> {
+    const hostname = tryNormalizeHostname(input)
+    if (!hostname) return null
+    if (platformDomains().includes(hostname)) return null
+    const row = await this.em.findOne(DomainMapping, {
+      hostname,
+      status: { $in: ['active', 'verified'] },
+    } as never)
+    if (!row) return null
+    return { organizationId: row.organizationId, status: row.status }
+  }
+
   async resolveActiveByOrg(organizationId: string): Promise<{ hostname: string; status: DomainStatus } | null> {
     const cacheKey = `${ACTIVE_BY_ORG_KEY_PREFIX}:${organizationId}`
     if (this.cache) {

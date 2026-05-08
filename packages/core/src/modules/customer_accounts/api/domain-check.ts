@@ -53,9 +53,8 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const service = container.resolve('domainMappingService') as DomainMappingService
-  const result = await service.resolveByHostname(hostname)
+  const result = await service.isAllowedForTls(hostname)
   if (!result) return notFound()
-  if (result.status !== 'active' && result.status !== 'verified') return notFound()
   return ok()
 }
 
