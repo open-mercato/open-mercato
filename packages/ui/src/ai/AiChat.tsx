@@ -49,6 +49,7 @@ import {
 } from './useAiChat'
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
+import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
@@ -220,6 +221,13 @@ export interface AiChatProps {
    * `debug` is falsy.
    */
   debugPromptSections?: AiChatDebugPromptSection[]
+  /**
+   * Optional loop trace from the last completed turn. When present and
+   * `debug` is truthy, renders a `LoopTracePanel` inside the debug panel.
+   * Populated by the host from the dispatcher SSE `loop-finish` event
+   * (wired in l4.4). Ignored when `debug` is falsy.
+   */
+  loopTrace?: LoopTracePanelTrace
   /** Suggested prompts shown in the empty / welcome state. */
   suggestions?: AiChatSuggestion[]
   /** Context items shown as pills above the transcript (e.g. selected products). */
@@ -783,6 +791,7 @@ export function AiChat({
   uiParts: uiPartsProp,
   debugTools,
   debugPromptSections,
+  loopTrace,
   conversationId,
   suggestions,
   contextItems,
@@ -1376,6 +1385,7 @@ export function AiChat({
         <AiChatDebugPanel
           tools={debugTools}
           promptSections={debugPromptSections}
+          loopTrace={loopTrace}
           lastRequestDebug={chat.lastRequestDebug}
           lastResponseDebug={chat.lastResponseDebug}
           status={chat.status}
@@ -1389,6 +1399,7 @@ export function AiChat({
 interface DebugPanelProps {
   tools?: AiChatDebugTool[]
   promptSections?: AiChatDebugPromptSection[]
+  loopTrace?: LoopTracePanelTrace
   lastRequestDebug: { url: string; body: unknown } | null
   lastResponseDebug: { status: number; text: string } | null
   status: 'idle' | 'submitting' | 'streaming'
@@ -1398,6 +1409,7 @@ interface DebugPanelProps {
 function AiChatDebugPanel({
   tools,
   promptSections,
+  loopTrace,
   lastRequestDebug,
   lastResponseDebug,
   status,
@@ -1412,6 +1424,10 @@ function AiChatDebugPanel({
       <div className="font-semibold">
         {t('ai_assistant.chat.debug.panelTitle', 'Debug panel')}
       </div>
+
+      {loopTrace ? (
+        <LoopTracePanel trace={loopTrace} />
+      ) : null}
 
       <details className="rounded border border-border bg-background" data-ai-chat-debug-section="tools" open>
         <summary className="cursor-pointer px-2 py-1 font-semibold">
