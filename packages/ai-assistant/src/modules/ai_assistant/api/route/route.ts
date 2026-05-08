@@ -101,12 +101,16 @@ export async function POST(req: NextRequest) {
     let config = await resolveChatConfig(container)
 
     // Fallback to first configured provider from the LLM provider registry.
-    // Default walk order prioritizes the native adapters (backward compatible)
-    // before OpenAI-compatible presets.
+    // AI_DEFAULT_PROVIDER (Phase 0 of the per-axis-overrides spec) takes
+    // precedence so an operator-pinned default flows through routing too;
+    // otherwise we keep the historical native-first order for backward
+    // compatibility.
     if (!config) {
-      const picked = llmProviderRegistry.resolveFirstConfigured({
-        order: ['anthropic', 'openai', 'google'],
-      })
+      const aiDefaultProvider = (process.env.AI_DEFAULT_PROVIDER ?? '').trim()
+      const order = aiDefaultProvider
+        ? [aiDefaultProvider, 'anthropic', 'openai', 'google']
+        : ['anthropic', 'openai', 'google']
+      const picked = llmProviderRegistry.resolveFirstConfigured({ order })
       if (!picked) {
         return NextResponse.json(
           {
