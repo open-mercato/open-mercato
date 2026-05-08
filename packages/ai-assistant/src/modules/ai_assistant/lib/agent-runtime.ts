@@ -5,10 +5,12 @@ import type { LanguageModel, UIMessage } from 'ai'
 import {
   convertToModelMessages,
   generateObject,
+  hasToolCall,
   stepCountIs,
   streamObject,
   streamText,
 } from 'ai'
+import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory } from './model-factory'
 import type {
@@ -167,6 +169,42 @@ export function resolveEffectiveLoopConfig(
     ...base,
     ...callerLoop,
   }
+}
+
+/**
+ * Translates serializable `AiAgentLoopStopCondition` items into the Vercel AI
+ * SDK `StopCondition` array ready to pass to `streamText` / `generateText`.
+ *
+ * The wrapper ALWAYS appends `stepCountIs(maxSteps ?? 10)` as the final item
+ * in the returned array (R3 mitigation). This guarantees that a misconfigured
+ * `hasToolCall` for a non-existent tool can never cause an infinite loop
+ * because the SDK treats `stopWhen` arrays with OR semantics — the step-count
+ * fallback will always trip eventually.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function translateStopConditions(
+  loopConfig: AiAgentLoopConfig,
+): StopCondition<Record<string, unknown>>[] {
+  const effectiveMaxSteps = loopConfig.maxSteps ?? 10
+  const userConditions: StopCondition<Record<string, unknown>>[] = []
+
+  const rawStopWhen = loopConfig.stopWhen
+  if (rawStopWhen) {
+    const items = Array.isArray(rawStopWhen) ? rawStopWhen : [rawStopWhen]
+    for (const item of items) {
+      if (item.kind === 'stepCount') {
+        userConditions.push(stepCountIs(item.count))
+      } else if (item.kind === 'hasToolCall') {
+        userConditions.push(hasToolCall(item.toolName))
+      } else if (item.kind === 'custom') {
+        userConditions.push(item.stop as StopCondition<Record<string, unknown>>)
+      }
+    }
+  }
+
+  // Always append the hard step-count fallback (R3 mitigation).
+  return [...userConditions, stepCountIs(effectiveMaxSteps)]
 }
 
 interface ResolvedAgentModel {
