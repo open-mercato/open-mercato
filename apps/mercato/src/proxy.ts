@@ -25,10 +25,6 @@ function pickHostname(req: NextRequest): string | null {
   return req.headers.get('host')
 }
 
-function isApiRequest(pathname: string): boolean {
-  return pathname.startsWith('/api/')
-}
-
 function buildRewrittenPath(orgSlug: string, originalPathname: string): string {
   const trimmed = originalPathname.startsWith('/') ? originalPathname : `/${originalPathname}`
   if (trimmed === '/') return `/${orgSlug}/portal`
@@ -71,15 +67,9 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } })
   }
 
-  // Custom domain.
-  if (isApiRequest(pathname)) {
-    // API routes resolve tenant from the Host header themselves
-    // (see customer_accounts/lib/resolveTenantContext.ts). Pass through.
-    requestHeaders.set('x-next-url', pathname)
-    requestHeaders.set('x-custom-domain', '1')
-    return NextResponse.next({ request: { headers: requestHeaders } })
-  }
-
+  // Custom domain. The matcher already excludes /api/* so the proxy never sees
+  // API requests — they hit the route handlers directly, which resolve the
+  // tenant from the Host header (see customer_accounts/lib/resolveTenantContext).
   const router = getSharedCustomDomainRouter()
   const result = await resolveForCustomHost(router, normalizedHost!)
 
