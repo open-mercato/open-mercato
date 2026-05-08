@@ -18,7 +18,7 @@ export default async function handle(
 
   let cache: CacheService | null = null
   try {
-    cache = ctx.resolve<CacheService>('cacheService')
+    cache = ctx.resolve<CacheService>('cache')
   } catch {
     return
   }
