@@ -68,6 +68,10 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     domainMappings: records.map(serializeRecord),
+    config: {
+      cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET ?? null,
+      aRecordTarget: process.env.CUSTOM_DOMAIN_A_RECORD_TARGET ?? null,
+    },
   })
 }
 
@@ -199,7 +203,14 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 200,
           description: 'OK',
-          schema: z.object({ ok: z.literal(true), domainMappings: z.array(domainMappingSchema) }),
+          schema: z.object({
+            ok: z.literal(true),
+            domainMappings: z.array(domainMappingSchema),
+            config: z.object({
+              cnameTarget: z.string().nullable(),
+              aRecordTarget: z.string().nullable(),
+            }),
+          }),
         },
       ],
       errors: [
