@@ -1103,9 +1103,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
-    ? stepCountIs(agent.maxSteps)
-    : undefined
+  void tools
 
   if (resolvedOutput.mode === 'stream') {
     const streamArgs: Parameters<typeof streamObject>[0] = {
@@ -1139,15 +1137,6 @@ export async function runAiAgentObject<TSchema = unknown>(
     schema: resolvedOutput.schema as never,
     schemaName: resolvedOutput.schemaName,
   }
-  if (stopWhen) {
-    // generateObject shares `CallSettings` with generateText; stopWhen is ignored
-    // by the typed surface but harmless for providers that respect it. Tools
-    // flow through the system prompt only in object mode today — the whitelist
-    // has already been resolved via `resolveAiAgentTools` above, even if we
-    // don't hand it to generateObject.
-    ;(generateArgs as Record<string, unknown>).stopWhen = stopWhen
-  }
-  void tools
 
   const result = await generateObject(generateArgs)
   return {
