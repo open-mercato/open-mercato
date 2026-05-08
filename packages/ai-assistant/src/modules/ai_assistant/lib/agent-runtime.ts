@@ -119,6 +119,17 @@ export interface RunAiAgentTextInput {
    * per-tenant/org uniqueness within the TTL window.
    */
   conversationId?: string | null
+  /**
+   * Optional per-call loop config override. Fields set here win over the
+   * agent's `loop` declaration and the tenant DB override. The override is
+   * gated by `agent.loop?.allowRuntimeOverride ?? true` — agents that pin
+   * a loop policy for correctness reasons can set `allowRuntimeOverride: false`
+   * to reject any per-call override with `AgentPolicyError` code
+   * `loop_runtime_override_disabled`.
+   *
+   * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loop?: Partial<AiAgentLoopConfig>
 }
 
 /**
@@ -129,6 +140,29 @@ export interface RunAiAgentTextInput {
  */
 const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
 const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+
+/**
+ * Guards the per-call loop override against agents that have opted out of
+ * runtime overrides by setting `loop.allowRuntimeOverride: false`.
+ *
+ * Throws `AgentPolicyError` with code `loop_runtime_override_disabled` when
+ * the agent has opted out and a caller override was supplied.
+ *
+ * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+function assertLoopRuntimeOverrideAllowed(
+  agent: AiAgentDefinition,
+  callerLoop: Partial<AiAgentLoopConfig> | undefined,
+): void {
+  if (!callerLoop) return
+  const allowed = agent.loop?.allowRuntimeOverride ?? true
+  if (!allowed) {
+    throw new AgentPolicyError(
+      'loop_runtime_override_disabled',
+      `Agent "${agent.id}" has disabled per-call loop overrides (loop.allowRuntimeOverride: false). Remove the loop override to proceed.`,
+    )
+  }
+}
 
 /**
  * Resolves the effective loop config for a turn by walking the precedence
@@ -145,13 +179,18 @@ const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
  * a higher-priority source fall through to a lower-priority one. The merge is
  * performed left-to-right with higher-priority sources winning field-by-field.
  *
- * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ * Throws `AgentPolicyError` code `loop_runtime_override_disabled` when the
+ * agent opts out of per-call overrides and a caller loop was supplied.
+ *
+ * Phase 0 + Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
  */
 export function resolveEffectiveLoopConfig(
   agent: AiAgentDefinition,
   callerLoop?: Partial<AiAgentLoopConfig> | undefined,
   wrapperDefault?: AiAgentLoopConfig,
 ): AiAgentLoopConfig {
+  assertLoopRuntimeOverrideAllowed(agent, callerLoop)
+
   const effectiveDefault = wrapperDefault ?? WRAPPER_DEFAULT_LOOP_CHAT
 
   // Build base from lowest-priority: wrapper default → legacy maxSteps → agent.loop
