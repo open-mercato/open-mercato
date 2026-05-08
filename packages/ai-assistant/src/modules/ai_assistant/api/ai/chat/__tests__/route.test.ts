@@ -24,6 +24,24 @@ jest.mock('../../../../lib/agent-runtime', () => ({
   runAiAgentText: (...args: unknown[]) => runAiAgentTextMock(...args),
 }))
 
+const getMock = jest.fn()
+const listMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
+  llmProviderRegistry: {
+    get: (...args: unknown[]) => getMock(...args),
+    list: (...args: unknown[]) => listMock(...args),
+  },
+}))
+
+const readBaseurlAllowlistMock = jest.fn()
+const isBaseurlAllowlistedMock = jest.fn()
+
+jest.mock('../../../../lib/baseurl-allowlist', () => ({
+  readBaseurlAllowlist: (...args: unknown[]) => readBaseurlAllowlistMock(...args),
+  isBaseurlAllowlisted: (...args: unknown[]) => isBaseurlAllowlistedMock(...args),
+}))
+
 import { POST } from '../route'
 
 function makeAgent(
@@ -94,6 +112,11 @@ describe('POST /api/ai/chat', () => {
         headers: { 'Content-Type': 'text/event-stream' },
       }),
     )
+    // Phase 4a defaults: provider registry returns a configured provider by default
+    getMock.mockReturnValue({ id: 'openai', isConfigured: () => true })
+    listMock.mockReturnValue([{ id: 'openai', isConfigured: () => true }])
+    readBaseurlAllowlistMock.mockReturnValue(['openrouter.ai'])
+    isBaseurlAllowlistedMock.mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -278,5 +301,123 @@ describe('POST /api/ai/chat', () => {
     expect(response.status).toBe(409)
     const json = await response.json()
     expect(json.code).toBe('tool_not_whitelisted')
+  })
+
+  describe('Phase 4a — query-param override validation', () => {
+    function buildRequestWithOverrides(overrides: {
+      provider?: string
+      model?: string
+      baseUrl?: string
+    }): Request {
+      const url = new URL('http://localhost/api/ai/chat')
+      url.searchParams.set('agent', 'customers.assistant')
+      if (overrides.provider) url.searchParams.set('provider', overrides.provider)
+      if (overrides.model) url.searchParams.set('model', overrides.model)
+      if (overrides.baseUrl) url.searchParams.set('baseUrl', overrides.baseUrl)
+      return new Request(url, {
+        method: 'POST',
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    it('returns 400 with code runtime_override_disabled when agent has allowRuntimeModelOverride: false', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeModelOverride: false }),
+      ])
+
+      const response = await POST(buildRequestWithOverrides({ provider: 'openai' }) as any)
+
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.code).toBe('runtime_override_disabled')
+    })
+
+    it('returns 400 with code provider_unknown when provider is not registered', async () => {
+      getMock.mockReturnValue(null)
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      const response = await POST(buildRequestWithOverrides({ provider: 'unknown-provider' }) as any)
+
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.code).toBe('provider_unknown')
+    })
+
+    it('returns 400 with code provider_not_configured when provider is registered but not configured', async () => {
+      getMock.mockReturnValue({ id: 'openai', isConfigured: () => false })
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      const response = await POST(buildRequestWithOverrides({ provider: 'openai' }) as any)
+
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.code).toBe('provider_not_configured')
+    })
+
+    it('returns 400 with code baseurl_not_allowlisted when baseUrl is not in the allowlist', async () => {
+      isBaseurlAllowlistedMock.mockReturnValue(false)
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      const response = await POST(buildRequestWithOverrides({ baseUrl: 'https://evil.example.com/v1' }) as any)
+
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.code).toBe('baseurl_not_allowlisted')
+    })
+
+    it('accepts valid provider and model overrides and forwards requestOverride to runAiAgentText', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      await POST(buildRequestWithOverrides({ provider: 'openai', model: 'gpt-5-mini' }) as any)
+
+      expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+        requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null }
+      }
+      expect(callArg.requestOverride).toEqual({
+        providerId: 'openai',
+        modelId: 'gpt-5-mini',
+        baseURL: null,
+      })
+    })
+
+    it('does NOT set requestOverride when no override query params are present', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      await POST(
+        buildRequest({ agent: 'customers.assistant', body: { messages: [{ role: 'user', content: 'hi' }] } }) as any,
+      )
+
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as { requestOverride?: unknown }
+      expect(callArg.requestOverride).toBeUndefined()
+    })
+
+    it('accepts valid baseUrl that passes the allowlist check', async () => {
+      isBaseurlAllowlistedMock.mockReturnValue(true)
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      const response = await POST(
+        buildRequestWithOverrides({ baseUrl: 'https://openrouter.ai/api/v1' }) as any,
+      )
+
+      expect(response.status).toBe(200)
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+        requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null }
+      }
+      expect(callArg.requestOverride?.baseURL).toBe('https://openrouter.ai/api/v1')
+    })
   })
 })
