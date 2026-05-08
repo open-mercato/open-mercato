@@ -60,15 +60,17 @@ type SettingsResponse = {
     source: string
   } | null
   tenantOverride: TenantOverride | null
-  agents: Array<{
-    agentId: string
-    moduleId: string
-    allowRuntimeModelOverride: boolean
-    providerId: string
-    modelId: string
-    baseURL: string | null
-    source: string
-  }>
+  agents: AgentResolution[]
+}
+
+type AgentResolution = {
+  agentId: string
+  moduleId: string
+  allowRuntimeModelOverride: boolean
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
 }
 
 type ToolInfo = {
@@ -269,6 +271,111 @@ function GlobalOverrideForm({
   )
 }
 
+function PerAgentOverrideList({
+  agents,
+  onCleared,
+}: {
+  agents: AgentResolution[]
+  onCleared: () => void
+}) {
+  const t = useT()
+  const clearMutation = useGuardedMutation({ operationId: 'ai-settings-clear-agent-override' })
+
+  const handleClearAgentOverride = React.useCallback(
+    async (agentId: string) => {
+      await clearMutation.runMutation({
+        operation: async () => {
+          const result = await apiCall('/api/ai_assistant/settings', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agentId }),
+          })
+          if (!result.ok) {
+            const err = (result.result as { error?: string } | null)?.error
+            throw new Error(err ?? t('ai_assistant.settings.clearAgentError', 'Failed to clear agent override.'))
+          }
+        },
+        context: {},
+      })
+      flash(t('ai_assistant.settings.clearAgentSuccess', 'Agent override cleared.'), 'success')
+      onCleared()
+    },
+    [clearMutation, onCleared, t],
+  )
+
+  if (agents.length === 0) return null
+
+  const overriddenAgents = agents.filter((agent) => agent.source !== 'env_default' && agent.source !== 'provider_default')
+
+  return (
+    <div className="rounded-lg border bg-card p-6" data-ai-settings-agent-overrides="">
+      <h2 className="mb-1 text-sm font-semibold">
+        {t('ai_assistant.settings.agentOverridesTitle', 'Per-agent model resolution')}
+      </h2>
+      <p className="mb-4 text-xs text-muted-foreground">
+        {t(
+          'ai_assistant.settings.agentOverridesDescription',
+          'Resolved model for each registered agent. Agents with a custom override show a Clear button.',
+        )}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="pb-2 pr-4 font-medium">
+                {t('ai_assistant.settings.agentIdColumn', 'Agent')}
+              </th>
+              <th className="pb-2 pr-4 font-medium">
+                {t('ai_assistant.settings.providerColumn', 'Provider')}
+              </th>
+              <th className="pb-2 pr-4 font-medium">
+                {t('ai_assistant.settings.modelColumn', 'Model')}
+              </th>
+              <th className="pb-2 pr-4 font-medium">
+                {t('ai_assistant.settings.sourceColumn', 'Source')}
+              </th>
+              <th className="pb-2 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {agents.map((agent) => {
+              const hasOverride = overriddenAgents.some((a) => a.agentId === agent.agentId)
+              return (
+                <tr
+                  key={agent.agentId}
+                  className="border-b border-border/50 last:border-0"
+                  data-ai-settings-agent-row={agent.agentId}
+                >
+                  <td className="py-2 pr-4 font-mono">{agent.agentId}</td>
+                  <td className="py-2 pr-4">{agent.providerId}</td>
+                  <td className="py-2 pr-4">{agent.modelId}</td>
+                  <td className="py-2 pr-4 text-muted-foreground">{agent.source}</td>
+                  <td className="py-2">
+                    {hasOverride ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1 text-xs"
+                        disabled={clearMutation.isPending}
+                        onClick={() => void handleClearAgentOverride(agent.agentId)}
+                        data-ai-settings-clear-agent-override={agent.agentId}
+                      >
+                        <X className="size-3" aria-hidden />
+                        {t('ai_assistant.settings.clearOverride', 'Clear override')}
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function AiAssistantSettingsContent() {
   const t = useT()
   const queryClient = useQueryClient()
@@ -382,6 +489,13 @@ function AiAssistantSettingsContent() {
           availableProviders={settings.availableProviders}
           tenantOverride={settings.tenantOverride}
           onSaved={handleOverrideSaved}
+        />
+      ) : null}
+
+      {settings?.agents && settings.agents.length > 0 ? (
+        <PerAgentOverrideList
+          agents={settings.agents}
+          onCleared={handleOverrideSaved}
         />
       ) : null}
 
