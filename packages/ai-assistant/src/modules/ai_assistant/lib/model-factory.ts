@@ -14,6 +14,7 @@
  *      `moduleId` is provided. Example: `INBOX_OPS_AI_MODEL=claude-haiku-4-5`,
  *      `CATALOG_AI_MODEL=gpt-4o-mini`.
  *   3. `agentDefaultModel` — typically `AiAgentDefinition.defaultModel`.
+ *      Accepts a slash-qualified `<provider>/<model>` shorthand.
  *   4. Global env `AI_DEFAULT_MODEL` (Phase 0 of spec
  *      `2026-04-27-ai-agents-provider-model-baseurl-overrides.md`). Accepts
  *      either a plain model id (`gpt-5-mini`) or a slash-qualified id
@@ -23,16 +24,21 @@
  *   5. The configured provider's own default model id
  *      (`provider.defaultModel`).
  *
- * Resolution walks the `llmProviderRegistry`'s `resolveFirstConfigured()`
- * output. The walk's `order` argument is seeded from (in priority order):
+ * Every model-axis source is parsed through {@link parseSlashShorthand}.
+ * Resolution walks the chain top-down, remembers the highest-priority
+ * `(slashProviderHint | nonSlashProviderHint)` for the order seed:
  *
- *   1. The slash-qualified provider hint extracted from `AI_DEFAULT_MODEL` —
- *      consumes the provider axis for this resolution.
- *   2. `AI_DEFAULT_PROVIDER` (Phase 0 of the same spec) — names a registered
- *      provider id; falls through transparently when the named provider is
- *      registered-but-unconfigured.
+ *   Provider-axis seed order (highest priority first):
+ *   1. Slash-prefix from `callerOverride` (Phase 1).
+ *   2. `providerOverride` — request-time provider override (Phase 1).
+ *   3. Slash-prefix from `<MODULE>_AI_MODEL` (Phase 1).
+ *   4. `<MODULE>_AI_PROVIDER` env (Phase 1).
+ *   5. Slash-prefix from `agentDefaultModel` (Phase 1).
+ *   6. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider` (Phase 1).
+ *   7. Slash-prefix from `AI_DEFAULT_MODEL` (Phase 0).
+ *   8. `AI_DEFAULT_PROVIDER` (Phase 0).
  *
- * Both env knobs are deliberately decoupled from the legacy
+ * Both `AI_DEFAULT_*` env knobs are deliberately decoupled from the legacy
  * `OPENCODE_PROVIDER` / `OPENCODE_MODEL` vars (which remain bound to the
  * OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" in
  * `packages/ai-assistant/AGENTS.md`.
@@ -70,13 +76,24 @@ export interface AiModelFactoryInput {
    * Owning module id (matches `Module.id`). When set, the factory checks
    * `<MODULE>_AI_MODEL` (uppercased) as the env-override source. Example:
    * `moduleId: 'inbox_ops'` → env var `INBOX_OPS_AI_MODEL`.
+   * Also enables the `<MODULE>_AI_PROVIDER` env axis (Phase 1).
    */
   moduleId?: string
   /**
    * Agent-level default, typically `AiAgentDefinition.defaultModel`. Used
    * when neither `callerOverride` nor the module env override is present.
+   * Accepts a slash-qualified `<provider>/<model>` shorthand (Phase 1).
    */
   agentDefaultModel?: string
+  /**
+   * Agent-level default provider, typically `AiAgentDefinition.defaultProvider`.
+   * Named provider id; falls through transparently when the named provider is
+   * registered-but-unconfigured. Sits between `<MODULE>_AI_PROVIDER` (step 4)
+   * and the global `AI_DEFAULT_PROVIDER` (step 6) in the resolution chain.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  agentDefaultProvider?: string
   /**
    * Per-call override (e.g. `runAiAgentText({ modelOverride })`). Wins over
    * every other source when it is a non-empty trimmed string. Empty strings
@@ -84,6 +101,15 @@ export interface AiModelFactoryInput {
    * callers MUST NOT need a separate "clear override" API.
    */
   callerOverride?: string
+  /**
+   * Request-time provider override — wins for the provider axis at the same
+   * priority as `callerOverride` for the model axis. A non-empty string
+   * that does not match any registered provider id is silently ignored and
+   * the factory falls through to the next provider source.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  providerOverride?: string
 }
 
 /**
@@ -187,8 +213,12 @@ function normalizeOverride(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function moduleEnvVarName(moduleId: string): string {
+function moduleModelEnvVarName(moduleId: string): string {
   return `${moduleId.toUpperCase()}_AI_MODEL`
+}
+
+function moduleProviderEnvVarName(moduleId: string): string {
+  return `${moduleId.toUpperCase()}_AI_PROVIDER`
 }
 
 /**
@@ -236,17 +266,46 @@ export function createModelFactory(
 
   return {
     resolveModel(input: AiModelFactoryInput): AiModelResolution {
-      const globalProviderEnv = normalizeOverride(env[GLOBAL_DEFAULT_PROVIDER_ENV])
-      const globalModelEnv = normalizeOverride(env[GLOBAL_DEFAULT_MODEL_ENV])
+      const hasModule = typeof input.moduleId === 'string' && input.moduleId.length > 0
 
-      // Slash-qualified `AI_DEFAULT_MODEL` consumes the provider axis at
-      // step 6 (env default). Phase 1 of the per-axis-overrides spec
-      // generalizes the parser to every model-axis source.
-      const globalModelParsed = globalModelEnv
-        ? parseSlashShorthand(globalModelEnv, registry)
+      // --- Model-axis sources (highest to lowest priority) ---
+      const callerRaw = normalizeOverride(input.callerOverride)
+      const moduleModelRaw = hasModule
+        ? normalizeOverride(env[moduleModelEnvVarName(input.moduleId!)])
         : null
-      const slashProviderHint = globalModelParsed?.providerHint ?? null
-      const orderHint = slashProviderHint ?? globalProviderEnv ?? null
+      const agentModelRaw = normalizeOverride(input.agentDefaultModel)
+      const globalModelRaw = normalizeOverride(env[GLOBAL_DEFAULT_MODEL_ENV])
+
+      // Parse slash shorthand on every model-axis source.
+      const callerParsed = callerRaw ? parseSlashShorthand(callerRaw, registry) : null
+      const moduleModelParsed = moduleModelRaw ? parseSlashShorthand(moduleModelRaw, registry) : null
+      const agentModelParsed = agentModelRaw ? parseSlashShorthand(agentModelRaw, registry) : null
+      const globalModelParsed = globalModelRaw ? parseSlashShorthand(globalModelRaw, registry) : null
+
+      // --- Provider-axis: walk from highest to lowest priority for the seed.
+      // A slash-qualified hint from a model source wins over a plain provider
+      // source at the same priority step. We walk top-down and take the first
+      // non-null hint.
+      const providerOverrideRaw = normalizeOverride(input.providerOverride)
+      const moduleProviderRaw = hasModule
+        ? normalizeOverride(env[moduleProviderEnvVarName(input.moduleId!)])
+        : null
+      const agentDefaultProviderRaw = normalizeOverride(input.agentDefaultProvider)
+      const globalProviderRaw = normalizeOverride(env[GLOBAL_DEFAULT_PROVIDER_ENV])
+
+      // Walk the provider-axis seed list: slash hint beats plain provider at
+      // the same step. We keep only the first (highest-priority) non-null hint.
+      const providerHintCandidates: Array<string | null> = [
+        callerParsed?.providerHint ?? null,
+        providerOverrideRaw,
+        moduleModelParsed?.providerHint ?? null,
+        moduleProviderRaw,
+        agentModelParsed?.providerHint ?? null,
+        agentDefaultProviderRaw,
+        globalModelParsed?.providerHint ?? null,
+        globalProviderRaw,
+      ]
+      const orderHint = providerHintCandidates.find((hint) => hint !== null) ?? null
       const order = orderHint ? [orderHint] : undefined
 
       const provider = registry.resolveFirstConfigured({ env, order })
@@ -264,30 +323,20 @@ export function createModelFactory(
         )
       }
 
-      const callerOverride = normalizeOverride(input.callerOverride)
-      const moduleEnvOverride =
-        input.moduleId && input.moduleId.length > 0
-          ? normalizeOverride(env[moduleEnvVarName(input.moduleId)])
-          : null
-      const agentDefault = normalizeOverride(input.agentDefaultModel)
-      // The slash parser already split the global model token; use the
-      // post-parse model id so `AI_DEFAULT_MODEL=openai/gpt-5-mini` resolves
-      // model `gpt-5-mini` against provider `openai`.
-      const envDefaultModel = globalModelParsed?.modelId ?? globalModelEnv
-
+      // --- Model-axis: use the post-parse model id from the winning source.
       let modelId: string
       let source: AiModelResolution['source']
-      if (callerOverride) {
-        modelId = callerOverride
+      if (callerParsed) {
+        modelId = callerParsed.modelId
         source = 'caller_override'
-      } else if (moduleEnvOverride) {
-        modelId = moduleEnvOverride
+      } else if (moduleModelParsed) {
+        modelId = moduleModelParsed.modelId
         source = 'module_env'
-      } else if (agentDefault) {
-        modelId = agentDefault
+      } else if (agentModelParsed) {
+        modelId = agentModelParsed.modelId
         source = 'agent_default'
-      } else if (envDefaultModel) {
-        modelId = envDefaultModel
+      } else if (globalModelParsed) {
+        modelId = globalModelParsed.modelId
         source = 'env_default'
       } else {
         modelId = provider.defaultModel
