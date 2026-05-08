@@ -94,7 +94,7 @@ const defaultHealthCheck: HealthCheckContract = (hostname, timeoutMs) =>
       {
         host: hostname,
         port: 443,
-        path: '/api/customer-accounts/domain-check',
+        path: '/api/customer_accounts/domain-check',
         method: 'GET',
         headers: { 'X-Domain-Check-Secret': process.env.DOMAIN_CHECK_SECRET ?? '' },
         timeout: timeoutMs,
