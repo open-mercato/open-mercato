@@ -358,6 +358,106 @@ export function resolveEffectiveLoopConfig(
 }
 
 /**
+ * The reason a budget limit was hit, exposed on `LoopAbortReason` (Phase 3).
+ */
+export type LoopBudgetAbortReason =
+  | 'budget-tool-calls'
+  | 'budget-wall-clock'
+  | 'budget-tokens'
+
+/**
+ * Tracks per-turn budget usage and aborts the run when any limit is exceeded.
+ *
+ * Usage:
+ * 1. Construct with the loop budget and the turn's `AbortController`.
+ * 2. Call `wire(onStepFinish)` to get a composed `onStepFinish` that feeds
+ *    usage data into the enforcer on every completed step.
+ * 3. The enforcer calls `abortController.abort()` with a typed
+ *    `LoopBudgetAbortReason` when a limit is hit.
+ *
+ * Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export class BudgetEnforcer {
+  private toolCallsUsed = 0
+  private tokensUsed = 0
+  readonly turnStartMs: number
+  abortReason: LoopBudgetAbortReason | null = null
+
+  constructor(
+    private readonly budget: AiAgentLoopConfig['budget'],
+    private readonly abortController: AbortController,
+  ) {
+    this.turnStartMs = Date.now()
+  }
+
+  get hasActiveBudget(): boolean {
+    const b = this.budget
+    return (
+      b !== undefined &&
+      (b.maxToolCalls !== undefined || b.maxWallClockMs !== undefined || b.maxTokens !== undefined)
+    )
+  }
+
+  recordStep(usage: { inputTokens?: number; outputTokens?: number; toolCalls?: number }): void {
+    if (!this.budget) return
+    this.toolCallsUsed += usage.toolCalls ?? 0
+    this.tokensUsed += (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+    this.checkLimits()
+  }
+
+  private checkLimits(): void {
+    const b = this.budget
+    if (!b) return
+
+    if (b.maxToolCalls !== undefined && this.toolCallsUsed >= b.maxToolCalls) {
+      this.abort('budget-tool-calls')
+      return
+    }
+
+    const elapsedMs = Date.now() - this.turnStartMs
+    if (b.maxWallClockMs !== undefined && elapsedMs >= b.maxWallClockMs) {
+      this.abort('budget-wall-clock')
+      return
+    }
+
+    if (b.maxTokens !== undefined && this.tokensUsed >= b.maxTokens) {
+      this.abort('budget-tokens')
+    }
+  }
+
+  private abort(reason: LoopBudgetAbortReason): void {
+    if (this.abortReason !== null) return
+    this.abortReason = reason
+    console.info(
+      `[AI Agents] Budget exceeded — aborting turn. Reason: ${reason}. ` +
+        `toolCalls=${this.toolCallsUsed}, tokens=${this.tokensUsed}, ` +
+        `elapsedMs=${Date.now() - this.turnStartMs}.`,
+    )
+    this.abortController.abort(reason)
+  }
+
+  wire(
+    userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+  ): AiAgentLoopConfig['onStepFinish'] {
+    if (!this.hasActiveBudget) return userOnStepFinish
+    return async (event) => {
+      this.recordStep({
+        inputTokens: event.usage?.inputTokens,
+        outputTokens: event.usage?.outputTokens,
+        toolCalls: event.toolCalls?.length,
+      })
+      if (userOnStepFinish) {
+        try {
+          await userOnStepFinish(event)
+        } catch (err) {
+          console.error('[AI Agents] User onStepFinish threw; ignoring:', err)
+        }
+      }
+    }
+  }
+}
+
+/**
  * Translates serializable `AiAgentLoopStopCondition` items into the Vercel AI
  * SDK `StopCondition` array ready to pass to `streamText` / `generateText`.
  *
@@ -1057,10 +1157,22 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const stopConditions = translateStopConditions(effectiveLoop)
   const wrapperPrepareStep = buildWrapperPrepareStep(agent, effectiveLoop, tools)
 
-  // Pre-wire the per-turn AbortController for budget enforcement (Phase 3).
-  // Phases 0–2: not yet enforced; the signal is forwarded to callers and the
-  // SDK so Phase 3 can activate it without changing the prepared-options shape.
+  // Phase 3 — budget enforcement via AbortController.
+  // The BudgetEnforcer wires into onStepFinish to track tool calls, wall-clock
+  // time, and token usage per step. When any limit is exceeded it aborts the
+  // in-flight request via the signal forwarded to the SDK call.
+  // Wall-clock enforcement is also applied eagerly via a timeout so that a
+  // single very long step doesn't escape the limit.
   const abortController = new AbortController()
+  const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
+  const wiredOnStepFinish = budgetEnforcer.wire(effectiveLoop.onStepFinish)
+
+  let wallClockTimer: ReturnType<typeof setTimeout> | undefined
+  if (effectiveLoop.budget?.maxWallClockMs) {
+    wallClockTimer = setTimeout(() => {
+      budgetEnforcer.recordStep({ toolCalls: 0 })
+    }, effectiveLoop.budget.maxWallClockMs)
+  }
 
   const preparedOptions: PreparedAiSdkOptions = {
     model,
@@ -1070,7 +1182,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     maxSteps: effectiveLoop.maxSteps ?? 10,
     stopWhen: stopConditions,
     prepareStep: wrapperPrepareStep,
-    onStepFinish: effectiveLoop.onStepFinish,
+    onStepFinish: wiredOnStepFinish,
     onStepStart: effectiveLoop.onStepStart,
     onToolCallStart: effectiveLoop.onToolCallStart,
     onToolCallFinish: effectiveLoop.onToolCallFinish,
@@ -1081,14 +1193,18 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   }
 
   if (input.generateText) {
-    const callbackResult = await input.generateText(preparedOptions)
-    return (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
-      sendReasoning: true,
-      headers: {
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-      },
-    })
+    try {
+      const callbackResult = await input.generateText(preparedOptions)
+      return (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
+        sendReasoning: true,
+        headers: {
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+        },
+      })
+    } finally {
+      if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
+    }
   }
 
   const result = streamText({
@@ -1098,7 +1214,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     tools,
     stopWhen: stopConditions,
     prepareStep: wrapperPrepareStep,
-    onStepFinish: effectiveLoop.onStepFinish,
+    onStepFinish: wiredOnStepFinish,
     onStepStart: effectiveLoop.onStepStart,
     experimental_onToolCallStart: effectiveLoop.onToolCallStart,
     experimental_onToolCallFinish: effectiveLoop.onToolCallFinish,
@@ -1107,6 +1223,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
     abortSignal: abortController.signal,
   })
+  if (wallClockTimer !== undefined) {
+    result.consumeStream().then(() => clearTimeout(wallClockTimer!)).catch(() => clearTimeout(wallClockTimer!))
+  }
   return result.toUIMessageStreamResponse({
     sendReasoning: true,
     headers: {
