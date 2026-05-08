@@ -15,6 +15,33 @@ import type {
 export type AiAgentExecutionMode = 'chat' | 'object'
 
 /**
+ * Selects the underlying Vercel AI SDK dispatch strategy for this agent.
+ *
+ * - `'stream-text'` (default): the runtime calls `streamText(...)` directly on
+ *   every turn. All loop primitives are supported: `prepareStep`, `stopWhen`,
+ *   `repairToolCall`, `activeTools`, `toolChoice`.
+ *
+ * - `'tool-loop-agent'`: the runtime constructs a `ToolLoopAgent`
+ *   (`Experimental_Agent`) once and dispatches via `agent.generate(...)` /
+ *   `agent.stream(...)` per turn. The wrapper-owned `prepareStep` (security-
+ *   critical for mutation-approval) is supplied at construction via
+ *   `settings.prepareStep`. `stopWhen` is similarly wired at construction.
+ *   The `prepareCall` hook is used for per-turn narrowing of `model`, `tools`,
+ *   `stopWhen`, `activeTools`, and `providerOptions`; `prepareStep` is NOT in
+ *   its `Pick` list and MUST NOT be threaded through it.
+ *
+ *   Note: the current SDK version ships `experimental_repairToolCall` on
+ *   `ToolLoopAgentSettings`, so `repairToolCall` is technically reachable via
+ *   this engine. The `loop.repairToolCall` JSDoc retains a caveat reflecting
+ *   the spec's documented limitation, which was written against an earlier SDK
+ *   snapshot where the setting was absent — use with awareness that SDK
+ *   behaviour may differ across versions.
+ *
+ * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export type AiAgentExecutionEngine = 'stream-text' | 'tool-loop-agent'
+
+/**
  * A serializable stop condition for the agentic loop. The `kind` field
  * determines which Vercel AI SDK helper is used at runtime:
  * - `stepCount` → `stepCountIs(count)` — the loop stops after N steps.
@@ -109,6 +136,14 @@ export interface AiAgentLoopConfig {
    *
    * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
    * for object-mode agents.
+   *
+   * **Engine note**: this primitive is honored under `executionEngine: 'stream-text'`
+   * (default). Agents on `'tool-loop-agent'` may not reliably support
+   * `repairToolCall` across all SDK versions — if you require it, use the
+   * default `stream-text` engine until support is confirmed stable on the
+   * `ToolLoopAgent` class.
+   *
+   * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   repairToolCall?: ToolCallRepairFunction<ToolSet>
   /**
@@ -242,6 +277,28 @@ export interface AiAgentDefinition {
   allowedTools: string[]
   suggestions?: AiAgentSuggestion[]
   executionMode?: AiAgentExecutionMode
+  /**
+   * Selects the underlying Vercel AI SDK dispatch strategy for this agent.
+   * Defaults to `'stream-text'` — the existing behavior and the only engine
+   * with unconditional full primitive coverage (`repairToolCall`, all loop
+   * controls).
+   *
+   * Set to `'tool-loop-agent'` to use the `ToolLoopAgent` (`Experimental_Agent`)
+   * class, which is closer to a semantic agent abstraction and receives upcoming
+   * SDK features (multi-agent handoff, streaming approval responses) first.
+   *
+   * **Note on `repairToolCall`**: the current SDK version ships
+   * `experimental_repairToolCall` on `ToolLoopAgentSettings`, so the primitive
+   * is technically available. However, SDK behaviour is not guaranteed to be
+   * identical across versions — prefer `'stream-text'` when `repairToolCall`
+   * correctness is critical.
+   *
+   * This field is opt-in: omitting it leaves the existing `stream-text` path
+   * completely unchanged.
+   *
+   * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  executionEngine?: AiAgentExecutionEngine
   /**
    * Optional provider id this agent prefers (e.g. `'openai'`, `'anthropic'`).
    * Must match a registered `LlmProvider.id`. When the named provider is
