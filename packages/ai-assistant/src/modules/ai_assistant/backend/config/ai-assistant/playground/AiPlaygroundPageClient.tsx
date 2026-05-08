@@ -13,8 +13,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primi
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, LoopTracePanel, useAiShortcuts } from '@open-mercato/ui/ai'
-import type { AiChatDebugPromptSection, AiChatDebugTool, LoopTracePanelTrace } from '@open-mercato/ui/ai'
+import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, useAiShortcuts } from '@open-mercato/ui/ai'
+import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
 
 type PlaygroundAgentTool = {
   name: string
@@ -301,10 +301,6 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
     [agent],
   )
   const [uiParts, setUiParts] = React.useState<PlaygroundUiPartSeed[]>([])
-  // Phase 4: loop trace from the last completed turn. Populated once the
-  // dispatcher SSE stream emits a `loopTrace` payload (wired in l4.4).
-  const [loopTrace, setLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
-  void setLoopTrace
 
   // Step 5.10: the dispatcher does not yet surface `AiUiPart` entries through
   // the plain-text stream consumed by `useAiChat`. For now the playground
@@ -350,9 +346,6 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
         debugPromptSections={debugPromptSections}
         uiParts={uiParts}
       />
-      {debug && loopTrace ? (
-        <LoopTracePanel trace={loopTrace} />
-      ) : null}
     </div>
   )
 }

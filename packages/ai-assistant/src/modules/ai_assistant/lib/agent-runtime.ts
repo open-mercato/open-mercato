@@ -154,6 +154,18 @@ export interface RunAiAgentTextInput {
   generateText?: (
     options: PreparedAiSdkOptions,
   ) => Promise<GenerateTextResult<ToolSet> | StreamTextResult<ToolSet>>
+  /**
+   * When `true`, the runtime appends a `loop-finish` SSE event to the
+   * response stream after the AI SDK stream closes. The event payload is the
+   * serialized `LoopTrace` for the turn (agent id, turn id, per-step records,
+   * stop reason, total duration, total usage).
+   *
+   * Consumed by `useAiChat` to populate `lastLoopTrace` and by the playground
+   * debug panel to render the per-turn trace via `LoopTracePanel`.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  emitLoopTrace?: boolean
 }
 
 /**
@@ -164,6 +176,77 @@ export interface RunAiAgentTextInput {
  */
 const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
 const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+
+/**
+ * Named loop-budget preset values for `?loopBudget=<preset>` query param.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export type AiAgentLoopBudgetPreset = 'tight' | 'default' | 'loose'
+
+/**
+ * Maps a `loopBudget` preset name to the corresponding `AiAgentLoopBudget`
+ * triple. `'default'` returns `undefined` (no override — agent default applies).
+ * Values are pinned per spec §"loopBudget preset values (Phase 4)".
+ */
+export function resolveLoopBudgetPreset(
+  preset: AiAgentLoopBudgetPreset,
+): Partial<AiAgentLoopConfig> | undefined {
+  switch (preset) {
+    case 'tight':
+      return { budget: { maxSteps: 3, maxWallClockMs: 10_000, maxTokens: 50_000 } }
+    case 'loose':
+      return { budget: { maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000 } }
+    case 'default':
+      return undefined
+  }
+}
+
+const SSE_ENCODER = new TextEncoder()
+
+/**
+ * Wraps a streaming `Response` to append a typed `loop-finish` SSE event
+ * after the AI SDK stream closes. The event carries the serialized `LoopTrace`
+ * for the turn so the `useAiChat` hook can render it in the debug panel.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+function appendLoopFinishToStream(
+  baseResponse: Response,
+  finalizeLoopTrace: () => LoopTrace,
+): Response {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+
+  async function pump(): Promise<void> {
+    if (!baseResponse.body) {
+      await writer.close()
+      return
+    }
+    const reader = baseResponse.body.getReader()
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        await writer.write(value)
+      }
+      const trace = finalizeLoopTrace()
+      const eventLine = `data: ${JSON.stringify({ type: 'loop-finish', trace })}\n\n`
+      await writer.write(SSE_ENCODER.encode(eventLine))
+    } catch {
+      // Pass through — the reader abort is surfaced by the upstream consumer.
+    } finally {
+      reader.releaseLock()
+      await writer.close().catch(() => undefined)
+    }
+  }
+
+  void pump()
+  return new Response(readable, {
+    status: baseResponse.status,
+    headers: baseResponse.headers,
+  })
+}
 
 /**
  * The fully prepared options bag handed to the `runAiAgentText({ generateText })`
@@ -1326,13 +1409,17 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (input.generateText) {
     try {
       const callbackResult = await input.generateText(preparedOptions)
-      return (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
+      const baseResponse = (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
         sendReasoning: true,
         headers: {
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
         },
       })
+      if (input.emitLoopTrace) {
+        return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+      }
+      return baseResponse
     } finally {
       if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
     }
@@ -1357,13 +1444,17 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (wallClockTimer !== undefined) {
     result.consumeStream().then(() => clearTimeout(wallClockTimer!)).catch(() => clearTimeout(wallClockTimer!))
   }
-  return result.toUIMessageStreamResponse({
+  const baseResponse = result.toUIMessageStreamResponse({
     sendReasoning: true,
     headers: {
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
     },
   })
+  if (input.emitLoopTrace) {
+    return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+  }
+  return baseResponse
 }
 
 /**

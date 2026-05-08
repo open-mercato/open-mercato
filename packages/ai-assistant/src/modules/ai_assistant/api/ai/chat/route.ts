@@ -8,7 +8,11 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
-import { runAiAgentText } from '../../../lib/agent-runtime'
+import {
+  runAiAgentText,
+  resolveLoopBudgetPreset,
+  type AiAgentLoopBudgetPreset,
+} from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 
@@ -75,6 +79,18 @@ const agentQuerySchema = z.object({
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   baseUrl: z.string().optional(),
+  /**
+   * Named loop-budget preset. Maps to a fixed `loop.budget` triple:
+   *   tight   → maxSteps: 3,  maxWallClockMs: 10_000,  maxTokens:  50_000
+   *   default → no override (agent default applies)
+   *   loose   → maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000
+   *
+   * Rejected when the agent has `allowRuntimeModelOverride: false` or
+   * `loop.allowRuntimeOverride: false`.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loopBudget: z.enum(['tight', 'default', 'loose']).optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -178,6 +194,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const rawProvider = queryResult.data.provider
   const rawModel = queryResult.data.model
   const rawBaseUrl = queryResult.data.baseUrl
+  const rawLoopBudget = queryResult.data.loopBudget as AiAgentLoopBudgetPreset | undefined
 
   let parsedBody: unknown
   try {
@@ -227,16 +244,23 @@ export async function POST(req: NextRequest): Promise<Response> {
     const hasRuntimeOverride =
       (rawProvider && rawProvider.trim().length > 0) ||
       (rawModel && rawModel.trim().length > 0) ||
-      (rawBaseUrl && rawBaseUrl.trim().length > 0)
+      (rawBaseUrl && rawBaseUrl.trim().length > 0) ||
+      (rawLoopBudget !== undefined && rawLoopBudget !== 'default')
 
-    if (hasRuntimeOverride) {
-      if (agentDef.allowRuntimeModelOverride === false) {
-        return jsonError(
-          400,
-          `Agent "${agentId}" has runtime model override disabled (allowRuntimeModelOverride: false).`,
-          'runtime_override_disabled',
-        )
-      }
+    // `allowRuntimeOverride` is the canonical flag (renamed from
+    // `allowRuntimeModelOverride` in Phase 4 of this spec). Both are checked
+    // here to cover agents declared before the rename lands; the deprecated
+    // alias has lower priority.
+    const runtimeOverrideAllowed =
+      agentDef.allowRuntimeOverride !== false &&
+      agentDef.allowRuntimeModelOverride !== false
+
+    if (hasRuntimeOverride && !runtimeOverrideAllowed) {
+      return jsonError(
+        400,
+        `Agent "${agentId}" has runtime model override disabled (allowRuntimeModelOverride: false).`,
+        'runtime_override_disabled',
+      )
     }
 
     if (rawProvider && rawProvider.trim().length > 0) {
@@ -267,7 +291,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         )
       }
     }
-    // --- end Phase 4a validation ---
+    // --- end Phase 4a + Phase 4 validation ---
 
     const requestOverride =
       hasRuntimeOverride
@@ -276,6 +300,12 @@ export async function POST(req: NextRequest): Promise<Response> {
             modelId: rawModel && rawModel.trim().length > 0 ? rawModel.trim() : null,
             baseURL: rawBaseUrl && rawBaseUrl.trim().length > 0 ? rawBaseUrl.trim() : null,
           }
+        : undefined
+
+    // Resolve the loopBudget preset to a loop config override (Phase 4).
+    const loopFromPreset =
+      rawLoopBudget !== undefined && rawLoopBudget !== 'default'
+        ? resolveLoopBudgetPreset(rawLoopBudget)
         : undefined
 
     return await runAiAgentText({
@@ -294,6 +324,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       },
       container,
       requestOverride,
+      loop: loopFromPreset,
+      emitLoopTrace: true,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {

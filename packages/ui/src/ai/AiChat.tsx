@@ -1385,7 +1385,7 @@ export function AiChat({
         <AiChatDebugPanel
           tools={debugTools}
           promptSections={debugPromptSections}
-          loopTrace={loopTrace}
+          loopTrace={loopTrace ?? chat.lastLoopTrace}
           lastRequestDebug={chat.lastRequestDebug}
           lastResponseDebug={chat.lastResponseDebug}
           status={chat.status}

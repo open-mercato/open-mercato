@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
+import type { LoopTracePanelTrace } from './LoopTracePanel'
 
 /**
  * Chat message shape used by {@link AiChat}. Kept intentionally minimal so the
@@ -102,6 +103,15 @@ export interface UseAiChatResult {
    * given mount (Phase 3 WS-D contract with `prepareMutation`).
    */
   conversationId: string
+  /**
+   * Loop trace from the last completed turn. Populated when the dispatcher
+   * emits a `loop-finish` SSE event at the end of the response stream.
+   * `null` until the first turn completes or when the dispatcher does not
+   * emit trace events (non-debug deployments may omit them).
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  lastLoopTrace: LoopTracePanelTrace | null
   sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -619,6 +629,8 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     { status: number; text: string } | null
   >(null)
 
+  const [lastLoopTrace, setLastLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
+
   const abortRef = React.useRef<AbortController | null>(null)
   const onErrorRef = React.useRef(onError)
   React.useEffect(() => {
@@ -649,6 +661,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     setError(null)
     setLastRequestDebug(null)
     setLastResponseDebug(null)
+    setLastLoopTrace(null)
     clearPersistedSession(agent)
     mintedConversationIdRef.current = makeConversationId()
   }, [agent, cancel])
@@ -741,6 +754,10 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         return
       }
 
+      // Per-turn loop trace collected from the `loop-finish` SSE event emitted
+      // by the dispatcher at the end of the stream (Phase 4).
+      let pendingLoopTrace: LoopTracePanelTrace | null = null
+
       const headerGet = (name: string): string | null => {
         const headers = (response as { headers?: { get?: (k: string) => string | null } })
           .headers
@@ -770,8 +787,12 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
           if (!data) continue
           if (data === '[DONE]') continue
           try {
-            const parsed = JSON.parse(data) as { type?: string }
-            if (parsed && typeof parsed.type === 'string') {
+            const parsed = JSON.parse(data) as { type?: string; trace?: unknown }
+            if (!parsed || typeof parsed.type !== 'string') continue
+            if (parsed.type === 'loop-finish') {
+              // Capture the loop trace for post-stream state update.
+              pendingLoopTrace = parsed.trace as LoopTracePanelTrace ?? null
+            } else {
               builder = applyChunk(builder, parsed as { type: string })
             }
           } catch {
@@ -825,6 +846,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
           ),
         )
         setLastResponseDebug({ status: response.status, text: streamedRaw })
+        if (pendingLoopTrace !== null) {
+          setLastLoopTrace(pendingLoopTrace)
+        }
         const isEmpty =
           !builder.text.trim() && builder.toolCalls.length === 0 && !builder.reasoning
         if (isEmpty) {
@@ -882,6 +906,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     lastRequestDebug,
     lastResponseDebug,
     conversationId: effectiveConversationId,
+    lastLoopTrace,
     sendMessage,
     cancel,
     reset,
