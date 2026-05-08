@@ -566,6 +566,30 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // streaming so we do not write the same growing string on every chunk —
   // the next idle tick captures the final assistant content.
   const [status, setStatusInternal] = React.useState<'idle' | 'submitting' | 'streaming'>('idle')
+  // Refs mirror the latest persist state so the unmount cleanup can flush
+  // an in-flight assistant message to localStorage even though the streaming
+  // skip above (and React's stale-closure semantics) would otherwise lose it.
+  // Without this, closing the dock or switching agents while the assistant
+  // is "Thinking" abandons the partial reply (issue #1816).
+  const latestMessagesRef = React.useRef<AiChatMessage[]>(messages)
+  const persistKeyRef = React.useRef<string | null>(null)
+  const agentRef = React.useRef<string>(agent)
+  const effectiveConversationIdRef = React.useRef<string>(effectiveConversationId)
+  React.useEffect(() => {
+    latestMessagesRef.current = messages
+  }, [messages])
+  React.useEffect(() => {
+    persistKeyRef.current =
+      typeof conversationIdInput === 'string' && conversationIdInput.length > 0
+        ? conversationIdInput
+        : null
+  }, [conversationIdInput])
+  React.useEffect(() => {
+    agentRef.current = agent
+  }, [agent])
+  React.useEffect(() => {
+    effectiveConversationIdRef.current = effectiveConversationId
+  }, [effectiveConversationId])
   React.useEffect(() => {
     if (status !== 'idle') return
     const persistKey =
@@ -844,6 +868,24 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
 
   React.useEffect(() => {
     return () => {
+      // Flush the latest snapshot — including any in-flight assistant
+      // content — before aborting so reopening the chat shows the partial
+      // reply instead of an empty turn (issue #1816). The streaming-skip
+      // above intentionally avoids per-chunk writes during a hot stream,
+      // so this cleanup is the only place that captures the final partial
+      // state when the user closes the dock or switches agents mid-stream.
+      const finalMessages = latestMessagesRef.current
+      if (finalMessages.length > 0) {
+        writePersistedSession(
+          agentRef.current,
+          {
+            v: SESSION_STORAGE_VERSION,
+            conversationId: effectiveConversationIdRef.current,
+            messages: finalMessages,
+          },
+          persistKeyRef.current,
+        )
+      }
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
