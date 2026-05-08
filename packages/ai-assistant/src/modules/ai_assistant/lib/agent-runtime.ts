@@ -74,6 +74,15 @@ export interface RunAiAgentTextInput {
    */
   providerOverride?: string
   /**
+   * Optional per-call base URL override. Wins over every other source in the
+   * baseURL resolution chain. Intended for programmatic callers only — the
+   * HTTP query-param baseUrl and the AI_RUNTIME_BASEURL_ALLOWLIST arrive in
+   * Phase 4a and MUST NOT be exposed here.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrlOverride?: string
+  /**
    * Optional DI container used by `resolvePageContext` callbacks. When omitted
    * and the agent declares a `resolvePageContext`, hydration is skipped with a
    * warning (callbacks that need database/DI cannot run safely without one).
@@ -100,14 +109,17 @@ function resolveAgentModel(
   modelOverride: string | undefined,
   providerOverride: string | undefined,
   container: AwilixContainer | undefined,
+  baseUrlOverride?: string,
 ): ResolvedAgentModel {
   if (container) {
     const resolution = createModelFactory(container).resolveModel({
       moduleId: agent.moduleId,
       agentDefaultModel: agent.defaultModel,
       agentDefaultProvider: agent.defaultProvider,
+      agentDefaultBaseUrl: agent.defaultBaseUrl,
       callerOverride: modelOverride,
       providerOverride,
+      baseUrlOverride,
     })
     return {
       model: resolution.model as LanguageModel,
@@ -529,7 +541,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
+  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container, input.baseUrlOverride)
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -599,6 +611,15 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   providerOverride?: string
+  /**
+   * Optional per-call base URL override. Wins over every other source in the
+   * baseURL resolution chain. Intended for programmatic callers only — the
+   * HTTP query-param baseUrl and the AI_RUNTIME_BASEURL_ALLOWLIST arrive in
+   * Phase 4a and MUST NOT be exposed here.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrlOverride?: string
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
@@ -719,7 +740,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
+  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container, input.baseUrlOverride)
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
