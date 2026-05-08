@@ -1,3 +1,4 @@
+import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LanguageModel, UIMessage } from 'ai'
@@ -9,7 +10,6 @@ import {
   streamText,
 } from 'ai'
 import type { ZodTypeAny } from 'zod'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { createModelFactory } from './model-factory'
 import type {
   AiAgentDefinition,
@@ -111,41 +111,21 @@ function resolveAgentModel(
   container: AwilixContainer | undefined,
   baseUrlOverride?: string,
 ): ResolvedAgentModel {
-  if (container) {
-    const resolution = createModelFactory(container).resolveModel({
-      moduleId: agent.moduleId,
-      agentDefaultModel: agent.defaultModel,
-      agentDefaultProvider: agent.defaultProvider,
-      agentDefaultBaseUrl: agent.defaultBaseUrl,
-      callerOverride: modelOverride,
-      providerOverride,
-      baseUrlOverride,
-    })
-    return {
-      model: resolution.model as LanguageModel,
-      modelId: resolution.modelId,
-      providerId: resolution.providerId,
-    }
+  const effectiveContainer = container ?? createContainer()
+  const resolution = createModelFactory(effectiveContainer).resolveModel({
+    moduleId: agent.moduleId,
+    agentDefaultModel: agent.defaultModel,
+    agentDefaultProvider: agent.defaultProvider,
+    agentDefaultBaseUrl: agent.defaultBaseUrl,
+    callerOverride: modelOverride,
+    providerOverride,
+    baseUrlOverride,
+  })
+  return {
+    model: resolution.model as LanguageModel,
+    modelId: resolution.modelId,
+    providerId: resolution.providerId,
   }
-
-  const provider = llmProviderRegistry.resolveFirstConfigured()
-  if (!provider) {
-    throw new Error(
-      'No LLM provider is configured. Set OPENCODE_PROVIDER plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
-    )
-  }
-  const apiKey = provider.resolveApiKey()
-  if (!apiKey) {
-    throw new Error(
-      `LLM provider "${provider.id}" is advertised as configured but resolveApiKey() returned empty.`,
-    )
-  }
-  const modelId =
-    (modelOverride && modelOverride.trim().length > 0 ? modelOverride : undefined) ??
-    agent.defaultModel ??
-    provider.defaultModel
-  const model = provider.createModel({ modelId, apiKey }) as LanguageModel
-  return { model, modelId, providerId: provider.id }
 }
 
 /**
