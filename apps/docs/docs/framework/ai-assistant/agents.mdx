@@ -344,40 +344,67 @@ When you want most of the wrapper's guarantees but need to reach into the raw AI
 - builds the tool map from `allowedTools`,
 - composes the system prompt (including `resolvePageContext`),
 - routes any mutation tool calls through `prepareMutation` + the approval contract,
+- composes the effective loop config from the agent's declaration, per-call overrides, and wrapper defaults,
 
-and then hands the fully prepared options object to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
+and then hands the fully prepared options bag (`PreparedAiSdkOptions`) to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
 
 ```ts
 import { runAiAgentText } from '@open-mercato/ai-assistant'
-import { generateText } from 'ai'
+import { streamText } from 'ai'
 
-const result = await runAiAgentText({
+const response = await runAiAgentText({
   agentId: 'customers.account_assistant',
   container,
   authContext,
-  prompt: 'Summarize this account',
-  generateText: async ({ model, tools, system, messages, maxSteps }) => {
-    return generateText({
+  messages,
+  generateText: async ({
+    model, tools, system, messages,
+    // loop primitives — see MUST rules below before omitting any
+    stopWhen,
+    prepareStep,
+    onStepFinish,
+    onStepStart,
+    onToolCallStart,
+    onToolCallFinish,
+    experimental_repairToolCall,
+    activeTools,
+    toolChoice,
+    abortSignal,
+  }) => {
+    return streamText({
       model,
       tools,
       system,
       messages,
-      maxSteps,
+      stopWhen,
+      prepareStep,
+      onStepFinish,
+      onStepStart,
+      experimental_onToolCallStart: onToolCallStart,
+      experimental_onToolCallFinish: onToolCallFinish,
+      experimental_repairToolCall,
+      ...(activeTools !== undefined ? { activeTools } : {}),
+      ...(toolChoice !== undefined ? { toolChoice } : {}),
+      abortSignal,
       experimental_telemetry: { isEnabled: true, functionId: 'customers.account_assistant' },
       providerOptions: {
         anthropic: { cacheControl: { type: 'ephemeral' } },
       },
-      onStepFinish: (step) => { /* custom logging */ },
     })
   },
 })
 ```
 
-The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` so the callback can call `generateObject` / `streamObject` directly.
+The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` and the object-mode subset of loop primitives (`maxSteps`, `onStepFinish`, `onStepStart`, `abortSignal`).
+
+**MUST rules — security-critical fields you MUST NOT drop:**
+
+- `prepareStep` — **SECURITY-CRITICAL.** The wrapper-owned `PrepareStepFunction` re-asserts the tool allowlist and mutation-approval wrapping on every step. Dropping it means mutation tools are no longer routed through `prepareMutation` on steps 2+; the approval contract no longer applies. Never omit `prepareStep` unless you are deliberately removing mutation-approval guardrails for that call (and understand the consequences).
+- `stopWhen` — dropping this removes the agent's loop policy and the R3 step-count fallback, turning the call into a single model invocation that never executes tool calls.
+- `tools`, `system`, `messages` — dropping any of these bypasses the corresponding guardrail (tool allowlist, prompt composition, message history).
 
 **What you still lose with the `generateText` / `generateObject` callbacks:**
 
-- If your callback ignores the supplied `tools` / `system` / `messages` arguments, you also bypass tool whitelisting, prompt composition, and mutation approvals — only the model factory and feature gate remain. Treat the supplied arguments as required inputs unless you know exactly which guardrail you are dropping.
 - Custom transports (e.g. swapping the HTTP client) move you outside the model factory's provider routing; per-tenant API key overrides set in settings will not apply.
 - UI streaming parts (`AiUiPart` tags consumed by `<AiChat>`) are produced by the default runtime path; if your callback returns a stream that does not emit those parts, the embedded chat UI degrades to plain text.
 
