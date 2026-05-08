@@ -13,6 +13,7 @@ import type { ZodTypeAny } from 'zod'
 import { createModelFactory } from './model-factory'
 import type {
   AiAgentDefinition,
+  AiAgentLoopConfig,
   AiAgentPageContextInput,
   AiAgentStructuredOutput,
 } from './ai-agent-definition'
@@ -110,6 +111,62 @@ export interface RunAiAgentTextInput {
    * per-tenant/org uniqueness within the TTL window.
    */
   conversationId?: string | null
+}
+
+/**
+ * The wrapper default loop config used when neither the caller, tenant, agent,
+ * nor legacy maxSteps supplies any config. Chat mode defaults to `{ maxSteps: 10 }`
+ * to ensure tool-using agents can loop; object mode defaults to an empty config
+ * (single structured-output call, no explicit step cap).
+ */
+const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
+const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+
+/**
+ * Resolves the effective loop config for a turn by walking the precedence
+ * chain (highest first):
+ *
+ * 1. `callerLoop` — per-call `runAiAgentText({ loop })` override (Phase 1).
+ * 2. Tenant override row — NOT yet implemented in DB; always `undefined` here.
+ *    // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
+ * 3. `agent.loop` — agent's declarative loop config.
+ * 4. `agent.maxSteps` (deprecated alias) — mapped to `{ maxSteps: agent.maxSteps }`.
+ * 5. `wrapperDefault` — the wrapper's hardcoded fallback.
+ *
+ * Each source contributes only the fields it sets explicitly; fields absent at
+ * a higher-priority source fall through to a lower-priority one. The merge is
+ * performed left-to-right with higher-priority sources winning field-by-field.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function resolveEffectiveLoopConfig(
+  agent: AiAgentDefinition,
+  callerLoop?: Partial<AiAgentLoopConfig> | undefined,
+  wrapperDefault?: AiAgentLoopConfig,
+): AiAgentLoopConfig {
+  const effectiveDefault = wrapperDefault ?? WRAPPER_DEFAULT_LOOP_CHAT
+
+  // Build base from lowest-priority: wrapper default → legacy maxSteps → agent.loop
+  const legacyMaxSteps: AiAgentLoopConfig | undefined =
+    typeof agent.maxSteps === 'number' && agent.maxSteps > 0 && !agent.loop
+      ? { maxSteps: agent.maxSteps }
+      : undefined
+
+  const base: AiAgentLoopConfig = {
+    ...effectiveDefault,
+    ...(legacyMaxSteps ?? {}),
+    ...(agent.loop ?? {}),
+  }
+
+  // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
+  // and merge tenantOverride here at priority #2.
+
+  if (!callerLoop) return base
+
+  return {
+    ...base,
+    ...callerLoop,
+  }
 }
 
 interface ResolvedAgentModel {
