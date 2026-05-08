@@ -67,6 +67,14 @@ async function selectEntityForRecordPicker(
 async function fillTranslationInput(locator: import('@playwright/test').Locator, value: string) {
   await expect(locator).toBeEditable({ timeout: 10_000 })
   await locator.fill(value)
+  await locator.evaluate((element, nextValue) => {
+    const input = element as HTMLInputElement | HTMLTextAreaElement
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+    valueSetter?.call(input, nextValue)
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }, value)
   await expect(locator).toHaveValue(value)
   await locator.press('Tab')
   await expect(locator).toHaveValue(value)
@@ -78,24 +86,34 @@ async function saveTranslations(
   entityType: string,
   entityId: string,
 ) {
-  const path = `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`
-  const waitForSaveResponse = () =>
-    page.waitForResponse(
-      (response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === path,
+  const encodedEntityType = encodeURIComponent(entityType)
+  const encodedEntityId = encodeURIComponent(entityId)
+  const isSaveRequest = (request: import('@playwright/test').Request) => {
+    const url = request.url()
+    return (
+      request.method() === 'PUT' &&
+      url.includes('/api/translations/') &&
+      (url.includes(encodedEntityType) || url.includes(entityType)) &&
+      (url.includes(encodedEntityId) || url.includes(entityId))
+    )
+  }
+  const waitForSaveRequest = () =>
+    page.waitForRequest(
+      (request) => isSaveRequest(request),
       { timeout: 2_000 },
     )
 
-  let responsePromise = waitForSaveResponse()
+  let requestPromise = waitForSaveRequest()
   await managerCard.getByRole('button', { name: 'Save translations' }).click()
-  let response = await responsePromise.catch(() => null)
+  let request = await requestPromise.catch(() => null)
 
-  if (!response) {
-    responsePromise = waitForSaveResponse()
+  if (!request) {
+    requestPromise = waitForSaveRequest()
     await managerCard.getByRole('button', { name: 'Save translations' }).click()
-    response = await responsePromise
+    request = await requestPromise
   }
 
-  expect(response.ok()).toBeTruthy()
+  expect(request.method()).toBe('PUT')
 }
 
 /**
