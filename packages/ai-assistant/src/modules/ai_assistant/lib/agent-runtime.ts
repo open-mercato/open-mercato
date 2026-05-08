@@ -252,15 +252,60 @@ function assertLoopRuntimeOverrideAllowed(
 }
 
 /**
+ * Reads `<MODULE>_AI_LOOP_*` env shorthands for the given module id.
+ * Returns a partial `AiAgentLoopConfig` containing only the axes that are
+ * explicitly set in the environment. Missing or malformed values are silently
+ * ignored (fail-open — env vars are a best-effort static deployment mechanism).
+ *
+ * Supported variables (Phase 3 of spec
+ * `2026-04-28-ai-agents-agentic-loop-controls`):
+ *
+ * - `<MODULE>_AI_LOOP_MAX_STEPS`       — maps to `loop.maxSteps`
+ * - `<MODULE>_AI_LOOP_MAX_WALL_CLOCK_MS` — maps to `loop.budget.maxWallClockMs`
+ * - `<MODULE>_AI_LOOP_MAX_TOKENS`      — maps to `loop.budget.maxTokens`
+ */
+function readModuleLoopEnv(moduleId: string): Partial<AiAgentLoopConfig> {
+  const prefix = moduleId.toUpperCase()
+  const partial: Partial<AiAgentLoopConfig> = {}
+
+  const maxStepsRaw = process.env[`${prefix}_AI_LOOP_MAX_STEPS`]
+  if (maxStepsRaw) {
+    const parsed = parseInt(maxStepsRaw.trim(), 10)
+    if (!isNaN(parsed) && parsed > 0) partial.maxSteps = parsed
+  }
+
+  const maxWallClockRaw = process.env[`${prefix}_AI_LOOP_MAX_WALL_CLOCK_MS`]
+  const maxTokensRaw = process.env[`${prefix}_AI_LOOP_MAX_TOKENS`]
+
+  if (maxWallClockRaw || maxTokensRaw) {
+    const budgetPartial: AiAgentLoopConfig['budget'] = {}
+    if (maxWallClockRaw) {
+      const parsed = parseInt(maxWallClockRaw.trim(), 10)
+      if (!isNaN(parsed) && parsed > 0) budgetPartial.maxWallClockMs = parsed
+    }
+    if (maxTokensRaw) {
+      const parsed = parseInt(maxTokensRaw.trim(), 10)
+      if (!isNaN(parsed) && parsed > 0) budgetPartial.maxTokens = parsed
+    }
+    if (Object.keys(budgetPartial).length > 0) partial.budget = budgetPartial
+  }
+
+  return partial
+}
+
+/**
  * Resolves the effective loop config for a turn by walking the precedence
  * chain (highest first):
  *
  * 1. `callerLoop` — per-call `runAiAgentText({ loop })` override (Phase 1).
  * 2. Tenant override row — NOT yet implemented in DB; always `undefined` here.
  *    // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
- * 3. `agent.loop` — agent's declarative loop config.
- * 4. `agent.maxSteps` (deprecated alias) — mapped to `{ maxSteps: agent.maxSteps }`.
- * 5. `wrapperDefault` — the wrapper's hardcoded fallback.
+ * 3. `<MODULE>_AI_LOOP_*` env shorthands (Phase 3) — only MAX_STEPS,
+ *    MAX_WALL_CLOCK_MS, MAX_TOKENS. Lower precedence than DB override but higher
+ *    than the agent's code-declared defaults.
+ * 4. `agent.loop` — agent's declarative loop config.
+ * 5. `agent.maxSteps` (deprecated alias) — mapped to `{ maxSteps: agent.maxSteps }`.
+ * 6. `wrapperDefault` — the wrapper's hardcoded fallback.
  *
  * Each source contributes only the fields it sets explicitly; fields absent at
  * a higher-priority source fall through to a lower-priority one. The merge is
@@ -269,7 +314,7 @@ function assertLoopRuntimeOverrideAllowed(
  * Throws `AgentPolicyError` code `loop_runtime_override_disabled` when the
  * agent opts out of per-call overrides and a caller loop was supplied.
  *
- * Phase 0 + Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ * Phase 0 + Phase 1 + Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
  */
 export function resolveEffectiveLoopConfig(
   agent: AiAgentDefinition,
@@ -292,13 +337,22 @@ export function resolveEffectiveLoopConfig(
     ...(agent.loop ?? {}),
   }
 
+  // Phase 3 — env shorthands at priority 3 (above agent.loop, below DB override).
   // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
-  // and merge tenantOverride here at priority #2.
+  // and merge tenantOverride here at priority #2 (above envOverride).
+  const envOverride = readModuleLoopEnv(agent.moduleId)
+  const withEnv: AiAgentLoopConfig = {
+    ...base,
+    ...envOverride,
+    ...(envOverride.budget != null
+      ? { budget: { ...(base.budget ?? {}), ...envOverride.budget } }
+      : {}),
+  }
 
-  if (!callerLoop) return base
+  if (!callerLoop) return withEnv
 
   return {
-    ...base,
+    ...withEnv,
     ...callerLoop,
   }
 }
