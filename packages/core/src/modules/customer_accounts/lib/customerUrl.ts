@@ -16,7 +16,15 @@ type OrgService = {
 
 function platformBaseUrl(): string {
   const fromEnv = process.env.PLATFORM_PORTAL_BASE_URL?.trim()
-  return fromEnv && fromEnv.length > 0 ? fromEnv.replace(/\/+$/, '') : 'http://localhost:3000'
+  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, '')
+  // Outbound emails (welcome, magic link, password reset) embed this URL —
+  // localhost in production silently sends broken links to real customers.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'PLATFORM_PORTAL_BASE_URL is required in production. Configure it before sending customer-portal emails.',
+    )
+  }
+  return 'http://localhost:3000'
 }
 
 function resolveContainer(container?: AppContainer): Promise<AppContainer> {
