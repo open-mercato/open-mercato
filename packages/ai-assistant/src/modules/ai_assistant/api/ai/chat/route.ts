@@ -184,6 +184,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     provider: requestUrl.searchParams.get('provider') ?? undefined,
     model: requestUrl.searchParams.get('model') ?? undefined,
     baseUrl: requestUrl.searchParams.get('baseUrl') ?? undefined,
+    loopBudget: requestUrl.searchParams.get('loopBudget') ?? undefined,
   })
   if (!queryResult.success) {
     return jsonError(400, 'Invalid or missing "agent" query parameter.', 'validation_error', {
