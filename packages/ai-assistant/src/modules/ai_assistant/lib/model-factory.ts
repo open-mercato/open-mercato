@@ -110,6 +110,22 @@ export interface AiModelFactoryInput {
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   providerOverride?: string
+  /**
+   * Agent-level default base URL, typically `AiAgentDefinition.defaultBaseUrl`.
+   * Sits between the `<MODULE>_AI_BASE_URL` env var and the preset's own
+   * `baseURLEnvKeys` in the resolution chain.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  agentDefaultBaseUrl?: string
+  /**
+   * Per-call base URL override that wins over every other source. Intended
+   * for programmatic callers only — the HTTP query-param baseUrl and the
+   * AI_RUNTIME_BASEURL_ALLOWLIST arrive in Phase 4a.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrlOverride?: string
 }
 
 /**
@@ -137,6 +153,12 @@ export interface AiModelResolution {
     | 'agent_default'
     | 'env_default'
     | 'provider_default'
+  /**
+   * Resolved base URL passed to the adapter (if any). Undefined when the
+   * adapter will use its built-in default. Included for observability and
+   * test assertions; never exposed over HTTP (Phase 4a adds the allowlist).
+   */
+  baseURL?: string
 }
 
 /**
@@ -219,6 +241,10 @@ function moduleModelEnvVarName(moduleId: string): string {
 
 function moduleProviderEnvVarName(moduleId: string): string {
   return `${moduleId.toUpperCase()}_AI_PROVIDER`
+}
+
+function moduleBaseUrlEnvVarName(moduleId: string): string {
+  return `${moduleId.toUpperCase()}_AI_BASE_URL`
 }
 
 /**
@@ -343,12 +369,24 @@ export function createModelFactory(
         source = 'provider_default'
       }
 
-      const model = provider.createModel({ modelId, apiKey })
+      // --- BaseURL-axis resolution (highest to lowest priority) ---
+      // 1. baseUrlOverride (caller) — programmatic only, no HTTP exposure in Phase 2
+      // 2. <MODULE>_AI_BASE_URL env
+      // 3. agentDefaultBaseUrl
+      // Steps 4-5 (preset env + preset default) are handled inside the adapter's
+      // createModel when no explicit baseURL is passed.
+      const resolvedBaseURL = normalizeOverride(input.baseUrlOverride)
+        ?? (hasModule ? normalizeOverride(env[moduleBaseUrlEnvVarName(input.moduleId!)]) : null)
+        ?? normalizeOverride(input.agentDefaultBaseUrl)
+        ?? undefined
+
+      const model = provider.createModel({ modelId, apiKey, baseURL: resolvedBaseURL })
       return {
         model,
         modelId,
         providerId: provider.id,
         source,
+        ...(resolvedBaseURL !== undefined ? { baseURL: resolvedBaseURL } : {}),
       }
     },
   }

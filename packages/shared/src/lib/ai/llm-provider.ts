@@ -56,9 +56,10 @@ export interface LlmCreateModelOptions {
   /** Resolved API key for the provider. */
   apiKey: string
   /**
-   * Optional override for adapters that support a custom base URL
-   * (e.g. OpenAI protocol adapter pointed at DeepInfra, Groq, or LiteLLM).
-   * Adapters that don't use base URLs (Anthropic, Google) ignore this.
+   * Optional override for the upstream base URL. Every OpenAI-compatible
+   * adapter MUST honor baseURL; Anthropic now also honors it (Messages-
+   * protocol relays only — Cloudflare AI Gateway in Anthropic mode, Helicone
+   * proxy); Google honors it when the SDK supports it (@ai-sdk/google ≥3.0).
    */
   baseURL?: string
 }
