@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dictionariesErrorSchema,
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
       })),
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries.GET] Unexpected error', err)
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       updatedAt: dictionary.updatedAt,
     }, { status: 201 })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries.POST] Unexpected error', err)
