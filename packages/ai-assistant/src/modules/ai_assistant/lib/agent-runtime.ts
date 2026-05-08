@@ -2,9 +2,13 @@ import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
+  GenerateObjectResult,
+  GenerateTextResult,
   LanguageModel,
   PrepareStepFunction,
   PrepareStepResult,
+  StreamObjectResult,
+  StreamTextResult,
   ToolSet,
   UIMessage,
 } from 'ai'
@@ -130,6 +134,24 @@ export interface RunAiAgentTextInput {
    * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   loop?: Partial<AiAgentLoopConfig>
+  /**
+   * Optional escape-hatch callback that receives the fully prepared AI SDK
+   * options bag and must return the SDK result (either from `streamText` or
+   * `generateText`). When supplied, the wrapper still enforces every policy
+   * guardrail (features, tool allowlist, mutation approval, model factory,
+   * prompt composition, attachment bridging) and then hands control to this
+   * callback instead of calling `streamText` directly.
+   *
+   * The callback MUST pass `stopWhen` and `prepareStep` through to the AI SDK
+   * call — dropping either one disables the agent's loop policy or mutation
+   * approval guards respectively. See `agents.mdx` §"Option B" for the full
+   * contract and what you lose when fields are omitted.
+   *
+   * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  generateText?: (
+    options: PreparedAiSdkOptions,
+  ) => Promise<GenerateTextResult<ToolSet> | StreamTextResult<ToolSet>>
 }
 
 /**
@@ -140,6 +162,71 @@ export interface RunAiAgentTextInput {
  */
 const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
 const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+
+/**
+ * The fully prepared options bag handed to the `runAiAgentText({ generateText })`
+ * escape-hatch callback. Callers receive a complete set of wrapper-composed
+ * loop primitives so they can forward them to `streamText` / `generateText`.
+ *
+ * SECURITY CONTRACT: callers MUST forward `prepareStep` to the AI SDK call.
+ * Dropping it removes the per-step tool-allowlist re-check and the mutation-
+ * approval wrapping. Dropping `stopWhen` removes the agent's loop policy and
+ * the R3 step-count fallback.
+ *
+ * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface PreparedAiSdkOptions {
+  model: LanguageModel
+  tools: ToolSet
+  system: string
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>
+  /** Alias kept for SDK compat — equals `stopWhen` array's effective maxSteps. */
+  maxSteps: number
+  /**
+   * Wrapper-composed stop conditions (R3 mitigated: always ends with
+   * `stepCountIs(maxSteps)`). MUST be forwarded to the SDK call.
+   */
+  stopWhen: StopCondition<ToolSet>[]
+  /**
+   * Wrapper-owned `PrepareStepFunction` that re-asserts the tool allowlist and
+   * mutation-approval wrapping per step. SECURITY-CRITICAL: callers MUST
+   * forward this to the SDK call or they lose mutation-approval guarantees.
+   */
+  prepareStep: PrepareStepFunction<ToolSet>
+  /** Wrapper trace aggregator chained with the agent's `onStepFinish` hook. */
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  onStepStart: AiAgentLoopConfig['onStepStart']
+  onToolCallStart: AiAgentLoopConfig['onToolCallStart']
+  onToolCallFinish: AiAgentLoopConfig['onToolCallFinish']
+  experimental_repairToolCall: AiAgentLoopConfig['repairToolCall']
+  activeTools: AiAgentLoopConfig['activeTools']
+  toolChoice: AiAgentLoopConfig['toolChoice']
+  /**
+   * Pre-wired to the per-turn `AbortController` used by budget enforcement
+   * (Phase 3). Forward to the SDK call so budget limits can abort in-flight
+   * requests. May be `undefined` when budget enforcement is not yet active
+   * (Phases 0–2); the SDK treats `undefined` the same as no signal.
+   */
+  abortSignal: AbortSignal | undefined
+}
+
+/**
+ * The fully prepared options bag handed to the `runAiAgentObject({ generateObject })`
+ * escape-hatch callback. Object-mode subset — chat-only fields are absent.
+ *
+ * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface PreparedAiSdkObjectOptions {
+  model: LanguageModel
+  system: string
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>
+  schemaName: string
+  schema: unknown
+  maxSteps: number | undefined
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  onStepStart: AiAgentLoopConfig['onStepStart']
+  abortSignal: AbortSignal | undefined
+}
 
 /**
  * Guards the per-call loop override against agents that have opted out of
@@ -911,23 +998,61 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  // Default to 10 agentic steps when the agent does not declare maxSteps.
-  // Without stopWhen the AI SDK runs a single model call and never executes
-  // tool calls, which makes every tool-using query return an empty stream.
-  const effectiveMaxSteps = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
-    ? agent.maxSteps
-    : 10
-  const stopWhen = stepCountIs(effectiveMaxSteps)
 
-  const streamArgs: Parameters<typeof streamText>[0] = {
+  const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
+  const stopConditions = translateStopConditions(effectiveLoop)
+  const wrapperPrepareStep = buildWrapperPrepareStep(agent, effectiveLoop, tools)
+
+  // Pre-wire the per-turn AbortController for budget enforcement (Phase 3).
+  // Phases 0–2: not yet enforced; the signal is forwarded to callers and the
+  // SDK so Phase 3 can activate it without changing the prepared-options shape.
+  const abortController = new AbortController()
+
+  const preparedOptions: PreparedAiSdkOptions = {
+    model,
+    tools,
+    system: systemPrompt,
+    messages: modelMessages,
+    maxSteps: effectiveLoop.maxSteps ?? 10,
+    stopWhen: stopConditions,
+    prepareStep: wrapperPrepareStep,
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    onToolCallStart: effectiveLoop.onToolCallStart,
+    onToolCallFinish: effectiveLoop.onToolCallFinish,
+    experimental_repairToolCall: effectiveLoop.repairToolCall,
+    activeTools: effectiveLoop.activeTools,
+    toolChoice: effectiveLoop.toolChoice,
+    abortSignal: abortController.signal,
+  }
+
+  if (input.generateText) {
+    const callbackResult = await input.generateText(preparedOptions)
+    return (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
+      sendReasoning: true,
+      headers: {
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    })
+  }
+
+  const result = streamText({
     model,
     system: systemPrompt,
     messages: modelMessages,
     tools,
-    stopWhen,
-  }
-
-  const result = streamText(streamArgs)
+    stopWhen: stopConditions,
+    prepareStep: wrapperPrepareStep,
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    experimental_onToolCallStart: effectiveLoop.onToolCallStart,
+    experimental_onToolCallFinish: effectiveLoop.onToolCallFinish,
+    experimental_repairToolCall: effectiveLoop.repairToolCall,
+    ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
+    ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+    abortSignal: abortController.signal,
+  })
   return result.toUIMessageStreamResponse({
     sendReasoning: true,
     headers: {
@@ -1013,6 +1138,17 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   loop?: Pick<AiAgentLoopConfig, 'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride'>
+  /**
+   * Optional escape-hatch callback receiving the fully prepared object-mode
+   * options bag. When supplied the wrapper still enforces all policy guardrails
+   * and then delegates the actual SDK call to this function. The callback MUST
+   * return a value compatible with `GenerateObjectResult` or `StreamObjectResult`.
+   *
+   * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  generateObject?: (
+    options: PreparedAiSdkObjectOptions,
+  ) => Promise<GenerateObjectResult<unknown> | StreamObjectResult<unknown, unknown, unknown>>
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
@@ -1155,6 +1291,54 @@ export async function runAiAgentObject<TSchema = unknown>(
   const modelMessages = await convertToModelMessages(hydratedMessages)
   void tools
 
+  if (input.loop) {
+    assertLoopObjectModeCompatible(input.loop)
+  }
+  const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
+
+  const abortController = new AbortController()
+
+  const preparedObjectOptions: PreparedAiSdkObjectOptions = {
+    model,
+    system: systemPrompt,
+    messages: modelMessages,
+    schemaName: resolvedOutput.schemaName,
+    schema: resolvedOutput.schema,
+    maxSteps: effectiveLoop.maxSteps,
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    abortSignal: abortController.signal,
+  }
+
+  if (input.generateObject) {
+    const callbackResult = await input.generateObject(preparedObjectOptions)
+    const typedResult = callbackResult as Record<string, unknown>
+    if ('partialObjectStream' in typedResult) {
+      const streamResult = typedResult as {
+        object: Promise<TSchema>
+        partialObjectStream: AsyncIterable<Partial<TSchema>>
+        textStream: AsyncIterable<string>
+        finishReason?: Promise<string | undefined>
+        usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
+      }
+      return {
+        mode: 'stream',
+        object: streamResult.object,
+        partialObjectStream: streamResult.partialObjectStream,
+        textStream: streamResult.textStream,
+        finishReason: streamResult.finishReason,
+        usage: streamResult.usage,
+      }
+    }
+    const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+    return {
+      mode: 'generate',
+      object: genResult.object as TSchema,
+      finishReason: genResult.finishReason,
+      usage: genResult.usage,
+    }
+  }
+
   if (resolvedOutput.mode === 'stream') {
     const streamArgs: Parameters<typeof streamObject>[0] = {
       model,
@@ -1162,6 +1346,10 @@ export async function runAiAgentObject<TSchema = unknown>(
       messages: modelMessages,
       schema: resolvedOutput.schema as never,
       schemaName: resolvedOutput.schemaName,
+      ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
+      onStepFinish: effectiveLoop.onStepFinish,
+      onStepStart: effectiveLoop.onStepStart,
+      abortSignal: abortController.signal,
     }
     const result = streamObject(streamArgs) as unknown as {
       object: Promise<TSchema>
@@ -1186,6 +1374,10 @@ export async function runAiAgentObject<TSchema = unknown>(
     messages: modelMessages,
     schema: resolvedOutput.schema as never,
     schemaName: resolvedOutput.schemaName,
+    ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    abortSignal: abortController.signal,
   }
 
   const result = await generateObject(generateArgs)
