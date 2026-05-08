@@ -19,7 +19,8 @@ export class Migration20260508140932_forms extends Migration {
     this.addSql(`create index "forms_form_submission_revision_submission_idx" on "forms_form_submission_revision" ("submission_id", "revision_number");`);
     this.addSql(`create index "forms_form_submission_revision_org_saved_idx" on "forms_form_submission_revision" ("organization_id", "saved_at");`);
 
-    this.addSql(`create table "forms_encryption_key" ("organization_id" uuid not null, "key_version" int not null, "wrapped_dek" bytea not null, "created_at" timestamptz not null, "retired_at" timestamptz null, primary key ("organization_id", "key_version"));`);
+    this.addSql(`create table "forms_encryption_key" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "key_version" int not null, "wrapped_dek" bytea not null, "created_at" timestamptz not null, "retired_at" timestamptz null, primary key ("id"));`);
+    this.addSql(`alter table "forms_encryption_key" add constraint "forms_encryption_key_org_version_unique" unique ("organization_id", "key_version");`);
   }
 
 }

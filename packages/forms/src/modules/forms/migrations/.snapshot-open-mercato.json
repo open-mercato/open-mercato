@@ -8,6 +8,22 @@
       "name": "forms_encryption_key",
       "schema": "public",
       "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz(6)",
@@ -29,7 +45,7 @@
           "type": "int",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
@@ -45,7 +61,7 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
@@ -91,11 +107,21 @@
       },
       "indexes": [
         {
+          "keyName": "forms_encryption_key_org_version_unique",
           "columnNames": [
             "organization_id",
             "key_version"
           ],
           "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
           "constraint": true,
           "keyName": "forms_encryption_key_pkey",
           "primary": true,

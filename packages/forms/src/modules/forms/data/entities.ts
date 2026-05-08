@@ -287,11 +287,15 @@ export class FormSubmissionRevision {
  * `retired_at = now()` and a fresh row with `key_version + 1` is inserted.
  */
 @Entity({ tableName: 'forms_encryption_key' })
+@Unique({ name: 'forms_encryption_key_org_version_unique', properties: ['organizationId', 'keyVersion'] })
 export class FormsEncryptionKey {
-  @PrimaryKey({ name: 'organization_id', type: 'uuid' })
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @PrimaryKey({ name: 'key_version', type: 'int' })
+  @Property({ name: 'key_version', type: 'int' })
   keyVersion!: number
 
   @Property({ name: 'wrapped_dek', type: 'bytea' })
