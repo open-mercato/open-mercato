@@ -25,6 +25,8 @@ import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+import type { AwilixContainer } from 'awilix'
 import { hydrateCustomersAccountContext } from './ai-agents-context'
 
 type PromptSectionName =
@@ -303,6 +305,249 @@ const agent: AiAgentDefinition = {
   resolvePageContext,
 }
 
-export const aiAgents: AiAgentDefinition[] = [agent]
+// ─────────────────────────────────────────────────────────────────────────────
+// customers.deal_analyzer — multi-step agentic loop demo
+//
+// Exercises every loop primitive landed by PRs #1856..#1869:
+//   - Per-agent provider + slash shorthand (#1858)
+//   - allowRuntimeOverride → ModelPicker (#1864/#1867)
+//   - loop.maxSteps, loop.stopWhen, loop.prepareStep (#1866)
+//   - loop.budget (#1867)
+//   - executionEngine: 'stream-text' (default)
+//
+// A sibling agent `customers.deal_analyzer_tool_loop` uses
+// `executionEngine: 'tool-loop-agent'` to prove both engines work with
+// the mutation gate (TC-AI-AGENT-LOOP-006).
+// ─────────────────────────────────────────────────────────────────────────────
+
+type DealAnalyzerPromptSectionName =
+  | 'role'
+  | 'scope'
+  | 'data'
+  | 'tools'
+  | 'mutationPolicy'
+  | 'responseStyle'
+
+interface DealAnalyzerPromptSection {
+  name: DealAnalyzerPromptSectionName
+  content: string
+  order: number
+}
+
+const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
+  {
+    name: 'role',
+    order: 1,
+    content: [
+      'ROLE',
+      'You are the Deal Analyzer inside Open Mercato. You are a multi-step agentic',
+      'assistant that analyzes the health of a tenant\'s open deals, surfaces stalled',
+      'opportunities, and proposes pipeline stage transitions for operator approval.',
+    ].join('\n'),
+  },
+  {
+    name: 'scope',
+    order: 2,
+    content: [
+      'SCOPE',
+      'Stay inside the customers module. Respect tenant and organization isolation.',
+      'ALWAYS call customers.analyze_deals as your FIRST tool call — do not skip this.',
+      'Reason about stalled deals: any deal with no activity for more than 14 days',
+      'is considered stalled. For each stalled deal with a value greater than $5,000',
+      'propose a stage move via customers.update_deal_stage.',
+      'After calling customers.update_deal_stage once the runtime will stop the loop',
+      'and surface the mutation-preview-card for operator approval.',
+    ].join('\n'),
+  },
+  {
+    name: 'data',
+    order: 3,
+    content: [
+      'DATA',
+      'You can read: customers.deal via customers.analyze_deals (analytical summary)',
+      'and customers.list_deals / customers.get_deal (full detail).',
+      'Use customers.analyze_deals first — it returns a ranked list of deals by',
+      'health score (lowest = most at risk) with last-activity information.',
+      'Use customers.list_activities to get more detail on a specific deal\'s activity.',
+      'Use search.hybrid_search only for free-text queries spanning multiple entity types.',
+      'CRITICAL: Only use IDs returned by a prior tool call. Never invent or guess UUIDs.',
+    ].join('\n'),
+  },
+  {
+    name: 'tools',
+    order: 4,
+    content: [
+      'TOOLS',
+      'Primary tools for this agent (call in this order on each turn):',
+      '1. customers.analyze_deals — analytical overview of deals ranked by health score.',
+      '   Supply dealStageFilter="open" to restrict to open deals.',
+      '2. customers.update_deal_stage — propose a stage move for a stalled high-value deal.',
+      '   The runtime intercepts this via the pending-action gate; do NOT claim the change',
+      '   is saved until the mutation-result-card arrives.',
+      'Secondary read tools (use when you need more detail):',
+      '- customers.list_deals, customers.get_deal, customers.list_activities',
+      '- search.hybrid_search, meta.describe_agent',
+    ].join('\n'),
+  },
+  {
+    name: 'mutationPolicy',
+    order: 5,
+    content: [
+      'MUTATION POLICY',
+      'This agent ships with mutationPolicy: "confirm-required". Every write goes through',
+      'the pending-action approval card and only persists after the operator confirms it.',
+      'The loop.stopWhen rule is set to stop immediately after you call',
+      'customers.update_deal_stage — so the mutation card surfaces right away without',
+      'further reasoning. Do NOT call update_deal_stage more than once per turn.',
+      'If a per-tenant override has downgraded this agent to read-only, tell the operator',
+      'the write is locked and point to /backend/customers/deals/<id>.',
+    ].join('\n'),
+  },
+  {
+    name: 'responseStyle',
+    order: 6,
+    content: [
+      'RESPONSE STYLE',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      'RULE #1 — DEAL RECORD CARDS ARE MANDATORY',
+      '═══════════════════════════════════════════════════════════════════════',
+      'For every deal you surface in your analysis you MUST emit an open-mercato:deal',
+      'fenced card. Use the deal id, title, value, and stage from the tool output.',
+      'Always populate href with /backend/customers/deals/<id>.',
+      '',
+      'Card schema: { "id", "title", "status"?, "stage"?, "amount"?, "currency"?,',
+      '  "closeDate"?, "ownerName"?, "personName"?, "companyName"?,',
+      '  "description"?, "tags"?, "href" }',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      'RULE #2 — Analysis format',
+      '═══════════════════════════════════════════════════════════════════════',
+      'Lead with a one-paragraph summary of the deal portfolio health, then emit one',
+      'deal card per at-risk deal (sorted by health score ascending). After the cards,',
+      'propose exactly one stage move for the highest-value stalled deal and call',
+      'customers.update_deal_stage. Do not describe the proposed move in prose first —',
+      'call the tool directly so the mutation card appears in the chat.',
+    ].join('\n'),
+  },
+]
+
+function compileDealAnalyzerPrompt(): string {
+  return DEAL_ANALYZER_PROMPT_SECTIONS.slice()
+    .sort((a, b) => a.order - b.order)
+    .map((section) => section.content.trim())
+    .join('\n\n')
+}
+
+const DEAL_ANALYZER_ALLOWED_TOOLS: readonly string[] = [
+  'customers.analyze_deals',
+  'customers.update_deal_stage',
+  'customers.list_deals',
+  'customers.get_deal',
+  'customers.list_activities',
+  'search.hybrid_search',
+  'meta.describe_agent',
+]
+
+/**
+ * Per-step model swap: step 0 uses Sonnet for deep reasoning over the full
+ * deal portfolio; subsequent steps use Haiku for the mutation proposal (which
+ * is a simpler call).  This exercises the loop.prepareStep per-step model
+ * swap from spec #1782.
+ *
+ * We create a lazy model factory bound to `null` container — the factory
+ * only needs `process.env` and `llmProviderRegistry`, not the DI container.
+ */
+function buildDealAnalyzerPrepareStep() {
+  const SONNET_MODEL_ID = 'claude-sonnet-4-20250514'
+  const HAIKU_MODEL_ID = 'claude-haiku-4-5-20251001'
+
+  // Lazy singleton factory (process-level — no container required)
+  let lazyFactory: ReturnType<typeof createModelFactory> | null = null
+  function getFactory() {
+    if (!lazyFactory) {
+      // The factory ignores the container parameter (prefixed _container); pass
+      // null cast to keep TypeScript happy without injecting the DI system.
+      lazyFactory = createModelFactory(null as unknown as AwilixContainer)
+    }
+    return lazyFactory
+  }
+
+  return async function dealAnalyzerPrepareStep(state: { stepNumber: number }) {
+    const factory = getFactory()
+    const modelId = state.stepNumber === 0 ? SONNET_MODEL_ID : HAIKU_MODEL_ID
+    const resolution = factory.resolveModel({
+      moduleId: 'customers',
+      callerOverride: modelId,
+      allowRuntimeOverride: false,
+    })
+    return { model: resolution.model }
+  }
+}
+
+const dealAnalyzer: AiAgentDefinition = {
+  id: 'customers.deal_analyzer',
+  moduleId: 'customers',
+  label: 'Deal Analyzer',
+  description:
+    'Multi-step CRM agent that analyzes deals, surfaces stalled opportunities, and proposes stage transitions for operator approval.',
+  systemPrompt: compileDealAnalyzerPrompt(),
+  allowedTools: [...DEAL_ANALYZER_ALLOWED_TOOLS],
+  executionMode: 'chat',
+  executionEngine: 'stream-text',
+  // Slash-qualified model id — exercises Phase 1 provider/model parser.
+  defaultModel: 'anthropic/claude-haiku-4-5-20251001',
+  // Explicit + redundant: proves the parser doesn't reject dual declaration.
+  defaultProvider: 'anthropic',
+  allowRuntimeOverride: true,
+  readOnly: false,
+  mutationPolicy: 'confirm-required',
+  requiredFeatures: ['customers.deals.view'],
+  uiParts: ['open-mercato:deal'],
+  keywords: ['deal', 'pipeline', 'stalled', 'crm', 'analysis', 'health'],
+  domain: 'customers',
+  loop: {
+    maxSteps: 12,
+    stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }],
+    prepareStep: buildDealAnalyzerPrepareStep() as AiAgentDefinition['loop'] extends undefined
+      ? never
+      : NonNullable<AiAgentDefinition['loop']>['prepareStep'],
+    budget: {
+      maxToolCalls: 12,
+      maxWallClockMs: 60_000,
+    },
+    allowRuntimeOverride: true,
+  },
+  dataCapabilities: {
+    entities: ['customers.deal', 'customers.activity'],
+    operations: ['read', 'search', 'aggregate'],
+  },
+  suggestions: [
+    {
+      label: 'Analyze stalled deals',
+      prompt: 'Analyze stalled deals from the last 30 days and propose a stage move for the highest value one',
+    },
+    {
+      label: 'Show at-risk pipeline',
+      prompt: 'Show me deals with no activity in the last 14 days worth more than $5,000',
+    },
+  ],
+}
+
+/**
+ * Sibling agent with `executionEngine: 'tool-loop-agent'`. Used by
+ * TC-AI-AGENT-LOOP-006 to prove both engines honor the mutation gate.
+ * Shape is identical to `customers.deal_analyzer` except for the engine.
+ */
+const dealAnalyzerToolLoop: AiAgentDefinition = {
+  ...dealAnalyzer,
+  id: 'customers.deal_analyzer_tool_loop',
+  label: 'Deal Analyzer (ToolLoopAgent)',
+  description:
+    'Same as customers.deal_analyzer but dispatched via the ToolLoopAgent engine. Used by TC-AI-AGENT-LOOP-006 mutation-gate proof scenario.',
+  executionEngine: 'tool-loop-agent',
+}
+
+export const aiAgents: AiAgentDefinition[] = [agent, dealAnalyzer, dealAnalyzerToolLoop]
 
 export default aiAgents
