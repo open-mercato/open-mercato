@@ -59,7 +59,7 @@ const agentQuerySchema = z.object({
   /**
    * Per-request provider override. Must match a registered + configured
    * provider id. Validated against `llmProviderRegistry` at dispatch time.
-   * Rejected when the agent has `allowRuntimeModelOverride: false`.
+   * Rejected when the agent has `allowRuntimeOverride: false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -85,7 +85,7 @@ const agentQuerySchema = z.object({
    *   default → no override (agent default applies)
    *   loose   → maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000
    *
-   * Rejected when the agent has `allowRuntimeModelOverride: false` or
+   * Rejected when the agent has `allowRuntimeOverride: false` or
    * `loop.allowRuntimeOverride: false`.
    *
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
@@ -109,7 +109,7 @@ export const openApi: OpenApiRouteDoc = {
         'override the resolved provider/model/base-URL for this turn (Phase 4a). ' +
         'Provider must be registered and configured; baseUrl must match ' +
         '`AI_RUNTIME_BASEURL_ALLOWLIST` when set. Both are suppressed when the ' +
-        'agent declares `allowRuntimeModelOverride: false`.',
+        'agent declares `allowRuntimeOverride: false`.',
       query: agentQuerySchema,
       requestBody: {
         contentType: 'application/json',
@@ -124,7 +124,7 @@ export const openApi: OpenApiRouteDoc = {
           status: 400,
           description:
             'Invalid query param, malformed payload, or message count above the cap. ' +
-            'Typed codes: `runtime_override_disabled` (agent has allowRuntimeModelOverride:false), ' +
+            'Typed codes: `runtime_override_disabled` (agent has allowRuntimeOverride:false), ' +
             '`provider_unknown` (provider id not registered), ' +
             '`provider_not_configured` (provider registered but no API key in env), ' +
             '`baseurl_not_allowlisted` (baseUrl not in AI_RUNTIME_BASEURL_ALLOWLIST).',
@@ -258,7 +258,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (hasRuntimeOverride && !runtimeOverrideAllowed) {
       return jsonError(
         400,
-        `Agent "${agentId}" has runtime model override disabled (allowRuntimeModelOverride: false).`,
+        `Agent "${agentId}" has runtime override disabled (allowRuntimeOverride: false).`,
         'runtime_override_disabled',
       )
     }

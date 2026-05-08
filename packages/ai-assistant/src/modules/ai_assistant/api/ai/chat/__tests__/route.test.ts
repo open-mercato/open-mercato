@@ -321,9 +321,9 @@ describe('POST /api/ai/chat', () => {
       })
     }
 
-    it('returns 400 with code runtime_override_disabled when agent has allowRuntimeModelOverride: false', async () => {
+    it('returns 400 with code runtime_override_disabled when agent has allowRuntimeOverride: false', async () => {
       seedAgentRegistryForTests([
-        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeModelOverride: false }),
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeOverride: false }),
       ])
 
       const response = await POST(buildRequestWithOverrides({ provider: 'openai' }) as any)

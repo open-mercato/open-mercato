@@ -45,7 +45,7 @@ export interface ModelPickerProps {
  * - Does NOT expose a baseURL input (R6 mitigation: only provider+model selection from the
  *   curated catalog is exposed to end users).
  * - localStorage persistence keyed by agentId is handled by the consumer (AiChat / 4b.2).
- * - When allowRuntimeModelOverride is false the consumer should not render this component
+ * - When allowRuntimeOverride is false the consumer should not render this component
  *   at all; this component itself does no gating.
  */
 export function ModelPicker({

@@ -7,7 +7,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
-import { createModelFactory } from '../../../../../lib/model-factory'
+import { createModelFactory, resolveAllowRuntimeOverride } from '../../../../../lib/model-factory'
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -27,7 +27,7 @@ export const openApi: OpenApiRouteDoc = {
       description:
         'Returns all configured providers with their curated model catalogs, filtered to providers ' +
         'that have an API key configured in the current environment. When the agent declares ' +
-        '`allowRuntimeModelOverride: false`, the response reflects that constraint so the ' +
+        '`allowRuntimeOverride: false`, the response reflects that constraint so the ' +
         'UI picker can hide itself. Includes the agent\'s resolved default provider/model so ' +
         'the picker can render a "(default)" badge next to the right entry. ' +
         'RBAC: requires the same features as the agent itself (typically `ai_assistant.view`).',
@@ -36,7 +36,7 @@ export const openApi: OpenApiRouteDoc = {
           status: 200,
           description:
             'Providers and curated models available for the agent picker. ' +
-            'Empty `providers` array when `allowRuntimeModelOverride` is false.',
+            'Empty `providers` array when `allowRuntimeOverride` is false.',
         },
       ],
       errors: [
@@ -100,7 +100,7 @@ export async function GET(
       }
     }
 
-    const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
+    const allowRuntimeOverride = resolveAllowRuntimeOverride(agent)
 
     // Resolve the agent's current default provider/model for the "(default)" badge
     const factory = createModelFactory(container)
@@ -109,13 +109,13 @@ export async function GET(
       agentDefaultModel: agent.defaultModel,
       agentDefaultProvider: agent.defaultProvider,
       agentDefaultBaseUrl: agent.defaultBaseUrl,
-      allowRuntimeModelOverride,
+      allowRuntimeOverride,
     })
     const defaultProviderId = defaultResolution.providerId
     const defaultModelId = defaultResolution.modelId
 
     // Build provider list — only configured providers, with curated model catalogs
-    const providers = allowRuntimeModelOverride
+    const providers = allowRuntimeOverride
       ? llmProviderRegistry.list()
           .filter((provider) => provider.isConfigured())
           .map((provider) => ({
@@ -134,7 +134,7 @@ export async function GET(
 
     return NextResponse.json({
       agentId,
-      allowRuntimeModelOverride,
+      allowRuntimeOverride,
       defaultProviderId,
       defaultModelId,
       providers,

@@ -22,7 +22,7 @@ import {
 } from 'ai'
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
-import { createModelFactory } from './model-factory'
+import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -102,7 +102,7 @@ export interface RunAiAgentTextInput {
    * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
    * `?baseUrl=`). Validated by the dispatcher route before being forwarded
    * here. Wins over tenantOverride and all lower-priority sources when
-   * `agent.allowRuntimeModelOverride !== false`.
+   * `agent.allowRuntimeOverride !== false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -884,7 +884,6 @@ function resolveAgentModel(
   requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
-  const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
   const resolution = createModelFactory(effectiveContainer).resolveModel({
     moduleId: agent.moduleId,
     agentDefaultModel: agent.defaultModel,
@@ -893,7 +892,7 @@ function resolveAgentModel(
     callerOverride: modelOverride,
     providerOverride,
     baseUrlOverride,
-    allowRuntimeModelOverride,
+    allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
   })
@@ -1510,7 +1509,7 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
    * `?baseUrl=`). Validated by the dispatcher route before being forwarded
    * here. Wins over tenantOverride and all lower-priority sources when
-   * `agent.allowRuntimeModelOverride !== false`.
+   * `agent.allowRuntimeOverride !== false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */

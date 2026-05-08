@@ -286,7 +286,7 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
       expect(getDefaultMock).not.toHaveBeenCalled()
     })
 
-    it('suppresses both overrides when allowRuntimeModelOverride is false', async () => {
+    it('suppresses both overrides when allowRuntimeOverride is false', async () => {
       getDefaultMock.mockResolvedValue({
         providerId: null,
         modelId: 'tenant-model-should-be-suppressed',
@@ -297,7 +297,7 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
           id: 'customers.assistant',
           moduleId: 'customers',
           defaultModel: 'pinned-agent-model',
-          allowRuntimeModelOverride: false,
+          allowRuntimeOverride: false,
         }),
       ])
 

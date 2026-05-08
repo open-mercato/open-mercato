@@ -95,7 +95,7 @@ function writeModelPickerValue(agentId: string, value: ModelPickerValue | null):
 
 interface ModelsApiResponse {
   agentId: string
-  allowRuntimeModelOverride: boolean
+  allowRuntimeOverride: boolean
   defaultProviderId: string | null
   defaultModelId: string | null
   providers: ModelPickerProvider[]
@@ -103,21 +103,21 @@ interface ModelsApiResponse {
 
 function useAgentModels(agent: string): {
   providers: ModelPickerProvider[]
-  allowRuntimeModelOverride: boolean
+  allowRuntimeOverride: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
-  const [allowRuntimeModelOverride, setAllowRuntimeModelOverride] = React.useState(false)
+  const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
 
   React.useEffect(() => {
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
     void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
       if (!result.ok || !result.result) return
-      setAllowRuntimeModelOverride(result.result.allowRuntimeModelOverride)
+      setAllowRuntimeOverride(result.result.allowRuntimeOverride)
       setProviders(result.result.providers)
     })
   }, [agent])
 
-  return { providers, allowRuntimeModelOverride }
+  return { providers, allowRuntimeOverride }
 }
 
 async function readFileAsDataUrl(file: File): Promise<string | undefined> {
@@ -833,7 +833,7 @@ export function AiChat({
     [attachmentIds, uploadedAttachmentIds],
   )
 
-  const { providers: modelProviders, allowRuntimeModelOverride } = useAgentModels(agent)
+  const { providers: modelProviders, allowRuntimeOverride } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
     readModelPickerValue(agent),
@@ -1321,7 +1321,7 @@ export function AiChat({
             >
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
-            {allowRuntimeModelOverride && modelProviders.length > 0 ? (
+            {allowRuntimeOverride && modelProviders.length > 0 ? (
               <ModelPicker
                 agentId={agent}
                 value={modelPickerValue}

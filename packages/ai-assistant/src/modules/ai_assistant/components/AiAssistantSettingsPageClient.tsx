@@ -66,7 +66,7 @@ type SettingsResponse = {
 type AgentResolution = {
   agentId: string
   moduleId: string
-  allowRuntimeModelOverride: boolean
+  allowRuntimeOverride: boolean
   providerId: string
   modelId: string
   baseURL: string | null

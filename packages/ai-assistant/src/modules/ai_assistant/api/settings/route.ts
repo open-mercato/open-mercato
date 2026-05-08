@@ -17,7 +17,7 @@ import {
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
-import { createModelFactory } from '../../lib/model-factory'
+import { createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
 
 const runtimeOverrideUpsertSchema = z.object({
   providerId: z.string().min(1).max(64).nullable().optional(),
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
     let agentResolutions: Array<{
       agentId: string
       moduleId: string
-      allowRuntimeModelOverride: boolean
+      allowRuntimeOverride: boolean
       providerId: string
       modelId: string
       baseURL: string | null
@@ -195,13 +195,13 @@ export async function GET(req: NextRequest) {
             agentDefaultModel: agent.defaultModel,
             agentDefaultProvider: agent.defaultProvider,
             agentDefaultBaseUrl: agent.defaultBaseUrl,
-            allowRuntimeModelOverride: agent.allowRuntimeModelOverride,
+            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
             tenantOverride: agentTenantOverride,
           })
           return {
             agentId: agent.id,
             moduleId: agent.moduleId,
-            allowRuntimeModelOverride: agent.allowRuntimeModelOverride !== false,
+            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
             providerId: agentResolution.providerId,
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,

@@ -278,13 +278,24 @@ export interface AiAgentDefinition {
   defaultBaseUrl?: string
   /**
    * When false, per-request HTTP overrides (query params `provider`, `model`,
-   * `baseUrl`) and the per-tenant settings override stored in
+   * `baseUrl`, `loopBudget`) and the per-tenant settings override stored in
    * `ai_agent_runtime_overrides` are both suppressed. Steps 1 and 3 of the
-   * model-factory resolution chain are skipped for this agent.
+   * model-factory resolution chain are skipped for this agent, and the
+   * `loopBudget` query parameter is ignored by the chat dispatcher.
    *
    * Default is `true` (permissive). Agents that pin a specific model for
    * correctness reasons (e.g. a structured-output agent whose JSON-mode schema
    * only works with one provider) should set this to `false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   * Renamed from `allowRuntimeModelOverride` in Phase 4 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  allowRuntimeOverride?: boolean
+  /**
+   * @deprecated Use `allowRuntimeOverride` instead. This alias is kept for
+   * one minor release and will be removed in a future version. The runtime
+   * checks `allowRuntimeOverride` first; if absent it falls back to this field.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
