@@ -353,7 +353,7 @@ export class DomainMappingService {
     const entity = await this.em.findOne(DomainMapping, { id } as never)
     if (!entity) throw new Error(`DomainMapping ${id} not found`)
     if (entity.status === 'active') return entity
-    if (entity.status !== 'verified') {
+    if (entity.status !== 'verified' && entity.status !== 'tls_failed') {
       throw new Error(`DomainMapping ${id} cannot transition to active from ${entity.status}`)
     }
 
