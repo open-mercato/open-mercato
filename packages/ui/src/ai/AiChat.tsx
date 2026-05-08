@@ -26,7 +26,13 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
+import { apiCall } from '../backend/utils/apiCall'
 import { parseAiContentSegments } from './AiMessageContent'
+import {
+  ModelPicker,
+  type ModelPickerProvider,
+  type ModelPickerValue,
+} from './ModelPicker'
 import { RecordCard } from './records/RecordCard'
 import {
   defaultAiUiPartRegistry,
@@ -48,6 +54,70 @@ import { useAiShortcuts } from './useAiShortcuts'
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
+
+const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
+
+function readModelPickerValue(agentId: string): ModelPickerValue | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
+      typeof (parsed as Record<string, unknown>).modelId === 'string'
+    ) {
+      const value = parsed as ModelPickerValue
+      return { providerId: value.providerId, modelId: value.modelId }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
+  if (typeof window === 'undefined') return
+  try {
+    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
+    if (value === null) {
+      window.localStorage.removeItem(key)
+    } else {
+      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
+    }
+  } catch {
+    // Quota exceeded / privacy mode — silently ignore.
+  }
+}
+
+interface ModelsApiResponse {
+  agentId: string
+  allowRuntimeModelOverride: boolean
+  defaultProviderId: string | null
+  defaultModelId: string | null
+  providers: ModelPickerProvider[]
+}
+
+function useAgentModels(agent: string): {
+  providers: ModelPickerProvider[]
+  allowRuntimeModelOverride: boolean
+} {
+  const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
+  const [allowRuntimeModelOverride, setAllowRuntimeModelOverride] = React.useState(false)
+
+  React.useEffect(() => {
+    const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
+    void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
+      if (!result.ok || !result.result) return
+      setAllowRuntimeModelOverride(result.result.allowRuntimeModelOverride)
+      setProviders(result.result.providers)
+    })
+  }, [agent])
+
+  return { providers, allowRuntimeModelOverride }
+}
 
 async function readFileAsDataUrl(file: File): Promise<string | undefined> {
   if (!file.type.startsWith('image/')) return undefined
@@ -754,6 +824,20 @@ export function AiChat({
     [attachmentIds, uploadedAttachmentIds],
   )
 
+  const { providers: modelProviders, allowRuntimeModelOverride } = useAgentModels(agent)
+
+  const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
+    readModelPickerValue(agent),
+  )
+
+  const handleModelPickerChange = React.useCallback(
+    (value: ModelPickerValue | null) => {
+      setModelPickerValue(value)
+      writeModelPickerValue(agent, value)
+    },
+    [agent],
+  )
+
   const chat = useAiChat({
     agent,
     apiPath,
@@ -763,6 +847,8 @@ export function AiChat({
     initialMessages,
     onError,
     conversationId,
+    providerOverride: modelPickerValue?.providerId ?? null,
+    modelOverride: modelPickerValue?.modelId ?? null,
   })
 
   const isStreaming = chat.status === 'streaming'
@@ -1226,6 +1312,15 @@ export function AiChat({
             >
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
+            {allowRuntimeModelOverride && modelProviders.length > 0 ? (
+              <ModelPicker
+                agentId={agent}
+                value={modelPickerValue}
+                onChange={handleModelPickerChange}
+                availableProviders={modelProviders}
+                disabled={isBusy}
+              />
+            ) : null}
             <p className="text-xs text-muted-foreground">
               {hasUploadingFiles || isUploading
                 ? t(

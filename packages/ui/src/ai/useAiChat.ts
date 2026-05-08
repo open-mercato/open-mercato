@@ -70,6 +70,18 @@ export interface UseAiChatInput {
    * props at any time to reset the conversation.
    */
   conversationId?: string
+  /**
+   * Runtime provider override (4b.2). Forwarded as `?provider=` query param
+   * on every POST to the dispatcher. Undefined/null means use the agent's
+   * configured default (no override sent).
+   */
+  providerOverride?: string | null
+  /**
+   * Runtime model override (4b.2). Forwarded as `?model=` query param
+   * on every POST to the dispatcher. Undefined/null means use the agent's
+   * configured default (no override sent).
+   */
+  modelOverride?: string | null
 }
 
 export interface AiChatErrorEnvelope {
@@ -207,7 +219,12 @@ function clearPersistedSession(agent: string, conversationId?: string | null): v
   }
 }
 
-function getTransportEndpoint(agent: string, apiPath?: string): string {
+function getTransportEndpoint(
+  agent: string,
+  apiPath?: string,
+  providerOverride?: string | null,
+  modelOverride?: string | null,
+): string {
   // Reuse the transport factory so UI consumers share the dispatcher URL
   // convention with server-side callers (e.g. runAiAgentText / Playwright
   // fixtures). The factory returns a ChatTransport<UI_MESSAGE> whose internal
@@ -221,7 +238,14 @@ function getTransportEndpoint(agent: string, apiPath?: string): string {
   void transport
   const base = apiPath && apiPath.length > 0 ? apiPath : '/api/ai_assistant/ai/chat'
   const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}agent=${encodeURIComponent(agent)}`
+  let url = `${base}${separator}agent=${encodeURIComponent(agent)}`
+  if (providerOverride) {
+    url += `&provider=${encodeURIComponent(providerOverride)}`
+  }
+  if (modelOverride) {
+    url += `&model=${encodeURIComponent(modelOverride)}`
+  }
+  return url
 }
 
 interface AssistantBuilderState {
@@ -518,7 +542,7 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride } = input
 
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
@@ -659,7 +683,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const controller = new AbortController()
       abortRef.current = controller
 
-      const url = getTransportEndpoint(agent, apiPath)
+      const url = getTransportEndpoint(agent, apiPath, providerOverride, modelOverride)
       const body = {
         messages: outgoingHistory.map((message) => ({
           role: message.role,
@@ -839,7 +863,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         setStatus('idle')
       }
     },
-    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, pageContext],
+    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, modelOverride, pageContext, providerOverride],
   )
 
   React.useEffect(() => {
