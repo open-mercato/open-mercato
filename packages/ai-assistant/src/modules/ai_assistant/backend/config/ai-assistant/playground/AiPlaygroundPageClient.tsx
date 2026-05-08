@@ -313,17 +313,19 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
   }
 
   return (
-    <AiChat
-      key={agent.id}
-      agent={agent.id}
-      pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
-      debug={debug}
-      registry={registry}
-      className="min-h-[360px]"
-      debugTools={debugTools}
-      debugPromptSections={debugPromptSections}
-      uiParts={uiParts}
-    />
+    <div data-ai-playground-chat={agent.id}>
+      <AiChat
+        key={agent.id}
+        agent={agent.id}
+        pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
+        debug={debug}
+        registry={registry}
+        className="min-h-[360px]"
+        debugTools={debugTools}
+        debugPromptSections={debugPromptSections}
+        uiParts={uiParts}
+      />
+    </div>
   )
 }
 
