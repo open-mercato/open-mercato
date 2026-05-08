@@ -339,6 +339,46 @@ async function loadEntry(entry: WidgetEntry): Promise<InjectionAnyWidgetModule<a
   return widgetCache.get(entry.key)!
 }
 
+function getEnabledModuleIdsForInjection(): Set<string> {
+  const enabled = new Set<string>()
+  const tables = readGlobalInjectionTables() ?? _coreInjectionTables ?? []
+  for (const entry of tables) {
+    if (entry?.moduleId) enabled.add(entry.moduleId)
+  }
+  const entries = readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries ?? []
+  for (const entry of entries) {
+    if (entry?.moduleId) enabled.add(entry.moduleId)
+  }
+  return enabled
+}
+
+function widgetMissingRequiredModules(
+  metadata: InjectionWidgetMetadata,
+  enabledModuleIds: Set<string>,
+): string[] {
+  const required = metadata.requiredModules
+  if (!Array.isArray(required) || required.length === 0) return []
+  const missing: string[] = []
+  for (const moduleId of required) {
+    if (typeof moduleId !== 'string' || moduleId.length === 0) continue
+    if (!enabledModuleIds.has(moduleId)) missing.push(moduleId)
+  }
+  return missing
+}
+
+const warnedRequiredModuleSkips = new Set<string>()
+
+function warnSkippedWidget(metadataId: string, missingModules: string[]) {
+  const key = `${metadataId}:${missingModules.join(',')}`
+  if (warnedRequiredModuleSkips.has(key)) return
+  warnedRequiredModuleSkips.add(key)
+  if (process.env.NODE_ENV === 'development') {
+    console.debug(
+      `[InjectionLoader] Skipping widget "${metadataId}" — required module(s) not enabled: ${missingModules.join(', ')}`,
+    )
+  }
+}
+
 async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<TableEntry[]> {
   const table = await loadInjectionTable()
   const exactEntries = table.get(spotId) ?? []
@@ -366,10 +406,16 @@ async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<Table
 
 export async function loadAllInjectionWidgets(): Promise<LoadedInjectionWidget[]> {
   const widgetEntries = await loadWidgetEntries()
+  const enabledModuleIds = getEnabledModuleIdsForInjection()
   const loaded = await Promise.all(
     widgetEntries.map(async (entry) => {
       const module = await loadEntry(entry)
       if (!isLoadedInjectionWidget(module)) return null
+      const missing = widgetMissingRequiredModules(module.metadata, enabledModuleIds)
+      if (missing.length > 0) {
+        warnSkippedWidget(module.metadata.id, missing)
+        return null
+      }
       return { ...module, moduleId: entry.moduleId, key: entry.key }
     })
   )
@@ -385,10 +431,16 @@ export async function loadAllInjectionWidgets(): Promise<LoadedInjectionWidget[]
 
 export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedInjectionWidget | null> {
   const widgetEntries = await loadWidgetEntries()
+  const enabledModuleIds = getEnabledModuleIdsForInjection()
   for (const entry of widgetEntries) {
     const module = await loadEntry(entry)
     if (!isLoadedInjectionWidget(module)) continue
     if (module.metadata.id === widgetId) {
+      const missing = widgetMissingRequiredModules(module.metadata, enabledModuleIds)
+      if (missing.length > 0) {
+        warnSkippedWidget(module.metadata.id, missing)
+        return null
+      }
       return { ...module, moduleId: entry.moduleId, key: entry.key }
     }
   }
@@ -397,10 +449,16 @@ export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedI
 
 export async function loadInjectionDataWidgetById(widgetId: string): Promise<LoadedInjectionDataWidget | null> {
   const widgetEntries = await loadWidgetEntries()
+  const enabledModuleIds = getEnabledModuleIdsForInjection()
   for (const entry of widgetEntries) {
     const module = await loadEntry(entry)
     if (!isLoadedInjectionDataWidget(module)) continue
     if (module.metadata.id === widgetId) {
+      const missing = widgetMissingRequiredModules(module.metadata, enabledModuleIds)
+      if (missing.length > 0) {
+        warnSkippedWidget(module.metadata.id, missing)
+        return null
+      }
       return { ...module, moduleId: entry.moduleId, key: entry.key }
     }
   }
