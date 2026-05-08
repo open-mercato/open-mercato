@@ -180,4 +180,26 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
     expect(resolution.source).toBe('module_env')
     expect(resolution.modelId).toBe('env-pinned')
   })
+
+  it('AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL surfaces the env_default source end-to-end', () => {
+    // Phase 0 of spec 2026-04-27-ai-agents-provider-model-baseurl-overrides.
+    // Driving only env knobs (no agent default, no caller override, no
+    // module env) — the resolution must round-trip an `env_default` source
+    // and the modelId should be the `AI_DEFAULT_MODEL` value forwarded
+    // verbatim to `provider.createModel`.
+    const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+    const env = {
+      AI_DEFAULT_PROVIDER: 'openai',
+      AI_DEFAULT_MODEL: 'gpt-5-mini',
+    }
+    const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('openai')
+    expect(resolution.modelId).toBe('gpt-5-mini')
+    expect(resolution.source).toBe('env_default')
+    expect(resolution.model).toMatchObject({
+      kind: 'fake-model',
+      modelId: 'gpt-5-mini',
+    })
+  })
 })
