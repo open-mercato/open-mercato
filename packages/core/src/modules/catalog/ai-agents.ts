@@ -69,6 +69,7 @@ interface AiAgentDefinition {
   executionMode?: AiAgentExecutionMode
   defaultProvider?: string
   defaultModel?: string
+  defaultBaseUrl?: string
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
   uiParts?: string[]
