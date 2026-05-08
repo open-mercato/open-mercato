@@ -2,9 +2,14 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import PersonDetailV2Page from '../page'
+
+type ActivitiesCardCapturedProps = { onAddNew: (kind: string, selectedDate?: Date) => void }
+type ScheduleDialogCapturedProps = { editData?: { scheduledAt: string | null } | null; open?: boolean }
+const capturedActivitiesCardProps: { current: ActivitiesCardCapturedProps | null } = { current: null }
+const capturedScheduleDialogProps: { current: ScheduleDialogCapturedProps | null } = { current: null }
 
 const readApiResultOrThrowMock = jest.fn()
 let activeTabParam: string | null = 'changelog'
@@ -124,7 +129,17 @@ jest.mock('../../../../../components/detail/PlannedActivitiesSection', () => ({
 }))
 
 jest.mock('../../../../../components/detail/ScheduleActivityDialog', () => ({
-  ScheduleActivityDialog: () => null,
+  ScheduleActivityDialog: (props: ScheduleDialogCapturedProps) => {
+    capturedScheduleDialogProps.current = props
+    return null
+  },
+}))
+
+jest.mock('../../../../../components/detail/ActivitiesCard', () => ({
+  ActivitiesCard: (props: ActivitiesCardCapturedProps) => {
+    capturedActivitiesCardProps.current = props
+    return <div data-testid="activities-card">activities-card</div>
+  },
 }))
 
 jest.mock('../../../../../components/detail/PersonCompaniesSection', () => ({
@@ -162,5 +177,56 @@ describe('PersonDetailV2Page', () => {
     await waitFor(() => {
       expect(screen.getByText('changelog')).toBeInTheDocument()
     })
+  })
+
+  it('forwards selectedDate from ActivitiesCard.onAddNew into ScheduleActivityDialog.editData.scheduledAt (issue #1822)', async () => {
+    activeTabParam = 'activities'
+    capturedActivitiesCardProps.current = null
+    capturedScheduleDialogProps.current = null
+
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activities-card')).toBeInTheDocument()
+    })
+
+    expect(typeof capturedActivitiesCardProps.current?.onAddNew).toBe('function')
+
+    const selectedDate = new Date(2026, 4, 15) // 15 May 2026 local
+    selectedDate.setHours(0, 0, 0, 0)
+
+    act(() => {
+      capturedActivitiesCardProps.current!.onAddNew('meeting', selectedDate)
+    })
+
+    await waitFor(() => {
+      expect(capturedScheduleDialogProps.current?.open).toBe(true)
+    })
+    expect(capturedScheduleDialogProps.current?.editData?.scheduledAt).toEqual(expect.any(String))
+    const scheduledAt = new Date(capturedScheduleDialogProps.current!.editData!.scheduledAt as string)
+    expect(scheduledAt.getFullYear()).toBe(2026)
+    expect(scheduledAt.getMonth()).toBe(4)
+    expect(scheduledAt.getDate()).toBe(15)
+  })
+
+  it('opens ScheduleActivityDialog with scheduledAt=null when ActivitiesCard.onAddNew is called without a selectedDate', async () => {
+    activeTabParam = 'activities'
+    capturedActivitiesCardProps.current = null
+    capturedScheduleDialogProps.current = null
+
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activities-card')).toBeInTheDocument()
+    })
+
+    act(() => {
+      capturedActivitiesCardProps.current!.onAddNew('call')
+    })
+
+    await waitFor(() => {
+      expect(capturedScheduleDialogProps.current?.open).toBe(true)
+    })
+    expect(capturedScheduleDialogProps.current?.editData?.scheduledAt).toBeNull()
   })
 })

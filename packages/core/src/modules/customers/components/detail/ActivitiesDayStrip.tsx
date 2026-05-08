@@ -7,6 +7,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
 import type { InteractionSummary } from './types'
 
 interface ActivitiesDayStripProps {
@@ -273,6 +274,18 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
       return startOfDay(next)
     })
   }, [])
+  const handleToday = React.useCallback(() => {
+    const today = startOfDay(new Date())
+    setAnchor(anchorCenteredOn(today))
+    onSelectDate(today)
+  }, [onSelectDate])
+
+  const todayInWindow = React.useMemo(
+    () => visibleDays.some((day) => isSameDay(day, todayDate)),
+    [visibleDays, todayDate],
+  )
+  const todayIsSelected = isSameDay(selectedDate, todayDate)
+  const todayDisabled = todayInWindow && todayIsSelected
 
   return (
     <div className="flex flex-col gap-2.5 rounded-md px-3.5 py-3 w-full">
@@ -286,6 +299,15 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
           <ChevronLeft className="size-4 text-foreground" />
         </button>
         <span className="flex-1 text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="2xs"
+          onClick={handleToday}
+          disabled={todayDisabled}
+        >
+          {t('customers.calendar.today', 'Today')}
+        </Button>
         <button
           type="button"
           onClick={handleHeaderNext}

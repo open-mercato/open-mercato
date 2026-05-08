@@ -170,6 +170,7 @@
   "customers.calendar.nextWeek": "Next week",
   "customers.calendar.previousWeek": "Previous week",
   "customers.calendar.thisWeek": "This week",
+  "customers.calendar.today": "Today",
   "customers.calendar.tomorrow": "Tomorrow",
   "customers.changelog.actions.assign": "Assign",
   "customers.changelog.actions.create": "Create",

@@ -23,7 +23,7 @@ interface ActivitiesCardProps {
    */
   plannedActivities: InteractionSummary[]
   refreshKey?: number
-  onAddNew: (kind: ActivityKind) => void
+  onAddNew: (kind: ActivityKind, selectedDate?: Date) => void
   onEditActivity?: (activity: InteractionSummary) => void
   /**
    * Optional company name for the parent entity. When the planned activity has no `dealTitle`,
@@ -202,7 +202,7 @@ export function ActivitiesCard({
             </span>
           ) : null}
         </div>
-        <ActivitiesAddNewMenu onSelect={onAddNew} />
+        <ActivitiesAddNewMenu onSelect={(kind) => onAddNew(kind, selectedDate)} />
       </div>
 
       <ActivitiesDayStrip

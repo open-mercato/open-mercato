@@ -229,13 +229,20 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setScheduleDialogOpen(true)
   }, [])
 
-  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email') => {
+  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email', selectedDate?: Date) => {
+    let scheduledAt: string | null = null
+    if (selectedDate) {
+      const combined = new Date(selectedDate)
+      const now = new Date()
+      combined.setHours(now.getHours(), now.getMinutes(), 0, 0)
+      scheduledAt = combined.toISOString()
+    }
     setScheduleEditData({
       id: '',
       interactionType: kind,
       title: null,
       body: null,
-      scheduledAt: null,
+      scheduledAt,
       durationMinutes: null,
       location: null,
       allDay: null,

@@ -189,13 +189,20 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     [injectionContext, runMutation],
   )
 
-  const handleAddActivity = React.useCallback((kind: ActivityKind) => {
+  const handleAddActivity = React.useCallback((kind: ActivityKind, selectedDate?: Date) => {
+    let scheduledAt: string | null = null
+    if (selectedDate) {
+      const combined = new Date(selectedDate)
+      const now = new Date()
+      combined.setHours(now.getHours(), now.getMinutes(), 0, 0)
+      scheduledAt = combined.toISOString()
+    }
     setScheduleEditData({
       id: '',
       interactionType: kind,
       title: null,
       body: null,
-      scheduledAt: null,
+      scheduledAt,
       durationMinutes: null,
       location: null,
       allDay: null,

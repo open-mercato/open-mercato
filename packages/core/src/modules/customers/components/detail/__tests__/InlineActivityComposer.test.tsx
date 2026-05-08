@@ -14,14 +14,21 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+type MiniWeekCalendarProps = { onDaySelect?: (date: Date) => void }
+const capturedMiniWeekCalendarProps: { current: MiniWeekCalendarProps | null } = { current: null }
+
 jest.mock('../MiniWeekCalendar', () => ({
-  MiniWeekCalendar: () => <div data-testid="mini-week-calendar">mini-week-calendar</div>,
+  MiniWeekCalendar: (props: MiniWeekCalendarProps) => {
+    capturedMiniWeekCalendarProps.current = props
+    return <div data-testid="mini-week-calendar">mini-week-calendar</div>
+  },
 }))
 
 describe('InlineActivityComposer', () => {
   beforeEach(() => {
     localStorage.clear()
     jest.clearAllMocks()
+    capturedMiniWeekCalendarProps.current = null
   })
 
   it('renders a 3-row autosize description textarea with an explicit label', () => {
@@ -88,5 +95,31 @@ describe('InlineActivityComposer', () => {
     // The deal-keyed preference is independent from the company one.
     expect(localStorage.getItem('om:inline-composer:week-preview:deal')).toBeNull()
     expect(screen.getByTestId('mini-week-calendar')).toBeInTheDocument()
+  })
+
+  it('inherits the date from MiniWeekCalendar onDaySelect while preserving the previously-typed time (issue #1822)', () => {
+    renderWithProviders(
+      <InlineActivityComposer entityType="person" entityId="person-1" />,
+    )
+
+    const occurredInput = document.querySelector(
+      'input[type="datetime-local"]',
+    ) as HTMLInputElement
+    expect(occurredInput).toBeInTheDocument()
+
+    // Simulate the user typing a non-default time before picking a day in the calendar.
+    act(() => {
+      fireEvent.change(occurredInput, { target: { value: '2026-05-08T14:30' } })
+    })
+    expect(occurredInput.value).toBe('2026-05-08T14:30')
+
+    // The composer wires its handleCalendarDaySelect into MiniWeekCalendar.onDaySelect.
+    expect(typeof capturedMiniWeekCalendarProps.current?.onDaySelect).toBe('function')
+
+    // Picking May 15 must change only the date portion; the typed 14:30 stays.
+    act(() => {
+      capturedMiniWeekCalendarProps.current!.onDaySelect!(new Date(2026, 4, 15))
+    })
+    expect(occurredInput.value).toBe('2026-05-15T14:30')
   })
 })

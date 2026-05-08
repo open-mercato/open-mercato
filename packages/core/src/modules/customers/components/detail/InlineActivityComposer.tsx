@@ -97,6 +97,16 @@ export function InlineActivityComposer({
     setErrors({})
   }, [])
 
+  const handleCalendarDaySelect = React.useCallback((date: Date) => {
+    setOccurredAt((prev) => {
+      const time = prev && prev.length >= 16 ? prev.slice(11, 16) : new Date().toTimeString().slice(0, 5)
+      const yyyy = date.getFullYear()
+      const mm = String(date.getMonth() + 1).padStart(2, '0')
+      const dd = String(date.getDate()).padStart(2, '0')
+      return `${yyyy}-${mm}-${dd}T${time}`
+    })
+  }, [])
+
   const handleSave = React.useCallback(async () => {
     if (!selectedType) {
       setErrors({ type: t('customers.activityComposer.validation.typeRequired', 'Select an activity type') })
@@ -274,6 +284,7 @@ export function InlineActivityComposer({
               entityId={entityId}
               useCanonicalInteractions={useCanonicalInteractions}
               refreshRef={calendarRefreshRef}
+              onDaySelect={handleCalendarDaySelect}
             />
           </div>
         ) : null}

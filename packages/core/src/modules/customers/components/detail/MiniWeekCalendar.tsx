@@ -13,6 +13,7 @@ interface MiniWeekCalendarProps {
   entityId: string
   useCanonicalInteractions?: boolean
   refreshRef?: React.RefObject<(() => void) | null>
+  onDaySelect?: (date: Date) => void
 }
 
 function getWeekDays(baseDate: Date): Date[] {
@@ -60,7 +61,7 @@ function dotColorForType(type: string, isToday: boolean): string {
   return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
-export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
+export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, onDaySelect }: MiniWeekCalendarProps) {
   const t = useT()
   const today = React.useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
@@ -259,6 +260,18 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           {monthLabel}
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="2xs"
+            onClick={() => {
+              setWeekOffset(0)
+              setSelectedDay(null)
+            }}
+            disabled={weekOffset === 0}
+          >
+            {t('customers.calendar.today', 'Today')}
+          </Button>
           <IconButton type="button" variant="ghost" size="xs" onClick={() => setWeekOffset((w) => w - 1)} aria-label={t('customers.calendar.previousWeek', 'Previous week')}>
             <ChevronLeft className="size-3.5" />
           </IconButton>
@@ -290,7 +303,11 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
               variant="ghost"
               size="sm"
               key={day.toISOString()}
-              onClick={() => setSelectedDay(isSameDay(day, selectedDay ?? today) ? null : day)}
+              onClick={() => {
+                const next = isSameDay(day, selectedDay ?? today) ? null : day
+                setSelectedDay(next)
+                if (next && onDaySelect) onDaySelect(next)
+              }}
               className={cn(
                 'h-auto flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
                 isSelected ? 'bg-foreground text-background font-bold' : 'hover:bg-accent/50',

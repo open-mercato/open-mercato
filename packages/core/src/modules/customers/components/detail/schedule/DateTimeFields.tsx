@@ -57,6 +57,21 @@ export function DateTimeFields({
   setRecurrenceEndDate,
 }: DateTimeFieldsProps) {
   const t = useT()
+  const dateInputRef = React.useRef<HTMLInputElement>(null)
+  const startTimeInputRef = React.useRef<HTMLInputElement>(null)
+
+  const openPicker = React.useCallback((ref: React.RefObject<HTMLInputElement | null>) => (event: React.MouseEvent<HTMLLabelElement>) => {
+    const input = ref.current
+    if (!input || input.disabled) return
+    // Prevent the native input from selecting a segment (e.g. day digit) before
+    // we open the picker — issue #1822 wants a picker on any click in the field.
+    event.preventDefault()
+    try {
+      input.showPicker?.()
+    } catch {
+      input.focus()
+    }
+  }, [])
 
   if (!visible.has('date')) return null
 
@@ -79,14 +94,16 @@ export function DateTimeFields({
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
             <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
-          <div
+          <label
+            onClick={openPicker(dateInputRef)}
             className={cn(
-              'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
+              'flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2.5',
               dateMissing ? 'border-status-error-border' : 'border-border',
             )}
           >
             <Calendar className="size-3.5 text-muted-foreground" />
             <input
+              ref={dateInputRef}
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -96,7 +113,7 @@ export function DateTimeFields({
               aria-describedby={dateMissing ? dateErrorId : undefined}
               className="flex-1 bg-transparent text-sm text-foreground focus:outline-none"
             />
-          </div>
+          </label>
           {dateMissing ? (
             <p id={dateErrorId} className="text-xs text-status-error-foreground">
               {t('customers.activities.errors.dateRequired', 'Date is required')}
@@ -109,14 +126,17 @@ export function DateTimeFields({
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
               <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
             </label>
-            <div
+            <label
+              onClick={openPicker(startTimeInputRef)}
               className={cn(
                 'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
+                allDay ? 'cursor-not-allowed' : 'cursor-pointer',
                 timeMissing ? 'border-status-error-border' : 'border-border',
               )}
             >
               <Clock className="size-3.5 text-muted-foreground" />
               <input
+                ref={startTimeInputRef}
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
@@ -127,7 +147,7 @@ export function DateTimeFields({
                 aria-describedby={timeMissing ? timeErrorId : undefined}
                 className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50"
               />
-            </div>
+            </label>
             {timeMissing ? (
               <p id={timeErrorId} className="text-xs text-status-error-foreground">
                 {t('customers.activities.errors.timeRequired', 'Time is required')}
