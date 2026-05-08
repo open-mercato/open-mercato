@@ -46,7 +46,8 @@ async function resolveForCustomHost(
     if (!resolution) return { kind: 'unknown' }
     if (!resolution.orgSlug) return { kind: 'unknown' }
     return { kind: 'resolved', orgSlug: resolution.orgSlug }
-  } catch {
+  } catch (err) {
+    console.warn(`[proxy] custom-domain resolve failed for ${hostname}`, err)
     return { kind: 'error' }
   }
 }
