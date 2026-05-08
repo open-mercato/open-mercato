@@ -126,6 +126,47 @@ export interface AiModelFactoryInput {
    * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   baseUrlOverride?: string
+  /**
+   * Per-tenant default loaded from `ai_agent_runtime_overrides` by the agent
+   * runtime (best-effort, fail-open). Sits at step 3 of the resolution chain
+   * between the caller/request override (step 1–2) and the module-env axis
+   * (step 4).
+   *
+   * Honored ONLY when `allowRuntimeModelOverride !== false` on the agent
+   * definition. The agent runtime is responsible for hydration — the factory
+   * does NOT load the row itself.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  tenantOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
+  /**
+   * Per-request override forwarded from the HTTP dispatcher query params
+   * (`?provider=`, `?model=`, `?baseUrl=`). Sits at step 1 of the resolution
+   * chain — wins over everything else for that turn.
+   *
+   * Honored ONLY when `allowRuntimeModelOverride !== false` on the agent.
+   * The dispatcher validates all three values before setting this input.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  requestOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
+  /**
+   * When false, steps 1 (requestOverride) and 3 (tenantOverride) of the
+   * resolution chain are skipped. Agents that pin a specific model for
+   * correctness reasons set `AiAgentDefinition.allowRuntimeModelOverride =
+   * false`. Default behavior (omitted) is permissive (= true).
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  allowRuntimeModelOverride?: boolean
 }
 
 /**
@@ -148,7 +189,9 @@ export interface AiModelResolution {
    * as a public contract beyond these enum values.
    */
   source:
+    | 'request_override'
     | 'caller_override'
+    | 'tenant_override'
     | 'module_env'
     | 'agent_default'
     | 'env_default'
@@ -293,9 +336,36 @@ export function createModelFactory(
   return {
     resolveModel(input: AiModelFactoryInput): AiModelResolution {
       const hasModule = typeof input.moduleId === 'string' && input.moduleId.length > 0
+      // When allowRuntimeModelOverride is explicitly false, skip steps 1
+      // (requestOverride) and 3 (tenantOverride) — the agent pins a model.
+      const runtimeOverridesAllowed = input.allowRuntimeModelOverride !== false
 
-      // --- Model-axis sources (highest to lowest priority) ---
+      // --- Step 1: requestOverride (HTTP query params) — gated by flag ---
+      const requestModelRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.requestOverride?.modelId ?? undefined)
+        : null
+      const requestProviderRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.requestOverride?.providerId ?? undefined)
+        : null
+      const requestBaseUrlRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.requestOverride?.baseURL ?? undefined)
+        : null
+
+      // --- Step 2: callerOverride (programmatic) ---
       const callerRaw = normalizeOverride(input.callerOverride)
+
+      // --- Step 3: tenantOverride (DB row) — gated by flag ---
+      const tenantModelRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.tenantOverride?.modelId ?? undefined)
+        : null
+      const tenantProviderRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.tenantOverride?.providerId ?? undefined)
+        : null
+      const tenantBaseUrlRaw = runtimeOverridesAllowed
+        ? normalizeOverride(input.tenantOverride?.baseURL ?? undefined)
+        : null
+
+      // --- Steps 4+: env / agent / global ---
       const moduleModelRaw = hasModule
         ? normalizeOverride(env[moduleModelEnvVarName(input.moduleId!)])
         : null
@@ -303,7 +373,9 @@ export function createModelFactory(
       const globalModelRaw = normalizeOverride(env[GLOBAL_DEFAULT_MODEL_ENV])
 
       // Parse slash shorthand on every model-axis source.
+      const requestModelParsed = requestModelRaw ? parseSlashShorthand(requestModelRaw, registry) : null
       const callerParsed = callerRaw ? parseSlashShorthand(callerRaw, registry) : null
+      const tenantModelParsed = tenantModelRaw ? parseSlashShorthand(tenantModelRaw, registry) : null
       const moduleModelParsed = moduleModelRaw ? parseSlashShorthand(moduleModelRaw, registry) : null
       const agentModelParsed = agentModelRaw ? parseSlashShorthand(agentModelRaw, registry) : null
       const globalModelParsed = globalModelRaw ? parseSlashShorthand(globalModelRaw, registry) : null
@@ -322,8 +394,12 @@ export function createModelFactory(
       // Walk the provider-axis seed list: slash hint beats plain provider at
       // the same step. We keep only the first (highest-priority) non-null hint.
       const providerHintCandidates: Array<string | null> = [
+        requestModelParsed?.providerHint ?? null,
+        requestProviderRaw,
         callerParsed?.providerHint ?? null,
         providerOverrideRaw,
+        tenantModelParsed?.providerHint ?? null,
+        tenantProviderRaw,
         moduleModelParsed?.providerHint ?? null,
         moduleProviderRaw,
         agentModelParsed?.providerHint ?? null,
@@ -352,9 +428,15 @@ export function createModelFactory(
       // --- Model-axis: use the post-parse model id from the winning source.
       let modelId: string
       let source: AiModelResolution['source']
-      if (callerParsed) {
+      if (requestModelParsed) {
+        modelId = requestModelParsed.modelId
+        source = 'request_override'
+      } else if (callerParsed) {
         modelId = callerParsed.modelId
         source = 'caller_override'
+      } else if (tenantModelParsed) {
+        modelId = tenantModelParsed.modelId
+        source = 'tenant_override'
       } else if (moduleModelParsed) {
         modelId = moduleModelParsed.modelId
         source = 'module_env'
@@ -370,12 +452,16 @@ export function createModelFactory(
       }
 
       // --- BaseURL-axis resolution (highest to lowest priority) ---
-      // 1. baseUrlOverride (caller) — programmatic only, no HTTP exposure in Phase 2
-      // 2. <MODULE>_AI_BASE_URL env
-      // 3. agentDefaultBaseUrl
-      // Steps 4-5 (preset env + preset default) are handled inside the adapter's
+      // 1. requestOverride.baseURL (HTTP dispatcher) — gated by allowRuntimeModelOverride
+      // 2. baseUrlOverride (programmatic caller)
+      // 3. tenantOverride.baseURL (DB row) — gated by allowRuntimeModelOverride
+      // 4. <MODULE>_AI_BASE_URL env
+      // 5. agentDefaultBaseUrl
+      // Steps 6-7 (preset env + preset default) are handled inside the adapter's
       // createModel when no explicit baseURL is passed.
-      const resolvedBaseURL = normalizeOverride(input.baseUrlOverride)
+      const resolvedBaseURL = requestBaseUrlRaw
+        ?? normalizeOverride(input.baseUrlOverride)
+        ?? tenantBaseUrlRaw
         ?? (hasModule ? normalizeOverride(env[moduleBaseUrlEnvVarName(input.moduleId!)]) : null)
         ?? normalizeOverride(input.agentDefaultBaseUrl)
         ?? undefined
