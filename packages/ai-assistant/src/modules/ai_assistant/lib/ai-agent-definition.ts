@@ -46,6 +46,29 @@ export interface AiAgentDefinition {
   allowedTools: string[]
   suggestions?: AiAgentSuggestion[]
   executionMode?: AiAgentExecutionMode
+  /**
+   * Optional provider id this agent prefers (e.g. `'openai'`, `'anthropic'`).
+   * Must match a registered `LlmProvider.id`. When the named provider is
+   * registered but unconfigured at runtime the factory falls through
+   * transparently to the next configured provider.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  defaultProvider?: string
+  /**
+   * Optional model id fed through `createModelFactory` for this agent.
+   * Accepts either a plain model id (`claude-haiku-4-5-20251001`) or a
+   * slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`).
+   * When the slash form is used the prefix must match a registered provider id;
+   * the registry-membership guard prevents mis-splitting model ids that already
+   * contain slashes (DeepInfra: `meta-llama/Llama-3.3-70B-Instruct-Turbo`).
+   *
+   * A higher-priority provider source still wins over the slash hint, but a
+   * lower-priority one cannot overwrite a slash-qualified model (cross-axis
+   * tie-break rule from spec §Phase-1).
+   *
+   * Phase 0 and Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
   defaultModel?: string
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
