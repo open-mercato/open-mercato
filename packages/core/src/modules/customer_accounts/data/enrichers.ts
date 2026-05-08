@@ -1,5 +1,6 @@
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerUser, DomainMapping, type DomainStatus } from './entities'
 
 type EntityRecord = Record<string, unknown> & { id: string }
@@ -42,11 +43,17 @@ const personAccountStatusEnricher: ResponseEnricher<EntityRecord, PersonAccountE
     const em = context.em.fork()
     const recordIds = records.map((r) => r.id)
 
-    const users = await em.find(CustomerUser, {
-      personEntityId: { $in: recordIds },
-      tenantId: context.tenantId,
-      deletedAt: null,
-    })
+    const users = await findWithDecryption(
+      em,
+      CustomerUser,
+      {
+        personEntityId: { $in: recordIds },
+        tenantId: context.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
 
     const userByPersonId = new Map<string, CustomerUser>()
     for (const user of users) {
@@ -92,11 +99,17 @@ const companyUserCountEnricher: ResponseEnricher<EntityRecord, CompanyUserCountE
     const em = context.em.fork()
     const recordIds = records.map((r) => r.id)
 
-    const users = await em.find(CustomerUser, {
-      customerEntityId: { $in: recordIds },
-      tenantId: context.tenantId,
-      deletedAt: null,
-    })
+    const users = await findWithDecryption(
+      em,
+      CustomerUser,
+      {
+        customerEntityId: { $in: recordIds },
+        tenantId: context.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
 
     const countByCompanyId = new Map<string, number>()
     for (const user of users) {
