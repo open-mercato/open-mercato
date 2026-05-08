@@ -10,6 +10,7 @@ import {
 } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { createModelFactory } from './model-factory'
 import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
@@ -65,6 +66,14 @@ export interface RunAiAgentTextInput {
    */
   modelOverride?: string
   /**
+   * Optional request-time provider override. When non-empty, wins for the
+   * provider axis at the same priority as `modelOverride` for the model axis.
+   * A value that does not match any registered provider id is silently ignored.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  providerOverride?: string
+  /**
    * Optional DI container used by `resolvePageContext` callbacks. When omitted
    * and the agent declares a `resolvePageContext`, hydration is skipped with a
    * warning (callbacks that need database/DI cannot run safely without one).
@@ -89,7 +98,24 @@ interface ResolvedAgentModel {
 function resolveAgentModel(
   agent: AiAgentDefinition,
   modelOverride: string | undefined,
+  providerOverride: string | undefined,
+  container: AwilixContainer | undefined,
 ): ResolvedAgentModel {
+  if (container) {
+    const resolution = createModelFactory(container).resolveModel({
+      moduleId: agent.moduleId,
+      agentDefaultModel: agent.defaultModel,
+      agentDefaultProvider: agent.defaultProvider,
+      callerOverride: modelOverride,
+      providerOverride,
+    })
+    return {
+      model: resolution.model as LanguageModel,
+      modelId: resolution.modelId,
+      providerId: resolution.providerId,
+    }
+  }
+
   const provider = llmProviderRegistry.resolveFirstConfigured()
   if (!provider) {
     throw new Error(
@@ -503,7 +529,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride)
+  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -566,6 +592,13 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    */
   authContext: AiChatRequestContext
   modelOverride?: string
+  /**
+   * Optional request-time provider override. When non-empty, wins for the
+   * provider axis at the same priority as `modelOverride` for the model axis.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  providerOverride?: string
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
@@ -686,7 +719,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride)
+  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
