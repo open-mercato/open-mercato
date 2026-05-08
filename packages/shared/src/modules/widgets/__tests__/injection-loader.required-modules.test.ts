@@ -20,6 +20,7 @@ import {
   loadInjectionWidgetsForSpot,
   registerCoreInjectionTables,
   registerCoreInjectionWidgets,
+  registerEnabledModuleIds,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 const HOST_SPOT_ID = 'data-table:host.list:search-trailing'
@@ -87,6 +88,39 @@ function registerHostFixtures(includeAiAssistantModule: boolean) {
     tables.push({ moduleId: 'ai_assistant', table: {} })
   }
   registerCoreInjectionTables(tables)
+
+  const enabledIds = ['host']
+  if (includeAiAssistantModule) enabledIds.push('ai_assistant')
+  registerEnabledModuleIds(enabledIds)
+}
+
+function registerHostFixturesUsingExplicitRegistryOnly(includeAiAssistantModule: boolean) {
+  // Simulates the real generator output: a dependency module (ai_assistant)
+  // is enabled in modules.ts but ships NO widgets/injection-table.ts, so it
+  // does not appear in injectionTables. The explicit enabled-modules registry
+  // is the only signal that proves it is enabled.
+  invalidateInjectionWidgetCache()
+  const widgetEntries: ModuleInjectionWidgetEntry[] = [
+    makeWidgetEntry('host', 'host/widgets/injection/always-available/widget.ts', async () => alwaysAvailableWidget),
+    makeWidgetEntry('host', 'host/widgets/injection/requires-ai/widget.ts', async () => requiresAiAssistantWidget),
+  ]
+  registerCoreInjectionWidgets(widgetEntries)
+
+  registerCoreInjectionTables([
+    {
+      moduleId: 'host',
+      table: {
+        [HOST_SPOT_ID]: [
+          { widgetId: ALWAYS_AVAILABLE_WIDGET_ID, priority: 50 },
+          { widgetId: REQUIRES_AI_WIDGET_ID, priority: 100 },
+        ],
+      },
+    },
+  ])
+
+  const enabledIds = ['host']
+  if (includeAiAssistantModule) enabledIds.push('ai_assistant')
+  registerEnabledModuleIds(enabledIds)
 }
 
 describe('Injection loader — requiredModules gating (#1849)', () => {
@@ -120,5 +154,23 @@ describe('Injection loader — requiredModules gating (#1849)', () => {
     const widget = await loadInjectionWidgetById(REQUIRES_AI_WIDGET_ID)
     expect(widget).not.toBeNull()
     expect(widget?.metadata.id).toBe(REQUIRES_AI_WIDGET_ID)
+  })
+
+  it('loads a widget when its required module ships NO injection table but is in the enabled-modules registry', async () => {
+    // Regression: dependency modules without widgets/injection-table.ts
+    // (for example `ai_assistant`) must still satisfy `requiredModules`
+    // checks once they are registered as enabled at bootstrap.
+    registerHostFixturesUsingExplicitRegistryOnly(true)
+    const loaded = await loadInjectionWidgetsForSpot(HOST_SPOT_ID)
+    const ids = loaded.map((widget) => widget.metadata.id).sort()
+    expect(ids).toEqual([REQUIRES_AI_WIDGET_ID, ALWAYS_AVAILABLE_WIDGET_ID].sort())
+  })
+
+  it('skips a widget when its required module is absent from the explicit enabled-modules registry', async () => {
+    registerHostFixturesUsingExplicitRegistryOnly(false)
+    const loaded = await loadInjectionWidgetsForSpot(HOST_SPOT_ID)
+    const ids = loaded.map((widget) => widget.metadata.id)
+    expect(ids).toContain(ALWAYS_AVAILABLE_WIDGET_ID)
+    expect(ids).not.toContain(REQUIRES_AI_WIDGET_ID)
   })
 })

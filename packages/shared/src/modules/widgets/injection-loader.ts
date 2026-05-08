@@ -44,9 +44,11 @@ type WidgetEntry = ModuleInjectionWidgetEntry & { moduleId: string }
 // Registration pattern for publishable packages
 let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
 let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
+let _enabledModuleIds: ReadonlySet<string> | null = null
 let _injectionRegistryVersion = 0
 const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
 const GLOBAL_INJECTION_TABLES_KEY = '__openMercatoCoreInjectionTables__'
+const GLOBAL_ENABLED_MODULE_IDS_KEY = '__openMercatoEnabledModuleIds__'
 const GLOBAL_INJECTION_REGISTRY_VERSION_KEY = '__openMercatoCoreInjectionRegistryVersion__'
 const INJECTION_REGISTRY_CHANGED_EVENT = '__openMercatoInjectionRegistryChanged__'
 
@@ -62,6 +64,24 @@ function readGlobalInjectionWidgets(): ModuleInjectionWidgetEntry[] | null {
 function writeGlobalInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
   try {
     ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGETS_KEY] = entries
+  } catch {
+    // ignore global assignment failures
+  }
+}
+
+function readGlobalEnabledModuleIds(): ReadonlySet<string> | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_ENABLED_MODULE_IDS_KEY]
+    if (value instanceof Set) return value as ReadonlySet<string>
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeGlobalEnabledModuleIds(ids: ReadonlySet<string>) {
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_ENABLED_MODULE_IDS_KEY] = ids
   } catch {
     // ignore global assignment failures
   }
@@ -144,6 +164,32 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
   notifyInjectionRegistryChanged()
 }
 
+/**
+ * Register the canonical set of enabled module IDs for the running app.
+ *
+ * This is the authoritative signal used by `requiredModules` widget gating —
+ * deriving "enabled" from injection tables or widget entries is unreliable
+ * because modules without injection widgets (for example `ai_assistant`) do
+ * not contribute entries to either source. Bootstrap callers should pass
+ * every module ID present in the app's module registry.
+ */
+export function registerEnabledModuleIds(moduleIds: Iterable<string>) {
+  const next = new Set<string>()
+  for (const moduleId of moduleIds) {
+    if (typeof moduleId === 'string' && moduleId.length > 0) next.add(moduleId)
+  }
+  if (_enabledModuleIds !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Enabled module IDs re-registered (this may occur during HMR)')
+  }
+  _enabledModuleIds = next
+  writeGlobalEnabledModuleIds(next)
+  notifyInjectionRegistryChanged()
+}
+
+export function getEnabledModuleIds(): ReadonlySet<string> | null {
+  return readGlobalEnabledModuleIds() ?? _enabledModuleIds
+}
+
 export function getInjectionRegistryVersion(): number {
   const globalVersion = readGlobalInjectionRegistryVersion()
   if (globalVersion !== null) return globalVersion
@@ -200,6 +246,7 @@ export function invalidateInjectionWidgetCache() {
   widgetEntriesPromise = null
   injectionTablePromise = null
   widgetCache.clear()
+  warnedRequiredModuleSkips.clear()
 }
 
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
@@ -339,7 +386,19 @@ async function loadEntry(entry: WidgetEntry): Promise<InjectionAnyWidgetModule<a
   return widgetCache.get(entry.key)!
 }
 
-function getEnabledModuleIdsForInjection(): Set<string> {
+function getEnabledModuleIdsForInjection(): ReadonlySet<string> {
+  // Prefer the explicit enabled-modules registry populated by bootstrap.
+  // This is the only signal that includes modules without injection widgets
+  // (for example `ai_assistant`), so it is required for `requiredModules`
+  // gating to be sound.
+  const explicit = readGlobalEnabledModuleIds() ?? _enabledModuleIds
+  if (explicit) return explicit
+
+  // Fallback: derive from injection tables and widget entries. This keeps
+  // older bootstrap paths (and callers that have not yet wired
+  // `registerEnabledModuleIds`) working — at the cost of mis-classifying
+  // dependency modules that ship no widgets. New apps MUST call
+  // `registerEnabledModuleIds` to get accurate gating.
   const enabled = new Set<string>()
   const tables = readGlobalInjectionTables() ?? _coreInjectionTables ?? []
   for (const entry of tables) {
@@ -354,7 +413,7 @@ function getEnabledModuleIdsForInjection(): Set<string> {
 
 function widgetMissingRequiredModules(
   metadata: InjectionWidgetMetadata,
-  enabledModuleIds: Set<string>,
+  enabledModuleIds: ReadonlySet<string>,
 ): string[] {
   const required = metadata.requiredModules
   if (!Array.isArray(required) || required.length === 0) return []
