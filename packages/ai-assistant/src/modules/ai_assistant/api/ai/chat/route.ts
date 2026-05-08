@@ -42,10 +42,13 @@ const chatRequestSchema = z.object({
   debug: z.boolean().optional(),
   pageContext: pageContextSchema.optional(),
   /**
-   * Optional stable conversation id forwarded from `<AiChat>`. Bridged into
-   * the Step 5.6 `prepareMutation` idempotency hash so repeated turns within
-   * the same chat collapse onto the same pending action. Additive; omitted
-   * bodies continue to work as before.
+   * Stable per-conversation id (Phase 6.2). Wins over `conversationId` when
+   * both are provided. The server echoes the resolved id on the SSE
+   * `loop-finish` event so clients can persist it for the next turn.
+   */
+  sessionId: z.string().uuid().optional(),
+  /**
+   * @deprecated Use `sessionId` instead.
    */
   conversationId: z.string().min(1).max(128).optional(),
 })
@@ -315,6 +318,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
       debug: bodyResult.data.debug,
+      sessionId: bodyResult.data.sessionId ?? null,
       conversationId: bodyResult.data.conversationId ?? null,
       authContext: {
         tenantId: auth.tenantId ?? null,

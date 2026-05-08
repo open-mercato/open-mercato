@@ -218,6 +218,13 @@ export interface LoopStepRecord {
  */
 export interface LoopTrace {
   agentId: string
+  /**
+   * Stable per-conversation id that ties every turn together. Echoed back on
+   * the SSE `loop-finish` event so clients can persist it for subsequent turns.
+   *
+   * Phase 6.2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  sessionId: string
   turnId: string
   steps: LoopStepRecord[]
   stopReason:

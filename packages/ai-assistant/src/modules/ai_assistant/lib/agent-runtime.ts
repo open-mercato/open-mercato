@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -120,11 +121,22 @@ export interface RunAiAgentTextInput {
    */
   container?: AwilixContainer
   /**
-   * Optional stable chat-turn conversation id forwarded from `<AiChat>`.
-   * Bridged into the Step 5.6 `prepareMutation` idempotency hash so repeated
-   * turns within the same chat collapse onto the same pending action. When
-   * omitted, the idempotency hash falls back to `null` which still preserves
-   * per-tenant/org uniqueness within the TTL window.
+   * Stable per-conversation id that ties every turn of a chat together for
+   * token-usage correlation and pending-action idempotency (Phase 6.2).
+   *
+   * When omitted the server generates one and echoes it on the SSE `done`
+   * event so the client can persist it for subsequent turns. Callers that
+   * supply a value from a previous turn will have their usage rows grouped
+   * under the same `session_id` in the token-usage tables.
+   *
+   * Phase 6.2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  sessionId?: string | null
+  /**
+   * @deprecated Use `sessionId` instead. This alias was the original name of
+   * the same field; both names are accepted for one minor release to let
+   * callers migrate without a hard cut. `sessionId` takes precedence when both
+   * are provided.
    */
   conversationId?: string | null
   /**
@@ -583,6 +595,7 @@ export class BudgetEnforcer {
  */
 export function buildLoopTraceCollector(
   agentId: string,
+  sessionId: string,
   turnId: string,
   userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
 ): {
@@ -670,6 +683,7 @@ export function buildLoopTraceCollector(
 
     return {
       agentId,
+      sessionId,
       turnId,
       steps,
       stopReason,
@@ -1333,6 +1347,12 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       input.authContext.organizationId,
     ),
   ])
+  // Phase 6.2 — resolve the effective session id. `sessionId` takes precedence
+  // over the deprecated `conversationId` alias. When neither is supplied, a
+  // fresh UUID is generated server-side so token-usage rows and pending-action
+  // idempotency hashes are always correlated within the same session.
+  const effectiveSessionId = (input.sessionId ?? input.conversationId) || randomUUID()
+
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -1340,7 +1360,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     attachmentIds: input.attachmentIds,
     mutationPolicyOverride,
     container: input.container,
-    conversationId: input.conversationId ?? null,
+    conversationId: effectiveSessionId,
   })
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({
@@ -1385,8 +1405,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   //   budgetEnforcer.wire(traceOnStepFinish) → traceOnStepFinish calls userOnStepFinish
   // The trace collector builds the per-turn LoopTrace; the budget enforcer
   // aborts via AbortController when any limit is exceeded.
-  const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-  const loopTraceCollector = buildLoopTraceCollector(agent.id, turnId, effectiveLoop.onStepFinish)
+  // Phase 6.2 — generate a per-call turnId as a UUID.
+  const turnId = randomUUID()
+  const loopTraceCollector = buildLoopTraceCollector(agent.id, effectiveSessionId, turnId, effectiveLoop.onStepFinish)
   const abortController = new AbortController()
   const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
   const wiredOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
@@ -1590,6 +1611,14 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   debug?: boolean
   container?: AwilixContainer
   /**
+   * Optional stable per-run session id for token-usage correlation.
+   * Object-mode runs are single-turn by definition but the session id lets
+   * callers group multiple object runs together for reporting.
+   *
+   * Phase 6.2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  sessionId?: string | null
+  /**
    * Optional per-call loop config override for object mode. Only the
    * object-safe subset is accepted: `maxSteps`, `budget`, `onStepFinish`,
    * `onStepStart`, and `allowRuntimeOverride`. Providing any chat-only
@@ -1752,6 +1781,14 @@ export async function runAiAgentObject<TSchema = unknown>(
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
   void tools
+
+  // Phase 6.2 — resolve session id and generate per-call turn id for
+  // token-usage correlation in object mode.
+  const effectiveObjectSessionId = input.sessionId ?? randomUUID()
+  const objectTurnId = randomUUID()
+  // Expose for token recorder via closure (used by token-usage-recorder in Phase 6.3).
+  void effectiveObjectSessionId
+  void objectTurnId
 
   if (input.loop) {
     assertLoopObjectModeCompatible(input.loop)
