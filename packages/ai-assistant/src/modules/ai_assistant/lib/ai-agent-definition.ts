@@ -1,7 +1,145 @@
 import type { AwilixContainer } from 'awilix'
 import type { ZodTypeAny } from 'zod'
+import type {
+  PrepareStepFunction,
+  GenerateTextOnStepFinishCallback,
+  GenerateTextOnStepStartCallback,
+  GenerateTextOnToolCallStartCallback,
+  GenerateTextOnToolCallFinishCallback,
+  ToolCallRepairFunction,
+  StopCondition,
+  ToolChoice,
+  ToolSet,
+} from 'ai'
 
 export type AiAgentExecutionMode = 'chat' | 'object'
+
+/**
+ * A serializable stop condition for the agentic loop. The `kind` field
+ * determines which Vercel AI SDK helper is used at runtime:
+ * - `stepCount` → `stepCountIs(count)` — the loop stops after N steps.
+ * - `hasToolCall` → `hasToolCall(toolName)` — the loop stops immediately
+ *   after the model emits a tool call for the named tool.
+ * - `custom` — a raw `StopCondition<ToolSet>` predicate supplied in code.
+ *   NOT valid from JSON-only override sources (tenant DB overrides); only
+ *   accepted when declared directly in `agent.loop` or a `runAiAgentText`
+ *   caller override.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export type AiAgentLoopStopCondition =
+  | { kind: 'stepCount'; count: number }
+  | { kind: 'hasToolCall'; toolName: string }
+  | { kind: 'custom'; stop: StopCondition<ToolSet> }
+
+/**
+ * Budget limits for the agentic loop turn. When any limit is exceeded the
+ * wrapper's `prepareStep`/`onStepFinish` aborts the turn via the per-turn
+ * `AbortController` and the loop terminates with a `loop_budget_exceeded`
+ * finish condition.
+ *
+ * Budget enforcement is implemented in Phase 1782-3; for Phases 0–2 the
+ * fields are accepted and forwarded to the prepared-options bag but are not
+ * actively enforced.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface AiAgentLoopBudget {
+  /** Hard cap on tool calls across all steps in this turn. */
+  maxToolCalls?: number
+  /** Wall-clock cap (ms) per turn; runtime aborts via AbortController. */
+  maxWallClockMs?: number
+  /** Input+output token cap; aggregated from step `usage` fields. */
+  maxTokens?: number
+}
+
+/**
+ * First-class loop configuration for an AI agent. Supersedes the flat
+ * `maxSteps` alias on `AiAgentDefinition`.
+ *
+ * All fields are optional; the runtime falls back to the wrapper default
+ * (`{ maxSteps: 10 }` for chat, `{ maxSteps: undefined }` for object) when
+ * neither the agent nor the caller supplies any loop config.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface AiAgentLoopConfig {
+  /** Maximum number of agentic steps before the loop is forced to stop. */
+  maxSteps?: number
+  /**
+   * Additional stop conditions. The wrapper ALWAYS composes these with
+   * `stepCountIs(maxSteps ?? 10)` so a misconfigured `hasToolCall` for a
+   * non-existent tool can never cause an infinite loop (R3 mitigation).
+   */
+  stopWhen?: AiAgentLoopStopCondition | AiAgentLoopStopCondition[]
+  /**
+   * Per-step preparation hook. The wrapper composes this with its own
+   * security-critical `prepareStep` that re-asserts the tool allowlist and
+   * mutation-approval wrapping per step.
+   *
+   * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
+   * for object-mode agents.
+   */
+  prepareStep?: PrepareStepFunction<ToolSet>
+  /**
+   * Callback fired when a step finishes. The wrapper chains its own
+   * aggregation callback (LoopTrace builder) before invoking this one.
+   * Exceptions thrown by this callback are caught and logged but do not
+   * abort the turn (matching the SDK's own contract).
+   */
+  onStepFinish?: GenerateTextOnStepFinishCallback<ToolSet>
+  /**
+   * Callback fired when a step starts. Forwarded to the AI SDK as
+   * `experimental_onStepStart`.
+   */
+  onStepStart?: GenerateTextOnStepStartCallback<ToolSet>
+  /**
+   * Callback fired when a tool call starts. Forwarded to the AI SDK as
+   * `experimental_onToolCallStart`.
+   */
+  onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
+  /**
+   * Callback fired when a tool call finishes. Forwarded to the AI SDK as
+   * `experimental_onToolCallFinish`.
+   */
+  onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
+  /**
+   * Tool-call repair function. Forwarded to the AI SDK as
+   * `experimental_repairToolCall`.
+   *
+   * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
+   * for object-mode agents.
+   */
+  repairToolCall?: ToolCallRepairFunction<ToolSet>
+  /**
+   * Narrow the active tool surface for each step. Names must be a subset of
+   * `agent.allowedTools`; any names outside the allowlist are filtered out
+   * with a `loop:active_tools_filtered` warning.
+   *
+   * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
+   * for object-mode agents.
+   */
+  activeTools?: string[]
+  /**
+   * Tool choice strategy forwarded to the AI SDK on each step.
+   *
+   * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
+   * for object-mode agents.
+   */
+  toolChoice?: ToolChoice<ToolSet>
+  /** Budget caps for this loop turn. */
+  budget?: AiAgentLoopBudget
+  /**
+   * When `false`, per-call `runAiAgentText({ loop })` / HTTP query-param
+   * overrides are rejected with `AgentPolicyError` code
+   * `loop_runtime_override_disabled`. Default is `true` (permissive).
+   *
+   * Agents that pin a loop policy for correctness reasons (e.g. a
+   * `stopWhen: hasToolCall(...)` that must not be bypassed by callers)
+   * should set this to `false`.
+   */
+  allowRuntimeOverride?: boolean
+}
 
 export type AiAgentMutationPolicy =
   | 'read-only'
@@ -98,7 +236,23 @@ export interface AiAgentDefinition {
   uiParts?: string[]
   readOnly?: boolean
   mutationPolicy?: AiAgentMutationPolicy
+  /**
+   * @deprecated Use `loop.maxSteps` instead. Honored as alias when `loop` is
+   * omitted. When both `maxSteps` and `loop.maxSteps` are specified, `loop.maxSteps`
+   * wins. This field will be removed in a future minor release.
+   *
+   * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
   maxSteps?: number
+  /**
+   * First-class agentic loop configuration. Supersedes the flat `maxSteps`
+   * alias. The runtime walks a precedence chain (per-call override → tenant
+   * DB override → this block → legacy `maxSteps` alias → wrapper default)
+   * to resolve the effective loop config for each turn.
+   *
+   * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loop?: AiAgentLoopConfig
   output?: AiAgentStructuredOutput
   resolvePageContext?: (ctx: AiAgentPageContextInput) => Promise<string | null>
   keywords?: string[]
