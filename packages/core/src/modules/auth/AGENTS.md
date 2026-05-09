@@ -104,3 +104,15 @@ export const setup: ModuleSetupConfig = {
 ```
 
 When exposing helper endpoints such as `/api/auth/feature-check`, keep wildcard handling normalized for callers. If a consumer bypasses the endpoint and reads raw ACL grants directly, it must apply wildcard-aware matching itself.
+
+## Scriptable Tenant Provisioning
+
+`mercato auth setup` is the scripting-friendly counterpart to interactive `mercato init`. Both call the same `setupInitialTenant` helper, so behaviour is identical for tenant + organization + admin user + role ACLs + `onTenantCreated` lifecycle hooks.
+
+For non-interactive callers (staging seeding, sales-engineering demos, customer onboarding, DR restore), use:
+
+- `--orgSlug <slug>` — persists a global slug on the new organization. Triggers a uniqueness pre-check across all tenants (throws `OrgSlugExistsError` on collision) and forces `failIfUserExists: true` so an existing user with the same email aborts with a clear error rather than silently reusing the foreign tenant.
+- `--with-examples` — runs every enabled module's `seedExamples` after tenant creation. Opt-in here (default off) so production callers don't accidentally seed demo data.
+- `--json` — emits a single JSON line on stdout with `{ tenantId, organizationId, adminUserId, adminEmail, reusedExistingUser }`. Suppresses banner/progress output and silences `console.log`/`console.info` for the duration so consumers can pipe directly into `jq`.
+
+The lib-level option (`SetupInitialTenantOptions.orgSlug`) is available to direct callers of `setupInitialTenant`; the slug pre-check uses `findOneWithDecryption` so it remains correct if `Organization` later gains encrypted fields.
