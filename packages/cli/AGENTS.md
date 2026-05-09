@@ -74,6 +74,40 @@ yarn generate         # Run generators
 yarn build:packages   # Rebuild with generated files
 ```
 
+## Scriptable Tenant Provisioning (`mercato test:bootstrap-tenant`)
+
+Mints a fully-provisioned tenant — Tenant + Organization + admin User + role
+ACLs + every module's `onTenantCreated` lifecycle hook — against an existing
+OM instance, without sitting in front of the interactive `mercato init` prompts.
+
+```bash
+mercato test:bootstrap-tenant \
+  --slug <slug> \
+  --org-name <name> \
+  --admin-email <email> \
+  --admin-password <password> \
+  [--admin-display-name <name>] \
+  [--with-examples]
+```
+
+Outputs a single JSON object on stdout:
+
+```json
+{ "tenantId": "...", "organizationId": "...", "adminUserId": "...", "adminEmail": "..." }
+```
+
+All four flagged values are required — there are no test-friendly defaults so
+production callers (customer onboarding, disaster recovery, staging seeding,
+sales-engineering demo provisioning) are forced to pass real, deliberate
+values. Slug collisions exit non-zero with `TENANT_SLUG_EXISTS` and never
+silently overwrite or merge into an existing tenant. Banner / progress output
+goes to stderr (or is suppressed via `OM_CLI_QUIET=1`) so consumers can pipe
+the JSON directly into `jq` or downstream scripts.
+
+The subcommand is a thin wrapper around the same internal `setupInitialTenant`
+helper used by `mercato init` and `mercato auth setup`; behaviour parity is
+guaranteed by construction.
+
 ## Module Scaffolding
 
 Each module has an optional `cli.ts` with a default export for module-specific CLI commands. These are auto-discovered and registered in `modules.cli.generated.ts`.

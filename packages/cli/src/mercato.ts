@@ -15,6 +15,8 @@ import { acquireServerStartLock } from './lib/server-start-lock'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
+// Lazy-imported to keep the cold-start surface of unrelated subcommands small
+const lazyBootstrapTenant = () => import('./lib/testing/bootstrap-tenant')
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -1207,6 +1209,12 @@ export async function run(argv = process.argv) {
     rest = second !== undefined ? [second, ...remaining] : []
   }
 
+  if (first === 'test:bootstrap-tenant') {
+    modName = 'test'
+    cmdName = 'bootstrap-tenant'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
   if (first === 'test' && second === 'integration') {
     modName = 'test'
     cmdName = 'integration'
@@ -1234,6 +1242,12 @@ export async function run(argv = process.argv) {
   if (first === 'test' && second === 'spec-coverage') {
     modName = 'test'
     cmdName = 'spec-coverage'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'bootstrap-tenant') {
+    modName = 'test'
+    cmdName = 'bootstrap-tenant'
     rest = remaining
   }
 
@@ -1973,6 +1987,12 @@ export async function run(argv = process.argv) {
         command: 'spec-coverage',
         run: async (args: string[]) => {
           await (await lazyIntegration()).runIntegrationSpecCoverageReport(args)
+        },
+      },
+      {
+        command: 'bootstrap-tenant',
+        run: async (args: string[]) => {
+          await (await lazyBootstrapTenant()).runBootstrapTenant(args)
         },
       },
     ],
