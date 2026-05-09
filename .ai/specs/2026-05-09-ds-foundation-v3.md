@@ -9,7 +9,7 @@
 - **Two date-family primitives** anchored on Figma node [`435:8548`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=435-8548): `DatePicker` (single date, Figma `446:7413`) and `DateRangePicker` (range with optional preset sidebar, Figma `446:7412`). Both wrap existing `Calendar` primitive in a `Popover`. Both expose `withFooter` (Apply/Cancel buttons, default `true`) and `withTime` (HH:MM input, default `false`) per Figma "Event Calendar" Block.
 - **Two feedback primitives**: `EmptyState` (full primitive replacing ad-hoc `<div className="text-center py-8">…` patterns; was P0 in hackathon and only `TabEmptyState` shipped in Phase 0) and `Skeleton` (loading placeholder, sibling to existing `Spinner`).
 - **Six form-variant primitives** from Phase 3.A track: `TagInput` (Figma `428:4860`), `CounterInput` (`428:5656`), `DigitInput` / OTP (`429:5172`), `InlineInput`, `CompactSelect` (h-7 dense), `InlineSelect`. All wrap v2 `Input` or `Select` primitives.
-- **One internal helper**: `defaultDateRangePresets()` returning the 8 presets from Figma Block 3 (Today / Yesterday / Last 7d / Last 30d / Last 90d / This month / Last month / This year).
+- **One internal helper**: `defaultDateRangePresets()` returning all 13 presets — adapter on top of the existing `DATE_RANGE_OPTIONS` from [`packages/ui/src/backend/date-range/dateRanges.ts`](../../packages/ui/src/backend/date-range/dateRanges.ts), so the preset list and i18n keys stay in one place.
 - **One additive consumer migration** in same PR: `FilterOverlay`'s `dateRange` filter branch swaps two raw `<input type="date">` for the new `DateRangePicker` (no public `FilterDef` API change, internal-only swap). All other ad-hoc consumers (`ChangelogFilters`, `ActivityTimelineFilters`) are deferred to follow-up PRs.
 
 **Scope:**
@@ -110,13 +110,24 @@ The Figma module defines two complete primitives (`DatePicker` for single date, 
 | 10 | `InlineSelect` | 3.A | TBD | `inline-select.tsx` | `Select` |
 
 Plus:
-- `date-picker-helpers.ts` — `defaultDateRangePresets()` returning 8 standard presets.
+- `date-picker-helpers.ts` — `defaultDateRangePresets()` returning **13 standard presets** by **adapting the existing `DATE_RANGE_OPTIONS`** from [`packages/ui/src/backend/date-range/dateRanges.ts`](../../packages/ui/src/backend/date-range/dateRanges.ts). No duplicate preset list.
 - One internal swap in `FilterOverlay.tsx` (raw inputs → `DateRangePicker`).
+
+### Reuse of existing `backend/date-range/` infrastructure
+
+`packages/ui/src/backend/date-range/` already ships a mature preset system used by dashboard/analytics modules:
+- **Types**: `DateRange = { start: Date; end: Date }`, `DateRangePreset` (string union of 13 preset IDs), `DateRangeOption = { value, labelKey }`.
+- **Constant**: `DATE_RANGE_OPTIONS` — 13 presets with i18n keys (`dashboards.analytics.dateRange.*`).
+- **Helpers**: `resolveDateRange(preset, refDate)`, `getPreviousPeriod()`, `isValidDateRangePreset()`, `calculatePercentageChange()`, `determineChangeDirection()`, `getComparisonLabelKey()`.
+- **Components**: `DateRangeSelect` (form-style preset dropdown), `InlineDateRangeSelect` (compact preset dropdown), `InlineGranularitySelect`.
+
+v3 **reuses these types and helpers** rather than introducing parallel ones. The existing `DateRangeSelect` / `InlineDateRangeSelect` are **preset-only** (Select dropdowns); they coexist with v3 — they are NOT replaced by `DateRangePicker` (which is calendar + optional preset sidebar). A future PR may migrate them to share the `DateRangePicker` popover for the preset path, but that is out of v3 scope.
 
 ### Common architectural patterns
 
 | Pattern | Applies to | Detail |
 |---|---|---|
+| **Figma fidelity is the priority** | All 10 primitives | When the Figma DS Open Mercato file (`qCq9z6q1if0mpoRstV5OEA`) defines a primitive's anatomy (sub-frames, sub-components, states, sizes, dimensions), match it. Reuse of existing infrastructure (e.g. `backend/date-range/` types and helpers) is welcome **only when it does not compromise Figma fidelity**. If the existing code conflicts with Figma, write the primitive from Figma and leave the existing code as-is for a deferred refactor. |
 | Popover-anchored | DatePicker, DateRangePicker, CompactSelect (no — Select uses Radix internally) | `Popover` from primitives, `align="start"` default, `side="bottom"`. |
 | Trigger-as-Input | DatePicker, DateRangePicker | Trigger renders as a styled `Input`-shaped button with leftIcon (calendar), placeholder, and value text. |
 | `withFooter` prop | DatePicker, DateRangePicker | Default `true` per Figma. When `true`, renders Apply/Cancel buttons in popover footer; Apply commits, Cancel reverts. When `false`, every cell click commits immediately. |
@@ -177,22 +188,32 @@ type DatePickerProps = {
 **API:**
 
 ```ts
-type DateRange = { from?: Date; to?: Date }
-type DateRangePreset = { id: string; label: string; range: () => DateRange }
+// Reused from packages/ui/src/backend/date-range/dateRanges.ts
+import type { DateRange, DateRangePreset } from '@open-mercato/ui/backend/date-range'
+//   DateRange       = { start: Date; end: Date }
+//   DateRangePreset = string union of 13 preset IDs ('today' | 'yesterday' | …)
+
+// New type for v3 — disambiguated from the existing DateRangePreset string union
+type DateRangePresetItem = {
+  id: DateRangePreset                              // reuses existing string union
+  labelKey: string                                 // reuses existing i18n keys
+  range: (referenceDate?: Date) => DateRange       // wraps existing resolveDateRange()
+}
 
 type DateRangePickerProps = {
   value?: DateRange | null
   onChange?: (value: DateRange | null) => void
-  presets?: DateRangePreset[]            // sidebar (Today, Last 7d, …); pass [] to hide sidebar
+  presets?: DateRangePresetItem[]        // sidebar; defaults to defaultDateRangePresets() (all 13)
+  showPresets?: boolean                  // default true (per Figma Range Picker layout); pass false to hide sidebar
   placeholder?: string
   size?: 'sm' | 'default'
   disabled?: boolean
   withFooter?: boolean                   // default true; renders Apply/Cancel
-  withTime?: boolean                     // default false; renders HH:MM for from/to
+  withTime?: boolean                     // default false; renders HH:MM for start/end
   align?: 'start' | 'center' | 'end'
   minDate?: Date
   maxDate?: Date
-  numberOfMonths?: 1 | 2                 // default 2 (Figma spec)
+  numberOfMonths?: 1 | 2                 // default 2 (Figma Range Picker = 2 months side-by-side)
   formatRange?: (value: DateRange) => string
   className?: string
   popoverClassName?: string
@@ -204,15 +225,22 @@ type DateRangePickerProps = {
 }
 ```
 
-**Helper:** `defaultDateRangePresets()` returns 8 presets per Figma Block 3:
+**Helper:** `defaultDateRangePresets()` returns **all 13 presets** from `DATE_RANGE_OPTIONS` (matches Figma Period Range track and reuses the existing i18n keys):
 1. Today
 2. Yesterday
-3. Last 7 days
-4. Last 30 days
-5. Last 90 days
-6. This month
-7. Last month
-8. This year
+3. This week
+4. Last week
+5. This month
+6. Last month
+7. This quarter
+8. Last quarter
+9. This year
+10. Last year
+11. Last 7 days
+12. Last 30 days
+13. Last 90 days
+
+Implementation: `defaultDateRangePresets()` maps `DATE_RANGE_OPTIONS` to `DateRangePresetItem[]` by setting `range: (refDate) => resolveDateRange(option.value, refDate)`. Zero hardcoded preset logic in v3 — it is all in `dateRanges.ts` already.
 
 **Tests** (`__tests__/date-range-picker.test.tsx`):
 - Renders trigger with placeholder when value is null.
@@ -482,7 +510,7 @@ Per AGENTS.md ("For every new feature, the spec MUST list integration coverage f
 | `DatePicker` | New TC-DS-DP-001: "Pick a date and commit via Apply button". |
 | Other 8 primitives | Unit tests only (no existing UX surface displaced in v3). Integration coverage added when consumers migrate in follow-up PRs. |
 
-Unit test convention: `packages/ui/src/primitives/__tests__/{primitive-slug}.test.tsx`. Vitest + Testing Library + `@testing-library/user-event`. Radix Select gets the existing test helpers (per `feedback_radix_test_migration_traps.md`).
+Unit test convention: `packages/ui/src/primitives/__tests__/{primitive-slug}.test.tsx`. **Jest** (jest 30 + jest-environment-jsdom) + `@testing-library/react` + `@testing-library/jest-dom`. Radix Select gets the existing test helpers (per `feedback_radix_test_migration_traps.md`).
 
 ---
 
@@ -532,7 +560,7 @@ Before pushing for PR:
 
 1. **Figma node IDs for `InlineInput` / `CompactSelect` / `InlineSelect`** are TBD in the umbrella roadmap. API specified above is inferred from existing usages. **Action before implementation:** confirm against Figma. If the file does not specify these exactly, document the inferred API as the canonical one and update the umbrella spec.
 2. **`DigitInput` accessibility** with `mask=true` — masked inputs have known screen-reader UX issues. We will follow Radix Toggle pattern for `aria-live` announcement of digit count, but not character content.
-3. **`react-day-picker` v8 → v9 migration** is happening upstream; Phase 1's `Calendar` primitive uses v8 API. We pin to the version currently installed and do not bump in v3.
+3. **`react-day-picker` v9** is the version currently installed (`^9.14.0` in `packages/ui/package.json`); the existing `Calendar` primitive already uses the v9 `mode='single' | 'range'` API. v3 builds on this — no version bump needed.
 4. **`withTime` time format localization** — initial implementation uses 24h `HH:MM`. 12h support deferred (consumer can format display via `format` prop; underlying `Date` is timezone-naive).
 5. **`FilterOverlay` swap edge case** — current implementation accepts both ISO date strings and `Date` objects in `FilterValues`. The swap normalizes to ISO strings on output. Need to verify all `FilterBar dateRange` consumers handle the same shape (currently: only `business_rules/logs`).
 
