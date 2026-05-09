@@ -122,6 +122,8 @@ docker/opencode/opencode.jsonc
 
 # MCPs
 .playwright-mcp
+# Local CI / agent investigation logs (not source)
+.ai/reports/
 .ai/qa/ephemeral-env.lock/owner.json
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
