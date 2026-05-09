@@ -1,0 +1,879 @@
+ephemeral-integration (11/15)	UNKNOWN STEP	﻿2026-04-24T21:22:53.6701365Z Current runner version: '2.333.1'
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6727353Z ##[group]Runner Image Provisioner
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6728118Z Hosted Compute Agent
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6728758Z Version: 20260213.493
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6729571Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6730284Z Build Date: 2026-02-13T00:28:41Z
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6730948Z Worker ID: {56fd8a75-2e3e-4aaa-81a2-cd8ebad92851}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6731712Z Azure Region: eastus2
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6732276Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6733895Z ##[group]Operating System
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6734801Z Ubuntu
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6735411Z 24.04.4
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6736135Z LTS
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6736815Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6737527Z ##[group]Runner Image
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6738204Z Image: ubuntu-24.04
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6738801Z Version: 20260413.86.1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6740244Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260413.86/images/ubuntu/Ubuntu2404-Readme.md
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6741755Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260413.86
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6742641Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6743696Z ##[group]GITHUB_TOKEN Permissions
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6745703Z Contents: read
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6746238Z Metadata: read
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6746856Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6748937Z Secret source: None
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.6749760Z Prepare workflow directory
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.7135204Z Prepare all required actions
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:53.7173697Z Getting action download info
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:54.1070587Z Download action repository 'actions/checkout@v6' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:54.2611320Z Download action repository 'actions/setup-node@v6' (SHA:48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:54.6127483Z Download action repository 'actions/cache@v5' (SHA:27d5ce7f107fe9357f9df03efb73ab90386fccae)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:54.9582003Z Download action repository 'actions/download-artifact@v8' (SHA:3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.2286178Z Download action repository 'actions/upload-artifact@v7' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.7821885Z Complete job name: ephemeral-integration (11/15)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8695578Z ##[group]Run SHARD="11/15"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8696744Z [36;1mSHARD="11/15"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8697702Z [36;1mif [ "$SHARD" = "none" ]; then[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8699684Z [36;1m  echo "artifact_name=integration-test-results" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8701543Z [36;1m  echo "shard_flag=" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8702917Z [36;1m  echo "shard_index=none" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8704188Z [36;1melse[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8705011Z [36;1m  INDEX="${SHARD%%/*}"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8706507Z [36;1m  echo "artifact_name=integration-test-results-${INDEX}" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8708324Z [36;1m  echo "shard_flag=--shard ${SHARD}" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8710242Z [36;1m  echo "shard_index=${INDEX}" >> "$GITHUB_OUTPUT"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8711425Z [36;1mfi[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8739607Z shell: /usr/bin/bash -e {0}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8740889Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8741996Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8743164Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8744295Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8745613Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8746799Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8748197Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8820913Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.8822064Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9225304Z ##[group]Run actions/checkout@v6
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9226292Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9227064Z   repository: open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9228341Z   token: ***
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9229577Z   ssh-strict: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9230325Z   ssh-user: git
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9231089Z   persist-credentials: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9231934Z   clean: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9232706Z   sparse-checkout-cone-mode: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9233622Z   fetch-depth: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9234353Z   fetch-tags: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9235095Z   show-progress: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9235865Z   lfs: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9236553Z   submodules: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9237337Z   set-safe-directory: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9238143Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9238882Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9240136Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9241125Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9242226Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9243316Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9244600Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9245880Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:55.9246779Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0193919Z Syncing repository: open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0196476Z ##[group]Getting Git version info
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0197754Z Working directory is '/home/runner/work/open-mercato/open-mercato'
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0199836Z [command]/usr/bin/git version
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0206177Z git version 2.53.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0229749Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0244103Z Temporarily overriding HOME='/home/runner/work/_temp/7bdd393d-425c-4aeb-b0ea-22129d089753' before making global git config changes
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0246719Z Adding repository directory to the temporary git global config as a safe directory
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0249820Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0287635Z Deleting the contents of '/home/runner/work/open-mercato/open-mercato'
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0292572Z ##[group]Initializing the repository
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0296542Z [command]/usr/bin/git init /home/runner/work/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0363396Z hint: Using 'master' as the name for the initial branch. This default branch name
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0366062Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0367814Z hint: to use in all of your new repositories, which will suppress this warning,
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0369526Z hint: call:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0370496Z hint:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0371728Z hint: 	git config --global init.defaultBranch <name>
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0373087Z hint:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0374259Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0376475Z hint: 'development'. The just-created branch can be renamed via this command:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0378433Z hint:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0379572Z hint: 	git branch -m <name>
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0380408Z hint:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0381714Z hint: Disable this message with "git config set advice.defaultBranchName false"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0383607Z Initialized empty Git repository in /home/runner/work/open-mercato/open-mercato/.git/
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0386644Z [command]/usr/bin/git remote add origin https://github.com/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0442918Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0444787Z ##[group]Disabling automatic garbage collection
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0446468Z [command]/usr/bin/git config --local gc.auto 0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0478185Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0480141Z ##[group]Setting up auth
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0481448Z Removing SSH command configuration
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0484935Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0519918Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0825139Z Removing HTTP extra header
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0832692Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.0866673Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1096695Z Removing includeIf entries pointing to credentials config files
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1102324Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1136412Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1378298Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1418770Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/open-mercato/open-mercato/.git.path /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1451240Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/open-mercato/open-mercato/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1484638Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1517843Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1547450Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1548724Z ##[group]Fetching the repository
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:56.1555313Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +dd47f1c8f6147f5a4c8ba0d25123f331189488c0:refs/remotes/pull/1701/merge
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8139980Z From https://github.com/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8140962Z  * [new ref]         dd47f1c8f6147f5a4c8ba0d25123f331189488c0 -> pull/1701/merge
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8175247Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8176169Z ##[group]Determining the checkout info
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8176921Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8182927Z [command]/usr/bin/git sparse-checkout disable
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8227091Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8257978Z ##[group]Checking out the ref
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:58.8263063Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1701/merge
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6434213Z Note: switching to 'refs/remotes/pull/1701/merge'.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6434826Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6435185Z You are in 'detached HEAD' state. You can look around, make experimental
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6435896Z changes and commit them, and you can discard any commits you make in this
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6436654Z state without impacting any branches by switching back to a branch.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6437749Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6438078Z If you want to create a new branch to retain commits you create, you may
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6438545Z do so (now or later) by using -c with the switch command. Example:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6438799Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6438904Z   git switch -c <new-branch-name>
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6439072Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6439440Z Or undo this operation with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6439607Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6439695Z   git switch -
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6439854Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6440064Z Turn off this advice by setting config variable advice.detachedHead to false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6440757Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6441099Z HEAD is now at dd47f1c Merge 3d07589a1230f848e5fad916f959d8741fc71b19 into 2495d0c5333c1e33e557bc245b60376cf9c0fe2e
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6476599Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6520387Z [command]/usr/bin/git log -1 --format=%H
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6547335Z dd47f1c8f6147f5a4c8ba0d25123f331189488c0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6753842Z ##[group]Run actions/setup-node@v6
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6754129Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6754339Z   node-version: 24
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6754548Z   check-latest: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6754925Z   token: ***
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6755144Z   package-manager-cache: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6755392Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6755634Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6755920Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6756194Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6756478Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6756782Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6757134Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6757494Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.6757745Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.8558235Z Found in cache @ /opt/hostedtoolcache/node/24.14.1/x64
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:22:59.8563225Z ##[group]Environment details
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3627603Z node: v24.14.1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3627976Z npm: 11.11.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3628259Z yarn: 1.22.22
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3629566Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3758852Z ##[group]Run corepack enable
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3759349Z [36;1mcorepack enable[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3788263Z shell: /usr/bin/bash -e {0}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3788524Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3788739Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3789024Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3789531Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3789822Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3790111Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3790477Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3790828Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.3791084Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5427102Z ##[group]Run actions/cache@v5
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5427362Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5427546Z   path: .yarn/cache
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5427912Z   key: yarn-Linux-fad1050fec47404e10b0e6c3b49c6b7093802ab87b484558a633d3511174661e
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5428331Z   restore-keys: yarn-Linux-
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5428575Z   enableCrossOsArchive: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5428806Z   fail-on-cache-miss: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5429024Z   lookup-only: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5429536Z   save-always: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5429748Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5429955Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5430234Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5430511Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5430789Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5431097Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5431452Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5431879Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.5432118Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.7790866Z Cache not found for input keys: yarn-Linux-fad1050fec47404e10b0e6c3b49c6b7093802ab87b484558a633d3511174661e, yarn-Linux-
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8475807Z ##[group]Run actions/cache@v5
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8476058Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8476348Z   path: node_modules
+ephemeral-integration (11/15)	UNKNOWN STEP	packages/*/node_modules
+ephemeral-integration (11/15)	UNKNOWN STEP	apps/*/node_modules
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8476893Z   key: node-modules-Linux-fad1050fec47404e10b0e6c3b49c6b7093802ab87b484558a633d3511174661e
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8477387Z   enableCrossOsArchive: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8477645Z   fail-on-cache-miss: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8477883Z   lookup-only: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8478097Z   save-always: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8478288Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8478505Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8478787Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8479067Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8479969Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8480285Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8480651Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8481075Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:03.8481320Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:04.0456861Z Cache hit for: node-modules-Linux-fad1050fec47404e10b0e6c3b49c6b7093802ab87b484558a633d3511174661e
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:05.0913326Z Received 269232276 of 294398100 (91.5%), 255.0 MBs/sec
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:05.1501704Z Received 294398100 of 294398100 (100.0%), 263.6 MBs/sec
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:05.1504114Z Cache Size: ~281 MB (294398100 B)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:05.1615810Z [command]/usr/bin/tar -xf /home/runner/work/_temp/da60ad51-50ec-4430-ae8e-ffef94c6976b/cache.tzst -P -C /home/runner/work/open-mercato/open-mercato --use-compress-program unzstd
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4093563Z Cache restored successfully
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4330086Z Cache restored from key: node-modules-Linux-fad1050fec47404e10b0e6c3b49c6b7093802ab87b484558a633d3511174661e
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4508624Z ##[group]Run actions/download-artifact@v8
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4508926Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4509117Z   name: build-artifacts
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4509650Z   merge-multiple: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4509887Z   repository: open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4510146Z   run-id: 24912399166
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4510364Z   skip-decompress: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4510594Z   digest-mismatch: error
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4510801Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4510992Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4511270Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4511540Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4511819Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4512118Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4512476Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4512844Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.4513159Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.5873485Z Downloading single artifact
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.6744842Z Preparing to download the following artifacts:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.6746263Z - build-artifacts (ID: 6633978827, Size: 16455577, Expected Digest: sha256:459bb6d3f9d7bfec4139cf83a1942da8d9d20fdf5ae5ba559be68b118a114451)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.8043454Z Redirecting to blob download url: https://productionresultssa0.blob.core.windows.net/actions-results/983e4383-adc3-4810-88d3-f422dedf42f3/workflow-job-run-30a4620a-6b69-5aff-bbbc-5cf949b4306c/artifacts/5dc05f8d04b4d39890fcfdf5c8c6b3083d236450689834d6bcc484b8ef830f85.zip
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.8045661Z Starting download of artifact to: /home/runner/work/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.9030472Z (node:2408) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:11.9031551Z (Use `node --trace-deprecation ...` to show where the warning was created)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8499652Z SHA256 digest of downloaded artifact is 459bb6d3f9d7bfec4139cf83a1942da8d9d20fdf5ae5ba559be68b118a114451
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8500709Z Artifact download completed successfully.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8501231Z Total of 1 artifact(s) downloaded
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8505476Z Download artifact has finished successfully
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8917498Z ##[group]Run actions/download-artifact@v8
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8917974Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8918261Z   name: app-build
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8918583Z   merge-multiple: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8918926Z   repository: open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8919625Z   run-id: 24912399166
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8919969Z   skip-decompress: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8920333Z   digest-mismatch: error
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8920673Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8920986Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8921735Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8922191Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8922649Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8923152Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8923759Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8924334Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:13.8924787Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.0317424Z Downloading single artifact
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.1414029Z Preparing to download the following artifacts:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.1415316Z - app-build (ID: 6633981759, Size: 62710061, Expected Digest: sha256:39cf675736ca302c210fa33288a26f5829e13ef8e9c814da6db3ffd2cc2fef96)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.2914572Z Redirecting to blob download url: https://productionresultssa0.blob.core.windows.net/actions-results/983e4383-adc3-4810-88d3-f422dedf42f3/workflow-job-run-30a4620a-6b69-5aff-bbbc-5cf949b4306c/artifacts/3496022b23ed4beb5bf158a8860fdca4ec6258c9d7071dcf5c949f0474172987.zip
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.2915980Z Starting download of artifact to: /home/runner/work/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.3796334Z (node:2421) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:14.3797499Z (Use `node --trace-deprecation ...` to show where the warning was created)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1187298Z SHA256 digest of downloaded artifact is 39cf675736ca302c210fa33288a26f5829e13ef8e9c814da6db3ffd2cc2fef96
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1187969Z Artifact download completed successfully.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1188342Z Total of 1 artifact(s) downloaded
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1191733Z Download artifact has finished successfully
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1324652Z ##[group]Run tar -xzf app-build.tar.gz -C apps/mercato/
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1325357Z [36;1mtar -xzf app-build.tar.gz -C apps/mercato/[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1357563Z shell: /usr/bin/bash -e {0}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1357863Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1358098Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1358419Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1358713Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1359023Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1359654Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1360045Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1360419Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:15.1360683Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1641352Z ##[group]Run actions/cache@v5
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1641760Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1642059Z   path: ~/.cache/ms-playwright
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1642493Z   key: playwright-chromium-Linux-v1.50.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1642963Z   enableCrossOsArchive: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1643358Z   fail-on-cache-miss: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1643725Z   lookup-only: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1644054Z   save-always: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1644382Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1644711Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1645176Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1645631Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1646093Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1646569Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1647131Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1647699Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.1648127Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:17.3590777Z Cache hit for: playwright-chromium-Linux-v1.50.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:18.4229782Z Received 248348291 of 265125507 (93.7%), 234.5 MBs/sec
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:18.4608166Z Received 265125507 of 265125507 (100.0%), 239.7 MBs/sec
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:18.4610247Z Cache Size: ~253 MB (265125507 B)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:18.4652439Z [command]/usr/bin/tar -xf /home/runner/work/_temp/d22f3a71-97af-41f1-b68f-b545179a7bd0/cache.tzst -P -C /home/runner/work/open-mercato/open-mercato --use-compress-program unzstd
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.5954930Z Cache restored successfully
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6174007Z Cache restored from key: playwright-chromium-Linux-v1.50.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6339094Z ##[group]Run SHARD_FLAG="--shard 11/15"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6339773Z [36;1mSHARD_FLAG="--shard 11/15"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6340086Z [36;1mif [ -n "$SHARD_FLAG" ]; then[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6340422Z [36;1m  yarn test:integration:coverage $SHARD_FLAG[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6340738Z [36;1melse[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6340972Z [36;1m  yarn test:integration:coverage[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6341250Z [36;1mfi[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6363744Z shell: /usr/bin/bash -e {0}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6364017Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6364251Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6364571Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6364873Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6365180Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6365519Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6365914Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6366329Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6366639Z   OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: 180
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6366939Z   OM_INTEGRATION_MODULES: 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.6367177Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:19.7181174Z ! Corepack is about to download https://repo.yarnpkg.com/4.12.0/packages/yarnpkg-cli/bin/yarn.js
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8290118Z 📋 Copied .env.example → .env (edit /home/runner/work/open-mercato/open-mercato/apps/mercato/.env to customize)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8317496Z ◇ injected env (65) from apps/mercato/.env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8318271Z ╔═══════════════════════╗
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8318735Z ║  🧩 Open Mercato CLI  ║
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8319037Z ╚═══════════════════════╝
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8319361Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:21.8319583Z 🚀 Running test:coverage --shard 11/15
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:33.9612991Z [coverage] Build cache disabled: missing or invalid cache metadata (/home/runner/work/open-mercato/open-mercato/.ai/qa/ephemeral-build-cache.json).
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:33.9614410Z [coverage] Ephemeral database ready at localhost:32769
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:33.9615226Z [coverage] Initializing application data (includes migrations)...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:35.9630123Z [coverage] Initializing application data... 2s elapsed, ~43s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:37.9632913Z [coverage] Initializing application data... 4s elapsed, ~41s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:39.9649423Z [coverage] Initializing application data... 6s elapsed, ~39s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:41.9662907Z [coverage] Initializing application data... 8s elapsed, ~37s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:43.9685586Z [coverage] Initializing application data... 10s elapsed, ~35s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:45.9708019Z [coverage] Initializing application data... 12s elapsed, ~33s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:47.9720722Z [coverage] Initializing application data... 14s elapsed, ~31s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:49.9732730Z [coverage] Initializing application data... 16s elapsed, ~29s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:51.9754707Z [coverage] Initializing application data... 18s elapsed, ~27s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:53.9777486Z [coverage] Initializing application data... 20s elapsed, ~25s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:55.9790925Z [coverage] Initializing application data... 22s elapsed, ~23s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:57.9802695Z [coverage] Initializing application data... 24s elapsed, ~21s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:23:59.9822879Z [coverage] Initializing application data... 26s elapsed, ~19s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:01.9845617Z [coverage] Initializing application data... 28s elapsed, ~17s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:03.9858397Z [coverage] Initializing application data... 30s elapsed, ~15s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:05.9880989Z [coverage] Initializing application data... 32s elapsed, ~13s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:07.9900603Z [coverage] Initializing application data... 34s elapsed, ~11s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:09.9915866Z [coverage] Initializing application data... 36s elapsed, ~9s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:11.9916628Z [coverage] Initializing application data... 38s elapsed, ~7s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:13.9939319Z [coverage] Initializing application data... 40s elapsed, ~5s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:15.9952577Z [coverage] Initializing application data... 42s elapsed, ~3s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:17.9974838Z [coverage] Initializing application data... 44s elapsed, ~1s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:19.9987359Z [coverage] Initializing application data... 46s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:21.9992978Z [coverage] Initializing application data... 48s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:24.0002258Z [coverage] Initializing application data... 50s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:26.0012470Z [coverage] Initializing application data... 52s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:28.0019809Z [coverage] Initializing application data... 54s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:30.0022706Z [coverage] Initializing application data... 56s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:32.0028252Z [coverage] Initializing application data... 58s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:34.0034918Z [coverage] Initializing application data... 60s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:36.0034867Z [coverage] Initializing application data... 62s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:38.0046551Z [coverage] Initializing application data... 64s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:40.0051569Z [coverage] Initializing application data... 66s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:42.0044419Z [coverage] Initializing application data... 68s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:44.0047887Z [coverage] Initializing application data... 70s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:46.0052275Z [coverage] Initializing application data... 72s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:48.0056016Z [coverage] Initializing application data... 74s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:50.0055738Z [coverage] Initializing application data... 76s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:52.0059626Z [coverage] Initializing application data... 78s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:52.1814914Z [coverage] Initializing application data completed in 78s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:52.1816657Z [coverage] Build artifacts missing, stale, or out of date; rebuilding artifacts.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:52.1817415Z [coverage] Building packages...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:54.2052532Z [coverage] Building packages... 2s elapsed, ~18s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:56.2031119Z [coverage] Building packages... 4s elapsed, ~16s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:24:58.2025155Z [coverage] Building packages... 6s elapsed, ~14s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:00.1990111Z [coverage] Building packages... 8s elapsed, ~12s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:02.1995763Z [coverage] Building packages... 10s elapsed, ~10s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:02.9355545Z [coverage] Building packages completed in 10s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:02.9356242Z [coverage] Regenerating module artifacts...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:04.9362859Z [coverage] Regenerating module artifacts... 2s elapsed, ~6s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:06.9382842Z [coverage] Regenerating module artifacts... 4s elapsed, ~4s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:08.9405638Z [coverage] Regenerating module artifacts... 6s elapsed, ~2s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:10.9422643Z [coverage] Regenerating module artifacts... 8s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:12.9442552Z [coverage] Regenerating module artifacts... 10s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:14.9464614Z [coverage] Regenerating module artifacts... 12s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:16.9471314Z [coverage] Regenerating module artifacts... 14s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:18.9475696Z [coverage] Regenerating module artifacts... 16s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:20.9493072Z [coverage] Regenerating module artifacts... 18s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:22.9514710Z [coverage] Regenerating module artifacts... 20s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:24.9528511Z [coverage] Regenerating module artifacts... 22s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:26.9550597Z [coverage] Regenerating module artifacts... 24s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:28.9572854Z [coverage] Regenerating module artifacts... 26s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:30.9593044Z [coverage] Regenerating module artifacts... 28s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:32.9607056Z [coverage] Regenerating module artifacts... 30s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:34.9626639Z [coverage] Regenerating module artifacts... 32s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:36.9643638Z [coverage] Regenerating module artifacts... 34s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:38.9652780Z [coverage] Regenerating module artifacts... 36s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:40.9657577Z [coverage] Regenerating module artifacts... 38s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:41.3204023Z [coverage] Regenerating module artifacts completed in 38s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:41.3204745Z [coverage] Rebuilding packages after generation...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:43.3216391Z [coverage] Rebuilding packages after generation... 2s elapsed, ~18s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:43.7455398Z [coverage] Rebuilding packages after generation completed in 2s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:43.7455935Z [coverage] Building application...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:43.8706546Z [coverage] Reset Next build output directory at /home/runner/work/open-mercato/open-mercato/apps/mercato/.mercato/next.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:45.8730535Z [coverage] Building application... 2s elapsed, ~74s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:47.8739785Z [coverage] Building application... 4s elapsed, ~72s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:49.8749524Z [coverage] Building application... 6s elapsed, ~70s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:51.8774334Z [coverage] Building application... 8s elapsed, ~68s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:53.8782312Z [coverage] Building application... 10s elapsed, ~66s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:55.8816547Z [coverage] Building application... 12s elapsed, ~64s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:57.8812750Z [coverage] Building application... 14s elapsed, ~62s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:25:59.8849625Z [coverage] Building application... 16s elapsed, ~60s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:01.8860820Z [coverage] Building application... 18s elapsed, ~58s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:03.8880626Z [coverage] Building application... 20s elapsed, ~56s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:05.8900890Z [coverage] Building application... 22s elapsed, ~54s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:07.8912664Z [coverage] Building application... 24s elapsed, ~52s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:09.8960697Z [coverage] Building application... 26s elapsed, ~50s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:11.8960527Z [coverage] Building application... 28s elapsed, ~48s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:13.8963661Z [coverage] Building application... 30s elapsed, ~46s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:15.9002876Z [coverage] Building application... 32s elapsed, ~44s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:17.9040509Z [coverage] Building application... 34s elapsed, ~42s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:19.9050730Z [coverage] Building application... 36s elapsed, ~40s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:21.9053160Z [coverage] Building application... 38s elapsed, ~38s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:23.9075361Z [coverage] Building application... 40s elapsed, ~36s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:25.9092645Z [coverage] Building application... 42s elapsed, ~34s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:27.9114898Z [coverage] Building application... 44s elapsed, ~32s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:29.9127623Z [coverage] Building application... 46s elapsed, ~30s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:31.9190720Z [coverage] Building application... 48s elapsed, ~28s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:33.9182723Z [coverage] Building application... 50s elapsed, ~26s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:35.9204861Z [coverage] Building application... 52s elapsed, ~24s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:37.9218113Z [coverage] Building application... 54s elapsed, ~22s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:39.9233288Z [coverage] Building application... 56s elapsed, ~20s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:41.9255671Z [coverage] Building application... 58s elapsed, ~18s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:43.9278727Z [coverage] Building application... 60s elapsed, ~16s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:45.9281516Z [coverage] Building application... 62s elapsed, ~14s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:47.9294128Z [coverage] Building application... 64s elapsed, ~12s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:49.9316570Z [coverage] Building application... 66s elapsed, ~10s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:51.9370820Z [coverage] Building application... 68s elapsed, ~8s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:53.9349049Z [coverage] Building application... 70s elapsed, ~6s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:55.9372086Z [coverage] Building application... 72s elapsed, ~4s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:57.9382828Z [coverage] Building application... 74s elapsed, ~2s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:26:59.9405242Z [coverage] Building application... 76s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:01.9415818Z [coverage] Building application... 78s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:03.9438799Z [coverage] Building application... 80s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:05.9460950Z [coverage] Building application... 82s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:07.9472505Z [coverage] Building application... 84s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:09.9492512Z [coverage] Building application... 86s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:11.9513002Z [coverage] Building application... 88s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:13.9535313Z [coverage] Building application... 90s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:15.9557543Z [coverage] Building application... 92s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:17.9573002Z [coverage] Building application... 94s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:19.9595213Z [coverage] Building application... 96s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:21.9613191Z [coverage] Building application... 98s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:23.9635671Z [coverage] Building application... 100s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:25.9657841Z [coverage] Building application... 102s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:27.9672786Z [coverage] Building application... 104s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:29.9694603Z [coverage] Building application... 106s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:31.9717164Z [coverage] Building application... 108s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:33.9740813Z [coverage] Building application... 110s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:35.9761175Z [coverage] Building application... 112s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:37.9773679Z [coverage] Building application... 114s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:39.9795607Z [coverage] Building application... 116s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:41.9812888Z [coverage] Building application... 118s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:43.9833356Z [coverage] Building application... 120s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:45.9855145Z [coverage] Building application... 122s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:47.9877046Z [coverage] Building application... 124s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:49.9899608Z [coverage] Building application... 126s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:51.9921890Z [coverage] Building application... 128s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:53.9934519Z [coverage] Building application... 130s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:55.9956219Z [coverage] Building application... 132s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:27:57.9990710Z [coverage] Building application... 134s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:00.0003318Z [coverage] Building application... 136s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:02.0012655Z [coverage] Building application... 138s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:04.0032778Z [coverage] Building application... 140s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:06.0055147Z [coverage] Building application... 142s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:08.0077320Z [coverage] Building application... 144s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:10.0099715Z [coverage] Building application... 146s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:12.0122117Z [coverage] Building application... 148s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:14.0134263Z [coverage] Building application... 150s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:16.0153604Z [coverage] Building application... 152s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:18.0175594Z [coverage] Building application... 154s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:20.0197509Z [coverage] Building application... 156s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:22.0219606Z [coverage] Building application... 158s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:24.0233401Z [coverage] Building application... 160s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:26.0252977Z [coverage] Building application... 162s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:28.0275478Z [coverage] Building application... 164s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:30.0297515Z [coverage] Building application... 166s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:32.0320790Z [coverage] Building application... 168s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:34.0342707Z [coverage] Building application... 170s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:36.0365178Z [coverage] Building application... 172s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:38.0387226Z [coverage] Building application... 174s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:40.0411099Z [coverage] Building application... 176s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:42.0423681Z [coverage] Building application... 178s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:44.0446754Z [coverage] Building application... 180s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:46.0468944Z [coverage] Building application... 182s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:48.0491313Z [coverage] Building application... 184s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:50.0503178Z [coverage] Building application... 186s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:52.0525324Z [coverage] Building application... 188s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:54.0547323Z [coverage] Building application... 190s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:56.0570826Z [coverage] Building application... 192s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:28:58.0592819Z [coverage] Building application... 194s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:00.0615425Z [coverage] Building application... 196s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:02.0637420Z [coverage] Building application... 198s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:04.0659577Z [coverage] Building application... 200s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:06.0681789Z [coverage] Building application... 202s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:08.0694537Z [coverage] Building application... 204s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:10.0716885Z [coverage] Building application... 206s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:12.0732822Z [coverage] Building application... 208s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:14.0810532Z [coverage] Building application... 210s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:16.0803190Z [coverage] Building application... 212s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:18.0823055Z [coverage] Building application... 214s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:20.0845422Z [coverage] Building application... 216s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:22.0867280Z [coverage] Building application... 218s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:24.0883875Z [coverage] Building application... 220s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:26.0906157Z [coverage] Building application... 222s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:28.0922440Z [coverage] Building application... 224s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:30.0943232Z [coverage] Building application... 226s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:32.0965943Z [coverage] Building application... 228s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:34.0988198Z [coverage] Building application... 230s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:36.1003069Z [coverage] Building application... 232s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:38.1070544Z [coverage] Building application... 234s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:40.1053503Z [coverage] Building application... 236s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:42.1075409Z [coverage] Building application... 238s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:44.1097808Z [coverage] Building application... 240s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:46.1120172Z [coverage] Building application... 242s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:48.1142579Z [coverage] Building application... 244s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:50.1165431Z [coverage] Building application... 246s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:52.1189540Z [coverage] Building application... 248s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:54.1212127Z [coverage] Building application... 250s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:56.1222967Z [coverage] Building application... 252s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:29:58.1280716Z [coverage] Building application... 254s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:00.1275062Z [coverage] Building application... 256s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:02.1297438Z [coverage] Building application... 258s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:04.1313601Z [coverage] Building application... 260s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:06.1345141Z [coverage] Building application... 262s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:08.1354611Z [coverage] Building application... 264s elapsed, ~0s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:09.6420952Z [coverage] Building application completed in 265s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:09.6426927Z [coverage] Starting application on http://127.0.0.1:5001...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:11.6458660Z [coverage] Waiting for application readiness... 2s elapsed, ~178s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:13.6455898Z [coverage] Waiting for application readiness... 4s elapsed, ~176s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:15.6457570Z [coverage] Waiting for application readiness... 6s elapsed, ~174s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:17.6458527Z [coverage] Waiting for application readiness... 8s elapsed, ~172s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:19.6462994Z [coverage] Waiting for application readiness... 10s elapsed, ~170s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:21.6480473Z [coverage] Waiting for application readiness... 12s elapsed, ~168s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:23.6480154Z [coverage] Waiting for application readiness... 14s elapsed, ~166s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:25.6474610Z [coverage] Waiting for application readiness... 16s elapsed, ~164s left
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:26.1624663Z [coverage] Waiting for application readiness completed in 16s.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:26.1625257Z [coverage] Application is ready at http://127.0.0.1:5001
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:26.1641568Z [coverage] Running Playwright integration suite with V8 coverage enabled...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:30:26.1642139Z [coverage] Ensuring Playwright Chromium is installed...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:45.8586242Z ◇ injected env (0) from apps/mercato/.env // tip: ⌘ override existing { override: true }
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:50.4945857Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:50.4948136Z Running 53 tests using 1 worker, shard 11 of 15
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:50.4948558Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:52.7773653Z   ✓   1 packages/core/src/modules/sales/__integration__/TC-SALES-023.spec.ts:40:3 › TC-SALES-023: Order Returns - Adjustments and returned_quantity › should create return, generate return adjustments, update returned_quantity, and reduce totals (1.5s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:54.0751764Z   ✓   2 packages/core/src/modules/sales/__integration__/TC-SALES-023.spec.ts:148:3 › TC-SALES-023: Order Returns - Adjustments and returned_quantity › should reject concurrent returns that exceed the remaining order line quantity (1.3s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:54.7660073Z   ✓   3 packages/core/src/modules/sales/__integration__/TC-SALES-024.spec.ts:15:5 › TC-SALES-024: Status dictionary CRUD APIs (shipment, order, order-line) › should create, list, update, and delete a shipment-statuses entry (664ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:55.4301952Z   ✓   4 packages/core/src/modules/sales/__integration__/TC-SALES-024.spec.ts:15:5 › TC-SALES-024: Status dictionary CRUD APIs (shipment, order, order-line) › should create, list, update, and delete a order-statuses entry (650ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:56.0630040Z   ✓   5 packages/core/src/modules/sales/__integration__/TC-SALES-024.spec.ts:15:5 › TC-SALES-024: Status dictionary CRUD APIs (shipment, order, order-line) › should create, list, update, and delete a order-line-statuses entry (620ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:56.6693691Z   ✓   6 packages/core/src/modules/sales/__integration__/TC-SALES-025.spec.ts:9:3 › TC-SALES-025: Delivery windows CRUD API › should create, list, update, and delete a delivery window (588ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:57.6580771Z   ✓   7 packages/core/src/modules/sales/__integration__/TC-SALES-026.spec.ts:9:3 › TC-SALES-026: Notes CRUD API › should create, list, update, and delete a note attached to an order (968ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:58.1938944Z   ✓   8 packages/core/src/modules/sales/__integration__/TC-SALES-027.spec.ts:9:3 › TC-SALES-027: Sales tags CRUD API › should create, list, update, and delete a sales tag (517ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:58.6891926Z   ✓   9 packages/core/src/modules/sales/__integration__/TC-SALES-028.spec.ts:8:3 › TC-SALES-028: Document number generation & dashboard widgets › should generate document numbers and return dashboard widget data (475ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:58.9640168Z   ✓  10 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-001.spec.ts:13:3 › TC-SHIP-001: Calculate shipping rates › should return rate options from the mock_carrier provider (253ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:59.2175896Z   ✓  11 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-001.spec.ts:32:3 › TC-SHIP-001: Calculate shipping rates › should return multiple service options (240ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:59.4689844Z   ✓  12 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-002.spec.ts:12:3 › TC-SHIP-002: Create shipment › should create a shipment and return tracking details (230ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:59.7145045Z   ✓  13 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-002.spec.ts:25:3 › TC-SHIP-002: Create shipment › should create a shipment with a specific service code (232ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:31:59.9630194Z   ✓  14 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-002.spec.ts:38:3 › TC-SHIP-002: Create shipment › should return a carrier shipment ID (226ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:00.3346692Z   ✓  15 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-003.spec.ts:12:3 › TC-SHIP-003: Get tracking info › should return tracking data for a created shipment (355ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:00.6157927Z   ✓  16 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-003.spec.ts:29:3 › TC-SHIP-003: Get tracking info › should return tracking data when queried by tracking number (271ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:00.9031295Z   ✓  17 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-003.spec.ts:45:3 › TC-SHIP-003: Get tracking info › should include tracking events with timestamps (277ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:01.2187366Z   ✓  18 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-004.spec.ts:12:3 › TC-SHIP-004: Cancel shipment › should cancel a created shipment (298ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:01.5051520Z   ✓  19 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-004.spec.ts:27:3 › TC-SHIP-004: Cancel shipment › should cancel a shipment with a reason (277ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:01.7836132Z   ✓  20 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-005.spec.ts:16:3 › TC-SHIP-005: Webhook processing › should accept a valid webhook payload and return 202 (262ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:01.8232867Z   ✓  21 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-005.spec.ts:38:3 › TC-SHIP-005: Webhook processing › should return 404 for unknown provider webhook (30ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:02.1128801Z   ✓  22 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-006.spec.ts:13:3 › TC-SHIP-006: Tenant isolation › same-tenant admin should be able to track a shipment created by admin (273ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:02.3968886Z   ✓  23 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-006.spec.ts:28:3 › TC-SHIP-006: Tenant isolation › same-tenant admin should be able to cancel a shipment created by admin (274ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:02.4398826Z   ✓  24 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-006.spec.ts:42:3 › TC-SHIP-006: Tenant isolation › unauthenticated request to rates endpoint should return 401 (31ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:02.6768375Z   ✓  25 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-007.spec.ts:12:3 › TC-SHIP-007: Unknown provider returns error › should return error when calculating rates with unknown provider (220ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:02.9086051Z   ✓  26 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-007.spec.ts:30:3 › TC-SHIP-007: Unknown provider returns error › should return error when creating shipment with unknown provider (222ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:03.1432212Z   ✓  27 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-007.spec.ts:50:3 › TC-SHIP-007: Unknown provider returns error › should return error when cancelling with unknown provider (225ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:03.3902828Z   ✓  28 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-008.spec.ts:12:3 › TC-SHIP-008: List registered shipping providers › should return a providers array (231ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:03.6172955Z   ✓  29 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-008.spec.ts:20:3 › TC-SHIP-008: List registered shipping providers › each provider entry should have a providerKey string (217ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:03.6574773Z   ✓  30 packages/core/src/modules/shipping_carriers/__integration__/TC-SHIP-008.spec.ts:30:3 › TC-SHIP-008: List registered shipping providers › should return 401 for unauthenticated requests (30ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:16.0323213Z   ✓  31 packages/core/src/modules/staff/__integration__/TC-INT-006.spec.ts:9:3 › TC-INT-006: Embedded Settings Headings on Resource and Team Member Detail › should render embedded settings sections without the old edit-form header rows (11.2s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:23.6853387Z   ✓  32 packages/core/src/modules/staff/__integration__/TC-STAFF-001.spec.ts:17:3 › TC-STAFF-001: Team Members list page › should render the team members table and allow navigating to a member detail page (7.6s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:24.2767116Z   ✓  33 packages/core/src/modules/staff/__integration__/TC-STAFF-002.spec.ts:10:3 › TC-STAFF-002: Staff Team CRUD via API › should create, update, read, and delete a staff team (570ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:24.8529652Z   ✓  34 packages/core/src/modules/staff/__integration__/TC-STAFF-003.spec.ts:10:3 › TC-STAFF-003: Staff Team Role CRUD via API › should create, update, read, and delete a staff team role (559ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:25.7644826Z   ✓  35 packages/core/src/modules/staff/__integration__/TC-STAFF-004.spec.ts:13:3 › TC-STAFF-004: Leave Request Lifecycle via API › should create a leave request and approve it (891ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:26.0209472Z   ✓  36 packages/core/src/modules/translations/__integration__/TC-TRANS-001.spec.ts:10:3 › TC-TRANS-001: Locale Configuration CRUD › should return default locales for authenticated user (237ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:26.4033735Z   ✓  37 packages/core/src/modules/translations/__integration__/TC-TRANS-001.spec.ts:20:3 › TC-TRANS-001: Locale Configuration CRUD › should update locales and confirm via GET (372ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:26.6294776Z   ✓  38 packages/core/src/modules/translations/__integration__/TC-TRANS-001.spec.ts:40:3 › TC-TRANS-001: Locale Configuration CRUD › should reject invalid ISO 639-1 codes with 400 (216ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:26.8653409Z   ✓  39 packages/core/src/modules/translations/__integration__/TC-TRANS-001.spec.ts:49:3 › TC-TRANS-001: Locale Configuration CRUD › should reject empty locales array with 400 (225ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:27.6020963Z   ✓  40 packages/core/src/modules/translations/__integration__/TC-TRANS-002.spec.ts:13:3 › TC-TRANS-002: Translation CRUD Lifecycle › should return 404 for non-existent translation (717ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:28.4082280Z   ✓  41 packages/core/src/modules/translations/__integration__/TC-TRANS-002.spec.ts:30:3 › TC-TRANS-002: Translation CRUD Lifecycle › should create and retrieve a translation (796ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:29.2781365Z   ✓  42 packages/core/src/modules/translations/__integration__/TC-TRANS-002.spec.ts:58:3 › TC-TRANS-002: Translation CRUD Lifecycle › should upsert translations (add locale, update existing) (859ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:30.1473912Z   ✓  43 packages/core/src/modules/translations/__integration__/TC-TRANS-002.spec.ts:89:3 › TC-TRANS-002: Translation CRUD Lifecycle › should delete translations and confirm 404 (859ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:30.3892822Z   ✓  44 packages/core/src/modules/translations/__integration__/TC-TRANS-003.spec.ts:14:3 › TC-TRANS-003: Validation & Authorization › should reject invalid entityType format with 400 (224ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:31.0912033Z   ✓  45 packages/core/src/modules/translations/__integration__/TC-TRANS-003.spec.ts:23:3 › TC-TRANS-003: Validation & Authorization › should reject field value exceeding 10000 characters with 400 (692ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:32.0729912Z   ✓  46 packages/core/src/modules/translations/__integration__/TC-TRANS-003.spec.ts:44:3 › TC-TRANS-003: Validation & Authorization › should reject locale key exceeding max length with 400 (972ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:32.1157831Z   ✓  47 packages/core/src/modules/translations/__integration__/TC-TRANS-003.spec.ts:64:3 › TC-TRANS-003: Validation & Authorization › should reject unauthenticated requests with 401 (32ms)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:34.3092671Z   ✓  48 packages/core/src/modules/translations/__integration__/TC-TRANS-004.spec.ts:11:3 › TC-TRANS-004: Locale Management Page › should navigate to translations config page (2.2s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:37.5784141Z   ✓  49 packages/core/src/modules/translations/__integration__/TC-TRANS-004.spec.ts:19:3 › TC-TRANS-004: Locale Management Page › should add a locale via UI and verify via API (3.2s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:40.8360321Z   ✓  50 packages/core/src/modules/translations/__integration__/TC-TRANS-004.spec.ts:42:3 › TC-TRANS-004: Locale Management Page › should remove a locale via UI and verify via API (3.2s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:32:46.5983613Z   ✓  51 packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:72:3 › TC-TRANS-005: Translation Manager Standalone › should select entity type and record, showing the field table (5.7s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:06.7405117Z   ✘  52 packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager (20.1s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:29.0591209Z   ✘  53 packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager (retry #1) (20.7s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.5611619Z   ✓  54 packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:141:3 › TC-TRANS-005: Translation Manager Standalone › should persist translations after page reload (5.5s)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7166996Z ##[error]  1) packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	    Test timeout of 20000ms exceeded.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7185241Z ##[error]  1) packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	    Error: expect(locator).toBeVisible() failed
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Locator: getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	    Expected: visible
+ephemeral-integration (11/15)	UNKNOWN STEP	    Error: element(s) not found
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Call log:
+ephemeral-integration (11/15)	UNKNOWN STEP	      - Expect "toBeVisible" with timeout 20000ms
+ephemeral-integration (11/15)	UNKNOWN STEP	      - waiting for getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	      126 |
+ephemeral-integration (11/15)	UNKNOWN STEP	      127 |       await page.getByRole('button', { name: 'Save translations' }).click()
+ephemeral-integration (11/15)	UNKNOWN STEP	    > 128 |       await expect(page.getByText('Translations saved').first()).toBeVisible()
+ephemeral-integration (11/15)	UNKNOWN STEP	          |                                                                  ^
+ephemeral-integration (11/15)	UNKNOWN STEP	      129 |
+ephemeral-integration (11/15)	UNKNOWN STEP	      130 |       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+ephemeral-integration (11/15)	UNKNOWN STEP	      131 |       expect(getResponse.ok()).toBeTruthy()
+ephemeral-integration (11/15)	UNKNOWN STEP	        at /home/runner/work/open-mercato/open-mercato/packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:128:66
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7192945Z ##[error]  1) packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	    Test timeout of 20000ms exceeded.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7202001Z ##[error]  1) packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	    Error: expect(locator).toBeVisible() failed
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Locator: getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	    Expected: visible
+ephemeral-integration (11/15)	UNKNOWN STEP	    Error: element(s) not found
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	    Call log:
+ephemeral-integration (11/15)	UNKNOWN STEP	      - Expect "toBeVisible" with timeout 20000ms
+ephemeral-integration (11/15)	UNKNOWN STEP	      - waiting for getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	      126 |
+ephemeral-integration (11/15)	UNKNOWN STEP	      127 |       await page.getByRole('button', { name: 'Save translations' }).click()
+ephemeral-integration (11/15)	UNKNOWN STEP	    > 128 |       await expect(page.getByText('Translations saved').first()).toBeVisible()
+ephemeral-integration (11/15)	UNKNOWN STEP	          |                                                                  ^
+ephemeral-integration (11/15)	UNKNOWN STEP	      129 |
+ephemeral-integration (11/15)	UNKNOWN STEP	      130 |       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+ephemeral-integration (11/15)	UNKNOWN STEP	      131 |       expect(getResponse.ok()).toBeTruthy()
+ephemeral-integration (11/15)	UNKNOWN STEP	        at /home/runner/work/open-mercato/open-mercato/packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:128:66
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7209017Z ##[notice]  1 failed
+ephemeral-integration (11/15)	UNKNOWN STEP	    packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	  52 passed (3.1m)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7210541Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7210548Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7211520Z   1) packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7212226Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7212444Z     [31mTest timeout of 20000ms exceeded.[39m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7212661Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7213036Z     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7213369Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7213540Z     Locator: getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7213872Z     Expected: visible
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7214140Z     Error: element(s) not found
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7214309Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7214403Z     Call log:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7214764Z     [2m  - Expect "toBeVisible" with timeout 20000ms[22m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7215280Z     [2m  - waiting for getByText('Translations saved').first()[22m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7215548Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7215554Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7215647Z       126 |
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7216031Z       127 |       await page.getByRole('button', { name: 'Save translations' }).click()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7216605Z     > 128 |       await expect(page.getByText('Translations saved').first()).toBeVisible()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7217093Z           |                                                                  ^
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7217407Z       129 |
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7217971Z       130 |       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7218586Z       131 |       expect(getResponse.ok()).toBeTruthy()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7219469Z         at /home/runner/work/open-mercato/open-mercato/packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:128:66
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7220171Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7220722Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7221498Z     .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager/test-failed-1.png
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7222299Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7222578Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7223058Z     Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager/error-context.md
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7223762Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7224372Z     Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7224808Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7225006Z     [31mTest timeout of 20000ms exceeded.[39m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7225213Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7225567Z     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7226083Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7226258Z     Locator: getByText('Translations saved').first()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7226578Z     Expected: visible
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7226842Z     Error: element(s) not found
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7227145Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7227237Z     Call log:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7227683Z     [2m  - Expect "toBeVisible" with timeout 20000ms[22m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7228236Z     [2m  - waiting for getByText('Translations saved').first()[22m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7228496Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7228501Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7228595Z       126 |
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7228966Z       127 |       await page.getByRole('button', { name: 'Save translations' }).click()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7229907Z     > 128 |       await expect(page.getByText('Translations saved').first()).toBeVisible()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7230600Z           |                                                                  ^
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7231027Z       129 |
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7231824Z       130 |       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7232749Z       131 |       expect(getResponse.ok()).toBeTruthy()
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7233851Z         at /home/runner/work/open-mercato/open-mercato/packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:128:66
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7234623Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7235302Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7236535Z     .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager-retry1/test-failed-1.png
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7237901Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7238338Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7239396Z     Error Context: .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager-retry1/error-context.md
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7240315Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7241016Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7242268Z     .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager-retry1/trace.zip
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7243146Z     Usage:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7243316Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7244181Z         yarn playwright show-trace .ai/qa/test-results/artifacts/packages-core-src-modules--4cb5a-tion-via-standalone-manager-retry1/trace.zip
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7245063Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7245475Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7245765Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7245855Z   1 failed
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7246809Z     packages/core/src/modules/translations/__integration__/TC-TRANS-005.spec.ts:99:3 › TC-TRANS-005: Translation Manager Standalone › should enter and save a translation via standalone manager 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:35.7247565Z   52 passed (3.1m)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:36.1617524Z [coverage] Playwright run failed: Command failed: npx playwright test --config .ai/qa/tests/playwright.config.ts --shard 11/15 (exit 1).
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:36.1624346Z [coverage] Continuing to generate coverage report from collected V8 data...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:36.4394780Z [coverage] Generating code coverage report...
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:39.5369132Z npm warn exec The following package was not found and will be installed: c8@11.0.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5095194Z 
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5098591Z =============================== Coverage summary ===============================
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5101105Z Statements   : 51.2% ( 141693/276716 )
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5101612Z Branches     : 50.44% ( 4756/9428 )
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5102079Z Functions    : 21.76% ( 1767/8117 )
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5102511Z Lines        : 51.2% ( 141693/276716 )
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:50.5103070Z ================================================================================
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9805487Z [coverage] Coverage totals:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9806054Z   lines: 141693/276716 (51.2%)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9806499Z   statements: 141693/276716 (51.2%)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9807440Z   functions: 1767/8117 (21.76%)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9808462Z   branches: 4756/9428 (50.44%)
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9809012Z [coverage] Integration test results:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9809779Z   status: failed
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9810110Z   passed: 52
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9810422Z   failed: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9810721Z   flaky: 0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9810980Z   skipped: 0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9811272Z   total: 53
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9811864Z [coverage] HTML report: .ai/qa/test-results/coverage/code/index.html
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9812886Z [coverage] Code coverage summary: lines=51.2%, statements=51.2%, functions=21.76%, branches=50.44%
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9813934Z [coverage] Test run summary: passed=52, failed=1, flaky=0, skipped=0, total=53
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9815074Z [coverage] Use --json for machine-readable output or --keep-raw-v8 to keep raw process coverage files.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:53.9816995Z 💥 Failed: Command failed: npx playwright test --config .ai/qa/tests/playwright.config.ts --shard 11/15 (exit 1).
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0209779Z ##[error]Process completed with exit code 1.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0258890Z ##[group]Run INDEX="11"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0259512Z [36;1mINDEX="11"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0259851Z [36;1mDEST=".ai/qa/test-results/coverage-shard-${INDEX}/code"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0260229Z [36;1mmkdir -p "$DEST"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0260584Z [36;1mSRC=".ai/qa/test-results/coverage/code/coverage-summary.json"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0260954Z [36;1mif [ -f "$SRC" ]; then[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0261259Z [36;1m  cp "$SRC" "$DEST/coverage-summary.json"[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0261559Z [36;1mfi[0m
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0284314Z shell: /usr/bin/bash -e {0}
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0284574Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0284801Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0285108Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0285422Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0285728Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0286042Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0286456Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0286829Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0287093Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0415286Z ##[group]Run actions/upload-artifact@v7
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0415584Z with:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0415807Z   name: integration-test-results-11
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0416398Z   path: .ai/qa/test-results/html/
+ephemeral-integration (11/15)	UNKNOWN STEP	.ai/qa/test-results/artifacts/
+ephemeral-integration (11/15)	UNKNOWN STEP	.ai/qa/test-results/results.json
+ephemeral-integration (11/15)	UNKNOWN STEP	.ai/qa/test-results/coverage-shard-11/
+ephemeral-integration (11/15)	UNKNOWN STEP	
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0416984Z   if-no-files-found: ignore
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0417239Z   compression-level: 6
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0417479Z   overwrite: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0417712Z   include-hidden-files: false
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0417965Z   archive: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0418377Z env:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0418599Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0418898Z   OM_ENABLE_ENTERPRISE_MODULES: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0419393Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0419705Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0420021Z   JWT_SECRET: ci-ephemeral-test-jwt-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0420427Z   OM_SECURITY_MFA_SETUP_SECRET: ci-ephemeral-test-mfa-setup-secret
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0420802Z   OM_WEBHOOKS_ALLOW_PRIVATE_URLS: 1
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.0421068Z ##[endgroup]
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.1907572Z Multiple search paths detected. Calculating the least common ancestor of all paths
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.1910436Z The least common ancestor is /home/runner/work/open-mercato/open-mercato/.ai/qa/test-results. This will be the root directory of the artifact
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.1911717Z With the provided path, there will be 29 files uploaded
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.1912598Z Artifact name is valid!
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.1913051Z Root directory input is valid!
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.2859422Z Uploading artifact: integration-test-results-11.zip
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.2894926Z Beginning upload of artifact content to blob storage
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.8916659Z Uploaded bytes 8388608
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.9787345Z Uploaded bytes 12315200
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.9962858Z Finished uploading artifact content to blob storage!
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.9964003Z SHA256 digest of uploaded artifact is 7977d088d2c2d7d12f81ff955bbfa48037a350eff1243c063255f860a99ac236
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:54.9964953Z Finalizing artifact upload
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.1172697Z Artifact integration-test-results-11 successfully finalized. Artifact ID 6634135742
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.1174231Z Artifact integration-test-results-11 has been successfully uploaded! Final size is 12315200 bytes. Artifact ID is 6634135742
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.1177191Z Artifact download URL: https://github.com/open-mercato/open-mercato/actions/runs/24912399166/artifacts/6634135742
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.1368306Z Post job cleanup.
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2183499Z [command]/usr/bin/git version
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2253406Z git version 2.53.0
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2291496Z Temporarily overriding HOME='/home/runner/work/_temp/84783cef-8052-4d1f-9bdb-cefd9eb32771' before making global git config changes
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2292940Z Adding repository directory to the temporary git global config as a safe directory
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2297325Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/open-mercato/open-mercato
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2329107Z Removing SSH command configuration
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2335898Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2371021Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2622212Z Removing HTTP extra header
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2627118Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2660807Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2906478Z Removing includeIf entries pointing to credentials config files
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2913391Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2938666Z includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2939894Z includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git/worktrees/*.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2940428Z includeif.gitdir:/github/workspace/.git.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2940871Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2949757Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2972879Z /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.2983669Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git.path /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3019018Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git/worktrees/*.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3041876Z /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3051290Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/open-mercato/open-mercato/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3082735Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3105777Z /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3113911Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3144727Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3167302Z /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3177545Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3212305Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3455163Z Removing credentials config '/home/runner/work/_temp/git-credentials-ccd1e9c3-3f88-40eb-805e-e26ae37541c0.config'
+ephemeral-integration (11/15)	UNKNOWN STEP	2026-04-24T21:33:55.3597524Z Cleaning up orphan processes
