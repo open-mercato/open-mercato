@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -43,10 +42,9 @@ const statusVariant: Record<'draft' | 'published' | 'archived', 'warning' | 'suc
   archived: 'neutral',
 }
 
-export default function FormHistoryPage() {
+export default function FormHistoryPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams<{ id: string }>()
-  const formId = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params!.id[0] : ''
+  const formId = params?.id ?? ''
 
   const [form, setForm] = React.useState<FormDetail | null>(null)
   const [error, setError] = React.useState<string | null>(null)

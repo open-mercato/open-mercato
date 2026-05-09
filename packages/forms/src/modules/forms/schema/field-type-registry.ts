@@ -112,6 +112,13 @@ export const BOOLEAN_TYPE: FieldTypeSpec = {
   exportAdapter: (value) => (value === true ? 'Yes' : value === false ? 'No' : ''),
 }
 
+export const YES_NO_TYPE: FieldTypeSpec = {
+  validator: (value) => (typeof value === 'boolean' ? true : 'Expected true or false.'),
+  renderer: null,
+  defaultUiSchema: { widget: 'yes_no' },
+  exportAdapter: (value) => (value === true ? 'Yes' : value === false ? 'No' : ''),
+}
+
 export const DATE_TYPE: FieldTypeSpec = {
   validator: (value) => {
     if (typeof value !== 'string') return 'Expected an ISO date string (YYYY-MM-DD).'
@@ -194,6 +201,7 @@ export const V1_FIELD_TYPES = {
   number: NUMBER_TYPE,
   integer: INTEGER_TYPE,
   boolean: BOOLEAN_TYPE,
+  yes_no: YES_NO_TYPE,
   date: DATE_TYPE,
   datetime: DATETIME_TYPE,
   select_one: SELECT_ONE_TYPE,

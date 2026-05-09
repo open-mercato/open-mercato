@@ -10,8 +10,8 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { SubmissionService } from '../../../../../services/submission-service'
-import { mapSubmissionError, serializeSubmission } from '../../../../runtime-helpers'
+import { SubmissionService } from '../../../../services/submission-service'
+import { mapSubmissionError, serializeSubmission } from '../../../runtime-helpers'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['forms.submissions.manage'] },

@@ -10,6 +10,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -21,6 +22,7 @@ const FIELD_PALETTE = [
   { type: 'number', jsonType: 'number' },
   { type: 'integer', jsonType: 'integer' },
   { type: 'boolean', jsonType: 'boolean' },
+  { type: 'yes_no', jsonType: 'boolean' },
   { type: 'date', jsonType: 'string' },
   { type: 'datetime', jsonType: 'string' },
   { type: 'select_one', jsonType: 'string' },
@@ -409,19 +411,24 @@ export function FormStudio({ formId }: { formId: string }) {
                 const editableBy = (node['x-om-editable-by'] as string[] | undefined) ?? ['admin']
                 const canEdit = editableBy.includes(previewRole)
                 const label = (node['x-om-label']?.en as string) ?? key
+                const help = (node['x-om-help']?.en as string) ?? ''
+                const omType = String(node['x-om-type'] ?? 'text')
+                if (omType === 'info_block') {
+                  return (
+                    <div key={key} className="rounded-md border border-border bg-muted/30 p-3">
+                      <p className="text-sm font-medium text-foreground">{label}</p>
+                      {help && <p className="mt-1 text-xs text-muted-foreground whitespace-pre-line">{help}</p>}
+                    </div>
+                  )
+                }
                 return (
                   <div key={key} className="rounded-md border border-border bg-background p-3">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium text-foreground">{label}</label>
                       {!canEdit && <span className="text-xs text-muted-foreground">read-only</span>}
                     </div>
-                    {node['x-om-type'] === 'boolean' ? (
-                      <Checkbox disabled={!canEdit} aria-label={label} />
-                    ) : node['x-om-type'] === 'textarea' || node['x-om-type'] === 'info_block' ? (
-                      <Textarea readOnly={!canEdit} rows={2} />
-                    ) : (
-                      <Input readOnly={!canEdit} type={node.type === 'number' || node.type === 'integer' ? 'number' : 'text'} />
-                    )}
+                    {help && <p className="mb-2 text-xs text-muted-foreground">{help}</p>}
+                    <FieldPreview node={node} omType={omType} canEdit={canEdit} label={label} />
                   </div>
                 )
               })}
@@ -475,6 +482,102 @@ export function FormStudio({ formId }: { formId: string }) {
       </PageBody>
     </Page>
   )
+}
+
+type FieldOption = { value: string; label?: { [locale: string]: string } }
+
+type FieldPreviewProps = {
+  node: FieldNode
+  omType: string
+  canEdit: boolean
+  label: string
+}
+
+function FieldPreview({ node, omType, canEdit, label }: FieldPreviewProps) {
+  const options = Array.isArray(node['x-om-options'])
+    ? (node['x-om-options'] as FieldOption[]).filter((entry) => typeof entry?.value === 'string')
+    : []
+  const optionLabel = (option: FieldOption) => option.label?.en ?? option.value
+  switch (omType) {
+    case 'textarea':
+      return <Textarea readOnly={!canEdit} rows={3} aria-label={label} />
+    case 'number':
+      return <Input readOnly={!canEdit} type="number" step="any" aria-label={label} />
+    case 'integer':
+      return <Input readOnly={!canEdit} type="number" step={1} aria-label={label} />
+    case 'boolean':
+      return (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Checkbox disabled={!canEdit} aria-label={label} />
+          <span>{label}</span>
+        </label>
+      )
+    case 'yes_no':
+      return (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">No</span>
+          <Switch disabled={!canEdit} aria-label={label} />
+          <span className="text-muted-foreground">Yes</span>
+        </div>
+      )
+    case 'date':
+      return <Input readOnly={!canEdit} type="date" aria-label={label} />
+    case 'datetime':
+      return <Input readOnly={!canEdit} type="datetime-local" aria-label={label} />
+    case 'select_one':
+      return (
+        <Select disabled={!canEdit}>
+          <SelectTrigger>
+            <SelectValue placeholder={options.length === 0 ? '— No options configured —' : 'Select…'} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{optionLabel(option)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )
+    case 'select_many':
+      if (options.length === 0) {
+        return <p className="text-xs text-muted-foreground">— No options configured —</p>
+      }
+      return (
+        <div className="space-y-1">
+          {options.map((option) => (
+            <label key={option.value} className="flex items-center gap-2 text-sm">
+              <Checkbox disabled={!canEdit} />
+              <span>{optionLabel(option)}</span>
+            </label>
+          ))}
+        </div>
+      )
+    case 'scale': {
+      const minRaw = node['x-om-min']
+      const maxRaw = node['x-om-max']
+      const min = typeof minRaw === 'number' ? minRaw : 0
+      const max = typeof maxRaw === 'number' ? maxRaw : 10
+      const safeMax = max < min ? min : max
+      const buttons: number[] = []
+      for (let i = min; i <= safeMax; i += 1) buttons.push(i)
+      return (
+        <div className="flex flex-wrap gap-1">
+          {buttons.map((value) => (
+            <button
+              key={value}
+              type="button"
+              disabled={!canEdit}
+              className="h-8 w-8 rounded-full border border-border text-xs font-medium text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    case 'text':
+    default:
+      return <Input readOnly={!canEdit} type="text" aria-label={label} />
+  }
 }
 
 type PropertiesPanelProps = {

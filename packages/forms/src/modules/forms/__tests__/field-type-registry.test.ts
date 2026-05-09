@@ -12,6 +12,7 @@ describe('FieldTypeRegistry — v1 core types', () => {
     'number',
     'integer',
     'boolean',
+    'yes_no',
     'date',
     'datetime',
     'select_one',
@@ -20,7 +21,7 @@ describe('FieldTypeRegistry — v1 core types', () => {
     'info_block',
   ] as const
 
-  it('preloads exactly the 11 v1 types', () => {
+  it('preloads exactly the 12 v1 types', () => {
     const keys = defaultFieldTypeRegistry.keys()
     expect(keys.sort()).toEqual([...allKeys].sort())
   })
@@ -87,6 +88,18 @@ describe('FieldTypeRegistry — v1 core types', () => {
       expect(spec.exportAdapter(true)).toBe('Yes')
       expect(spec.exportAdapter(false)).toBe('No')
       expect(spec.exportAdapter(null)).toBe('')
+    })
+  })
+
+  describe('yes_no', () => {
+    it('shares boolean semantics with a yes_no widget hint', () => {
+      const spec = V1_FIELD_TYPES.yes_no
+      expect(spec.validator(true, {})).toBe(true)
+      expect(spec.validator(false, {})).toBe(true)
+      expect(spec.validator('yes', {})).not.toBe(true)
+      expect(spec.exportAdapter(true)).toBe('Yes')
+      expect(spec.exportAdapter(false)).toBe('No')
+      expect(spec.defaultUiSchema.widget).toBe('yes_no')
     })
   })
 

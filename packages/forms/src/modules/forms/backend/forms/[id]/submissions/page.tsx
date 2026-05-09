@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { File as FileIcon, Lock, Users } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -49,9 +48,8 @@ function formatDate(value: string | null): string {
   return date.toLocaleString()
 }
 
-export default function FormSubmissionInboxPage() {
-  const params = useParams<{ id: string }>()
-  const formId = String(params?.id ?? '')
+export default function FormSubmissionInboxPage({ params }: { params?: { id?: string } }) {
+  const formId = params?.id ?? ''
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
 
