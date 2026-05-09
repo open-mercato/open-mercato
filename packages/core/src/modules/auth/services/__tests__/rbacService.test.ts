@@ -313,6 +313,107 @@ describe('RbacService', () => {
     })
   })
 
+  describe('getGrantedFeatures', () => {
+    it('passes ["*"] through filterGrantsByEnabledModules for super admin users', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockReturnValue(['auth.*', 'wms.*'])
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = { isSuperAdmin: true, featuresJson: [] }
+          return uacl
+        }
+        return null
+      })
+
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['*'])
+      expect(granted).toEqual(['auth.*', 'wms.*'])
+    })
+
+    it('returns the user feature list (filtered by enabled modules) for non-superadmins', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('search.')))
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = {
+            isSuperAdmin: false,
+            featuresJson: ['wms.view', 'search.global'],
+            organizationsJson: null,
+          }
+          return uacl
+        }
+        return null
+      })
+
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(granted).toEqual(['wms.view'])
+    })
+
+    it('returns [] when the requested organization is outside the user restricted list', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = {
+            isSuperAdmin: false,
+            featuresJson: ['wms.view'],
+            organizationsJson: ['org-1'],
+          }
+          return uacl
+        }
+        return null
+      })
+
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: 'org-2' })
+      expect(granted).toEqual([])
+    })
+
+    it('returns [] for unknown users', async () => {
+      em.findOne.mockImplementation(async () => null)
+      const granted = await service.getGrantedFeatures('missing', { tenantId: null, organizationId: null })
+      expect(granted).toEqual([])
+    })
+
+    it('returns filtered features for api_key users via role ACL aggregation', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((grants) => grants.filter((f) => !f.startsWith('search.')))
+
+      const apiKeyId = 'key-abc'
+      const apiKey: Partial<ApiKey> = {
+        id: apiKeyId,
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: ['role-x'],
+        expiresAt: null,
+        deletedAt: null,
+      }
+      const racl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['wms.view', 'search.global'],
+        organizationsJson: null,
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => {
+        if (entity === ApiKey) return apiKey
+        return null
+      })
+      em.find.mockImplementation(async (entity: any) => {
+        if (entity === RoleAcl) return [racl]
+        return []
+      })
+
+      const granted = await service.getGrantedFeatures(`api_key:${apiKeyId}`, { tenantId: null, organizationId: null })
+      expect(granted).toEqual(['wms.view'])
+    })
+  })
+
   describe('Cache behavior', () => {
     it('should cache ACL results and not query database on second call', async () => {
       em.findOne.mockImplementation(async (entity: any, where: any) => {
