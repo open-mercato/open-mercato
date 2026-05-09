@@ -118,6 +118,7 @@ describe('auth.users.create — invite flow', () => {
 
     const result = await handler.execute({
       email: 'invited@example.com',
+      name: 'Invited User',
       sendInviteEmail: true,
       organizationId: orgId,
     }, ctx) as CreateUserResult
@@ -126,7 +127,7 @@ describe('auth.users.create — invite flow', () => {
     expect(result.user.passwordHash).toBeNull()
     expect(dataEngine.createOrmEntity).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ passwordHash: null }),
+        data: expect.objectContaining({ passwordHash: null, name: 'Invited User' }),
       }),
     )
   })

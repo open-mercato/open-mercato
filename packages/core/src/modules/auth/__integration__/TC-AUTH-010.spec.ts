@@ -26,6 +26,7 @@ test.describe('TC-AUTH-010: Edit Existing User', () => {
       const { organizationId } = getTokenContext(token)
       userId = await createUserFixture(request, token, {
         email: initialEmail,
+        name: 'Initial QA Name',
         password: 'Valid1!Pass',
         organizationId,
         roles: ['employee'],
@@ -37,8 +38,12 @@ test.describe('TC-AUTH-010: Edit Existing User', () => {
       await expect(page).toHaveURL(new RegExp(`/backend/users/${userId}/edit$`, 'i'))
 
       const emailInput = page.locator('[data-crud-field-id="email"] input').first()
+      const nameInput = page.locator('[data-crud-field-id="name"] input').first()
       await expect(emailInput).toBeVisible()
+      await expect(nameInput).toBeVisible()
+      await expect(nameInput).toHaveValue('Initial QA Name')
       await emailInput.fill(updatedEmail)
+      await nameInput.fill('Updated QA Name')
       await page.getByRole('button', { name: 'Save' }).first().click()
 
       await expect(page).toHaveURL(/\/backend\/users(?:\?.*)?$/)
