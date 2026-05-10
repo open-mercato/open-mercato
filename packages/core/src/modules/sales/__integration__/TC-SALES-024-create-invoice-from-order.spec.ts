@@ -230,6 +230,49 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
     expect(response.status()).toBeLessThan(500);
   });
 
+  test('should reject a second invoice for the same order with 409', async ({ page }) => {
+    await login(page, 'admin');
+    authToken = await getAuthToken(page.request, 'admin');
+
+    const orderResponse = await apiRequest(page.request, 'POST', '/api/sales/orders', {
+      token: authToken,
+      data: { currencyCode: 'USD' },
+    });
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderBody = await orderResponse.json() as Record<string, unknown>;
+    createdOrderId = (orderBody.orderId ?? orderBody.id) as string;
+    expect(createdOrderId).toBeTruthy();
+
+    const buildInvoicePayload = () => ({
+      orderId: createdOrderId,
+      currencyCode: 'USD',
+      lines: [],
+      subtotalNetAmount: '0',
+      subtotalGrossAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '0',
+      grandTotalGrossAmount: '0',
+    });
+
+    const firstResponse = await apiRequest(page.request, 'POST', '/api/sales/invoices', {
+      token: authToken,
+      data: buildInvoicePayload(),
+    });
+    expect(firstResponse.ok()).toBeTruthy();
+    const firstBody = await firstResponse.json() as Record<string, unknown>;
+    createdInvoiceId = (firstBody.invoiceId ?? firstBody.id) as string;
+    expect(createdInvoiceId).toBeTruthy();
+
+    const secondResponse = await apiRequest(page.request, 'POST', '/api/sales/invoices', {
+      token: authToken,
+      data: buildInvoicePayload(),
+    });
+    expect(secondResponse.status()).toBe(409);
+    const secondBody = await secondResponse.json().catch(() => ({})) as Record<string, unknown>;
+    expect(secondBody.code).toBe('sales.invoices.duplicate_for_order');
+    expect(secondBody.existingInvoiceId).toBe(createdInvoiceId);
+  });
+
   test('should handle invoice with non-existent orderId reference', async ({ page }) => {
     await login(page, 'admin');
     authToken = await getAuthToken(page.request, 'admin');
