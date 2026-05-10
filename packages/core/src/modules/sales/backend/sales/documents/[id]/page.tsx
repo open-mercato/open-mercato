@@ -1899,6 +1899,7 @@ export default function SalesDocumentDetailPage({
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [canCreateInvoice, setCanCreateInvoice] = React.useState(false)
+  const [hasExistingInvoice, setHasExistingInvoice] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2332,6 +2333,25 @@ export default function SalesDocumentDetailPage({
     }
   }, [kind, record?.id])
 
+  const refreshInvoicePresence = React.useCallback(async () => {
+    if (!record?.id || kind !== 'order') {
+      setHasExistingInvoice(false)
+      return
+    }
+    const params = new URLSearchParams({ page: '1', pageSize: '1', orderId: record.id })
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/invoices?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      setHasExistingInvoice(items.some((item) => item && typeof (item as any).id === 'string'))
+    } catch (err) {
+      console.error('sales.documents.invoicesPresence', err)
+    }
+  }, [kind, record?.id])
+
   const fetchCustomerEmail = React.useCallback(
     async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
       try {
@@ -2582,6 +2602,10 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     void refreshPaymentPresence()
   }, [refreshPaymentPresence])
+
+  React.useEffect(() => {
+    void refreshInvoicePresence()
+  }, [refreshInvoicePresence])
 
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null
@@ -3697,6 +3721,10 @@ export default function SalesDocumentDetailPage({
 
   const handleCreateInvoice = React.useCallback(async () => {
     if (!record || kind !== 'order') return
+    if (hasExistingInvoice) {
+      flash(t('sales.invoices.duplicateForOrder', 'An invoice already exists for this order.'), 'warning')
+      return
+    }
     setCreatingInvoice(true)
     try {
       await runMutationWithContext(async () => {
@@ -3761,17 +3789,25 @@ export default function SalesDocumentDetailPage({
         )
         const invoiceId = call.result?.invoiceId
         flash(t('sales.invoices.createSuccess', 'Invoice created successfully.'), 'success')
+        setHasExistingInvoice(true)
         if (invoiceId) {
           router.push(`/backend/sales/invoices/${invoiceId}`)
         }
       }, { orderId: record.id })
     } catch (err) {
       console.error('sales.invoices.createFromOrder', err)
-      flash(t('sales.invoices.createError', 'Failed to create invoice.'), 'error')
+      const code = (err as { code?: unknown } | null)?.code
+      if (code === 'sales.invoices.duplicate_for_order') {
+        setHasExistingInvoice(true)
+        flash(t('sales.invoices.duplicateForOrder', 'An invoice already exists for this order.'), 'warning')
+      } else {
+        const message = (err instanceof Error && err.message) ? err.message : null
+        flash(message ?? t('sales.invoices.createError', 'Failed to create invoice.'), 'error')
+      }
     } finally {
       setCreatingInvoice(false)
     }
-  }, [canCreateInvoice, kind, record, router, runMutationWithContext, t])
+  }, [hasExistingInvoice, kind, record, router, runMutationWithContext, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -4681,7 +4717,16 @@ export default function SalesDocumentDetailPage({
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : kind === 'order' ? ([
-            ...(canCreateInvoice ? [{ id: 'create-invoice', label: t('sales.invoices.createFromOrder', 'Create invoice'), icon: FileText, onSelect: () => void handleCreateInvoice(), disabled: creatingInvoice, loading: creatingInvoice }] : []),
+            ...(canCreateInvoice ? [{
+              id: 'create-invoice',
+              label: hasExistingInvoice
+                ? t('sales.invoices.alreadyExistsForOrder', 'Invoice already exists')
+                : t('sales.invoices.createFromOrder', 'Create invoice'),
+              icon: FileText,
+              onSelect: () => void handleCreateInvoice(),
+              disabled: creatingInvoice || hasExistingInvoice,
+              loading: creatingInvoice,
+            }] : []),
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}

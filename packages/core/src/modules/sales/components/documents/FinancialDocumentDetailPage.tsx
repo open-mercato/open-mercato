@@ -145,7 +145,7 @@ export default function FinancialDocumentDetailPage({
   return (
     <Page>
       <FormHeader
-        title={`${t(`${config.i18nPrefix}.title`, kind === 'invoice' ? 'Invoice' : 'Credit Memo')} ${documentNumber}`}
+        title={`${t(`${config.i18nPrefix}.heading`, kind === 'invoice' ? 'Invoice' : 'Credit Memo')} ${documentNumber}`}
         backHref={config.listPath}
       />
       <PageBody>

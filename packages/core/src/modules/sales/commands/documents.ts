@@ -7725,15 +7725,29 @@ const createInvoiceCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let sourceOrder: SalesOrder | null = null;
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
+      sourceOrder = await em.findOne(SalesOrder, {
         id: parsed.orderId,
         organizationId: parsed.organizationId,
         tenantId: parsed.tenantId,
         deletedAt: null,
       });
-      if (!orderExists) {
+      if (!sourceOrder) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+      }
+      const existingInvoice = await em.findOne(SalesInvoice, {
+        order: sourceOrder,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (existingInvoice) {
+        throw new CrudHttpError(409, {
+          error: "An invoice already exists for this order.",
+          code: "sales.invoices.duplicate_for_order",
+          existingInvoiceId: existingInvoice.id,
+        });
       }
     }
 
@@ -7743,7 +7757,7 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      order: sourceOrder ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
