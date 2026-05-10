@@ -35,7 +35,8 @@ import {
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, ChevronDown, ChevronRight, CreditCard, FileText, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, ChevronDown, ChevronRight, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { IntegrationScheduleTab } from '../../../../data_sync/components/IntegrationScheduleTab'
 import {
   buildIntegrationDetailInjectedTabs,
@@ -1332,9 +1333,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                                         />
                                       ) : null}
                                       {!log.payload ? (
-                                        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                                          {t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
-                                        </div>
+                                        <EmptyState
+                                          size="sm"
+                                          icon={<FileX className="h-8 w-8" aria-hidden="true" />}
+                                          title={t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
+                                        />
                                       ) : null}
                                     </div>
                                   </div>
