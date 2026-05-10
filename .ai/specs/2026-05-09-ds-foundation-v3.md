@@ -140,25 +140,41 @@ v3 **reuses these types and helpers** rather than introducing parallel ones. The
 
 ## Per-Primitive Specs
 
-### 1. `DatePicker` (single date)
+### 1. `DatePicker` (single date — promote + upgrade)
 
 **Figma:** [`446:7413`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=446-7413) — 368×432 popover.
+
+**Strategy decision (2026-05-09):** Existing `packages/ui/src/backend/inputs/DatePicker.tsx` and `DateTimePicker.tsx` are **promoted** to a single `packages/ui/src/primitives/date-picker.tsx` primitive. The new primitive subsumes both via a `withTime` prop and aligns the footer to Figma (Apply/Cancel buttons instead of "Today"/"Clear" links). Old import paths are preserved via `@deprecated` re-export shims (zero consumer breakage).
+
+**Why one primitive:** User directive — "musimy miec jeden data picker, tylko w nowym wydaniu". Avoid two parallel implementations; ship a single Figma-spec'd primitive in this PR.
 
 **API:**
 
 ```ts
+import type { Locale } from 'date-fns'
+
+type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
+
 type DatePickerProps = {
   value?: Date | null
-  onChange?: (value: Date | null) => void
+  onChange: (value: Date | null) => void
   placeholder?: string                   // default: t('ui.datePicker.placeholder')
   size?: 'sm' | 'default'                // default 'default' (h-9), sm = h-8
   disabled?: boolean
-  withFooter?: boolean                   // default true; when true, Apply/Cancel buttons
+  readOnly?: boolean
+
+  // Figma-aligned footer (default 'apply-cancel' per Figma 'Footer Actions' frame).
+  // 'today-clear' preserves the legacy footer style for module-level use cases that prefer it.
+  // 'none' renders no footer; in that case selecting a day commits immediately.
+  footer?: DatePickerFooter
+
   withTime?: boolean                     // default false; when true, renders HH:MM input
+  minuteStep?: number                    // default 1; only meaningful when withTime=true
   align?: 'start' | 'center' | 'end'     // default 'start'
   minDate?: Date
   maxDate?: Date
-  format?: (value: Date) => string       // default toLocaleDateString()
+  locale?: Locale                        // forwarded to date-fns format() and Calendar
+  displayFormat?: string                 // override; default derives from locale (DAY_FIRST_LOCALE_CODES)
   className?: string                     // applied to trigger
   popoverClassName?: string              // applied to popover content
   id?: string
@@ -169,17 +185,48 @@ type DatePickerProps = {
 }
 ```
 
-**States:** default, focus, disabled, error (via aria-invalid forwarded from FormField), open.
+**Backwards-compatibility shims** (kept in `packages/ui/src/backend/inputs/`):
+
+```ts
+// backend/inputs/DatePicker.tsx
+/** @deprecated Use `DatePicker` from `@open-mercato/ui/primitives/date-picker` directly. */
+export { DatePicker, type DatePickerProps } from '../../primitives/date-picker'
+```
+
+```ts
+// backend/inputs/DateTimePicker.tsx
+/** @deprecated Use `DatePicker` with `withTime` from `@open-mercato/ui/primitives/date-picker`. */
+import * as React from 'react'
+import { DatePicker, type DatePickerProps } from '../../primitives/date-picker'
+
+export type DateTimePickerProps = Omit<DatePickerProps, 'withTime'>
+
+export function DateTimePicker(props: DateTimePickerProps) {
+  return <DatePicker {...props} withTime />
+}
+```
+
+CrudForm and all other consumers continue importing from `@open-mercato/ui/backend/inputs/...` and stay zero-diff. The shim files surface the `@deprecated` JSDoc so editors flag the legacy paths; a follow-up PR will mass-migrate consumers to the primitive path and remove the shims (per `BACKWARD_COMPATIBILITY.md` deprecation protocol).
+
+**States:** default, focus, disabled, readOnly, error (via aria-invalid forwarded from FormField), open.
+
+**Figma fidelity notes:**
+- Footer = `Buttons [1.1]` (h-36 solid buttons), default `apply-cancel`. Apply commits the popover-internal draft selection; Cancel reverts.
+- Trigger = `Date Selector [1.1]` styling (h-9 with leading `CalendarIcon`).
+- Popover dimensions track Figma 368×432 for `withTime=false`. With `withTime=true`, height grows by the `Time` row (~52px) per Figma "Event Calendar" Block.
 
 **Tests** (`__tests__/date-picker.test.tsx`):
 - Renders trigger with placeholder when value is null.
 - Opens popover on click.
-- Selecting a day commits when `withFooter={false}`.
-- Apply button commits and closes when `withFooter={true}`.
-- Cancel button reverts and closes.
-- `withTime` renders HH:MM input and commits combined Date.
+- `footer='none'`: selecting a day commits immediately and closes.
+- `footer='apply-cancel'` (default): selecting a day stages the choice; Apply commits and closes; Cancel reverts and closes.
+- `footer='today-clear'`: legacy buttons commit Today / clear value as before.
+- `withTime=true`: renders `TimeInput`, time changes commit combined `Date`.
 - `disabled` blocks open and forwards aria.
+- `readOnly` opens the popover but blocks selection commit (ARIA-friendly read-only).
 - `minDate` / `maxDate` disable out-of-range cells.
+- Backwards-compat shim test: `import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'` resolves to the primitive.
+- Backwards-compat shim test: `import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'` renders the primitive with `withTime`.
 
 ### 2. `DateRangePicker`
 
