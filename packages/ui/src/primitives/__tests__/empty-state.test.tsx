@@ -83,14 +83,43 @@ describe('EmptyState primitive', () => {
     expect(root!.className).not.toContain('bg-muted/30')
   })
 
-  it('subtle variant wraps icon in a square muted box', () => {
+  it('subtle variant wraps icon in a round muted box (Figma illustration tile style)', () => {
     const Icon = () => <svg data-testid="boxed-icon" />
     const { container } = render(
       <EmptyState title="Subtle" variant="subtle" icon={<Icon />} />,
     )
     const iconWrapper = container.querySelector('[data-slot="empty-state"] > div')
     expect(iconWrapper!.className).toContain('bg-muted')
-    expect(iconWrapper!.className).toContain('rounded-lg')
+    expect(iconWrapper!.className).toContain('rounded-full')
+  })
+
+  it('illustration prop renders without an icon-box wrapper (Figma illustrations bring own bg)', () => {
+    const Illustration = () => <svg data-testid="figma-illustration" width="120" height="120" />
+    const { container } = render(
+      <EmptyState
+        title="With illustration"
+        variant="subtle"
+        illustration={<Illustration />}
+      />,
+    )
+    expect(container.querySelector('[data-testid="figma-illustration"]')).toBeInTheDocument()
+    const wrapper = container.querySelector('[data-slot="empty-state"] > div')
+    expect(wrapper!.className).not.toContain('bg-muted')
+    expect(wrapper!.className).not.toContain('rounded-full')
+  })
+
+  it('illustration takes precedence over icon when both are provided', () => {
+    const Illustration = () => <svg data-testid="illustration" />
+    const Icon = () => <svg data-testid="icon" />
+    render(
+      <EmptyState
+        title="Both"
+        illustration={<Illustration />}
+        icon={<Icon />}
+      />,
+    )
+    expect(screen.getByTestId('illustration')).toBeInTheDocument()
+    expect(screen.queryByTestId('icon')).not.toBeInTheDocument()
   })
 
   it('size variants apply correct padding tokens', () => {

@@ -50,7 +50,14 @@ export type EmptyStateProps = VariantProps<typeof emptyStateVariants> & {
   description?: string
   /** Custom action node — preferred for new code (e.g. `<Button>` or button group). */
   actions?: React.ReactNode
-  /** Optional leading icon. With `variant="subtle"` it is wrapped in a muted square; with default variant it sits inline tinted as muted-foreground. */
+  /**
+   * Optional Figma-style illustration (preferred for new code) — typically a
+   * scaled SVG sourced from the DS Open Mercato illustrations library. When
+   * provided, takes precedence over `icon`. Rendered without any icon-box
+   * wrapping so the illustration's own circular background shows through.
+   */
+  illustration?: React.ReactNode
+  /** Optional leading icon. With `variant="subtle"` it is wrapped in a round muted box; with default variant it sits inline tinted as muted-foreground. Ignored when `illustration` is provided. */
   icon?: React.ReactNode
   className?: string
   children?: React.ReactNode
@@ -70,6 +77,7 @@ export function EmptyState({
   title,
   description,
   actions,
+  illustration,
   icon,
   className,
   children,
@@ -80,15 +88,19 @@ export function EmptyState({
 }: EmptyStateProps) {
   const legacyAction = action ?? (actionLabel ? { label: actionLabel, onClick: onAction } : undefined)
   const renderLegacyButton = !actions && legacyAction
-  const iconBoxSize = size === 'sm' ? 'size-8' : size === 'lg' ? 'size-12' : 'size-10'
+  const iconBoxSize = size === 'sm' ? 'size-10' : size === 'lg' ? 'size-16' : 'size-12'
 
   return (
     <div className={cn(emptyStateVariants({ size, variant }), className)} data-slot="empty-state">
-      {icon ? (
+      {illustration ? (
+        <div className="flex items-center justify-center" aria-hidden="true">
+          {illustration}
+        </div>
+      ) : icon ? (
         variant === 'subtle' ? (
           <div
             className={cn(
-              'flex items-center justify-center rounded-lg bg-muted text-muted-foreground',
+              'flex items-center justify-center rounded-full bg-muted text-muted-foreground',
               iconBoxSize,
             )}
             aria-hidden="true"
