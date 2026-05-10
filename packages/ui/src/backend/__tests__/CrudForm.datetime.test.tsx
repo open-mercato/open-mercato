@@ -60,17 +60,20 @@ describe('CrudForm — datetime field types render correct picker component', ()
     expect(html).toContain('Pick a time')
   })
 
-  it('type: datetime-local renders raw <input> (backward compatibility)', () => {
+  it('type: datetime-local renders DateTimePicker trigger (DS unification — no native input)', () => {
     const fields: CrudField[] = [{ id: 'at', label: 'At', type: 'datetime-local' }]
     const html = renderForm(fields)
-    expect(html).toContain('type="datetime-local"')
-    expect(html).not.toContain('Pick date and time')
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="datetime-local"')
   })
 
-  it('type: date renders raw <input type="date"> (backward compatibility)', () => {
+  it('type: date renders DatePicker trigger (DS unification — no native input)', () => {
     const fields: CrudField[] = [{ id: 'dt', label: 'Date', type: 'date' }]
     const html = renderForm(fields)
-    expect(html).toContain('type="date"')
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="date"')
   })
 
   it('datepicker shows formatted date in trigger when initialValues provided', () => {

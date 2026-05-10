@@ -3963,23 +3963,31 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <Input
-          type="date"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DatePicker
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datetime-local' && (
-        <Input
-          type="datetime-local"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DateTimePicker
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datepicker' && (
