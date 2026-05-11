@@ -66,8 +66,8 @@ None.
 
 ### Phase 1: Replay bumps onto develop
 
-- [ ] 1.1 Cherry-pick fast-uri 3.1.0 → 3.1.2 (#1875 / `5319852c`)
-- [ ] 1.2 Cherry-pick @babel/plugin-transform-modules-systemjs 7.28.5 → 7.29.4 (#1877 / `ad422810`)
+- [x] 1.1 Cherry-pick fast-uri 3.1.0 → 3.1.2 (#1875 / `5319852c`) — ac9a5dfb1564
+- [x] 1.2 Cherry-pick @babel/plugin-transform-modules-systemjs 7.28.5 → 7.29.4 (#1877 / `ad422810`) — eeb6683bf832
 
 ### Phase 2: Full validation gate
 
