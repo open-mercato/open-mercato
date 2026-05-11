@@ -1,4 +1,4 @@
-import type { Module } from '../registry'
+import type { Module, FrontendRouteManifestEntry, ApiRouteManifestEntry } from '../registry'
 import {
   createLazyModuleSubscriber,
   createLazyModuleWorker,
@@ -10,6 +10,11 @@ import {
   findBackendMatch,
   findApi,
   matchRoutePattern,
+  findRouteManifestMatch,
+  findApiRouteManifestMatch,
+  sortRoutesBySpecificity,
+  registerFrontendRouteManifests,
+  getFrontendRouteManifests,
 } from '../registry'
 
 describe('CLI Modules Registry', () => {
@@ -419,5 +424,124 @@ describe('Lazy module handlers', () => {
 
     expect(loadModule).toHaveBeenCalledTimes(1)
     expect(handler).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('sortRoutesBySpecificity', () => {
+  function routes(patterns: string[]) {
+    return patterns.map((p) => ({ pattern: p }))
+  }
+
+  it('places literal segments before dynamic segments', () => {
+    const sorted = sortRoutesBySpecificity(routes(['/things/[id]', '/things/new']))
+    expect(sorted.map((r) => r.pattern)).toEqual(['/things/new', '/things/[id]'])
+  })
+
+  it('places dynamic segments before catch-all segments', () => {
+    const sorted = sortRoutesBySpecificity(routes(['/docs/[...slug]', '/docs/[id]']))
+    expect(sorted.map((r) => r.pattern)).toEqual(['/docs/[id]', '/docs/[...slug]'])
+  })
+
+  it('places literal before catch-all segments', () => {
+    const sorted = sortRoutesBySpecificity(routes(['/docs/[...slug]', '/docs/intro']))
+    expect(sorted.map((r) => r.pattern)).toEqual(['/docs/intro', '/docs/[...slug]'])
+  })
+
+  it('handles multi-segment patterns with mixed specificity', () => {
+    const sorted = sortRoutesBySpecificity(routes([
+      '/[orgSlug]/portal/case-studies/[id]',
+      '/[orgSlug]/portal/case-studies/new',
+      '/[orgSlug]/portal/case-studies',
+    ]))
+    expect(sorted.map((r) => r.pattern)).toEqual([
+      '/[orgSlug]/portal/case-studies',
+      '/[orgSlug]/portal/case-studies/new',
+      '/[orgSlug]/portal/case-studies/[id]',
+    ])
+  })
+
+  it('treats optional catch-all [[...slug]] as least specific', () => {
+    const sorted = sortRoutesBySpecificity(routes(['/[[...slug]]', '/[id]', '/new']))
+    expect(sorted.map((r) => r.pattern)).toEqual(['/new', '/[id]', '/[[...slug]]'])
+  })
+
+  it('is stable — does not reorder equally specific routes', () => {
+    const input = routes(['/a', '/b', '/c'])
+    const sorted = sortRoutesBySpecificity(input)
+    expect(sorted.map((r) => r.pattern)).toEqual(['/a', '/b', '/c'])
+  })
+
+  it('falls back to path when pattern is absent', () => {
+    const input = [{ path: '/things/[id]' }, { path: '/things/new' }]
+    const sorted = sortRoutesBySpecificity(input)
+    expect(sorted.map((r) => r.path)).toEqual(['/things/new', '/things/[id]'])
+  })
+})
+
+describe('findRouteManifestMatch — specificity (issue #1870)', () => {
+  // Routes coming from registerFrontendRouteManifests are pre-sorted by specificity.
+  // These tests simulate that by calling sortRoutesBySpecificity first, then matching.
+  function entry(pattern: string): FrontendRouteManifestEntry {
+    return { pattern, moduleId: 'test', load: async () => () => null }
+  }
+
+  it('returns the literal route when a literal and a dynamic route both match', () => {
+    const routes = sortRoutesBySpecificity([entry('/things/[id]'), entry('/things/new')])
+    const match = findRouteManifestMatch(routes, '/things/new')
+    expect(match?.route.pattern).toBe('/things/new')
+  })
+
+  it('returns the dynamic route when only the dynamic route matches', () => {
+    const routes = sortRoutesBySpecificity([entry('/things/[id]'), entry('/things/new')])
+    const match = findRouteManifestMatch(routes, '/things/abc-123')
+    expect(match?.route.pattern).toBe('/things/[id]')
+    expect(match?.params).toEqual({ id: 'abc-123' })
+  })
+
+  it('picks literal over catch-all', () => {
+    const routes = sortRoutesBySpecificity([entry('/docs/[...slug]'), entry('/docs/intro')])
+    const match = findRouteManifestMatch(routes, '/docs/intro')
+    expect(match?.route.pattern).toBe('/docs/intro')
+  })
+
+  it('picks dynamic over catch-all', () => {
+    const routes = sortRoutesBySpecificity([entry('/docs/[...slug]'), entry('/docs/[id]')])
+    const match = findRouteManifestMatch(routes, '/docs/getting-started')
+    expect(match?.route.pattern).toBe('/docs/[id]')
+  })
+})
+
+describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
+  function apiEntry(path: string): ApiRouteManifestEntry {
+    return { path, moduleId: 'test', kind: 'route-file', methods: ['GET'], load: async () => ({}) }
+  }
+
+  it('returns the literal API route over the dynamic one', () => {
+    const routes = sortRoutesBySpecificity([apiEntry('/api/things/[id]'), apiEntry('/api/things/new')])
+    const match = findApiRouteManifestMatch(routes, 'GET', '/api/things/new')
+    expect(match?.route.path).toBe('/api/things/new')
+  })
+
+  it('returns the dynamic API route when only it matches', () => {
+    const routes = sortRoutesBySpecificity([apiEntry('/api/things/[id]'), apiEntry('/api/things/new')])
+    const match = findApiRouteManifestMatch(routes, 'GET', '/api/things/abc-123')
+    expect(match?.route.path).toBe('/api/things/[id]')
+  })
+})
+
+describe('registerFrontendRouteManifests — sorts on registration (issue #1870)', () => {
+  function entry(pattern: string): FrontendRouteManifestEntry {
+    return { pattern, moduleId: 'test', load: async () => () => null }
+  }
+
+  afterEach(() => {
+    registerFrontendRouteManifests([])
+  })
+
+  it('stores routes pre-sorted by specificity so first-match-wins works correctly', () => {
+    registerFrontendRouteManifests([entry('/things/[id]'), entry('/things/new')])
+    const stored = getFrontendRouteManifests()
+    expect(stored[0].pattern).toBe('/things/new')
+    expect(stored[1].pattern).toBe('/things/[id]')
   })
 })
