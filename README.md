@@ -245,6 +245,26 @@ Open **http://localhost:3000/backend** — credentials printed in the terminal.
 
 </details>
 
+#### Running multiple persistent local instances
+
+To keep two long-lived local instances pointing at the same PostgreSQL server (e.g. `client-a` next to a stock `open-mercato`), pass an optional database-name override to `yarn dev`, `yarn dev:greenfield`, or `yarn setup`:
+
+```bash
+# Monorepo: explicit database name; .env update is offered (default yes)
+yarn dev:greenfield --database-name=my_db
+
+# Monorepo: derive database name from the current working directory
+yarn dev --database-name
+
+# Standalone app: same flag, applied to ./.env
+yarn setup --database-name=client_a
+
+# One-off run that does not touch .env (current child process only)
+yarn dev --database-name=review_1720 --no-update-env
+```
+
+Without the flag, behavior is unchanged (no prompt, no `.env` mutation). See the [installation guides](https://docs.openmercato.com/installation/monorepo) and [`yarn setup`](https://docs.openmercato.com/installation/setup) for details.
+
 ---
 
 ### Detailed guides (prerequisites, native services, troubleshooting)

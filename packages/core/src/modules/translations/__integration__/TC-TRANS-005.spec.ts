@@ -185,6 +185,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await fillTranslationInput(titleInput, 'Deutscher Titel QA')
 
       await saveTranslations(page, managerCard, ENTITY_TYPE, productId!)
+      await expect(page.getByText('Translations saved').first()).toBeVisible()
       await expect.poll(async () => {
         const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
         if (!response.ok()) return null

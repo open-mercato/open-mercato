@@ -95,6 +95,16 @@ Useful standalone splash env vars:
 - `OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev` to hide the GitHub publish panel
 - `OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev` to hide the coding-tools menu
 
+To run several persistent standalone apps against the same PostgreSQL server, pass `--database-name[=<name>]` to `yarn setup` or `yarn dev`:
+
+```bash
+yarn setup --database-name=client_a   # explicit name; offers to update .env (default yes)
+yarn setup --database-name            # derives name from the current directory
+yarn dev --database-name=temp_run --no-update-env  # only injects DATABASE_URL into this run
+```
+
+Set `OM_DEV_DATABASE_NAME` / `OM_DEV_DATABASE_UPDATE_ENV` for non-interactive automation. Without the flag, `yarn setup` and `yarn dev` keep their current behavior — no prompt, no `.env` mutation.
+
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
 ## Test create-mercato-app locally from the monorepo

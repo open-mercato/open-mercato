@@ -530,3 +530,20 @@ yarn dev
 | `yarn dev:classic` | Legacy mode — disables splash, raw output |
 
 Press `d` while `yarn dev` is running to toggle raw log output. If a stage fails, the runner automatically expands and prints the raw error.
+
+### Run multiple persistent local instances against the same PostgreSQL server
+
+`yarn dev`, `yarn dev:greenfield`, and `yarn dev:app` accept an optional `--database-name[=<name>]` flag that rewrites the database segment of `DATABASE_URL` in `apps/mercato/.env`. Without the flag, behavior is unchanged.
+
+```bash
+# explicit name; you'll be asked once whether to persist .env (default yes)
+yarn dev:greenfield --database-name=pricing_v2
+
+# bare flag derives the database name from the current working directory
+yarn dev --database-name
+
+# one-off review run that does not edit .env
+yarn dev --database-name=review_1720 --no-update-env
+```
+
+The override only touches the pathname segment of `DATABASE_URL`, so credentials, host, port, schema (`?schema=…`), and other query parameters are preserved. CI / non-interactive runs default to updating `.env`; pass `--no-update-env` to opt out, or set `OM_DEV_DATABASE_UPDATE_ENV=false`.

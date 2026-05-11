@@ -105,6 +105,20 @@ yarn reinstall
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI. |
 | `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI. |
 | `OM_DEV_AUTO_MIGRATE` | `1` | When set to `1` (default), `yarn dev` runs `yarn db:migrate` once at startup before Next.js boots. Set to `0` to disable. See "Single-shot Database Migrations" below. |
+| `OM_DEV_DATABASE_NAME` | unset | Same as passing `--database-name=<value>` to `yarn dev` / `yarn setup`. CLI flag wins. |
+| `OM_DEV_DATABASE_UPDATE_ENV` | unset | Non-interactive answer for the `.env` update prompt (`true`/`false`). Equivalent to `--update-env` / `--no-update-env`. |
+
+### Persistent Parallel Local Databases
+
+Add `--database-name[=<name>]` to `yarn dev`, `yarn dev:greenfield`, or `yarn setup` to point this app at an isolated PostgreSQL database without manually editing `.env` first. Behavior:
+
+- `yarn dev` (no flag) is unchanged — no prompt, no `.env` mutation.
+- `yarn setup --database-name=client_a` rewrites the `DATABASE_URL` database segment in `./.env` after a confirmation prompt (default yes).
+- `yarn dev --database-name` (bare flag) derives the database name from the current directory.
+- `yarn dev --database-name=review_1720 --no-update-env` injects the rewritten URL into the current child process only and leaves `.env` untouched.
+- Non-interactive runs (`CI=true` or piped stdin) default to updating `.env`; pass `--no-update-env` to opt out.
+
+The override only changes the database segment of `DATABASE_URL`. Credentials, host, port, query strings (`?schema=…`, `?sslmode=…`), and other env variables are preserved verbatim.
 
 ## Infrastructure
 
