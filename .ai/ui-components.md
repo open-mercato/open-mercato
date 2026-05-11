@@ -21,6 +21,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Tag](#tag)
 - [TagInput](#taginput)
 - [CounterInput](#counterinput)
+- [CompactSelect](#compactselect)
 - [TimePicker](#timepicker)
 - [Common patterns](#common-patterns)
 
@@ -1048,6 +1049,56 @@ For an error state, pass `aria-invalid` — the wrapper border switches to `bord
 - Pass `decrementAriaLabel` / `incrementAriaLabel` translated via `useT()` — primitive defaults `Decrease` / `Increase` are English.
 - For free-form numbers without bounded `min`/`max` (e.g. unit price, percentage, free-text amount), prefer `<Input type="number">` directly — `CounterInput` is for **stepper** UX (small bounded counts).
 - Always pass both `min` and a sensible `max` when a `+` button would otherwise grow the value unbounded — the primitive enforces clamping, but the disabled state on the buttons only kicks in when bounds are known.
+
+---
+
+## CompactSelect
+
+```typescript
+import {
+  CompactSelectTrigger,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectValue,
+} from '@open-mercato/ui/primitives/compact-select'
+```
+
+Toolbar-density variant of the `Select` trigger — the trigger renders at the new `Select` `size="xs"` (h-7 / 28px / px-2 / text-xs) while the `Select` root, content, and items stay identical. Use when a Select sits in a toolbar / pagination footer / DataTable settings cluster next to icon buttons that are h-7 themselves. Anywhere a full h-9 `Select` would dwarf the surrounding row.
+
+### When NOT to use
+
+- For form rows next to `<Input>` / `<DatePicker>` / regular buttons — use the regular `Select size="default"` (h-9) so heights match.
+- For dense filter chips that need a wholly different popover UX — use `FilterOverlay` or `DropdownMenu` instead.
+
+### `triggerLabel` prefix
+
+Render an inline muted prefix before the selected value (e.g. `View:` / `Sort by:` / `Period:`). Slot is omitted when not provided.
+
+```tsx
+const t = useT()
+<Select value={view} onValueChange={setView}>
+  <CompactSelectTrigger
+    triggerLabel={t('dashboards.view.label', 'View:')}
+    aria-label={t('dashboards.view.aria', 'Switch dashboard view')}
+  >
+    <SelectValue />
+  </CompactSelectTrigger>
+  <SelectContent>
+    <SelectItem value="grid">{t('dashboards.view.grid', 'Grid')}</SelectItem>
+    <SelectItem value="list">{t('dashboards.view.list', 'List')}</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<SelectTrigger size="sm" className="h-7">` — use `CompactSelectTrigger`. The xs (h-7) size is reserved for `CompactSelect`.
+- Pair with the regular `Select` root + `SelectContent` / `SelectItem`. The primitive only customizes the trigger; the content/items intentionally share Radix instances with the regular `Select`.
+- Pass `triggerLabel` through `useT()` and add `aria-label` to the trigger — the prefix label is visual, not announced by screen readers (it lives inside the trigger button alongside the value).
 
 ---
 
