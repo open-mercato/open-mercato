@@ -22,6 +22,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [TagInput](#taginput)
 - [CounterInput](#counterinput)
 - [CompactSelect](#compactselect)
+- [InlineInput](#inlineinput)
 - [TimePicker](#timepicker)
 - [Common patterns](#common-patterns)
 
@@ -345,7 +346,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 | Tag input (multi-tag pill) | `TagInput` | Available — see [TagInput](#taginput) section below |
 | Counter (number with +/- buttons) | `CounterInput` | Available — see [CounterInput](#counterinput) section below |
 | Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
-| Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
+| Inline edit (no border, click-to-edit) | `InlineInput` | Available — see [InlineInput](#inlineinput) section below |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
 | Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
 
@@ -1099,6 +1100,60 @@ const t = useT()
 - NEVER hand-roll `<SelectTrigger size="sm" className="h-7">` — use `CompactSelectTrigger`. The xs (h-7) size is reserved for `CompactSelect`.
 - Pair with the regular `Select` root + `SelectContent` / `SelectItem`. The primitive only customizes the trigger; the content/items intentionally share Radix instances with the regular `Select`.
 - Pass `triggerLabel` through `useT()` and add `aria-label` to the trigger — the prefix label is visual, not announced by screen readers (it lives inside the trigger button alongside the value).
+
+---
+
+## InlineInput
+
+```typescript
+import { InlineInput } from '@open-mercato/ui/primitives/inline-input'
+```
+
+Borderless variant of `Input` for click-to-edit cells, key/value renamers, kanban card titles, and other inline editing UI where a fully bordered field would look heavy. At rest the input renders as plain text (transparent border, transparent background, no shadow). On hover a subtle border + muted background reveals the affordance; on focus the standard `border-foreground` + focus shadow inherited from the underlying `Input` wrapper takes over for accessibility.
+
+### Sizes
+
+| Size | Height | Use case |
+|---|---|---|
+| `sm` (default) | h-8 (32px) | Dense rows, kanban titles, JSON key renamers |
+| `default` | h-9 (36px) | Inline editors that sit next to h-9 controls (Buttons, Selects) |
+
+### Behaviors
+
+- **At rest** — transparent border + transparent bg + no shadow. Looks like plain text aligned to the surrounding row.
+- **Hover** — `border-input` + `bg-muted/40` (when `showBorderOnHover={true}`, the default). Skipped when `false`.
+- **Focus** — inherits `Input` wrapper's `focus-within:border-foreground` + `focus-within:shadow-focus`. Always shown for keyboard a11y.
+- **`onBlur`** — fully forwarded. Consumers wire it for the typical "save on blur" pattern.
+- **All `Input` props** — `value`, `onChange`, `placeholder`, `type`, `leftIcon`, `rightIcon`, `inputClassName`, `aria-invalid`, etc. — flow through unchanged.
+
+### Usage
+
+```tsx
+const t = useT()
+const [draft, setDraft] = React.useState(value)
+
+<InlineInput
+  value={draft}
+  onChange={(event) => setDraft(event.target.value)}
+  onBlur={() => onSave(draft)}
+  placeholder={t('mymodule.field.placeholder', 'Edit title')}
+/>
+
+// Borderless-on-rest, no hover affordance (read-only-looking cells):
+<InlineInput
+  showBorderOnHover={false}
+  value={value}
+  onChange={onChange}
+  onBlur={onSave}
+/>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<input className="border-transparent hover:border-input ...">` — use `InlineInput`.
+- For high-level "click-to-edit with save / cancel buttons + validation" UX, use the `InlineTextEditor` from `@open-mercato/ui/backend/detail/InlineEditors` instead. `InlineInput` is the **low-level** atom — consumers wire the save / cancel state machine themselves.
+- Pass `placeholder` translated via `useT()`. The primitive has no built-in i18n (matches `Input`).
+- Use `showBorderOnHover={false}` only when the field is decorative or part of a much larger interactive surface — the hover border is the discoverability hint that the field is editable.
 
 ---
 
