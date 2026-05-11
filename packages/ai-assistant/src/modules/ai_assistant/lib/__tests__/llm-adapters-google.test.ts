@@ -68,4 +68,22 @@ describe('GoogleAdapter', () => {
     expect(model).toBeDefined()
     expect(model).not.toBeNull()
   })
+
+  it('createModel forwards baseURL to createGoogleGenerativeAI without throwing', () => {
+    const model = adapter.createModel({
+      apiKey: 'AIza-test',
+      modelId: 'gemini-3-flash',
+      baseURL: 'https://generativelanguage-proxy.example.com/v1beta',
+    })
+    expect(model).toBeDefined()
+    expect(model).not.toBeNull()
+  })
+
+  it('createModel without baseURL still works (Google API default)', () => {
+    const model = adapter.createModel({
+      apiKey: 'AIza-test',
+      modelId: 'gemini-3-flash',
+    })
+    expect(model).toBeDefined()
+  })
 })
