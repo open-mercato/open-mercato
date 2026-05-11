@@ -21,6 +21,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Tag](#tag)
 - [TagInput](#taginput)
 - [CounterInput](#counterinput)
+- [DigitInput](#digitinput)
 - [CompactSelect](#compactselect)
 - [InlineInput](#inlineinput)
 - [InlineSelect](#inlineselect)
@@ -346,7 +347,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 |---|---|---|
 | Tag input (multi-tag pill) | `TagInput` | Available — see [TagInput](#taginput) section below |
 | Counter (number with +/- buttons) | `CounterInput` | Available — see [CounterInput](#counterinput) section below |
-| Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
+| Digit / OTP code | `DigitInput` | Available — see [DigitInput](#digitinput) section below |
 | Inline edit (no border, click-to-edit) | `InlineInput` | Available — see [InlineInput](#inlineinput) section below |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
 | Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
@@ -1051,6 +1052,65 @@ For an error state, pass `aria-invalid` — the wrapper border switches to `bord
 - Pass `decrementAriaLabel` / `incrementAriaLabel` translated via `useT()` — primitive defaults `Decrease` / `Increase` are English.
 - For free-form numbers without bounded `min`/`max` (e.g. unit price, percentage, free-text amount), prefer `<Input type="number">` directly — `CounterInput` is for **stepper** UX (small bounded counts).
 - Always pass both `min` and a sensible `max` when a `+` button would otherwise grow the value unbounded — the primitive enforces clamping, but the disabled state on the buttons only kicks in when bounds are known.
+
+---
+
+## DigitInput
+
+```typescript
+import { DigitInput } from '@open-mercato/ui/primitives/digit-input'
+```
+
+`length`-cell verification code input for OTP / 2FA / PIN entry flows. Renders `length` separate `<input maxLength={1}>` boxes side by side. Auto-focuses the next cell on type, the previous cell on Backspace from an empty cell. Paste distributes the clipboard string across cells and fires `onComplete` when all cells fill.
+
+The `value` prop is the assembled string (`'123456'`), not a tuple — cells are an internal layout concern.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` / `onChange` | `string` / `(value) => void` | uncontrolled | Assembled value. `onChange` fires on every char/paste. |
+| `length` | `number` | `6` | Number of cells. |
+| `inputMode` | `'numeric' \| 'text'` | `'numeric'` | `numeric` filters out non-digits both for typing and paste. `text` accepts any character. |
+| `mask` | `boolean` | `false` | Renders each cell as `type='password'` so characters display as bullets. Consumers still receive the raw characters in `onChange` / `onComplete`. |
+| `autoFocus` | `boolean` | `false` | Auto-focuses the first cell on mount. |
+| `disabled` | `boolean` | `false` | Disables all cells. |
+| `onComplete` | `(value) => void` | — | Fires when the assembled value reaches `length`. |
+| `aria-label` | `string` | `Verification code` | Applied to the group wrapper. Each cell gets `<aria-label> digit N`. |
+| `aria-invalid` | `boolean` | — | Propagates to the wrapper and every cell — triggers the destructive border. |
+| `id` / `name` | `string` | — | Forwarded to the **first** cell only so consumers can label the whole group via `<label htmlFor>` and so form submissions carry the assembled value. |
+| `className` / `cellClassName` | `string` | — | Override wrapper / individual cell classes. |
+
+### Usage
+
+```tsx
+const t = useT()
+const [code, setCode] = React.useState('')
+
+<DigitInput
+  value={code}
+  onChange={setCode}
+  onComplete={(filled) => verifyCode(filled)}
+  length={6}
+  autoFocus
+  aria-label={t('auth.twoFactor.code', 'Two-factor code')}
+/>
+```
+
+### Keyboard contract
+
+- **Type a digit** — commits the value and focuses the next cell.
+- **Backspace on an empty cell** — focuses the previous cell and clears its value.
+- **Backspace on a filled cell** — clears the current cell (native input behaviour).
+- **ArrowLeft / ArrowRight** — navigate between cells without mutating values.
+- **Paste** — splits the clipboard text into cells (filtered by `inputMode`) and fires `onComplete` if the resulting string reaches `length`.
+
+### MUST rules
+
+- NEVER hand-roll a row of `<input maxLength={1}>` cells with manual `useRef` arrays — use `DigitInput`.
+- Pass `aria-label` translated via `useT()` so the group label and the per-cell labels are localized.
+- Use `inputMode="text"` only when the verification code includes letters — keep the default `numeric` for OTPs (it triggers the mobile number pad and rejects accidental keystrokes from password managers).
+- `mask=true` swaps `type='text'` for `type='password'` to hide the digits visually. Combine with `autoComplete="one-time-code"` (already on by default) to stay aligned with native OTP autofill flows.
 
 ---
 
