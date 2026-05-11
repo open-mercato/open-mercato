@@ -50,6 +50,7 @@ fi
 
 COMMIT_HASH=$(git rev-parse --short=10 HEAD)
 BUILD_ID="${GITHUB_RUN_NUMBER:-$(date -u +%s)}"
+BUILD_ATTEMPT="${GITHUB_RUN_ATTEMPT:-}"
 
 if [ "${CI:-}" != "true" ]; then
   echo "==> Syncing create-app template from apps/mercato/src..."
@@ -59,11 +60,20 @@ else
 fi
 
 CURRENT_VERSION=$(jq -r '.version' packages/shared/package.json)
-SNAPSHOT_VERSION=$(node scripts/lib/snapshot-release.mjs version \
-  --current-version "$CURRENT_VERSION" \
-  --channel "$CHANNEL" \
-  --build-id "$BUILD_ID" \
-  --commit-sha "$COMMIT_HASH")
+VERSION_ARGS=(
+  version
+  --current-version "$CURRENT_VERSION"
+  --channel "$CHANNEL"
+  --build-id "$BUILD_ID"
+)
+
+if [ -n "$BUILD_ATTEMPT" ]; then
+  VERSION_ARGS+=(--build-attempt "$BUILD_ATTEMPT")
+fi
+
+VERSION_ARGS+=(--commit-sha "$COMMIT_HASH")
+
+SNAPSHOT_VERSION=$(node scripts/lib/snapshot-release.mjs "${VERSION_ARGS[@]}")
 
 echo "==> Setting version to ${SNAPSHOT_VERSION}..."
 yarn workspaces foreach -A --no-private version "$SNAPSHOT_VERSION"

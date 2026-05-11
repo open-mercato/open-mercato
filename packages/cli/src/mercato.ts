@@ -9,6 +9,12 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import {
+  resolveAutoSpawnWorkersMode,
+  resolveLazyPollMs,
+  resolveLazyRestart,
+} from './lib/auto-spawn-workers'
+import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
@@ -1660,6 +1666,7 @@ export async function run(argv = process.argv) {
           let didRetryCorruptedTurbopackCache = false
           let stopping = false
           let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
+          let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
           function cleanup() {
@@ -1668,6 +1675,9 @@ export async function run(argv = process.argv) {
               if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
+            }
+            if (activeLazySupervisor) {
+              void activeLazySupervisor.close().catch(() => undefined)
             }
           }
 
@@ -1683,6 +1693,14 @@ export async function run(argv = process.argv) {
                   })
               )
             )
+            if (activeLazySupervisor) {
+              try {
+                await activeLazySupervisor.close()
+              } catch {
+                // Supervisor close errors should not block dev runtime cleanup.
+              }
+              activeLazySupervisor = null
+            }
             // Safety net: remove Next.js dev lock file in case the child didn't clean up
             const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
             try {
@@ -1772,7 +1790,7 @@ export async function run(argv = process.argv) {
             while (!stopping) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
-              const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+              const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
               const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
@@ -1782,10 +1800,21 @@ export async function run(argv = process.argv) {
               ]
 
               // Start workers if enabled
-              if (autoSpawnWorkers) {
-                const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+              if (autoSpawnWorkersMode !== 'off') {
+                const discoveredWorkers = getRegisteredCliWorkers()
+                const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                 if (discoveredWorkerQueues.length === 0) {
                   console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                } else if (autoSpawnWorkersMode === 'lazy') {
+                  console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                  activeLazySupervisor = startLazyWorkerSupervisor({
+                    mercatoBin,
+                    appDir,
+                    runtimeEnv,
+                    workers: discoveredWorkers,
+                    pollMs: resolveLazyPollMs(process.env),
+                    restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  })
                 } else {
                   console.log('[server] Starting workers for all queues...')
                   const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
@@ -1843,7 +1872,7 @@ export async function run(argv = process.argv) {
           const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
           const processes: ChildProcess[] = []
-          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
@@ -1851,6 +1880,7 @@ export async function run(argv = process.argv) {
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
           })
+          let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1858,6 +1888,9 @@ export async function run(argv = process.argv) {
               if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
+            }
+            if (activeLazySupervisor) {
+              void activeLazySupervisor.close().catch(() => undefined)
             }
           }
 
@@ -1872,6 +1905,14 @@ export async function run(argv = process.argv) {
                   })
               )
             )
+            if (activeLazySupervisor) {
+              try {
+                await activeLazySupervisor.close()
+              } catch {
+                // Supervisor close errors should not block server shutdown.
+              }
+              activeLazySupervisor = null
+            }
           }
 
           process.on('SIGTERM', cleanup)
@@ -1896,10 +1937,21 @@ export async function run(argv = process.argv) {
             ]
 
             // Start workers if enabled
-            if (autoSpawnWorkers) {
-              const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+            if (autoSpawnWorkersMode !== 'off') {
+              const discoveredWorkers = getRegisteredCliWorkers()
+              const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+              } else if (autoSpawnWorkersMode === 'lazy') {
+                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                activeLazySupervisor = startLazyWorkerSupervisor({
+                  mercatoBin,
+                  appDir,
+                  runtimeEnv,
+                  workers: discoveredWorkers,
+                  pollMs: resolveLazyPollMs(process.env),
+                  restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                })
               } else {
                 console.log('[server] Starting workers for all queues...')
                 const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {

@@ -7,7 +7,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -303,7 +303,7 @@ export async function GET(request: Request): Promise<Response> {
       }),
     )
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -403,7 +403,7 @@ export async function POST(request: Request): Promise<Response> {
       ),
     )
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -494,7 +494,7 @@ export async function PUT(request: Request): Promise<Response> {
 
     return withAdapterHeaders(NextResponse.json({ ok: true }))
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -568,7 +568,7 @@ export async function DELETE(request: Request): Promise<Response> {
 
     return withAdapterHeaders(NextResponse.json({ ok: true }))
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
