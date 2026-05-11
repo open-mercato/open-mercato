@@ -910,12 +910,38 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 <Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
 ```
 
+### Shape
+
+| Shape | Token | Use case |
+|---|---|---|
+| `pill` (default) | `rounded-full px-2.5 py-0.5` | Status/category tag (Customer, Hot, Renewal) |
+| `square` | `rounded-md px-2 py-1` | Removable chips inside inputs (`TagInput`, `TagsInput`) |
+
+### Removable chips
+
+`onRemove` renders an inline close (×) button using Lucide `X`. The button calls `event.stopPropagation()` before invoking `onRemove`, so clicking × does not trigger the chip's own click. Always pass `removeAriaLabel` translated via `useT()`.
+
+```tsx
+const t = useT()
+<Tag
+  shape="square"
+  variant="default"
+  disabled={isLocked}
+  onRemove={() => removeTag(tag)}
+  removeAriaLabel={t('mymodule.tags.remove', 'Remove {label}', { label })}
+>
+  {label}
+</Tag>
+```
+
 ### MUST rules
 
 - NEVER hardcode colors on `Tag` — use variants only.
 - Use `dot` for status-like categories (Customer, Hot); omit for purely descriptive labels.
 - For "Manage tags" / add-tag affordances: use `Button variant="ghost"` or dashed outline — NOT `Tag`.
 - `brand` variant is for user-saved views and renewal/custom category tags only.
+- Use `shape="square"` for chips inside text inputs/combobox/`TagsInput`; keep `shape="pill"` (default) for standalone status/category tags.
+- When passing `onRemove`, MUST also pass `removeAriaLabel` translated via `useT()` — the primitive default `'Remove'` is English-only.
 
 ---
 
