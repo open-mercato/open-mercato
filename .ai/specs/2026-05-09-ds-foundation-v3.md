@@ -479,23 +479,36 @@ Borderless variant of `Input`. Used by inline editors (`PersonHighlights`-style)
 
 ### 9. `CompactSelect`
 
-**Figma node:** TBD.
+**Figma node:** TBD. Implementation derives the dense size from the
+existing `Select` `cva` size matrix (the new `xs` rung — `h-7 px-2
+text-xs`).
 
 **API:**
 
 ```ts
-type CompactSelectProps = Omit<SelectProps, 'size'> & {
-  // size is fixed at h-7 / text-xs by definition
-  triggerLabel?: React.ReactNode                 // optional prefix label inside trigger
+// New 'xs' size variant on the underlying SelectTrigger primitive
+type SelectTriggerSize = 'xs' | 'sm' | 'default' | 'lg'
+
+// Thin wrapper that locks the trigger at the xs size and renders an optional
+// label prefix inside the button (e.g. "View:" / "Sort by:").
+type CompactSelectTriggerProps = Omit<SelectTriggerProps, 'size'> & {
+  triggerLabel?: React.ReactNode                  // muted prefix inside trigger
 }
 ```
 
-Toolbar/filter-density `Select`. Fixed size h-7 (vs default h-9). Used in DataTable filter bars, perspectives panel, etc.
+The composition is a wrapper around the regular `Select` primitive — the
+`Select` root, `SelectContent`, `SelectItem`, `SelectGroup`,
+`SelectLabel`, `SelectSeparator`, and `SelectValue` are re-exported
+from `compact-select.tsx` so consumers can import the whole
+composition from one path. Only the trigger is customized.
 
 **Tests:**
-- Renders at h-7.
-- Forwards all `Select` props.
-- Renders `triggerLabel` prefix when provided.
+- Trigger renders at h-7 / px-2 / text-xs regardless of consumer attempts.
+- `triggerLabel` prefix is rendered inside the trigger when provided.
+- Trigger label slot has `data-slot="compact-select-trigger-label"` for styling hooks.
+- `ref` is forwarded to the underlying `<button>` trigger.
+- Consumer `className` merges alongside the size variant.
+- `aria-label` and `aria-invalid` pass through to the Radix trigger.
 
 ### 10. `InlineSelect`
 
@@ -828,3 +841,4 @@ To be filled in after all 14 commits land and before opening the PR. Sections:
 | 2026-05-11 | SCOPE EXTENSION (DRAFT) | TimePicker added as primitive #11 per user request (`Figma 164611:83414`). Scope freeze updated to 11 primitives + 1 legacy shim rewrite (`backend/inputs/TimePicker.tsx`). Implementation plan extended from 13 to 14 commits. No existing API contracts changed — strictly additive (TimePicker primitive is new file) plus internal-only shim refactor that preserves the legacy `TimePickerProps` interface. |
 | 2026-05-12 | SCOPE EXTENSION (COMMITTED) | TimePicker primitive + ScheduleActivityDialog DateTimeFields real-deployment landed. Primitive composition resolves `Cancel` / `Apply` / `Select status` / `Pick a time` / `Time picker` / `Close` / `Quick duration` / scroll-arrow aria labels through `useT('ui.timePicker.*')`. `HorizontalScrollRow` carries English defaults plus `scrollLeftAriaLabel` / `scrollRightAriaLabel` props for callers outside React context. `formatDuration` stays a pure English helper (preserved for tests and standalone atoms); the customers `DateTimeFields` consumer drives its duration `Select` from a translatable lookup table (`customers.schedule.duration.option.*`) instead of calling `formatDuration` directly. Calendar fix (`[&_button]:!bg-transparent` on selected/range cells) keeps existing `DatePicker` snapshots green. `TimeInput` native number-spinner arrows hidden via `[appearance:textfield]`. Legacy `backend/inputs/TimePicker` shim default `showClearButton: true → false` (mild BC break documented). Phase A consumer audit (30+ native date/time + 13+ native selects) deferred to follow-up PRs B–F. |
 | 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `CounterInput` primitive (§6) landed. API extended from `'sm' \| 'default'` to `'sm' \| 'default' \| 'lg'` (32 / 36 / 40 px) to cover all three Figma sizes; `buttonAlign` prop dropped (Figma is split-only). Stepper UX with `Minus` / `Plus` Lucide icons, clamping to `min`/`max`, ArrowUp/Down keyboard support, `aria-invalid` driven error border, English `Decrease`/`Increase` aria defaults overridable through `decrementAriaLabel`/`incrementAriaLabel`. 21 unit tests. Real deployment in `sales/components/documents/ReturnDialog.tsx` (return quantity per line, `min=1` / `max=line.available`) with PL/EN locale keys `sales.returns.qty.decrease` / `sales.returns.qty.increase`. |
+| 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `CompactSelect` primitive (§9) landed. Added a new `xs` size variant (`h-7 px-2 text-xs`) to the existing `selectTriggerVariants` cva, then wrapped it as `CompactSelectTrigger` with optional `triggerLabel` muted prefix slot. Composition lives in `packages/ui/src/primitives/compact-select.tsx` and re-exports the rest of the `Select` API. 9 unit tests. Real deployment in `packages/ui/src/backend/DataTable.tsx` pagination "Rows per page" selector (was `<SelectTrigger size="sm">`, now h-7 toolbar density that matches the pagination row icon buttons). |
