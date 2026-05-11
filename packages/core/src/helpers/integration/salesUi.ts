@@ -345,6 +345,21 @@ async function waitForDialogFieldReady(
   await field.scrollIntoViewIfNeeded().catch(() => {});
 }
 
+async function fillControlledInput(input: Locator, value: string, timeout = 2_000): Promise<void> {
+  await waitForStableVisibility(input, TEST_WAIT_TIMEOUT_MS);
+  await input.fill(value);
+  await input.evaluate((element, nextValue) => {
+    const control = element as HTMLInputElement | HTMLTextAreaElement;
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    valueSetter?.call(control, nextValue);
+    control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+  await expect(input).toHaveValue(value, { timeout });
+  await input.press('Tab').catch(() => {});
+}
+
 async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
   const errorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first();
   if (!(await errorHeading.isVisible().catch(() => false))) return false;
@@ -1085,8 +1100,18 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
       await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
       await kindTrigger.click();
       const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
-      await kindOption.waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS });
-      await kindOption.click({ force: true });
+      const optionVisible = await kindOption
+        .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+        .then(() => true, () => false);
+      if (optionVisible) {
+        await kindOption.click({ force: true });
+      } else {
+        // Fallback: drive selection via keyboard when modal-backdrop click interception
+        // hides the rendered option. Brought forward from develop.
+        await page.keyboard.type(kindLabel.charAt(0));
+        await page.waitForTimeout(150);
+        await page.keyboard.press('Enter');
+      }
       await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
     };
 
@@ -1097,8 +1122,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    await labelInput.fill(options.label);
-    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
+    await fillControlledInput(labelInput, options.label);
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {
@@ -1108,8 +1132,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
+      await fillControlledInput(enabledAmountInputs.first(), String(options.netAmount));
     }
   };
 
@@ -1134,7 +1157,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   }
   if (!(await adjustmentRow.isVisible().catch(() => false))) {
     await adjustmentsTab.click().catch(() => {});
-    await adjustmentRow.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+    await expect(adjustmentRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   }
 }
 
