@@ -23,6 +23,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [CounterInput](#counterinput)
 - [CompactSelect](#compactselect)
 - [InlineInput](#inlineinput)
+- [InlineSelect](#inlineselect)
 - [TimePicker](#timepicker)
 - [Common patterns](#common-patterns)
 
@@ -1154,6 +1155,70 @@ const [draft, setDraft] = React.useState(value)
 - For high-level "click-to-edit with save / cancel buttons + validation" UX, use the `InlineTextEditor` from `@open-mercato/ui/backend/detail/InlineEditors` instead. `InlineInput` is the **low-level** atom — consumers wire the save / cancel state machine themselves.
 - Pass `placeholder` translated via `useT()`. The primitive has no built-in i18n (matches `Input`).
 - Use `showBorderOnHover={false}` only when the field is decorative or part of a much larger interactive surface — the hover border is the discoverability hint that the field is editable.
+
+---
+
+## InlineSelect
+
+```typescript
+import {
+  InlineSelectTrigger,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectValue,
+} from '@open-mercato/ui/primitives/inline-select'
+```
+
+Borderless variant of `SelectTrigger` — the select-typed counterpart to `InlineInput`. At rest the trigger renders as plain text (transparent border, transparent background, no shadow); on hover a subtle border + muted bg reveals the affordance, on focus the standard `border-foreground` + focus shadow inherited from the underlying `SelectTrigger` takes over for accessibility. Pair with the regular `Select` root + `SelectContent` / `SelectItem`; the composition only customizes the trigger.
+
+### Sizes
+
+| Size | Height | Use case |
+|---|---|---|
+| `sm` (default) | h-8 (32px) | Dense rows, kanban card stage selectors, detail cards |
+| `default` | h-9 (36px) | Inline selectors next to h-9 controls |
+
+### When NOT to use
+
+- For high-level "click-to-edit with save / cancel + draft state" UX, use `InlineSelectEditor` from `@open-mercato/ui/backend/detail/InlineEditors`. `InlineSelectTrigger` is the **low-level atom** — consumers wire their own state machine (the trigger is always live, no display-vs-edit boundary).
+- For toolbar-density dropdowns (DataTable pagination, dashboard widget settings), use `CompactSelectTrigger` instead — that one is h-7 toolbar density, not borderless.
+
+### Usage
+
+```tsx
+const t = useT()
+const [stage, setStage] = React.useState<string>(initialStage)
+
+<Select value={stage} onValueChange={(next) => { setStage(next); persist(next) }}>
+  <InlineSelectTrigger aria-label={t('deals.stage.aria', 'Deal stage')}>
+    <SelectValue />
+  </InlineSelectTrigger>
+  <SelectContent>
+    {stages.map((option) => (
+      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+
+// Borderless-on-rest, no hover affordance (heavily contextual surfaces):
+<Select value={value} onValueChange={onChange}>
+  <InlineSelectTrigger showBorderOnHover={false} aria-label="Quick filter">
+    <SelectValue />
+  </InlineSelectTrigger>
+  ...
+</Select>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<SelectTrigger className="border-transparent hover:border-input ...">` — use `InlineSelectTrigger`.
+- Pair with the regular `Select` root + `SelectContent` / `SelectItem`. The primitive only customizes the trigger.
+- Always pass `aria-label` to the trigger — `InlineSelectTrigger` renders as plain text at rest, so screen-reader users rely on the explicit label rather than visual chrome.
+- Use `showBorderOnHover={false}` only when the trigger sits inside a larger interactive surface that already signals editability — the hover border is the default discoverability cue.
 
 ---
 
