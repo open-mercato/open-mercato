@@ -1,26 +1,6 @@
-/**
- * Module-root AI agent contribution for the customers module.
- *
- * The generator walks every module root for a top-level `ai-agents.ts` and
- * takes the default/`aiAgents` export as the agent contribution. The
- * `customers.account_assistant` agent explores people / companies / deals /
- * activities / tags / addresses / settings through the customers tool pack
- * and the general-purpose `search.*`, `attachments.*`, `meta.*` tools, and
- * is also write-capable: it whitelists `customers.update_deal_stage` so the
- * operator can move deals between pipeline stages. Every mutation is
- * intercepted by the runtime and surfaced through the pending-action
- * approval card before any change is persisted (`mutationPolicy:
- * 'confirm-required'` is the default on this agent — a per-tenant override
- * can downgrade it to `read-only` to lock writes without a redeploy).
- *
- * Prompt is declared as a structured `PromptTemplate` (not a flat string)
- * per spec §8 with the seven named sections: ROLE, SCOPE, DATA, TOOLS,
- * ATTACHMENTS, MUTATION POLICY, RESPONSE STYLE. The composed string is
- * fed into `systemPrompt` so the existing runtime continues to work, and
- * the structured template is additionally exported so downstream Phases
- * (5.3 prompt-override merge, 5.2 resolvePageContext hydration) can
- * address sections by name.
- */
+// Module-root AI agent contribution. See /framework/ai-assistant/agents
+// for the structured PromptTemplate convention and the per-tenant override
+// path that can downgrade mutationPolicy to read-only.
 import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
@@ -305,20 +285,10 @@ const agent: AiAgentDefinition = {
   resolvePageContext,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// customers.deal_analyzer — multi-step agentic loop demo
-//
-// Exercises every loop primitive landed by PRs #1856..#1869:
-//   - Per-agent provider + slash shorthand (#1858)
-//   - allowRuntimeOverride → ModelPicker (#1864/#1867)
-//   - loop.maxSteps, loop.stopWhen, loop.prepareStep (#1866)
-//   - loop.budget (#1867)
-//   - executionEngine: 'stream-text' (default)
-//
-// A sibling agent `customers.deal_analyzer_tool_loop` uses
-// `executionEngine: 'tool-loop-agent'` to prove both engines work with
-// the mutation gate (TC-AI-AGENT-LOOP-006).
-// ─────────────────────────────────────────────────────────────────────────────
+// customers.deal_analyzer — multi-step agentic loop demo.
+// See /framework/ai-assistant/agents → "Deal Analyzer demo" for the loop
+// primitives exercised here; the sibling tool-loop-agent below proves both
+// execution engines honor the mutation gate.
 
 type DealAnalyzerPromptSectionName =
   | 'role'
@@ -449,25 +419,16 @@ const DEAL_ANALYZER_ALLOWED_TOOLS: readonly string[] = [
   'meta.describe_agent',
 ]
 
-/**
- * Per-step model swap: step 0 uses Sonnet for deep reasoning over the full
- * deal portfolio; subsequent steps use Haiku for the mutation proposal (which
- * is a simpler call).  This exercises the loop.prepareStep per-step model
- * swap from spec #1782.
- *
- * We create a lazy model factory bound to `null` container — the factory
- * only needs `process.env` and `llmProviderRegistry`, not the DI container.
- */
+// Step 0 → Sonnet (deep portfolio reasoning), step 1+ → Haiku (cheap
+// mutation proposal). The model factory does not actually read the
+// container, so a null cast keeps TypeScript happy without DI wiring.
 function buildDealAnalyzerPrepareStep() {
   const SONNET_MODEL_ID = 'claude-sonnet-4-20250514'
   const HAIKU_MODEL_ID = 'claude-haiku-4-5-20251001'
 
-  // Lazy singleton factory (process-level — no container required)
   let lazyFactory: ReturnType<typeof createModelFactory> | null = null
   function getFactory() {
     if (!lazyFactory) {
-      // The factory ignores the container parameter (prefixed _container); pass
-      // null cast to keep TypeScript happy without injecting the DI system.
       lazyFactory = createModelFactory(null as unknown as AwilixContainer)
     }
     return lazyFactory
@@ -534,11 +495,8 @@ const dealAnalyzer: AiAgentDefinition = {
   ],
 }
 
-/**
- * Sibling agent with `executionEngine: 'tool-loop-agent'`. Used by
- * TC-AI-AGENT-LOOP-006 to prove both engines honor the mutation gate.
- * Shape is identical to `customers.deal_analyzer` except for the engine.
- */
+// Sibling agent identical to customers.deal_analyzer except for
+// executionEngine: 'tool-loop-agent' (TC-AI-AGENT-LOOP-006).
 const dealAnalyzerToolLoop: AiAgentDefinition = {
   ...dealAnalyzer,
   id: 'customers.deal_analyzer_tool_loop',

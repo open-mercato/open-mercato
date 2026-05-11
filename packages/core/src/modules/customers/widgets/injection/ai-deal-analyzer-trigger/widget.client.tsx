@@ -1,33 +1,8 @@
 "use client"
 
-/**
- * Step d4 — Deal Analyzer AiChat injection widget (client).
- *
- * Renders a compact trigger in the DataTable `:search-trailing` injection
- * slot of the Deals list page (spot: `data-table:customers.deals.list:search-trailing`).
- *
- * Clicking the trigger opens a right-side sheet embedding
- * `<AiChat agent="customers.deal_analyzer" pageContext={...} />`.
- *
- * pageContext follows spec §10.1:
- *   {
- *     view: 'customers.deals.list',
- *     recordType: null,
- *     recordId: string,          // "" or comma-separated UUIDs of selected deals
- *     extra: {
- *       selectedCount: number,
- *       totalMatching: number,
- *     },
- *   }
- *
- * Wiring selected deal IDs as page context lets the agent surface
- * health analysis for the operator's current selection.
- *
- * This widget exercises every loop primitive from the deal_analyzer agent:
- *   - allowRuntimeOverride: true → ModelPicker visible in the composer
- *   - loop.stopWhen (hasToolCall on update_deal_stage) surfaced via mutation card
- *   - loop.prepareStep per-step model swap visible in token usage headers
- */
+// See /framework/ai-assistant/agents → "Deal Analyzer demo" for the
+// pageContext contract (selectedRowIds → recordId comma-list) and the
+// loop primitives this widget surfaces.
 
 import * as React from 'react'
 import { Handshake, PanelRightOpen, Sparkles, TrendingDown } from 'lucide-react'
@@ -250,7 +225,7 @@ export default function DealAnalyzerTriggerWidget({ context }: DealAnalyzerTrigg
         <span>{labelText}</span>
         {hasSelection ? (
           <span
-            className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+            className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium leading-none text-primary-foreground"
             data-ai-deal-analyzer-selected-count={selectedCount}
           >
             {selectedCount}
@@ -263,7 +238,7 @@ export default function DealAnalyzerTriggerWidget({ context }: DealAnalyzerTrigg
             'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
             'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
             'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
-            'flex flex-col gap-3 p-4 z-[70]',
+            'flex flex-col gap-3 p-4',
           )}
           data-ai-deal-analyzer-sheet=""
         >
