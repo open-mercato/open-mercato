@@ -20,6 +20,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
 - [TagInput](#taginput)
+- [TimePicker](#timepicker)
 - [Common patterns](#common-patterns)
 
 ---
@@ -993,6 +994,89 @@ const [tags, setTags] = React.useState<string[]>([])
 - NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or `TagsInput` (with suggestions/labels).
 - Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
 - For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
+
+---
+
+## TimePicker
+
+```typescript
+import {
+  TimePicker,
+  TimePickerSlot,
+  TimePickerDurationChip,
+  TimePickerStatusChip,
+  HorizontalScrollRow,
+  formatDuration,
+  formatTimePickerDisplay,
+  type TimePickerValue,
+  type TimePickerStatusVariant,
+} from '@open-mercato/ui/primitives/time-picker'
+```
+
+Compound primitive per Figma `164611:83414`: a popover/inline card with optional header (current value), optional duration chip row, optional status chip row, scrollable slot list (12h/24h), pinned-top quick actions (e.g. "Now"), and footer with Cancel/Apply. Built on Lucide icons + `Popover` + `Button`.
+
+For free-form "HH:MM" trigger UX without slots/durations, use the legacy `backend/inputs/TimePicker` shim — it wraps this primitive with `headerPlaceholder`/`Now`/`Clear` already wired through `useT()`.
+
+### Atoms
+
+| Atom | Purpose | Key props |
+|---|---|---|
+| `TimePickerSlot` | Single time row (e.g. `01:30 PM`) | `value`, `selected`, `disabled`, `rightText`, `format='12h'\|'24h'`, `onSelect` |
+| `TimePickerDurationChip` | Round chip showing a duration (e.g. `30 min` / `1h 30m`) | `value`, `label?`, `selected`, `disabled`, `onSelect` |
+| `TimePickerStatusChip` | Coloured dot + label (`Available` / `Busy` / `In meeting` / `Offline`) | `variant`, `label?`, `selected`, `disabled`, `onSelect` |
+| `HorizontalScrollRow` | Horizontally-scrollable row with chevron arrows that appear on overflow | `children`, `ariaLabel`, `scrollLeftAriaLabel`, `scrollRightAriaLabel`, `arrowSize` |
+
+`HorizontalScrollRow` is exported standalone — use it whenever a row of chips needs the same scroll/fade/arrow UX (e.g. inline duration row inside a meeting form).
+
+### Composition
+
+```tsx
+<TimePicker
+  value={value}
+  onChange={setValue}
+  slots={['09:00', '09:30', '10:00', '10:30', '11:00']}
+  durations={[{ value: 30 }, { value: 60 }, { value: 90 }]}
+  activeDuration={30}
+  onDurationChange={setDuration}
+  trigger={<Button variant="outline">{formatTimePickerDisplay(value, '12h').main}</Button>}
+/>
+```
+
+Common options:
+
+- `headerPlaceholder` — header text when value is null (default: `t('ui.timePicker.placeholder', 'Pick a time')`)
+- `cancelLabel` / `applyLabel` — footer button labels (default: `useT('ui.timePicker.cancelButton'|'applyButton')`)
+- `statusLabel` — caption above the status chip row (default: `useT('ui.timePicker.statusLabel')`)
+- `pinnedTopActions` — sticky quick-action rows above the slot list (used for legacy "Now")
+- `legacyFooterActions` — link-style buttons rendered to the LEFT of Cancel/Apply
+- `format: '12h' | '24h'` — default `'12h'`
+- `trigger` — wraps the card in `Popover`; without it the card renders inline
+
+### i18n keys (built-in defaults)
+
+| Key | Default | Used for |
+|---|---|---|
+| `ui.timePicker.placeholder` | `Pick a time` | Header when value is null |
+| `ui.timePicker.label` | `Time picker` | Dialog aria-label |
+| `ui.timePicker.closeButton` | `Close` | Close (×) button aria-label |
+| `ui.timePicker.cancelButton` | `Cancel` | Footer cancel |
+| `ui.timePicker.applyButton` | `Apply` | Footer apply |
+| `ui.timePicker.statusLabel` | `Select status` | Caption above status row |
+| `ui.timePicker.durationsRowLabel` | `Quick duration` | aria-label of the duration row |
+| `ui.timePicker.scrollLeft` / `.scrollRight` | `Scroll left` / `Scroll right` | HorizontalScrollRow chevrons |
+
+### Helpers
+
+- `formatTimePickerDisplay(value, format)` returns `{ main, suffix }` for the trigger/header (e.g. `{ main: '01:30', suffix: 'PM' }`).
+- `formatDuration(minutes, options?)` — English-only utility. Returns strings like `'15 min'`, `'1 hour'`, `'1h 30m'`. **Do not call directly in user-facing UI** — instead, build a translatable lookup table per consumer (see `customers/components/detail/schedule/DateTimeFields.tsx` for the canonical pattern).
+
+### MUST rules
+
+- NEVER hand-roll a time-of-day input — use `TimePicker` (slots/duration/status workflow) or the legacy `backend/inputs/TimePicker` shim (free-form HH:MM trigger).
+- For a row of duration chips in a custom form layout, use `<HorizontalScrollRow>` to get the same scrollbar-less + fade-gradient + chevron UX as the composition.
+- When passing custom `cancelLabel` / `applyLabel` / `statusLabel` / `headerPlaceholder`, route them through `useT()` — primitive defaults are English.
+- `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
+- Active state for slot / duration / status uses `bg-brand-violet/10 text-brand-violet`, NOT `bg-primary/10` — `--primary` in this codebase is near-black; `--brand-violet` is the actual violet.
 
 ---
 
