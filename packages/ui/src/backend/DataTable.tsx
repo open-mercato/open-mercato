@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { Spinner } from '../primitives/spinner'
+import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
@@ -2612,8 +2613,19 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="py-6">
+                  {emptyState && typeof emptyState !== 'string' ? (
+                    emptyState
+                  ) : (
+                    <EmptyState
+                      size="sm"
+                      title={
+                        typeof emptyState === 'string'
+                          ? emptyState
+                          : t('ui.dataTable.emptyState.default', 'No results.')
+                      }
+                    />
+                  )}
                 </TableCell>
               </TableRow>
             )}
