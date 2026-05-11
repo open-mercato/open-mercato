@@ -332,12 +332,14 @@ export default function UsersListPage() {
     p.set('page', String(page))
     p.set('pageSize', '50')
     if (search) p.set('search', search)
+    const name = typeof filterValues.name === 'string' ? filterValues.name.trim() : ''
+    if (name) p.set('name', name)
     if (organizationId) p.set('organizationId', organizationId)
     if (normalizedRoleIds.length) {
       for (const id of normalizedRoleIds) p.append('roleId', id)
     }
     return p.toString()
-  }, [page, search, organizationId, normalizedRoleIds])
+  }, [filterValues.name, page, search, organizationId, normalizedRoleIds])
 
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['users', params, scopeVersion],
