@@ -8,6 +8,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../../../guards'
 
 const routeMetadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -48,8 +53,8 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
-  const em = (resolve('em') as EntityManager).fork()
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
   const scopeCtx = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
   const entry = await findOneWithDecryption(em, StaffTimeEntry, { id: ids.entryId, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null }, {}, scopeCtx)
@@ -74,6 +79,28 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Segment not found' }, { status: 404 })
   }
 
+  const guardResult = await runStaffMutationGuards(
+    container,
+    {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceId: segment.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data as unknown as Record<string, unknown>,
+    },
+    resolveUserFeatures(auth),
+  )
+  if (!guardResult.ok) {
+    return NextResponse.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   if (parsed.data.startedAt !== undefined) {
     segment.startedAt = parsed.data.startedAt
   }
@@ -85,6 +112,19 @@ export async function PATCH(req: Request) {
   }
 
   await em.flush()
+
+  if (guardResult.afterSuccessCallbacks.length) {
+    await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceId: segment.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+  }
 
   return NextResponse.json({
     ok: true,

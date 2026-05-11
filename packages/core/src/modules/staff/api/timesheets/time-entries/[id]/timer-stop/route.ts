@@ -10,6 +10,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../../guards'
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -80,6 +85,27 @@ export async function POST(req: Request) {
       )
     }
 
+    const guardResult = await runStaffMutationGuards(
+      container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_entry',
+        resourceId: entry.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     const now = new Date()
     activeSegment.endedAt = now
     entry.endedAt = now
@@ -103,6 +129,19 @@ export async function POST(req: Request) {
     entry.durationMinutes = durationMinutes
 
     await em.flush()
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_entry',
+        resourceId: entry.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
 
     return NextResponse.json({ ok: true, durationMinutes }, { status: 200 })
   } catch (err) {

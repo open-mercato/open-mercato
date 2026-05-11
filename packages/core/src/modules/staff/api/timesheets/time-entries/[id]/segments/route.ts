@@ -12,6 +12,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../../guards'
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -81,6 +86,28 @@ export async function POST(req: Request) {
       translate,
     )
 
+    const guardResult = await runStaffMutationGuards(
+      container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceId: entry.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: input as unknown as Record<string, unknown>,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     const segmentData = {
       tenantId: input.tenantId,
       organizationId: input.organizationId,
@@ -92,6 +119,19 @@ export async function POST(req: Request) {
     const segment = em.create(StaffTimeEntrySegment, segmentData as never)
 
     await em.flush()
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceId: segment.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
 
     return NextResponse.json(
       {

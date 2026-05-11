@@ -11,6 +11,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeProjectMember, StaffTeamMember } from '../../../../data/entities'
 import { staffMyProjectVisibilityUpdateSchema } from '../../../../data/validators'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../guards'
 
 export const metadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -106,8 +111,43 @@ export async function PATCH(req: Request) {
       })
     }
 
+    const guardResult = await runStaffMutationGuards(
+      container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_project_member',
+        resourceId: membership.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: parsed.data as unknown as Record<string, unknown>,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     membership.showInGrid = parsed.data.showInGrid
     await em.flush()
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_project_member',
+        resourceId: membership.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
 
     return NextResponse.json({ ok: true, showInGrid: membership.showInGrid }, { status: 200 })
   } catch (err) {

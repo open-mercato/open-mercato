@@ -13,6 +13,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember } from '../../../../data/entities'
 import { staffTimeEntryBulkSaveSchema } from '../../../../data/validators'
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../guards'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -58,6 +63,25 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.noStaffMember', 'No staff member linked to your account.') })
     }
     const staffMemberId = staffMember.id
+
+    const guardInput = {
+      tenantId,
+      organizationId,
+      userId: auth.sub ?? '',
+      resourceKind: 'staff.timesheets.time_entry',
+      resourceId: staffMemberId,
+      operation: 'update' as const,
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data as unknown as Record<string, unknown>,
+    }
+    const guardResult = await runStaffMutationGuards(container, guardInput, resolveUserFeatures(auth))
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
 
     const existingIds = entries
       .map((entry) => entry.id)
@@ -140,6 +164,19 @@ export async function POST(req: Request) {
       })
     }
     await flushCrudSideEffects(dataEngine)
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth.sub ?? '',
+        resourceKind: 'staff.timesheets.time_entry',
+        resourceId: staffMemberId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
 
     return NextResponse.json({ ok: true, ...counts }, { status: 200 })
   } catch (err) {
