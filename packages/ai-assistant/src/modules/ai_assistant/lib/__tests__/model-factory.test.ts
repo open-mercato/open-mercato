@@ -53,7 +53,7 @@ function makeFactoryDeps(
  * `LlmProviderRegistry.resolveFirstConfigured({ order })` semantics —
  * walks the supplied order first, falls through registration order, only
  * returns providers whose `isConfigured` returns true. Used for the Phase
- * 0 cases that exercise `AI_DEFAULT_PROVIDER` resolution.
+ * 0 cases that exercise `OM_AI_PROVIDER` resolution.
  */
 function makeMultiProviderRegistry(
   providers: FakeProvider[],
@@ -211,14 +211,14 @@ describe('createModelFactory', () => {
     })
   })
 
-  describe('Phase 0 — AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL', () => {
-    it('forwards AI_DEFAULT_PROVIDER to resolveFirstConfigured order', () => {
+  describe('Phase 0 — OM_AI_PROVIDER + OM_AI_MODEL', () => {
+    it('forwards OM_AI_PROVIDER to resolveFirstConfigured order', () => {
       const anthropic = makeProvider({ id: 'anthropic', defaultModel: 'claude-sonnet' })
       const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
       const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
       const factory = createModelFactory(fakeContainer, {
         registry,
-        env: { AI_DEFAULT_PROVIDER: 'openai' },
+        env: { OM_AI_PROVIDER: 'openai' },
       })
       const resolution = factory.resolveModel({})
       expect(spy).toHaveBeenCalledWith(
@@ -229,12 +229,12 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('provider_default')
     })
 
-    it('uses AI_DEFAULT_MODEL as the env_default fallback when nothing higher applies', () => {
+    it('uses OM_AI_MODEL as the env_default fallback when nothing higher applies', () => {
       const anthropic = makeProvider({ id: 'anthropic' })
       const { registry } = makeMultiProviderRegistry([anthropic])
       const factory = createModelFactory(fakeContainer, {
         registry,
-        env: { AI_DEFAULT_MODEL: 'claude-haiku-4-5' },
+        env: { OM_AI_MODEL: 'claude-haiku-4-5' },
       })
       const resolution = factory.resolveModel({})
       expect(resolution.source).toBe('env_default')
@@ -242,15 +242,15 @@ describe('createModelFactory', () => {
       expect(resolution.providerId).toBe('anthropic')
     })
 
-    it('honors both AI_DEFAULT_PROVIDER and AI_DEFAULT_MODEL together', () => {
+    it('honors both OM_AI_PROVIDER and OM_AI_MODEL together', () => {
       const anthropic = makeProvider({ id: 'anthropic' })
       const openai = makeProvider({ id: 'openai' })
       const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
       const factory = createModelFactory(fakeContainer, {
         registry,
         env: {
-          AI_DEFAULT_PROVIDER: 'openai',
-          AI_DEFAULT_MODEL: 'gpt-5-mini',
+          OM_AI_PROVIDER: 'openai',
+          OM_AI_MODEL: 'gpt-5-mini',
         },
       })
       const resolution = factory.resolveModel({})
@@ -262,15 +262,15 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('env_default')
     })
 
-    it('falls through when AI_DEFAULT_PROVIDER is registered but unconfigured', () => {
+    it('falls through when OM_AI_PROVIDER is registered but unconfigured', () => {
       const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => true })
       const openai = makeProvider({ id: 'openai', isConfigured: () => false })
       const { registry } = makeMultiProviderRegistry([anthropic, openai])
       const factory = createModelFactory(fakeContainer, {
         registry,
         env: {
-          AI_DEFAULT_PROVIDER: 'openai',
-          AI_DEFAULT_MODEL: 'gpt-5-mini',
+          OM_AI_PROVIDER: 'openai',
+          OM_AI_MODEL: 'gpt-5-mini',
         },
       })
       const resolution = factory.resolveModel({})
@@ -279,13 +279,13 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('env_default')
     })
 
-    it('slash-qualified AI_DEFAULT_MODEL resets the provider for that resolution', () => {
+    it('slash-qualified OM_AI_MODEL resets the provider for that resolution', () => {
       const anthropic = makeProvider({ id: 'anthropic' })
       const openai = makeProvider({ id: 'openai' })
       const { registry, spy } = makeMultiProviderRegistry([anthropic, openai])
       const factory = createModelFactory(fakeContainer, {
         registry,
-        env: { AI_DEFAULT_MODEL: 'openai/gpt-5-mini' },
+        env: { OM_AI_MODEL: 'openai/gpt-5-mini' },
       })
       const resolution = factory.resolveModel({})
       expect(spy).toHaveBeenCalledWith(
@@ -301,7 +301,7 @@ describe('createModelFactory', () => {
       const { registry, spy } = makeMultiProviderRegistry([deepinfra])
       const factory = createModelFactory(fakeContainer, {
         registry,
-        env: { AI_DEFAULT_MODEL: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+        env: { OM_AI_MODEL: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
       })
       const resolution = factory.resolveModel({})
       expect(spy).toHaveBeenCalledWith(
@@ -317,7 +317,7 @@ describe('createModelFactory', () => {
       const { registry } = makeMultiProviderRegistry([anthropic])
       const factory = createModelFactory(fakeContainer, {
         registry,
-        env: { AI_DEFAULT_MODEL: 'fallback-model' },
+        env: { OM_AI_MODEL: 'fallback-model' },
       })
       const resolution = factory.resolveModel({ agentDefaultModel: 'agent-wins' })
       expect(resolution.modelId).toBe('agent-wins')

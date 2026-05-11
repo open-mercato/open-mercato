@@ -27,13 +27,13 @@
 
 | Step | SHA | Subject |
 |------|-----|---------|
-| 0.1 | 064e832b4 | feat(ai-assistant): support AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL env defaults |
-| 0.2 | 80ad3c567 | test(ai-assistant): cover AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL in model-factory |
+| 0.1 | 064e832b4 | feat(ai-assistant): support OM_AI_PROVIDER + OM_AI_MODEL env defaults |
+| 0.2 | 80ad3c567 | test(ai-assistant): cover OM_AI_PROVIDER + OM_AI_MODEL in model-factory |
 | 0.3 | ad78f1aec | test(ai-assistant): smoke env_default source through model-factory integration |
-| 0.4 | f602ddb97 | docs(env): document AI_DEFAULT_PROVIDER and AI_DEFAULT_MODEL |
-| 0.5 | 267f0ae26 | docs(ai-assistant): document AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL |
-| 0.6 | 54585d9b8 | docs(framework): document AI_DEFAULT_PROVIDER + AI_DEFAULT_MODEL in overview |
-| 0.7 | 4d3b5bdc4 | feat(ai-assistant): honor AI_DEFAULT_PROVIDER in routing route |
+| 0.4 | f602ddb97 | docs(env): document OM_AI_PROVIDER and OM_AI_MODEL |
+| 0.5 | 267f0ae26 | docs(ai-assistant): document OM_AI_PROVIDER + OM_AI_MODEL |
+| 0.6 | 54585d9b8 | docs(framework): document OM_AI_PROVIDER + OM_AI_MODEL in overview |
+| 0.7 | 4d3b5bdc4 | feat(ai-assistant): honor OM_AI_PROVIDER in routing route |
 
 ## Carry-forward risks for the next phase
 
@@ -42,6 +42,6 @@
 
 ## Spec compliance summary
 
-- **R1 (HIGH) — Phase 3 silent provider flip:** mitigation honored by *not* aliasing `OPENCODE_PROVIDER` to `AI_DEFAULT_PROVIDER`. The model-factory error message names both vars distinctly.
+- **R1 (HIGH) — Phase 3 silent provider flip:** mitigation honored by *not* aliasing `OPENCODE_PROVIDER` to `OM_AI_PROVIDER`. The model-factory error message names both vars distinctly.
 - **R2 (MEDIUM) — Slash-shorthand collisions:** registry-membership guard implemented and exercised by the new test "does not split DeepInfra-style model ids".
 - BC contract surfaces: type additions are STABLE/additive (`AiModelResolution.source` enum gains `'env_default'`, `AiModelFactoryRegistry` is a new exported interface). No frozen surface changed.

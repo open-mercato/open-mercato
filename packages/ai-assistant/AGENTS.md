@@ -320,14 +320,14 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `AI_DEFAULT_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. |
-| `AI_DEFAULT_MODEL` | Optional. Process-wide model id used when neither caller override, `<MODULE>_AI_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. |
+| `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `<MODULE>_AI_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
 
 Both are deliberately decoupled from the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs (which stay bound to the OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" below.
 
 Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased from the agent's `moduleId`): for example, `CATALOG_AI_MODEL=claude-opus-4-20250514`, `INBOX_OPS_AI_MODEL=gpt-4o`.
 
-All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → `AI_DEFAULT_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
+All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
 ## Architecture Constraints
 
@@ -516,7 +516,7 @@ Resolution order (highest precedence first):
    e.g. `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention;
    no need to enumerate each one in `.env.example`.
 3. `agentDefaultModel` (typically `AiAgentDefinition.defaultModel`).
-4. `AI_DEFAULT_MODEL` env (Phase 0 of spec
+4. `OM_AI_MODEL` env (Phase 0 of spec
    `2026-04-27-ai-agents-provider-model-baseurl-overrides`). Plain id
    uses the resolved provider; slash-qualified id (`openai/gpt-5-mini`)
    consumes the provider axis at the same step.
@@ -524,8 +524,8 @@ Resolution order (highest precedence first):
 
 The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
 
-1. Slash-prefix from `AI_DEFAULT_MODEL` (when present and matches a registered provider id).
-2. `AI_DEFAULT_PROVIDER` env.
+1. Slash-prefix from `OM_AI_MODEL` (when present and matches a registered provider id).
+2. `OM_AI_PROVIDER` env.
 
 The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
 

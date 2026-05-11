@@ -14,7 +14,7 @@
  *      `moduleId` is provided. Example: `INBOX_OPS_AI_MODEL=claude-haiku-4-5`,
  *      `CATALOG_AI_MODEL=gpt-4o-mini`.
  *   3. `agentDefaultModel` — typically `AiAgentDefinition.defaultModel`.
- *   4. Global env `AI_DEFAULT_MODEL` (Phase 0 of spec
+ *   4. Global env `OM_AI_MODEL` (Phase 0 of spec
  *      `2026-04-27-ai-agents-provider-model-baseurl-overrides.md`). Accepts
  *      either a plain model id (`gpt-5-mini`) or a slash-qualified id
  *      (`openai/gpt-5-mini`). Slash qualifiers consume the provider axis at
@@ -26,9 +26,9 @@
  * Resolution walks the `llmProviderRegistry`'s `resolveFirstConfigured()`
  * output. The walk's `order` argument is seeded from (in priority order):
  *
- *   1. The slash-qualified provider hint extracted from `AI_DEFAULT_MODEL` —
+ *   1. The slash-qualified provider hint extracted from `OM_AI_MODEL` —
  *      consumes the provider axis for this resolution.
- *   2. `AI_DEFAULT_PROVIDER` (Phase 0 of the same spec) — names a registered
+ *   2. `OM_AI_PROVIDER` (Phase 0 of the same spec) — names a registered
  *      provider id; falls through transparently when the named provider is
  *      registered-but-unconfigured.
  *
@@ -178,8 +178,8 @@ export interface CreateModelFactoryDependencies {
   env?: EnvLookup
 }
 
-const GLOBAL_DEFAULT_PROVIDER_ENV = 'AI_DEFAULT_PROVIDER'
-const GLOBAL_DEFAULT_MODEL_ENV = 'AI_DEFAULT_MODEL'
+const GLOBAL_DEFAULT_PROVIDER_ENV = 'OM_AI_PROVIDER'
+const GLOBAL_DEFAULT_MODEL_ENV = 'OM_AI_MODEL'
 
 function normalizeOverride(value: string | undefined): string | null {
   if (typeof value !== 'string') return null
@@ -239,7 +239,7 @@ export function createModelFactory(
       const globalProviderEnv = normalizeOverride(env[GLOBAL_DEFAULT_PROVIDER_ENV])
       const globalModelEnv = normalizeOverride(env[GLOBAL_DEFAULT_MODEL_ENV])
 
-      // Slash-qualified `AI_DEFAULT_MODEL` consumes the provider axis at
+      // Slash-qualified `OM_AI_MODEL` consumes the provider axis at
       // step 6 (env default). Phase 1 of the per-axis-overrides spec
       // generalizes the parser to every model-axis source.
       const globalModelParsed = globalModelEnv
@@ -253,7 +253,7 @@ export function createModelFactory(
       if (!provider) {
         throw new AiModelFactoryError(
           'no_provider_configured',
-          'No LLM provider is configured. Set AI_DEFAULT_PROVIDER (or OPENCODE_PROVIDER for the legacy stack) plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
+          'No LLM provider is configured. Set OM_AI_PROVIDER (or OPENCODE_PROVIDER for the legacy stack) plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
         )
       }
       const apiKey = provider.resolveApiKey(env)
@@ -271,7 +271,7 @@ export function createModelFactory(
           : null
       const agentDefault = normalizeOverride(input.agentDefaultModel)
       // The slash parser already split the global model token; use the
-      // post-parse model id so `AI_DEFAULT_MODEL=openai/gpt-5-mini` resolves
+      // post-parse model id so `OM_AI_MODEL=openai/gpt-5-mini` resolves
       // model `gpt-5-mini` against provider `openai`.
       const envDefaultModel = globalModelParsed?.modelId ?? globalModelEnv
 

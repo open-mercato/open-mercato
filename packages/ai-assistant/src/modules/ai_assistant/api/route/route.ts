@@ -101,12 +101,12 @@ export async function POST(req: NextRequest) {
     let config = await resolveChatConfig(container)
 
     // Fallback to first configured provider from the LLM provider registry.
-    // AI_DEFAULT_PROVIDER (Phase 0 of the per-axis-overrides spec) takes
+    // OM_AI_PROVIDER (Phase 0 of the per-axis-overrides spec) takes
     // precedence so an operator-pinned default flows through routing too;
     // otherwise we keep the historical native-first order for backward
     // compatibility.
     if (!config) {
-      const aiDefaultProvider = (process.env.AI_DEFAULT_PROVIDER ?? '').trim()
+      const aiDefaultProvider = (process.env.OM_AI_PROVIDER ?? '').trim()
       const order = aiDefaultProvider
         ? [aiDefaultProvider, 'anthropic', 'openai', 'google']
         : ['anthropic', 'openai', 'google']
