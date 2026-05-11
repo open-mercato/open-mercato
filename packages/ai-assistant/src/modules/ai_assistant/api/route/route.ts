@@ -99,14 +99,19 @@ export async function POST(req: NextRequest) {
 
     // Get user's configured provider
     const container = await createRequestContainer()
-    let config = await resolveChatConfig(container)
+    const config = await resolveChatConfig(container)
 
-    // When no DB-stored config is present, delegate provider + model resolution
-    // to createModelFactory so AI_DEFAULT_PROVIDER / AI_DEFAULT_MODEL (Phase 0
-    // of spec 2026-04-27-ai-agents-provider-model-baseurl-overrides) and all
-    // registered OpenAI-compatible presets are respected without duplicating
-    // the resolution chain here.
+    let model: Parameters<typeof generateObject>[0]['model']
+    let modelWithProvider: string
+    let providerLabel: string
+
     if (!config) {
+      // When no DB-stored config is present, delegate provider + model
+      // resolution to createModelFactory so AI_DEFAULT_PROVIDER /
+      // AI_DEFAULT_MODEL (Phase 0 of spec
+      // 2026-04-27-ai-agents-provider-model-baseurl-overrides) and all
+      // registered OpenAI-compatible presets are respected without
+      // duplicating the resolution chain here.
       let factoryResolution
       try {
         factoryResolution = createModelFactory(container).resolveModel({
@@ -125,50 +130,26 @@ export async function POST(req: NextRequest) {
         throw error
       }
 
-      console.log('[AI Route] Using provider:', factoryResolution.providerId)
-
-      const modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
-      console.log('[AI Route] Calling generateObject with', modelWithProvider)
-
-      const result = await generateObject({
-        model: factoryResolution.model as Parameters<typeof generateObject>[0]['model'],
-        schema: RouteResultSchema,
-        prompt: `You are a routing assistant. Given a user query, determine if they want to use a specific tool or have a general conversation.
-
-Available tools:
-${availableTools.map((t) => `- ${t.name}: ${t.description}`).join('\n')}
-
-User query: "${query}"
-
-Respond with:
-- intent: "tool" if user wants to perform an action with a specific tool, "general_chat" otherwise
-- toolName: the exact tool name if intent is "tool"
-- confidence: 0-1 how confident you are
-- reasoning: brief explanation`,
-      })
-
-      console.log('[AI Route] Result:', result.object)
-      return NextResponse.json(result.object)
+      model = factoryResolution.model as Parameters<typeof generateObject>[0]['model']
+      modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
+      providerLabel = factoryResolution.providerId
+    } else {
+      if (!isProviderConfigured(config.providerId)) {
+        return NextResponse.json(
+          { error: `Configured provider ${config.providerId} is no longer available. Please update settings.` },
+          { status: 503 }
+        )
+      }
+      ;({ model, modelWithProvider } = createRoutingModel(config.providerId, config.model))
+      providerLabel = config.providerId
     }
 
-    console.log('[AI Route] Using provider:', config.providerId)
-
-    // Verify the configured provider is still available
-    if (!isProviderConfigured(config.providerId)) {
-      return NextResponse.json(
-        { error: `Configured provider ${config.providerId} is no longer available. Please update settings.` },
-        { status: 503 }
-      )
-    }
-
-    // Use fast model for the configured provider
-    const { model, modelWithProvider } = createRoutingModel(config.providerId, config.model)
+    console.log('[AI Route] Using provider:', providerLabel)
+    console.log('[AI Route] Calling generateObject with', modelWithProvider)
 
     const toolList = availableTools
       .map((t) => `- ${t.name}: ${t.description}`)
       .join('\n')
-
-    console.log('[AI Route] Calling generateObject with', modelWithProvider)
 
     const result = await generateObject({
       model,
