@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Layers, MoveRight } from 'lucide-react'
+import { Layers, MoveRight, Workflow } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -530,11 +530,11 @@ export default function SalesPipelinePage(): React.ReactElement {
           </div>
 
           {!selectedPipelineId ? (
-            <div className="flex h-[50vh] items-center justify-center">
-              <span className="text-sm text-muted-foreground">
-                {translate('customers.deals.pipeline.noPipeline', 'No pipeline selected. Create a pipeline in settings.')}
-              </span>
-            </div>
+            <EmptyState
+              icon={<Workflow className="h-8 w-8" aria-hidden="true" />}
+              title={translate('customers.deals.pipeline.noPipeline', 'No pipeline selected. Create a pipeline in settings.')}
+              className="h-[50vh] w-full"
+            />
           ) : dealsQuery.isLoading ? (
             <div className="flex h-[50vh] items-center justify-center">
               <Spinner />
