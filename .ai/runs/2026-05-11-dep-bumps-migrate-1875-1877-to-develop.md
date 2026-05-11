@@ -90,3 +90,4 @@ None.
 
 - 2026-05-11 — Plan created.
 - 2026-05-11 — PR #1884 opened against `develop`.
+- 2026-05-11 — Self code-review + BC self-review clean (0 findings). `auto-review-pr` skill returned approval-equivalent on the first pass; GitHub blocked the formal approval API call because the PR author and reviewer are the same user, so the report is posted as a comment and pipeline state stays at `review` pending a second-reviewer approval.
