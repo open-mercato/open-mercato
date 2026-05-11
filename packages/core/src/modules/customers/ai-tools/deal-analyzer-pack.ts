@@ -19,6 +19,7 @@ import {
   CustomerDeal,
   CustomerActivity,
   CustomerDealPersonLink,
+  CustomerEntity,
 } from '../data/entities'
 import {
   assertTenantScope,
@@ -26,13 +27,19 @@ import {
   type CustomersToolContext,
 } from './types'
 
+function refIdOf(ref: unknown): string | undefined {
+  if (!ref) return undefined
+  if (typeof ref === 'string') return ref
+  if (typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string') {
+    return (ref as { id: string }).id
+  }
+  return undefined
+}
+
 function resolveEm(ctx: CustomersToolContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
 }
 
-/**
- * Clamp a number to [min, max].
- */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
@@ -42,10 +49,9 @@ function clamp(value: number, min: number, max: number): number {
  *   healthScore = clamp((30 - daysSinceLastActivity) / 30 * 100, 0, 100)
  * A deal with activity within the last 30 days scores > 0. Deals with no
  * activity default to daysSinceLastActivity = activityWindow so they score 0.
+ * Exported for unit testing.
  */
-function computeHealthScore(
-  daysSinceLastActivity: number,
-): number {
+export function computeHealthScore(daysSinceLastActivity: number): number {
   return clamp(((30 - daysSinceLastActivity) / 30) * 100, 0, 100)
 }
 
@@ -95,7 +101,7 @@ type AnalyzeDealsOutput = {
   windowDays: number
 }
 
-function msTodays(ms: number): number {
+export function msTodays(ms: number): number {
   return Math.floor(ms / (1000 * 60 * 60 * 24))
 }
 
@@ -120,20 +126,16 @@ const analyzeDealsToolDefinition: CustomersAiToolDefinition<AnalyzeDealsInput, A
       deletedAt: null,
     }
     if (ctx.organizationId) dealWhere.organizationId = ctx.organizationId
-    // Apply stage/status filter when provided
+    // Apply stage/status filter when provided. `$or` is composed with the
+    // outer `deletedAt: null` filter — both must hold — so the caller-supplied
+    // value matches either the canonical status slug or the stage label.
     if (input.dealStageFilter) {
       const filterValue = input.dealStageFilter.trim()
       if (filterValue.length) {
-        // Try as a status slug first; the query matches both `status` and
-        // `pipelineStage` column so either a slug like "open" or a stage
-        // label like "Qualification" will find the right rows.
         dealWhere.$or = [
           { status: filterValue },
           { pipelineStage: filterValue },
         ]
-        delete dealWhere.deletedAt // Keep soft-delete filter from outer where
-        // Re-apply soft-delete correctly
-        dealWhere.deletedAt = null
       }
     }
 
@@ -153,34 +155,30 @@ const analyzeDealsToolDefinition: CustomersAiToolDefinition<AnalyzeDealsInput, A
     }
 
     const dealIds = deals.map((d) => d.id)
-    const cutoff = new Date(Date.now() - input.daysOfActivityWindow * 24 * 60 * 60 * 1000)
 
-    // Fetch most recent activity per deal within the window in one batch
-    const activities = await em.find(
+    // Fetch most recent activity per deal within the window in one batch.
+    // CustomerActivity has encrypted columns (subject, body); use the
+    // tenant-aware helper even though this query only reads occurredAt/deal,
+    // so future readers cannot accidentally surface ciphertext.
+    const activityWhere: Record<string, unknown> = {
+      deal: { $in: dealIds },
+      tenantId,
+    }
+    if (ctx.organizationId) activityWhere.organizationId = ctx.organizationId
+    const activities = await findWithDecryption<CustomerActivity>(
+      em,
       CustomerActivity,
-      {
-        deal: { $in: dealIds },
-        tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-      },
+      activityWhere as any,
       {
         orderBy: { occurredAt: 'desc' },
-        limit: 1000, // Cap batch; covers up to ~40 activities per deal on average
+        limit: 1000,
       },
+      scope,
     )
 
-    // Build a map: dealId → most recent activity date
     const lastActivityByDeal = new Map<string, Date>()
     for (const activity of activities) {
-      const dealRef = activity.deal
-      // MikroORM may have loaded the deal as a proxy or partial; access the id
-      // safely through the Reference wrapper or raw FK lookup.
-      const refId: string | undefined =
-        typeof (dealRef as any)?.id === 'string'
-          ? (dealRef as any).id
-          : typeof (dealRef as any)?._id === 'string'
-            ? (dealRef as any)._id
-            : undefined
+      const refId = refIdOf((activity as { deal?: unknown }).deal)
       if (!refId) continue
       const activityDate = activity.occurredAt ?? activity.createdAt
       if (!activityDate) continue
@@ -190,21 +188,54 @@ const analyzeDealsToolDefinition: CustomersAiToolDefinition<AnalyzeDealsInput, A
       }
     }
 
-    // Fetch primary contacts for deals in one batch
+    // Fetch primary contacts for deals in one batch. CustomerDealPersonLink
+    // has no encrypted columns, but the linked CustomerEntity.display_name is
+    // encrypted, so resolve names via findWithDecryption rather than
+    // populating the relation through raw em.find.
+    const personLinkWhere: Record<string, unknown> = {
+      deal: { $in: dealIds },
+      tenantId,
+    }
+    if (ctx.organizationId) personLinkWhere.organizationId = ctx.organizationId
     const personLinks = await em.find(
       CustomerDealPersonLink,
-      {
-        deal: { $in: dealIds },
-      },
-      { populate: ['person'], limit: 500 },
+      personLinkWhere as any,
+      { limit: 500 },
     )
-    const primaryContactByDeal = new Map<string, string>()
+
+    const linksByDeal = new Map<string, string>() // dealId → personId (first link wins)
     for (const link of personLinks) {
-      if (!primaryContactByDeal.has((link.deal as any).id ?? '')) {
-        const personName = (link.person as any)?.displayName ?? null
-        if (personName) {
-          primaryContactByDeal.set((link.deal as any).id ?? '', String(personName))
+      const dealRefId = refIdOf((link as { deal?: unknown }).deal)
+      const personRefId = refIdOf((link as { person?: unknown }).person)
+      if (!dealRefId || !personRefId) continue
+      if (!linksByDeal.has(dealRefId)) linksByDeal.set(dealRefId, personRefId)
+    }
+
+    const primaryContactByDeal = new Map<string, string>()
+    const personIds = Array.from(new Set(linksByDeal.values()))
+    if (personIds.length) {
+      const personWhere: Record<string, unknown> = {
+        id: { $in: personIds },
+        tenantId,
+      }
+      if (ctx.organizationId) personWhere.organizationId = ctx.organizationId
+      const persons = await findWithDecryption<CustomerEntity>(
+        em,
+        CustomerEntity,
+        personWhere as any,
+        undefined,
+        scope,
+      )
+      const nameByPersonId = new Map<string, string>()
+      for (const person of persons) {
+        const name = person.displayName
+        if (typeof name === 'string' && name.length) {
+          nameByPersonId.set(person.id, name)
         }
+      }
+      for (const [dealId, personId] of linksByDeal) {
+        const name = nameByPersonId.get(personId)
+        if (name) primaryContactByDeal.set(dealId, name)
       }
     }
 
