@@ -14,12 +14,12 @@
  *      `moduleId` is provided. Example: `INBOX_OPS_AI_MODEL=claude-haiku-4-5`,
  *      `CATALOG_AI_MODEL=gpt-4o-mini`.
  *   3. `agentDefaultModel` — typically `AiAgentDefinition.defaultModel`.
- *   4. Global env `OM_AI_MODEL` (Phase 0 of spec
- *      `2026-04-27-ai-agents-provider-model-baseurl-overrides.md`). Accepts
- *      either a plain model id (`gpt-5-mini`) or a slash-qualified id
- *      (`openai/gpt-5-mini`). Slash qualifiers consume the provider axis at
- *      the same step — a higher-priority provider source still wins, but a
- *      lower-priority one cannot overwrite a slash-qualified model.
+ *   4. Global env `OM_AI_MODEL` (canonical) with `OPENCODE_MODEL` kept as
+ *      a backward-compatibility fallback. Accepts either a plain model id
+ *      (`gpt-5-mini`) or a slash-qualified id (`openai/gpt-5-mini`).
+ *      Slash qualifiers consume the provider axis at the same step — a
+ *      higher-priority provider source still wins, but a lower-priority
+ *      one cannot overwrite a slash-qualified model.
  *   5. The configured provider's own default model id
  *      (`provider.defaultModel`).
  *
@@ -28,14 +28,10 @@
  *
  *   1. The slash-qualified provider hint extracted from `OM_AI_MODEL` —
  *      consumes the provider axis for this resolution.
- *   2. `OM_AI_PROVIDER` (Phase 0 of the same spec) — names a registered
- *      provider id; falls through transparently when the named provider is
+ *   2. `OM_AI_PROVIDER` (canonical) with `OPENCODE_PROVIDER` as a
+ *      backward-compatibility fallback — names a registered provider id;
+ *      falls through transparently when the named provider is
  *      registered-but-unconfigured.
- *
- * Both env knobs are deliberately decoupled from the legacy
- * `OPENCODE_PROVIDER` / `OPENCODE_MODEL` vars (which remain bound to the
- * OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" in
- * `packages/ai-assistant/AGENTS.md`.
  *
  * The factory throws {@link AiModelFactoryError} when no provider is
  * configured — every current call site already expects the throw (see the
@@ -50,6 +46,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
 
 /**
  * Minimal AI SDK LanguageModel shape — the factory exposes the protocol-
@@ -104,6 +101,9 @@ export interface AiModelResolution {
   /**
    * Which source won resolution. Useful for logs and tests; never exposed
    * as a public contract beyond these enum values.
+   *
+   * - `env_default` indicates `OM_AI_MODEL` (preferred) or the legacy
+   *   `OPENCODE_MODEL` fallback supplied the model id.
    */
   source:
     | 'caller_override'
@@ -171,20 +171,43 @@ export interface AiModelFactoryRegistry {
 export interface CreateModelFactoryDependencies {
   /**
    * Registry used to resolve the first configured provider. Defaults to the
-   * singleton `llmProviderRegistry`.
+   * singleton `llmProviderRegistry`. Implementations MAY honor the optional
+   * `order` argument to prefer the operator-selected provider.
    */
   registry?: AiModelFactoryRegistry
   /** Env lookup for `<MODULE>_AI_MODEL` + provider credentials. */
   env?: EnvLookup
 }
 
-const GLOBAL_DEFAULT_PROVIDER_ENV = 'OM_AI_PROVIDER'
-const GLOBAL_DEFAULT_MODEL_ENV = 'OM_AI_MODEL'
-
 function normalizeOverride(value: string | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Reads the operator-selected provider id from the unified env vars.
+ * Returns `null` when neither `OM_AI_PROVIDER` nor the legacy
+ * `OPENCODE_PROVIDER` resolves to a known provider — in that case the
+ * registry falls back to its default registration walk.
+ */
+function readProviderOrderFromEnv(env: EnvLookup): readonly string[] | undefined {
+  const raw = normalizeOverride(env.OM_AI_PROVIDER) ?? normalizeOverride(env.OPENCODE_PROVIDER)
+  if (!raw) return undefined
+  // Reuse the shared resolver so unknown ids fall back through both keys.
+  // When the raw value is unknown the resolver returns the default; passing
+  // that through as an explicit hint is still safe because the registry
+  // only honors registered + configured providers.
+  const resolved = resolveAiProviderIdFromEnv(env)
+  return [resolved]
+}
+
+/**
+ * Reads the global model hint from the unified env vars. `OM_AI_MODEL`
+ * wins over the legacy `OPENCODE_MODEL`.
+ */
+function readGlobalModelFromEnv(env: EnvLookup): string | null {
+  return normalizeOverride(env.OM_AI_MODEL) ?? normalizeOverride(env.OPENCODE_MODEL)
 }
 
 function moduleEnvVarName(moduleId: string): string {
@@ -236,24 +259,26 @@ export function createModelFactory(
 
   return {
     resolveModel(input: AiModelFactoryInput): AiModelResolution {
-      const globalProviderEnv = normalizeOverride(env[GLOBAL_DEFAULT_PROVIDER_ENV])
-      const globalModelEnv = normalizeOverride(env[GLOBAL_DEFAULT_MODEL_ENV])
-
-      // Slash-qualified `OM_AI_MODEL` consumes the provider axis at
-      // step 6 (env default). Phase 1 of the per-axis-overrides spec
-      // generalizes the parser to every model-axis source.
+      // OM_AI_MODEL is canonical; the legacy OPENCODE_MODEL is read as a
+      // backward-compatibility fallback through readGlobalModelFromEnv.
+      const globalModelEnv = readGlobalModelFromEnv(env)
+      // Slash-qualified env-model values consume the provider axis at the
+      // env-default step. Phase 1 of the per-axis-overrides spec generalizes
+      // the parser to every model-axis source.
       const globalModelParsed = globalModelEnv
         ? parseSlashShorthand(globalModelEnv, registry)
         : null
       const slashProviderHint = globalModelParsed?.providerHint ?? null
-      const orderHint = slashProviderHint ?? globalProviderEnv ?? null
-      const order = orderHint ? [orderHint] : undefined
+      const providerOrderFromEnv = readProviderOrderFromEnv(env)
+      const order = slashProviderHint
+        ? [slashProviderHint, ...(providerOrderFromEnv ?? [])]
+        : providerOrderFromEnv
 
       const provider = registry.resolveFirstConfigured({ env, order })
       if (!provider) {
         throw new AiModelFactoryError(
           'no_provider_configured',
-          'No LLM provider is configured. Set OM_AI_PROVIDER (or OPENCODE_PROVIDER for the legacy stack) plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
+          'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
         )
       }
       const apiKey = provider.resolveApiKey(env)

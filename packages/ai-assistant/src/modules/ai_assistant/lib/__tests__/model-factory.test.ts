@@ -36,13 +36,20 @@ function makeProvider(overrides: Partial<FakeProvider> = {}): FakeProvider {
 function makeFactoryDeps(
   provider: FakeProvider | null,
   env: Record<string, string | undefined> = {},
+  options: { resolveFirstConfiguredSpy?: jest.Mock } = {},
 ): CreateModelFactoryDependencies {
+  const spy =
+    options.resolveFirstConfiguredSpy ??
+    (jest.fn(() =>
+      provider as unknown as ReturnType<
+        NonNullable<CreateModelFactoryDependencies['registry']>['resolveFirstConfigured']
+      >,
+    ) as jest.Mock)
   return {
     registry: {
-      resolveFirstConfigured: () =>
-        provider as unknown as ReturnType<
-          NonNullable<CreateModelFactoryDependencies['registry']>['resolveFirstConfigured']
-        >,
+      resolveFirstConfigured: spy as unknown as NonNullable<
+        CreateModelFactoryDependencies['registry']
+      >['resolveFirstConfigured'],
     },
     env,
   }
@@ -194,6 +201,88 @@ describe('createModelFactory', () => {
       expect(err).toBeInstanceOf(AiModelFactoryError)
       expect((err as AiModelFactoryError).code).toBe('api_key_missing')
     }
+  })
+
+  it('prefers OM_AI_MODEL global env over agent default but loses to <MODULE>_AI_MODEL', () => {
+    const provider = makeProvider()
+    const env = { OM_AI_MODEL: 'global-pinned-model' }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({
+      moduleId: 'catalog',
+      agentDefaultModel: 'agent-pinned-model',
+    })
+    expect(resolution.source).toBe('global_env')
+    expect(resolution.modelId).toBe('global-pinned-model')
+  })
+
+  it('falls back to legacy OPENCODE_MODEL when OM_AI_MODEL is unset', () => {
+    const provider = makeProvider()
+    const env = { OPENCODE_MODEL: 'legacy-pinned-model' }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({
+      agentDefaultModel: 'agent-pinned-model',
+    })
+    expect(resolution.source).toBe('global_env')
+    expect(resolution.modelId).toBe('legacy-pinned-model')
+  })
+
+  it('lets <MODULE>_AI_MODEL win over OM_AI_MODEL global env', () => {
+    const provider = makeProvider()
+    const env = {
+      OM_AI_MODEL: 'global-pinned-model',
+      CATALOG_AI_MODEL: 'catalog-env-model',
+    }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({ moduleId: 'catalog' })
+    expect(resolution.source).toBe('module_env')
+    expect(resolution.modelId).toBe('catalog-env-model')
+  })
+
+  it('passes OM_AI_PROVIDER as the preferred provider order to the registry', () => {
+    const provider = makeProvider({ id: 'openai' })
+    const resolveFirstConfiguredSpy = jest.fn(() => provider as unknown as ReturnType<
+      NonNullable<CreateModelFactoryDependencies['registry']>['resolveFirstConfigured']
+    >)
+    const env = { OM_AI_PROVIDER: 'openai' }
+    const factory = createModelFactory(
+      fakeContainer,
+      makeFactoryDeps(provider, env, { resolveFirstConfiguredSpy }),
+    )
+    factory.resolveModel({})
+    expect(resolveFirstConfiguredSpy).toHaveBeenCalledTimes(1)
+    expect(resolveFirstConfiguredSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ order: ['openai'] }),
+    )
+  })
+
+  it('falls back to OPENCODE_PROVIDER when OM_AI_PROVIDER is unset', () => {
+    const provider = makeProvider({ id: 'anthropic' })
+    const resolveFirstConfiguredSpy = jest.fn(() => provider as unknown as ReturnType<
+      NonNullable<CreateModelFactoryDependencies['registry']>['resolveFirstConfigured']
+    >)
+    const env = { OPENCODE_PROVIDER: 'anthropic' }
+    const factory = createModelFactory(
+      fakeContainer,
+      makeFactoryDeps(provider, env, { resolveFirstConfiguredSpy }),
+    )
+    factory.resolveModel({})
+    expect(resolveFirstConfiguredSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ order: ['anthropic'] }),
+    )
+  })
+
+  it('omits the provider order when no AI provider env is set', () => {
+    const provider = makeProvider()
+    const resolveFirstConfiguredSpy = jest.fn(() => provider as unknown as ReturnType<
+      NonNullable<CreateModelFactoryDependencies['registry']>['resolveFirstConfigured']
+    >)
+    const factory = createModelFactory(
+      fakeContainer,
+      makeFactoryDeps(provider, {}, { resolveFirstConfiguredSpy }),
+    )
+    factory.resolveModel({})
+    const call = resolveFirstConfiguredSpy.mock.calls[0]?.[0]
+    expect(call?.order).toBeUndefined()
   })
 
   it('passes the resolved modelId and apiKey through to provider.createModel', () => {
