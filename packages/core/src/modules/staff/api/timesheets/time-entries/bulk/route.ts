@@ -6,10 +6,13 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember } from '../../../../data/entities'
 import { staffTimeEntryBulkSaveSchema } from '../../../../data/validators'
+import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -60,10 +63,16 @@ export async function POST(req: Request) {
       .map((entry) => entry.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
-    const counts = await em.transactional(async (trx) => {
+    type PendingChange = {
+      action: 'created' | 'updated' | 'deleted'
+      entity: StaffTimeEntry
+    }
+
+    const { counts, pendingChanges } = await em.transactional(async (trx) => {
       let created = 0
       let updated = 0
       let deleted = 0
+      const changes: PendingChange[] = []
 
       const existingEntries = existingIds.length > 0
         ? await findWithDecryption(
@@ -83,6 +92,7 @@ export async function POST(req: Request) {
           if (entry.durationMinutes === 0) {
             existing.deletedAt = new Date()
             deleted++
+            changes.push({ action: 'deleted', entity: existing })
           } else {
             existing.date = entry.date
             existing.timeProjectId = entry.timeProjectId
@@ -90,10 +100,11 @@ export async function POST(req: Request) {
             existing.notes = entry.notes ?? existing.notes
             existing.updatedAt = new Date()
             updated++
+            changes.push({ action: 'updated', entity: existing })
           }
         } else {
           const now = new Date()
-          trx.create(StaffTimeEntry, {
+          const newEntry = trx.create(StaffTimeEntry, {
             tenantId,
             organizationId,
             staffMemberId,
@@ -106,11 +117,29 @@ export async function POST(req: Request) {
             updatedAt: now,
           })
           created++
+          changes.push({ action: 'created', entity: newEntry })
         }
       }
 
-      return { created, updated, deleted }
+      await trx.flush()
+      return { counts: { created, updated, deleted }, pendingChanges: changes }
     })
+
+    const dataEngine = container.resolve<DataEngine>('dataEngine')
+    for (const change of pendingChanges) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: change.action,
+        entity: change.entity,
+        identifiers: {
+          id: change.entity.id,
+          organizationId: change.entity.organizationId,
+          tenantId: change.entity.tenantId,
+        },
+        events: staffTimeEntryCrudEvents,
+      })
+    }
+    await flushCrudSideEffects(dataEngine)
 
     return NextResponse.json({ ok: true, ...counts }, { status: 200 })
   } catch (err) {
