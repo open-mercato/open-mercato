@@ -28,6 +28,7 @@ export interface UpsertTokenUsageDailyInput {
   modelId: string
   providerId: string
   sessionId: string
+  turnId: string
   inputTokens: number
   outputTokens: number
   cachedInputTokens: number
@@ -119,6 +120,38 @@ export class AiTokenUsageRepository {
 
     const sessionDelta = alreadySeen ? 0 : 1
 
+    // Determine if this is the first event for this turn in the same window.
+    // Without this gate the daily rollup's `turn_count` would increment per
+    // step instead of per distinct turn — see `TC-AI-AGENT-USAGE-002` and the
+    // `turn_count` column comment ("distinct turns observed").
+    const turnCheckSql = `
+      select exists (
+        select 1 from ai_token_usage_events
+        where tenant_id = ?
+          and turn_id = ?::uuid
+          and agent_id = ?
+          and model_id = ?
+          and date_trunc('day', created_at) = ?::date
+          ${orgValue !== null ? 'and organization_id = ?' : 'and organization_id is null'}
+      ) as already_seen
+    `
+    const turnCheckParams: unknown[] = [
+      input.tenantId,
+      input.turnId,
+      input.agentId,
+      input.modelId,
+      input.day,
+    ]
+    if (orgValue !== null) turnCheckParams.push(orgValue)
+
+    const turnRows = await connection.execute(turnCheckSql, turnCheckParams, 'all')
+    const turnAlreadySeen =
+      Array.isArray(turnRows) &&
+      turnRows.length > 0 &&
+      (turnRows[0] as Record<string, unknown>).already_seen === true
+
+    const turnDelta = turnAlreadySeen ? 0 : 1
+
     if (orgValue !== null) {
       await connection.execute(
         `
@@ -129,7 +162,7 @@ export class AiTokenUsageRepository {
         ) values (
           gen_random_uuid(), ?, ?, ?::date, ?, ?, ?,
           ?, ?, ?, ?,
-          1, 1, ?, ?, ?
+          1, ?, ?, ?, ?
         )
         on conflict on constraint ai_token_usage_daily_tenant_day_agent_model_org_uq
         do update set
@@ -138,14 +171,14 @@ export class AiTokenUsageRepository {
           cached_input_tokens  = ai_token_usage_daily.cached_input_tokens + excluded.cached_input_tokens,
           reasoning_tokens     = ai_token_usage_daily.reasoning_tokens + excluded.reasoning_tokens,
           step_count           = ai_token_usage_daily.step_count + 1,
-          turn_count           = ai_token_usage_daily.turn_count + 1,
+          turn_count           = ai_token_usage_daily.turn_count + excluded.turn_count,
           session_count        = ai_token_usage_daily.session_count + excluded.session_count,
           updated_at           = excluded.updated_at
         `,
         [
           input.tenantId, orgValue, input.day, input.agentId, input.modelId, input.providerId,
           input.inputTokens, input.outputTokens, input.cachedInputTokens, input.reasoningTokens,
-          sessionDelta, now, now,
+          turnDelta, sessionDelta, now, now,
         ],
         'run',
       )
@@ -159,7 +192,7 @@ export class AiTokenUsageRepository {
         ) values (
           gen_random_uuid(), ?, null, ?::date, ?, ?, ?,
           ?, ?, ?, ?,
-          1, 1, ?, ?, ?
+          1, ?, ?, ?, ?
         )
         on conflict on constraint ai_token_usage_daily_tenant_day_agent_model_null_org_uq
         do update set
@@ -168,14 +201,14 @@ export class AiTokenUsageRepository {
           cached_input_tokens  = ai_token_usage_daily.cached_input_tokens + excluded.cached_input_tokens,
           reasoning_tokens     = ai_token_usage_daily.reasoning_tokens + excluded.reasoning_tokens,
           step_count           = ai_token_usage_daily.step_count + 1,
-          turn_count           = ai_token_usage_daily.turn_count + 1,
+          turn_count           = ai_token_usage_daily.turn_count + excluded.turn_count,
           session_count        = ai_token_usage_daily.session_count + excluded.session_count,
           updated_at           = excluded.updated_at
         `,
         [
           input.tenantId, input.day, input.agentId, input.modelId, input.providerId,
           input.inputTokens, input.outputTokens, input.cachedInputTokens, input.reasoningTokens,
-          sessionDelta, now, now,
+          turnDelta, sessionDelta, now, now,
         ],
         'run',
       )

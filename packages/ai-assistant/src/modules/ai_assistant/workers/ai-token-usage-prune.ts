@@ -70,10 +70,11 @@ async function pruneOldEvents(
 }
 
 /**
- * Reconciles `session_count` on daily rollup rows for the trailing N days by
- * recomputing it directly from the events table. This corrects any drift caused
- * by out-of-order event delivery, retention pruning, or failed incremental
- * writes.
+ * Reconciles `session_count` and `turn_count` on daily rollup rows for the
+ * trailing N days by recomputing them directly from the events table. This
+ * corrects any drift caused by out-of-order event delivery, retention pruning,
+ * or failed incremental writes — and also closes the historical gap from
+ * when `turn_count` was incremented per-step before the `turnDelta` fix landed.
  */
 async function reconcileSessionCounts(
   connection: ReturnType<EntityManager['getConnection']>,
@@ -84,13 +85,15 @@ async function reconcileSessionCounts(
   trailingStart.setUTCDate(trailingStart.getUTCDate() - trailingDays)
   const from = trailingStart.toISOString().slice(0, 10)
 
-  // Recompute session_count for each (tenant_id, day, agent_id, model_id, org)
-  // combination by counting distinct session_ids from the events table.
+  // Recompute session_count AND turn_count for each
+  // (tenant_id, day, agent_id, model_id, org) combination by counting distinct
+  // session_ids and turn_ids from the events table.
   const rows = await connection.execute(
     `
     select
       d.id,
-      count(distinct e.session_id)::bigint as computed_session_count
+      count(distinct e.session_id)::bigint as computed_session_count,
+      count(distinct e.turn_id)::bigint as computed_turn_count
     from ai_token_usage_daily d
     left join ai_token_usage_events e
       on e.tenant_id = d.tenant_id
@@ -113,12 +116,15 @@ async function reconcileSessionCounts(
   let reconciled = 0
   for (const row of rows as Array<Record<string, unknown>>) {
     const rowId = row.id as string
-    const computed = typeof row.computed_session_count === 'string'
+    const computedSessions = typeof row.computed_session_count === 'string'
       ? parseInt(row.computed_session_count, 10)
       : (row.computed_session_count as number) ?? 0
+    const computedTurns = typeof row.computed_turn_count === 'string'
+      ? parseInt(row.computed_turn_count, 10)
+      : (row.computed_turn_count as number) ?? 0
     await connection.execute(
-      `update ai_token_usage_daily set session_count = ?, updated_at = now() where id = ?`,
-      [computed, rowId],
+      `update ai_token_usage_daily set session_count = ?, turn_count = ?, updated_at = now() where id = ?`,
+      [computedSessions, computedTurns, rowId],
       'run',
     )
     reconciled += 1

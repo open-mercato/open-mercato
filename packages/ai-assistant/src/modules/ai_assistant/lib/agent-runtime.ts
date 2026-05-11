@@ -58,6 +58,13 @@ import { recordTokenUsage } from './token-usage-recorder'
 // what `./ai-sdk.ts` consumers already rely on.
 import './llm-bootstrap'
 
+/**
+ * Matches canonical UUIDv1–v8. Used to gate non-UUID `conversationId` inputs
+ * before they flow into the token-usage recorder, whose `session_id` column
+ * is `uuid not null`.
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 export interface AgentRequestPageContext {
   pageId?: string | null
   entityType?: string | null
@@ -596,13 +603,46 @@ export class BudgetEnforcer {
  */
 export function buildLoopTraceCollector(
   agentId: string,
+  turnId: string,
+  userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+): {
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
+}
+export function buildLoopTraceCollector(
+  agentId: string,
   sessionId: string,
   turnId: string,
   userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
 ): {
   onStepFinish: AiAgentLoopConfig['onStepFinish']
   finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
+}
+export function buildLoopTraceCollector(
+  agentId: string,
+  sessionIdOrTurnId: string,
+  turnIdOrOnStepFinish: string | AiAgentLoopConfig['onStepFinish'],
+  userOnStepFinishMaybe?: AiAgentLoopConfig['onStepFinish'],
+): {
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
 } {
+  // BC bridge: the legacy 3-arg form (agentId, turnId, onStepFinish) is still
+  // supported for one release. New callers MUST pass sessionId for token-usage
+  // correlation. When the 3rd positional arg is a function, the call is using
+  // the legacy shape and we synthesize a sessionId via randomUUID().
+  let sessionId: string
+  let turnId: string
+  let userOnStepFinish: AiAgentLoopConfig['onStepFinish']
+  if (typeof turnIdOrOnStepFinish === 'function' || turnIdOrOnStepFinish === undefined) {
+    sessionId = randomUUID()
+    turnId = sessionIdOrTurnId
+    userOnStepFinish = turnIdOrOnStepFinish as AiAgentLoopConfig['onStepFinish']
+  } else {
+    sessionId = sessionIdOrTurnId
+    turnId = turnIdOrOnStepFinish
+    userOnStepFinish = userOnStepFinishMaybe
+  }
   const turnStartMs = Date.now()
   const steps: LoopStepRecord[] = []
 
@@ -1352,7 +1392,15 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // over the deprecated `conversationId` alias. When neither is supplied, a
   // fresh UUID is generated server-side so token-usage rows and pending-action
   // idempotency hashes are always correlated within the same session.
-  const effectiveSessionId = (input.sessionId ?? input.conversationId) || randomUUID()
+  // The token-usage events table uses a uuid column; legacy clients without
+  // crypto.randomUUID() emit conversationIds like `conv_<ts>_<rand>`, so we
+  // coerce anything that doesn't look like a UUID to a fresh UUID before it
+  // flows into the recorder (otherwise the insert fails and R12 swallows it
+  // silently — see L2 in the Phase 6 review).
+  const rawSessionId = input.sessionId ?? input.conversationId
+  const effectiveSessionId = rawSessionId && UUID_REGEX.test(rawSessionId)
+    ? rawSessionId
+    : randomUUID()
 
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
@@ -1809,7 +1857,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedObjectModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -1818,6 +1866,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     tenantRuntimeOverride,
     input.requestOverride,
   )
+  const { model } = resolvedObjectModel
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
@@ -1826,13 +1875,55 @@ export async function runAiAgentObject<TSchema = unknown>(
   const modelMessages = await convertToModelMessages(hydratedMessages)
   void tools
 
-  // Phase 6.2 — resolve session id and generate per-call turn id for
-  // token-usage correlation in object mode.
+  // Phase 6.2/6.3 — resolve session id and generate per-call turn id for
+  // token-usage correlation in object mode. Object mode has no tool-call
+  // "steps" the way text mode does; we record one row per object call with
+  // stepIndex 0 after the underlying SDK call completes.
   const effectiveObjectSessionId = input.sessionId ?? randomUUID()
   const objectTurnId = randomUUID()
-  // Expose for token recorder via closure (used by token-usage-recorder in Phase 6.3).
-  void effectiveObjectSessionId
-  void objectTurnId
+
+  const captureObjectUsage = (
+    usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number } | undefined,
+    finishReason: string | undefined,
+  ): void => {
+    if (!input.container) return
+    void recordTokenUsage(
+      {
+        authContext: input.authContext,
+        agentId: agent.id,
+        moduleId: agent.moduleId,
+        sessionId: effectiveObjectSessionId,
+        turnId: objectTurnId,
+        stepIndex: 0,
+        providerId: resolvedObjectModel.providerId,
+        modelId: resolvedObjectModel.modelId,
+        usage: {
+          inputTokens: usage?.inputTokens,
+          outputTokens: usage?.outputTokens,
+          cachedInputTokens: usage?.cachedInputTokens,
+          reasoningTokens: usage?.reasoningTokens,
+        },
+        finishReason,
+      },
+      input.container,
+    )
+  }
+
+  const wrapStreamingUsageForRecorder = (
+    usagePromise: Promise<{ inputTokens?: number; outputTokens?: number } | undefined> | undefined,
+    finishPromise: Promise<string | undefined> | undefined,
+  ): Promise<{ inputTokens?: number; outputTokens?: number } | undefined> | undefined => {
+    if (!usagePromise) return usagePromise
+    return Promise.all([usagePromise, finishPromise ?? Promise.resolve(undefined)]).then(
+      ([usage, finishReason]) => {
+        captureObjectUsage(usage, finishReason)
+        return usage
+      },
+      (error) => {
+        throw error
+      },
+    )
+  }
 
   if (input.loop) {
     assertLoopObjectModeCompatible(input.loop)
@@ -1870,10 +1961,11 @@ export async function runAiAgentObject<TSchema = unknown>(
         partialObjectStream: streamResult.partialObjectStream,
         textStream: streamResult.textStream,
         finishReason: streamResult.finishReason,
-        usage: streamResult.usage,
+        usage: wrapStreamingUsageForRecorder(streamResult.usage, streamResult.finishReason),
       }
     }
     const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+    captureObjectUsage(genResult.usage, genResult.finishReason)
     return {
       mode: 'generate',
       object: genResult.object as TSchema,
@@ -1907,7 +1999,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       partialObjectStream: result.partialObjectStream,
       textStream: result.textStream,
       finishReason: result.finishReason,
-      usage: result.usage,
+      usage: wrapStreamingUsageForRecorder(result.usage, result.finishReason),
     }
   }
 
@@ -1924,11 +2016,14 @@ export async function runAiAgentObject<TSchema = unknown>(
   }
 
   const result = await generateObject(generateArgs)
+  const generatedUsage = (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage
+  const generatedFinishReason = (result as { finishReason?: string }).finishReason
+  captureObjectUsage(generatedUsage, generatedFinishReason)
   return {
     mode: 'generate',
     object: (result as { object: unknown }).object as TSchema,
-    finishReason: (result as { finishReason?: string }).finishReason,
-    usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
+    finishReason: generatedFinishReason,
+    usage: generatedUsage,
   }
 }
 

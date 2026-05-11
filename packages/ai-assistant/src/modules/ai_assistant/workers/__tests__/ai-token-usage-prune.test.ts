@@ -27,7 +27,7 @@ function makeConnectionStub(options: {
     if (normalized.includes('delete from ai_token_usage_events')) {
       const affected = deleteBatches[deleteCallIndex] ?? 0
       deleteCallIndex++
-      return [{ affectedRows: affected }] as unknown[]
+      return { affectedRows: affected }
     }
 
     if (normalized.includes('from ai_token_usage_daily')) {
@@ -81,8 +81,8 @@ describe('runTokenUsagePrune', () => {
 
   it('reconciles daily rows that are returned by the select', async () => {
     const dailyRows = [
-      { id: 'row-1', computed_session_count: '3' },
-      { id: 'row-2', computed_session_count: 7 },
+      { id: 'row-1', computed_session_count: '3', computed_turn_count: '4' },
+      { id: 'row-2', computed_session_count: 7, computed_turn_count: 11 },
     ]
     const connection = makeConnectionStub({ deleteBatches: [0], dailyRows })
     const em = makeEmStub(connection)
@@ -92,6 +92,11 @@ describe('runTokenUsagePrune', () => {
       sql.includes('update ai_token_usage_daily'),
     )
     expect(updateCalls).toHaveLength(2)
+    // Each update MUST pass session_count + turn_count + id
+    const firstParams = updateCalls[0][1] as unknown[]
+    expect(firstParams[0]).toBe(3)
+    expect(firstParams[1]).toBe(4)
+    expect(firstParams[2]).toBe('row-1')
   })
 
   it('does not throw when the delete query fails — returns zero deleted', async () => {

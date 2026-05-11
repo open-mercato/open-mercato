@@ -83,6 +83,7 @@ export async function recordTokenUsage(
       modelId: input.modelId,
       providerId: input.providerId,
       sessionId: input.sessionId,
+      turnId: input.turnId,
       inputTokens,
       outputTokens,
       cachedInputTokens,
