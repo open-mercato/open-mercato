@@ -54,6 +54,7 @@ const dict = {
   'ai_assistant.chat.composerPlaceholder': 'Message the AI agent...',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
+  'ai_assistant.chat.thinking': 'Thinking...',
   'ai_assistant.chat.transcriptLabel': 'Chat transcript',
 }
 
@@ -169,6 +170,9 @@ describe('<AiChat> unmount-mid-stream persistence (issue #1816)', () => {
     // next mount can show it.
     const persisted = readPersistedAssistantText('customers.account_assistant', conversationId)
     expect(persisted).toBe('Working on it')
+    await act(async () => {
+      await pending.close()
+    })
   })
 
   it('rehydrates the partial assistant reply when the chat is reopened with the same conversationId', async () => {
@@ -206,6 +210,86 @@ describe('<AiChat> unmount-mid-stream persistence (issue #1816)', () => {
 
     const transcript = screen.getByRole('log', { name: 'Chat transcript' })
     expect(transcript.textContent ?? '').toContain('Almost there')
+    unmountB()
+    await act(async () => {
+      await pending.close()
+    })
+  })
+
+  it('persists the final assistant reply after unmounting before the first token arrives', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    const pending = createPendingStreamingResponse()
+    fetchMock.mockResolvedValueOnce(pending.response)
+
+    const conversationId = 'conv-thinking-unmount-3'
+    const { unmount } = renderWithProviders(
+      <AiChat agent="customers.account_assistant" conversationId={conversationId} />,
+      { dict },
+    )
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'answer later' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      unmount()
+    })
+
+    await act(async () => {
+      await pending.emit(SSE_TEXT_DELTA('Finished after close'))
+      await pending.close()
+    })
+
+    await waitFor(() => {
+      const persisted = readPersistedAssistantText('customers.account_assistant', conversationId)
+      expect(persisted).toBe('Finished after close')
+    })
+  })
+
+  it('updates a reopened chat when the background response completes', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    const pending = createPendingStreamingResponse()
+    fetchMock.mockResolvedValueOnce(pending.response)
+
+    const conversationId = 'conv-thinking-unmount-4'
+    const { unmount: unmountA } = renderWithProviders(
+      <AiChat agent="customers.account_assistant" conversationId={conversationId} />,
+      { dict },
+    )
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'keep working' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      unmountA()
+    })
+
+    const { unmount: unmountB } = renderWithProviders(
+      <AiChat agent="customers.account_assistant" conversationId={conversationId} />,
+      { dict },
+    )
+
+    expect(screen.getByText('Thinking...')).toBeInTheDocument()
+
+    await act(async () => {
+      await pending.emit(SSE_TEXT_DELTA('Background result'))
+      await pending.close()
+    })
+
+    await waitFor(() => {
+      const transcript = screen.getByRole('log', { name: 'Chat transcript' })
+      expect(transcript.textContent ?? '').toContain('Background result')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    })
     unmountB()
   })
 })
