@@ -137,11 +137,12 @@ export interface AiAgentLoopConfig {
    * Only valid for chat agents. Rejected with `loop_unsupported_in_object_mode`
    * for object-mode agents.
    *
-   * **Engine note**: this primitive is honored under `executionEngine: 'stream-text'`
-   * (default). Agents on `'tool-loop-agent'` may not reliably support
-   * `repairToolCall` across all SDK versions — if you require it, use the
-   * default `stream-text` engine until support is confirmed stable on the
-   * `ToolLoopAgent` class.
+   * **Engine note**: honored under both `executionEngine: 'stream-text'` (the
+   * default) and `'tool-loop-agent'` — the current SDK (`ai@^6`) exposes
+   * `experimental_repairToolCall` on `ToolLoopAgentSettings`, and the runtime
+   * wires it through at construction. SDK behavior across versions is not
+   * guaranteed identical to `streamText`; prefer `'stream-text'` if your
+   * repair logic depends on `streamText`-only semantics.
    *
    * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */

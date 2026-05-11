@@ -1400,17 +1400,26 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
 
   // Phase 5 — construct ToolLoopAgent when executionEngine === 'tool-loop-agent'.
   // The agent is built ONCE per turn (not pooled) with:
+  //   - instructions = the wrapper-composed systemPrompt. ToolLoopAgent has no
+  //     per-call `system` field (`prepareCall` returns `Omit<Prompt, 'system'>`),
+  //     so this MUST be set at construction or the model runs with no prompt.
   //   - model + tools from the wrapper-resolved registry
   //   - stopWhen wired at construction (ToolLoopAgentSettings field)
   //   - prepareStep wired at construction (NOT via prepareCall — it is not in
-  //     prepareCall's Pick list per spec §Phase 5 correction)
-  //   - onStepFinish wired at construction (budget + trace collector)
+  //     prepareCall's Pick list per spec §Phase 5 correction). This is the
+  //     mutation-approval guard — security-critical.
+  //   - onStepFinish wired at construction only. We do NOT pass it again on the
+  //     per-call .stream() / .generate() because the SDK's
+  //     mergeOnStepFinishCallbacks invokes both when both are set (verified
+  //     against node_modules/ai/dist/index.mjs:8122-8133), which would double
+  //     the budget step count and produce duplicate LoopTrace entries.
   //   - prepareCall used only for per-turn narrowing of model/tools/stopWhen/
   //     activeTools/providerOptions (per spec §Phase 5 correction)
   let builtToolLoopAgent: ToolLoopAgent<never, ToolSet> | undefined
   if (agent.executionEngine === 'tool-loop-agent') {
     const agentSettings: ToolLoopAgentSettings<never, ToolSet> = {
       model,
+      instructions: systemPrompt,
       tools: tools as ToolSet,
       stopWhen: stopConditions,
       prepareStep: wrapperPrepareStep,
@@ -1466,11 +1475,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
   if (builtToolLoopAgent !== undefined) {
     // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
-    // pipeline. prepareStep is already wired at construction (security-critical).
+    // pipeline. prepareStep + instructions + onStepFinish are all wired at
+    // construction (see above). Passing onStepFinish here too would cause the
+    // SDK to invoke it twice per step (mergeOnStepFinishCallbacks), so we only
+    // pass per-call concerns: messages and abortSignal.
     const agentStreamResult = await builtToolLoopAgent.stream({
       messages: modelMessages,
       abortSignal: abortController.signal,
-      onStepFinish: wiredOnStepFinish,
     })
     if (wallClockTimer !== undefined) {
       agentStreamResult
