@@ -11,8 +11,7 @@ import {
   WidgetDataValidationError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { StaffTeamMember } from '@open-mercato/core/modules/staff/data/entities'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 
@@ -172,42 +171,44 @@ export async function POST(req: Request) {
     return undefined
   })()
 
-  // Self-scope enforcement for timesheets: non-manage_all users can only query their own data
-  const requestData = { ...parsed.data, filters: [...(parsed.data.filters ?? [])] }
-  if (requestData.entityType === 'staff:staff_time_entries') {
-    const rbac = container.resolve<{
-      userHasAllFeatures: (
-        userId: string,
-        features: string[],
-        scope: { tenantId: string; organizationId?: string | null },
-      ) => Promise<boolean>
-    }>('rbacService')
-    const hasManageAll = await rbac.userHasAllFeatures(auth.sub, ['staff.timesheets.manage_all'], {
+  const userFeatures = Array.isArray(auth.features)
+    ? auth.features.filter((value): value is string => typeof value === 'string')
+    : []
+
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+
+  const interceptorResult = await runApiInterceptorsBefore({
+    routePath: 'dashboards/widgets/data',
+    method: 'POST',
+    request: {
+      method: 'POST',
+      url: req.url,
+      headers,
+      body: parsed.data as unknown as Record<string, unknown>,
+    },
+    context: {
+      em,
+      container,
+      userId: auth.sub ?? '',
       tenantId,
-      organizationId: organizationIds?.[0] ?? auth.orgId,
-    })
-    if (!hasManageAll) {
-      const orgId = organizationIds?.[0] ?? auth.orgId ?? null
-      const staffMember = orgId
-        ? await findOneWithDecryption(
-            em,
-            StaffTeamMember,
-            { userId: auth.sub, tenantId, organizationId: orgId, deletedAt: null },
-            {},
-            { tenantId, organizationId: orgId },
-          )
-        : null
-      if (!staffMember) {
-        return NextResponse.json({ error: 'No staff member profile found' }, { status: 403 })
-      }
-      requestData.filters.push({ field: 'staffMemberId', operator: 'eq' as const, value: staffMember.id })
-    }
+      organizationId: organizationIds?.[0] ?? auth.orgId ?? '',
+      userFeatures,
+    },
+  })
+
+  if (!interceptorResult.ok) {
+    return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
   }
+
+  const requestData = (interceptorResult.request.body ?? parsed.data) as WidgetDataRequest
 
   try {
     const cache = container.resolve<CacheStrategy>('cache')
     const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
-    const result = await service.fetchWidgetData(requestData as WidgetDataRequest)
+    const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)
   } catch (err) {
     console.error('[widgets/data] Error:', err)
