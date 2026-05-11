@@ -6,8 +6,8 @@ export async function createUserViaUi(page: Page, input: { email: string; passwo
   await page.goto('/backend/users/create');
   await expect(page.getByText('Create User')).toBeVisible();
 
-  await page.getByRole('textbox').nth(0).fill(input.email);
-  await page.getByRole('textbox').nth(1).fill(input.password);
+  await page.locator('[data-crud-field-id="email"] input').first().fill(input.email);
+  await page.locator('[data-crud-field-id="password"] input').first().fill(input.password);
 
   const orgSelect = page.locator('main').locator('select').first();
   await expect(orgSelect).toBeEnabled();
