@@ -1090,6 +1090,11 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
       await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
     };
 
+    // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that
+    // clear inputs filled before it, so we run the dropdown sequence up front and then fill
+    // the remaining fields once.
+    await selectKindOption();
+
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     await labelInput.fill(options.label);
@@ -1106,10 +1111,6 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
       await enabledAmountInputs.first().fill(String(options.netAmount));
       await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
     }
-
-    await selectKindOption();
-    await labelInput.fill(options.label);
-    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
   };
 
   let saved = false;

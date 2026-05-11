@@ -1,26 +1,21 @@
-# CRM Filter Approach - Consolidated Implementation Spec
+# CRM List Filter Redesign - Consolidated Implementation Spec
 
-Status: Implemented / PR-ready
+Status: In Progress (branch `feat/filters`, pending PR validation)
 Date: 2026-05-10
 Scope: OSS CRM list filtering for People, Companies, and Deals
 Figma: https://www.figma.com/design/oTF1oZoaNgFUdtmxEX2oSc/SPEC-048-CRM-Detail-Pages-UX-Mockup?node-id=1063-92&m=dev
 
 ## TLDR
 
-CRM list pages now use a single advanced filter tree experience instead of separate simple and advanced filter controls. The filter trigger lives in the DataTable toolbar beside search, AI, and Views. It opens a Figma-aligned anchored popover with field search, quick presets, saved filters, natural-language group headers, within-group drag reorder, inline validation, active chips, and a filter-aware empty state.
+CRM list pages now use a single advanced filter tree experience instead of separate simple and advanced filter controls. The filter trigger lives in the DataTable toolbar beside search, AI, and Views. It opens a Figma-aligned anchored popover with field search, quick presets, saved filters, a Kendo-style `[And] [Or]` group toolbar, within-group drag reorder, inline validation, active chips, and a filter-aware empty state.
 
 The implementation keeps the existing query engine contract: filters serialize to the v2 advanced filter URL format and compile into the existing list API query path. Legacy v1 flat filters still deserialize through the compatibility path. Deals keep their existing association ID filters for people and companies, but surface those selections as removable chips beside the new advanced filter chips. Saved filters are deliberately separate from Views/Perspectives and are not written to the perspectives API or shown in the Views dropdown.
 
-No feature flag is used for this implementation. The new CRM filter approach is wired directly into the People, Companies, and Deals list pages.
+No feature flag is used for this implementation. The new CRM filter UI is wired directly into the People, Companies, and Deals list pages.
 
-## Related Source Material
+## Historical Context
 
-- Original tree design draft: `.ai/specs/2026-05-07-advanced-filter-tree-design.md`
-- Original Figma redesign draft: `.ai/specs/2026-05-08-crm-filter-figma-redesign.md`
-- Original redesign analysis: `.ai/specs/analysis/ANALYSIS-2026-05-08-crm-filter-figma-redesign.md`
-- Figma SPEC-048 CRM detail/list UX mockup linked above
-
-This spec supersedes the earlier drafts for the current branch because implementation details changed after those files were written.
+This spec consolidates three earlier design drafts (advanced-filter-tree-design, crm-filter-figma-redesign, and the redesign analysis) into a single PR-ready document. The drafts were removed before merge because the implementation diverged from them in important ways (no feature flag, anchored popover instead of centered dialog, Kendo-style combinator toggle instead of natural-language headers, association filters preserved on Deals). The pivot history is captured in the `Implementation Delta From Earlier Drafts` section below and in git history of the `feat/filters` branch.
 
 ## Problem Statement
 
@@ -351,8 +346,12 @@ The change is additive for shared/DataTable contracts:
 - Saved filters are local browser preferences and do not change server or perspective contracts.
 - Existing list API paths remain unchanged.
 - No database schema or migration is required.
+- `FilterFieldDef` gains optional `group?` / `iconName?`, `FilterOption` gains optional `tone?`, `FilterOptionTone` extends additively with `'pink'`, and `Tag` gains a `'pink'` variant — all additive per BC §2.
+- `Dialog` gains an optional `elevated?: boolean` prop (renders at the new `z-modal-elevated = 55` z-index) so dialogs opened from inside popovers are not occluded.
+- `DataTable` gains optional `activeFilterChips?` and `filterAwareEmptyState?` props; existing callers are unaffected.
+- Customers AI trigger widget feature gate intentionally narrows from `[customers.people.view, ai_assistant.view]` (AND-evaluated, which hid the trigger from companies-only and deals-only viewers) to `[ai_assistant.view]`. The host CRM list routes still enforce their respective `customers.people.view` / `customers.companies.view` / `customers.deals.view` guards, so the effective access surface is unchanged — only the redundant per-entity gate on the widget is dropped. The new injection-table mapping for `data-table:customers.deals.list:search-trailing` is additive and reuses the existing widget.
 
-The CRM list UI behavior changes intentionally: People, Companies, and Deals use the new filter approach directly. There is no runtime feature flag for this branch.
+The CRM list UI behavior changes intentionally: People, Companies, and Deals use the new filter UI directly. There is no runtime feature flag for this branch.
 
 ## Implementation Delta From Earlier Drafts
 
@@ -401,7 +400,7 @@ Integration coverage follows Open Mercato naming conventions:
 - `TC-CRM-063.spec.ts` - Filter-aware empty state
 - `TC-CRM-064.spec.ts` - Validation blocks invalid apply
 
-Latest branch validation completed with the full integration coverage command passing: 715 passed, 0 failed, 27 skipped, total 742.
+Integration suite results are tracked per branch tip via `yarn test:integration`; do not pin a specific pass/fail count in this spec — re-run the suite on the merge commit and record the result in the PR description.
 
 ## Risks & Impact Review
 
@@ -435,7 +434,8 @@ Latest branch validation completed with the full integration coverage command pa
 
 ## Changelog
 
-- 2026-05-10: Created consolidated CRM filter approach spec from the original tree design, original Figma redesign draft, later implementation changes, review fixes, and final validation results.
+- 2026-05-10: Created consolidated CRM list filter redesign spec from the original tree design, original Figma redesign draft, later implementation changes, review fixes, and final validation results.
 - 2026-05-10: Clarified that saved filters are a filter-popover feature backed by a local saved-filter namespace and are separate from DataTable Views/Perspectives.
 - 2026-05-10: Removed the per-row connector flip affordance and the `splitConnectorAt` reducer action. Row connectors (`and`/`or`) became display-only labels driven by the parent group's combinator; combinator edits flowed exclusively through the natural-language group header. This eliminated the SQL-precedence auto-restructure that visibly "mangled" filters when users tried to flip a single connector.
 - 2026-05-10: Replaced the natural-language group header (`All of the following must be true:` / `Any of the following are true:`) with a Kendo-style `[And] [Or]` segmented toggle, dropped the `Where:` row prefix, and dropped the now-redundant `and`/`or` row labels entirely. The "+ Add condition" / "+ Add subgroup" buttons and the group `x` were moved into the same toolbar as the toggle so each group has ONE place to manage everything. Reason: after the previous iteration, non-technical users still treated the static row labels as clickable and reported the feature as broken when nothing happened on click. Eliminating the misleading affordance and matching the Kendo React Filter pattern 1:1 makes the combinator control unmistakable. New i18n keys: `ui.advancedFilter.combinator.and` / `combinator.or` / `combinator.label`. Removed: `ui.advancedFilter.where`, `allMatch`, `anyMatch`. Lower-case `connector.and` / `connector.or` are kept for the drag ghost preview.
+- 2026-05-11: Renamed from `2026-05-10-crm-filter-approach.md` to `2026-05-10-crm-list-filter-redesign.md` to match the naming pattern used by sibling CRM specs (e.g. `2026-04-06-crm-detail-pages-ux-enhancements.md`). Removed the three superseded draft files (`2026-05-07-advanced-filter-tree-design.md`, `2026-05-08-crm-filter-figma-redesign.md`, `analysis/ANALYSIS-2026-05-08-crm-filter-figma-redesign.md`) — their content is captured in the consolidated spec and in git history. Documented additional BC bullets (`Dialog.elevated`, `DataTable` new optional props, `Tag` `pink` variant, AI trigger feature-gate narrowing) and removed the pinned integration test count claim.

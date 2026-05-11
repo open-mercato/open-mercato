@@ -9,16 +9,12 @@ type FeatureCheckResponse = {
 }
 
 /**
- * Read the current user's id on the client.
+ * Read the current user's id on the client. Returns `''` until the request resolves.
  *
- * Implemented as a side-channel POST to `/api/auth/feature-check` (with an empty
- * `features` array) because there's no first-class `/api/auth/me` endpoint yet
- * — the response always carries the JWT-embedded `userId`. Returns `''` until
- * the request resolves; callers can feed the returned value directly into
- * preset/build contexts that need the current user.
- *
- * TODO(SPEC-048 follow-up): replace with a dedicated `/api/auth/me` endpoint
- * (or SSR-bootstrapped user context) and remove this side-channel hop.
+ * Implementation note: there is no first-class `/api/auth/me` endpoint yet, so this
+ * piggy-backs on `/api/auth/feature-check` with an empty `features` array — the response
+ * always carries the JWT `userId`. Replace with a dedicated `/api/auth/me` or an
+ * SSR-bootstrapped user context once available, and remove this hop.
  */
 export function useCurrentUserId(): string {
   const [userId, setUserId] = React.useState<string>('')

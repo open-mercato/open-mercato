@@ -133,9 +133,8 @@ function SaveFilterDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* `elevated` lifts this dialog above the AdvancedFilterPanel popover (z-popover=45).
-          Without it the dialog renders at z-modal=40 and is occluded by the popover, which
-          is what users reported as "Save filter does nothing". */}
+      {/* `elevated` lifts this dialog above the popover (z-popover=45) — at default
+          z-modal=40 the dialog is occluded by the popover that opens it. */}
       <DialogContent elevated className="sm:max-w-md" data-advanced-filter-portal>
         <form
           className="contents"
@@ -409,9 +408,8 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         onSelect={(field) => {
-          // Pass defaultOperator so the new rule starts with a valid operator for the
-          // field's type (emptyRule otherwise defaults to 'contains' which only matches
-          // text fields).
+          // Pass defaultOperator so the rule starts with a valid operator for the field's
+          // type — otherwise emptyRule defaults to 'contains', which only matches text.
           const next = treeReducer(props.value, {
             type: 'addRule',
             groupId: props.value.root.id,

@@ -94,7 +94,9 @@ export function treeReducer(state: AdvancedFilterTree, action: TreeAction): Adva
     return v.ok ? next : state
   }
 
-  // Deep clone so React detects state change.
+  // Deep clone so React detects state change. The tree is JSON-safe so JSON
+  // round-tripping is sufficient; the Jest jsdom env doesn't expose
+  // `structuredClone`, so avoid relying on it.
   const next: AdvancedFilterTree = JSON.parse(JSON.stringify(state))
 
   if (action.type === 'removeLast') {

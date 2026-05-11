@@ -11,9 +11,8 @@ export type FilterRule = {
   field: string
   operator: FilterOperator
   value: unknown
-  // Runtime-only metadata. MUST NOT be serialized into URL state or persisted
-  // perspectives. Used by the editor reducer (e.g. removeLast) to find the
-  // most recently inserted node.
+  // Runtime-only metadata used by the editor reducer (e.g. removeLast) to find
+  // the most recently inserted node. MUST NOT be serialized into URL or persisted state.
   addedAt?: number
 }
 
@@ -22,9 +21,8 @@ export type FilterGroup = {
   type: 'group'
   combinator: FilterCombinator
   children: Array<FilterRule | FilterGroup>
-  // Runtime-only metadata. MUST NOT be serialized into URL state or persisted
-  // perspectives. Used by the editor reducer (e.g. removeLast) to find the
-  // most recently inserted node.
+  // Runtime-only metadata used by the editor reducer (e.g. removeLast) to find
+  // the most recently inserted node. MUST NOT be serialized into URL or persisted state.
   addedAt?: number
 }
 
@@ -205,12 +203,9 @@ export function makeRuleTree(rule: { field: string; operator: FilterOperator; va
 
 /**
  * Persisted shape of an `AdvancedFilterTree` inside `PerspectiveSettings.filters`.
- * Carries a version marker so the loader can distinguish a tree from a legacy
- * flat `FilterValues` record (and from the plain `{root: ...}` shape that
- * `maybeMigrateLegacyFilterValues` already passes through).
- *
- * Runtime-only metadata (`addedAt`) is stripped before persisting so that
- * saved perspectives stay deterministic across reloads.
+ * The `v: 2` marker disambiguates the tree from legacy flat `FilterValues` and
+ * from the plain `{root: ...}` shape. Runtime-only `addedAt` is stripped before
+ * persisting so saved perspectives are deterministic across reloads.
  */
 export type PersistedFilterTree = {
   v: 2

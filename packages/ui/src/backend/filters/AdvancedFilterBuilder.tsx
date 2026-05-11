@@ -75,17 +75,9 @@ function getFieldType(fields: FilterFieldDef[], fieldKey: string): FilterFieldTy
   return fields.find((f) => f.key === fieldKey)?.type ?? 'text'
 }
 
-/**
- * Operator "shapes" describe what a rule's `value` looks like for that operator.
- * - `valueless`  — no value (is_empty / is_true / etc.)
- * - `multi`      — array of values (is_any_of / has_all_of / etc.)
- * - `range`      — exactly two values (between)
- * - `single`     — one scalar (default)
- *
- * Used to decide whether switching operators on a rule should preserve the
- * current value. Switching `is` → `is not` keeps "Active"; switching
- * `is` → `between` resets because the value shape changes.
- */
+// Operator value shapes. Used to decide whether changing operator preserves the
+// current value: same shape preserves (`is` → `is not` keeps "Active"); different
+// shape resets (`is` → `between` clears, because value goes from scalar to pair).
 type OperatorShape = 'valueless' | 'multi' | 'range' | 'single'
 
 const MULTI_VALUE_OPS = new Set<FilterOperator>([
@@ -167,11 +159,9 @@ export function AdvancedFilterBuilder({
 
   const handleDragCancel = React.useCallback(() => setActiveDrag(null), [])
 
-  // No `min-w-[640px]` on the wrapper — that forced horizontal scroll inside a
-  // 375px mobile viewport. On desktop the dialog is `sm:max-w-[720px]` so a
-  // 6-item rule (drag handle + connector + field + operator + value + trash)
-  // fits on one line; on mobile the row wraps onto 2-3 lines, which is the
-  // right compromise for a complex form on a small screen.
+  // Wrapper has no `min-w-[640px]`: it forced horizontal scroll on a 375px viewport.
+  // Rules wrap onto multiple lines on mobile; on desktop (`sm:max-w-[720px]`) they fit
+  // on one line.
   return (
     <DndContext
       sensors={sensors}
@@ -208,18 +198,10 @@ export function AdvancedFilterBuilder({
           </div>
         ) : null}
       </div>
-      {/* Portal the DragOverlay to document.body. The host AdvancedFilterPanel
-          renders inside a Radix DialogContent that uses
-          `transform: translate(-50%, -50%)` for centering — that turns the
-          dialog into the containing block for `position: fixed` descendants,
-          and dnd-kit's DragOverlay wrapper IS `position: fixed`. Without the
-          portal, the overlay's viewport-relative coordinates are calculated
-          against the dialog instead of the viewport, so the ghost lands far
-          off-screen and looks invisible. (Same root cause already documented
-          for popovers at AdvancedFilterPanel.tsx — `modal={false}` +
-          ignorePopoverInteractions exists for the same containing-block
-          trap.) Portaling lifts the overlay above the dialog so its
-          coordinates resolve against the viewport again. */}
+      {/* Portal DragOverlay to document.body. Radix DialogContent uses CSS `transform`
+          for centering, which becomes the containing block for `position: fixed`
+          descendants (dnd-kit's overlay) and shifts the ghost off-screen. Portaling
+          restores viewport-relative coordinates. */}
       {typeof document !== 'undefined'
         ? createPortal(
             <DragOverlay dropAnimation={null} style={{ zIndex: 60 }}>
@@ -246,13 +228,8 @@ function locateInTree(root: FilterGroup, id: string): { node: FilterRule | Filte
   return null
 }
 
-/**
- * Lightweight visual stand-in for the dragged row, rendered inside the
- * DragOverlay so the cursor follows a clean snapshot. We deliberately don't
- * re-render the full RuleRow / GroupView (their popovers and form inputs
- * fight the overlay); instead we show field label + operator + value as a
- * compact pill that mirrors the row's content at-a-glance.
- */
+// Compact drag preview rendered inside DragOverlay. Cannot reuse RuleRow/GroupView —
+// their popovers and form inputs conflict with the overlay.
 function DragGhost({
   node, parent, fields, t,
 }: {
@@ -304,24 +281,15 @@ function GroupView({
   t: Translator
 }) {
   const isRoot = level === 1
-  // Sub-group containers render as a card (Figma SPEC-048 / Kendo React
-  // Filter): subtle muted background, full border, rounded corners and
-  // padding so the nesting boundary is visually unmistakable. The root group
-  // stays flush with the popover so it doesn't double up the dialog's own
-  // card chrome.
+  // Sub-groups render as a card so the nesting boundary is visible; root group stays
+  // flush with the popover so it doesn't double-up the dialog's own card chrome.
   const containerClass = isRoot
     ? 'space-y-3'
     : 'space-y-3 rounded-lg border border-border bg-muted/30 p-3'
 
-  // Toolbar-first layout (Kendo React Filter pattern): each group renders a
-  // single row at the top with the [And] [Or] segmented toggle, the
-  // "+ Add condition" / "+ Add subgroup" buttons, and (for non-root groups)
-  // a trailing delete `x`. There are no per-row connector words and no
-  // `Where:` prefix — the toggle is the SINGLE source of truth for the
-  // group's combinator, and to mix AND with OR the user clicks
-  // "+ Add subgroup" which spawns a nested group with its own toggle.
-  // This matches `CompositeFilterDescriptor` semantics (one logic per group,
-  // nested groups for mixed logic).
+  // Toolbar-first layout (Kendo React Filter pattern): one [And]/[Or] toggle per group
+  // is the only combinator UI. Mixing AND with OR requires `+ Add subgroup`. Matches
+  // `CompositeFilterDescriptor` semantics (one logic per group).
   return (
     <div className={containerClass}>
       <GroupToolbar
@@ -349,12 +317,9 @@ function GroupView({
   )
 }
 
-// Kendo-style segmented `[And] [Or]` toggle. Mutually exclusive — clicking
-// the unselected side flips the group's combinator. Selected side is filled
-// with the brand violet to give the toolbar a clear, unambiguous primary
-// affordance (the user reported that the previous quiet text+chevron header
-// was easy to miss). The toggle is the SINGLE place to set a group's
-// combinator; row connector words and the `Where:` prefix were removed.
+// Kendo-style segmented `[And] [Or]` toggle. Clicking the unselected side flips
+// the group's combinator. Selected side is brand-violet filled so the affordance
+// is unambiguous.
 function AndOrToggle({
   combinator, onChange, t,
 }: {
@@ -407,10 +372,8 @@ function SortableChildrenList({
   errorByRuleId: Map<string, string>
   t: Translator
 }) {
-  // The DndContext + drag handlers live one level up in AdvancedFilterBuilder
-  // so a single drag can move children across groups. Each group still owns
-  // its own SortableContext to scope sort ordering and produce stable
-  // measurements within the group.
+  // DndContext + handlers live one level up so a drag can move children across
+  // groups. Each group owns its own SortableContext to scope sort ordering.
   return (
     <SortableContext items={group.children.map((c) => c.id)} strategy={verticalListSortingStrategy}>
       {group.children.map((child, idx) => (
@@ -449,12 +412,9 @@ function SortableRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: child.id,
   })
-  // While the row is being dragged, hide the source completely — the
-  // DragOverlay renders the moving snapshot. Without this the wrapping
-  // flex layout applies both `transform` AND its own resizing rules to the
-  // source, producing the stretched/morphed ghost the user reported.
-  // We keep the row in layout (`visibility: hidden`) so siblings don't jump
-  // while the user holds the drag.
+  // Hide the source while dragging (DragOverlay renders the snapshot); keep it in
+  // layout via `visibility: hidden` so siblings don't jump. Without this, the flex
+  // wrapper applies both `transform` and its own resizing to the source row.
   const style: React.CSSProperties = isDragging
     ? { visibility: 'hidden' as const }
     : { transform: CSS.Transform.toString(transform), transition }
@@ -473,9 +433,8 @@ function SortableRow({
         />
       ) : (
         <div className="flex items-start gap-2">
-          {/* Raw <button> required: dnd-kit's useSortable spreads `attributes` + `listeners` directly
-              onto the activator element. <Button> has its own props/ref handling that interferes
-              with the keyboard-sensor coordinates lookup. DS focus-visible shadow + a11y label kept. */}
+          {/* Raw <button> required: dnd-kit spreads `attributes`+`listeners` onto the
+              activator; <Button>'s own props/ref handling breaks the keyboard sensor. */}
           <button
             type="button"
             {...dragHandleProps}
@@ -561,10 +520,8 @@ function RuleRow({
         <Select
           value={rule.operator}
           onValueChange={(next) => {
-            // Preserve the value when both old and new operators take the same
-            // value shape (single → single, multi → multi). Reset only when the
-            // shape changes — otherwise typing "Active" then choosing "is not"
-            // would silently wipe the value.
+            // Preserve the value when the operator shape doesn't change; reset
+            // only when shape changes (e.g. `is` → `between` clears scalar to pair).
             const nextOp = next as FilterOperator
             const sameShape = getOperatorShape(rule.operator) === getOperatorShape(nextOp)
             const updates: Partial<Pick<FilterRule, 'operator' | 'value'>> = sameShape
@@ -573,10 +530,8 @@ function RuleRow({
             dispatch({ type: 'updateRule', ruleId: rule.id, updates })
           }}
         >
-          {/* `SelectTrigger` ships `w-full` in its base variants — that fills
-              the flex row and forces the operator/value selects onto their own
-              lines. `w-auto` neutralizes it so the trigger only takes its
-              content width (with min-w-[140px] as the floor). */}
+          {/* `w-auto` overrides SelectTrigger's default `w-full` so it sits
+              inline with the field/value inputs instead of breaking onto a new row. */}
           <SelectTrigger
             size="sm"
             className="w-auto min-w-[140px]"
@@ -685,14 +640,9 @@ function ValueInput({
     )
   }
 
-  // `Input` ships `w-full` in its base variants — same problem as SelectTrigger
-  // above. Use `w-auto` to keep the input at its natural / min width inside the
-  // wrapping flex row instead of stretching to fill it.
-
-  // The `between` operator (number / date) takes a `[start, end]` pair. Render
-  // two inputs side-by-side instead of a single one — the previous code fell
-  // through to the single-input branch, so the value never became an array
-  // and validation kept failing with no UI affordance to fix it.
+  // `Input` ships `w-full` by default — use `w-auto` so inputs don't stretch
+  // inside the wrapping flex row. `between` needs a `[start, end]` pair, so it
+  // gets its own component below.
   if (rule.operator === 'between' && (fieldType === 'number' || fieldType === 'date')) {
     return (
       <BetweenInput
@@ -875,10 +825,7 @@ function MultiValuePicker({
 }
 
 function toneDotClass(tone: NonNullable<FilterFieldDef['options']>[number]['tone']): string {
-  // Solid filled dot using the saturated `*-icon` token (matches Tag primitive's
-  // `dotColorMap`). Earlier this used `bg-*-bg` + ring, which in dark mode
-  // resolved to a near-black fill behind a bright ring — looking like a hollow
-  // donut instead of the filled dot the Figma mockups show.
+  // Solid filled dot using the saturated `*-icon` token (matches Tag's `dotColorMap`).
   const base = 'inline-block size-2 rounded-full shrink-0'
   switch (tone) {
     case 'success': return `${base} bg-status-success-icon`
@@ -892,11 +839,8 @@ function toneDotClass(tone: NonNullable<FilterFieldDef['options']>[number]['tone
   }
 }
 
-// Single Kendo-style toolbar at the top of each group: combinator toggle,
-// "+ Add condition" with field picker, "+ Add subgroup" / "+ Add group", and
-// (for non-root groups) a trailing delete `x`. Replaces the old
-// `NaturalLanguageHeader` + `GroupFooter` pair so the user has ONE clear
-// place to manage everything about the group.
+// Single Kendo-style toolbar per group: combinator toggle, `+ Add condition`,
+// `+ Add subgroup` / `+ Add group`, plus a trailing delete for non-root groups.
 function GroupToolbar({
   group, level, tree, dispatch, defaultField, fields, isRoot, t,
 }: {
@@ -943,10 +887,8 @@ function GroupToolbar({
     ? t('ui.advancedFilter.addGroup', '+ Add group')
     : t('ui.advancedFilter.addSubgroup', '+ Add subgroup')
 
-  // The custom `text-brand-violet` foreground overrides Button's default
-  // `disabled:text-text-disabled` token. Add explicit muted disabled colors so
-  // the limit ("Maximum nesting depth reached") is visually obvious — the
-  // user reported that disabled-but-still-violet buttons look clickable.
+  // `text-brand-violet` overrides Button's default disabled token, so we have to
+  // re-state muted disabled colors here — otherwise disabled CTAs still look clickable.
   const ctaClass = 'text-brand-violet hover:text-brand-violet/80 hover:bg-transparent px-0 disabled:text-muted-foreground/50 disabled:hover:text-muted-foreground/50'
 
   return (
