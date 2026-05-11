@@ -97,7 +97,7 @@
     "rate-limiter-flexible": "^11.0.1",
     "reflect-metadata": "^0.2.2",
     "sanitize-html": "^2.17.2",
-    "undici": "^7.24.0"
+    "undici": "^8.2.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

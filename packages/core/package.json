@@ -230,7 +230,7 @@
     "ai": "^6.0.168",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
-    "html-to-text": "^9.0.5",
+    "html-to-text": "^10.0.0",
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^5.4.149",
     "semver": "^7.7.4",

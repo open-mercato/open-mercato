@@ -5666,13 +5666,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-android-arm64@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-android-arm64@npm:0.1.100"
-  conditions: os=android & cpu=arm64
-  languageName: node
-  linkType: hard
-
 "@napi-rs/canvas-android-arm64@npm:0.1.97":
   version: 0.1.97
   resolution: "@napi-rs/canvas-android-arm64@npm:0.1.97"
@@ -5680,10 +5673,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-darwin-arm64@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-darwin-arm64@npm:0.1.100"
-  conditions: os=darwin & cpu=arm64
+"@napi-rs/canvas-android-arm64@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-android-arm64@npm:1.0.0"
+  conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
 
@@ -5694,10 +5687,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-darwin-x64@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-darwin-x64@npm:0.1.100"
-  conditions: os=darwin & cpu=x64
+"@napi-rs/canvas-darwin-arm64@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-darwin-arm64@npm:1.0.0"
+  conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
@@ -5708,10 +5701,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-arm-gnueabihf@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-arm-gnueabihf@npm:0.1.100"
-  conditions: os=linux & cpu=arm
+"@napi-rs/canvas-darwin-x64@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-darwin-x64@npm:1.0.0"
+  conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
@@ -5722,10 +5715,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-arm64-gnu@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-arm64-gnu@npm:0.1.100"
-  conditions: os=linux & cpu=arm64 & libc=glibc
+"@napi-rs/canvas-linux-arm-gnueabihf@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-arm-gnueabihf@npm:1.0.0"
+  conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
 
@@ -5736,10 +5729,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-arm64-musl@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-arm64-musl@npm:0.1.100"
-  conditions: os=linux & cpu=arm64 & libc=musl
+"@napi-rs/canvas-linux-arm64-gnu@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-arm64-gnu@npm:1.0.0"
+  conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
@@ -5750,10 +5743,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-riscv64-gnu@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-riscv64-gnu@npm:0.1.100"
-  conditions: os=linux & cpu=riscv64 & libc=glibc
+"@napi-rs/canvas-linux-arm64-musl@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-arm64-musl@npm:1.0.0"
+  conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
@@ -5764,10 +5757,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-x64-gnu@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-x64-gnu@npm:0.1.100"
-  conditions: os=linux & cpu=x64 & libc=glibc
+"@napi-rs/canvas-linux-riscv64-gnu@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-riscv64-gnu@npm:1.0.0"
+  conditions: os=linux & cpu=riscv64 & libc=glibc
   languageName: node
   linkType: hard
 
@@ -5778,10 +5771,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-linux-x64-musl@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-linux-x64-musl@npm:0.1.100"
-  conditions: os=linux & cpu=x64 & libc=musl
+"@napi-rs/canvas-linux-x64-gnu@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-x64-gnu@npm:1.0.0"
+  conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
@@ -5792,10 +5785,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-win32-arm64-msvc@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-win32-arm64-msvc@npm:0.1.100"
-  conditions: os=win32 & cpu=arm64
+"@napi-rs/canvas-linux-x64-musl@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-linux-x64-musl@npm:1.0.0"
+  conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
@@ -5806,10 +5799,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas-win32-x64-msvc@npm:0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas-win32-x64-msvc@npm:0.1.100"
-  conditions: os=win32 & cpu=x64
+"@napi-rs/canvas-win32-arm64-msvc@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-win32-arm64-msvc@npm:1.0.0"
+  conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
@@ -5820,49 +5813,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/canvas@npm:^0.1.100":
-  version: 0.1.100
-  resolution: "@napi-rs/canvas@npm:0.1.100"
-  dependencies:
-    "@napi-rs/canvas-android-arm64": "npm:0.1.100"
-    "@napi-rs/canvas-darwin-arm64": "npm:0.1.100"
-    "@napi-rs/canvas-darwin-x64": "npm:0.1.100"
-    "@napi-rs/canvas-linux-arm-gnueabihf": "npm:0.1.100"
-    "@napi-rs/canvas-linux-arm64-gnu": "npm:0.1.100"
-    "@napi-rs/canvas-linux-arm64-musl": "npm:0.1.100"
-    "@napi-rs/canvas-linux-riscv64-gnu": "npm:0.1.100"
-    "@napi-rs/canvas-linux-x64-gnu": "npm:0.1.100"
-    "@napi-rs/canvas-linux-x64-musl": "npm:0.1.100"
-    "@napi-rs/canvas-win32-arm64-msvc": "npm:0.1.100"
-    "@napi-rs/canvas-win32-x64-msvc": "npm:0.1.100"
-  dependenciesMeta:
-    "@napi-rs/canvas-android-arm64":
-      optional: true
-    "@napi-rs/canvas-darwin-arm64":
-      optional: true
-    "@napi-rs/canvas-darwin-x64":
-      optional: true
-    "@napi-rs/canvas-linux-arm-gnueabihf":
-      optional: true
-    "@napi-rs/canvas-linux-arm64-gnu":
-      optional: true
-    "@napi-rs/canvas-linux-arm64-musl":
-      optional: true
-    "@napi-rs/canvas-linux-riscv64-gnu":
-      optional: true
-    "@napi-rs/canvas-linux-x64-gnu":
-      optional: true
-    "@napi-rs/canvas-linux-x64-musl":
-      optional: true
-    "@napi-rs/canvas-win32-arm64-msvc":
-      optional: true
-    "@napi-rs/canvas-win32-x64-msvc":
-      optional: true
-    canvas:
-      built: true
-    skia-canvas:
-      built: true
-  checksum: 10/27fb6d96162d990eb05b108711532ef3000028310d81f9a108db2f9f7a7162c488bcb86986801617d7f598cc13921f59b5393f602b430a6221301db3e0b6024a
+"@napi-rs/canvas-win32-x64-msvc@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas-win32-x64-msvc@npm:1.0.0"
+  conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
@@ -5905,6 +5859,52 @@ __metadata:
     "@napi-rs/canvas-win32-x64-msvc":
       optional: true
   checksum: 10/7129c6c0c417c355951daf06f82a910100d4daabff2fd0cab5f9b0377cc6e101aad02fb3d9d36b2780d12c89429bf0b67255e945178cf758f91e237f88e3d735
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "@napi-rs/canvas@npm:1.0.0"
+  dependencies:
+    "@napi-rs/canvas-android-arm64": "npm:1.0.0"
+    "@napi-rs/canvas-darwin-arm64": "npm:1.0.0"
+    "@napi-rs/canvas-darwin-x64": "npm:1.0.0"
+    "@napi-rs/canvas-linux-arm-gnueabihf": "npm:1.0.0"
+    "@napi-rs/canvas-linux-arm64-gnu": "npm:1.0.0"
+    "@napi-rs/canvas-linux-arm64-musl": "npm:1.0.0"
+    "@napi-rs/canvas-linux-riscv64-gnu": "npm:1.0.0"
+    "@napi-rs/canvas-linux-x64-gnu": "npm:1.0.0"
+    "@napi-rs/canvas-linux-x64-musl": "npm:1.0.0"
+    "@napi-rs/canvas-win32-arm64-msvc": "npm:1.0.0"
+    "@napi-rs/canvas-win32-x64-msvc": "npm:1.0.0"
+  dependenciesMeta:
+    "@napi-rs/canvas-android-arm64":
+      optional: true
+    "@napi-rs/canvas-darwin-arm64":
+      optional: true
+    "@napi-rs/canvas-darwin-x64":
+      optional: true
+    "@napi-rs/canvas-linux-arm-gnueabihf":
+      optional: true
+    "@napi-rs/canvas-linux-arm64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-arm64-musl":
+      optional: true
+    "@napi-rs/canvas-linux-riscv64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-x64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-x64-musl":
+      optional: true
+    "@napi-rs/canvas-win32-arm64-msvc":
+      optional: true
+    "@napi-rs/canvas-win32-x64-msvc":
+      optional: true
+    canvas:
+      built: true
+    skia-canvas:
+      built: true
+  checksum: 10/1b2838833988c98d86105980ccd52fb53c4059e30732c7bebdf21774d83a351bf389337c8e6eb4d55fc31359accb90e27d8d80c94cc3bb08d415ab0586227464
   languageName: node
   linkType: hard
 
@@ -6311,7 +6311,7 @@ __metadata:
     "@mikro-orm/decorators": "npm:^7.0.14"
     "@mikro-orm/migrations": "npm:^7.0.14"
     "@mikro-orm/postgresql": "npm:^7.0.14"
-    "@napi-rs/canvas": "npm:^0.1.100"
+    "@napi-rs/canvas": "npm:^1.0.0"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
@@ -6349,7 +6349,7 @@ __metadata:
     "@uiw/react-markdown-preview": "npm:^5.2.0"
     "@uiw/react-md-editor": "npm:^4.1.0"
     ai: "npm:^6.0.168"
-    awilix: "npm:^12.0.5"
+    awilix: "npm:^13.0.3"
     bcryptjs: "npm:^3.0.3"
     better-sqlite3: "npm:^12.9.0"
     bullmq: "npm:^5.76.2"
@@ -6377,7 +6377,7 @@ __metadata:
     tailwindcss: "npm:^4.2.4"
     ts-jest: "npm:^29.4.9"
     tw-animate-css: "npm:^1.4.0"
-    typescript: "npm:^5.9.3"
+    typescript: "npm:^6.0.3"
     zod: "npm:^4.3.6"
   dependenciesMeta:
     better-sqlite3:
@@ -6448,7 +6448,7 @@ __metadata:
     ts-jest: "npm:^29.4.9"
     ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.21.0"
-    typescript: "npm:^5.9.3"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
   bin:
@@ -6490,7 +6490,7 @@ __metadata:
     chance: "npm:^1.1.13"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
-    html-to-text: "npm:^9.0.5"
+    html-to-text: "npm:^10.0.0"
     jest: "npm:^30.3.0"
     jest-environment-jsdom: "npm:^30.3.0"
     mammoth: "npm:^1.9.0"
@@ -6658,7 +6658,7 @@ __metadata:
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.2"
     ts-jest: "npm:^29.4.9"
-    undici: "npm:^7.24.0"
+    undici: "npm:^8.2.0"
   languageName: unknown
   linkType: soft
 
@@ -6704,7 +6704,7 @@ __metadata:
     jest: "npm:^30.3.0"
     jest-environment-jsdom: "npm:^30.3.0"
     react-big-calendar: "npm:^1.19.4"
-    react-day-picker: "npm:^9.14.0"
+    react-day-picker: "npm:^10.0.0"
     react-markdown: "npm:^10.1.0"
     recharts: "npm:^3.8.1"
     remark-gfm: "npm:^4.0.1"
@@ -8323,6 +8323,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@selderee/plugin-htmlparser2@npm:~0.12.0":
+  version: 0.12.0
+  resolution: "@selderee/plugin-htmlparser2@npm:0.12.0"
+  dependencies:
+    domelementtype: "npm:~2.3.0"
+    domhandler: "npm:~5.0.3"
+  peerDependencies:
+    selderee: ~0.12.0
+  checksum: 10/11399112888e3745f3066f02b8bc52344b6f4011192f5dacec63bed5d83e97801b418e16ec95531715c53d199f2c96f1357a218bd9fef4ebe18e638eb1b19c48
+  languageName: node
+  linkType: hard
+
 "@sideway/address@npm:^4.1.5":
   version: 4.1.5
   resolution: "@sideway/address@npm:4.1.5"
@@ -8740,13 +8752,6 @@ __metadata:
   dependencies:
     defer-to-connect: "npm:^2.0.1"
   checksum: 10/fc9cb993e808806692e4a3337c90ece0ec00c89f4b67e3652a356b89730da98bc824273a6d67ca84d5f33cd85f317dcd5ce39d8cc0a2f060145a608a7cb8ce92
-  languageName: node
-  linkType: hard
-
-"@tabby_ai/hijri-converter@npm:1.0.5":
-  version: 1.0.5
-  resolution: "@tabby_ai/hijri-converter@npm:1.0.5"
-  checksum: 10/35711b606870889eaafd76f8fb94bd095a15c5d066a3062d7c3987344949e9d7638726863cf7c9439f9c5efc9a56f289485fd9d99a77e5d29cd23897c8d748ce
   languageName: node
   linkType: hard
 
@@ -11307,13 +11312,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"awilix@npm:^12.0.5":
-  version: 12.0.5
-  resolution: "awilix@npm:12.0.5"
+"awilix@npm:^13.0.3":
+  version: 13.0.3
+  resolution: "awilix@npm:13.0.3"
   dependencies:
-    camel-case: "npm:^4.1.2"
     fast-glob: "npm:^3.3.3"
-  checksum: 10/ba85c7fffb1e3a0ba100d8428a17013d35b3273842d34829e02b93b6613de6cfb421de6643ffeaeb36cd77eaebec84061edb6f6213869c50d8116607bf602bea
+  checksum: 10/f24968b30771c8abe40dd055b79c1a04b9f5cb0a517aeb6f654cf480ba9388522bd5057d023f6f53aa46ac9f3c828bbe110b8bc6316eb797b3377734df51c095
   languageName: node
   linkType: hard
 
@@ -12880,7 +12884,7 @@ __metadata:
     picocolors: "npm:^1.1.0"
     tar: "npm:^7.5.13"
     tsx: "npm:^4.21.0"
-    typescript: "npm:^5.9.3"
+    typescript: "npm:^6.0.3"
   bin:
     create-mercato-app: ./bin/create-mercato-app
   languageName: unknown
@@ -13695,13 +13699,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"date-fns-jalali@npm:4.1.0-0":
-  version: 4.1.0-0
-  resolution: "date-fns-jalali@npm:4.1.0-0"
-  checksum: 10/0005e0e37d449aa998cfc353395b0292eea4778aba4283dad4fa0e3559cf0a7fc7ce9123fb6f22c235285219d4f4774c88bb9c01fa2694c6a5efbbcd33efe7fc
-  languageName: node
-  linkType: hard
-
 "date-fns-tz@npm:^3.2.0":
   version: 3.2.0
   resolution: "date-fns-tz@npm:3.2.0"
@@ -13854,6 +13851,13 @@ __metadata:
   version: 0.1.4
   resolution: "deep-is@npm:0.1.4"
   checksum: 10/ec12d074aef5ae5e81fa470b9317c313142c9e8e2afe3f8efa124db309720db96d1d222b82b84c834e5f87e7a614b44a4684b6683583118b87c833b3be40d4d8
+  languageName: node
+  linkType: hard
+
+"deepmerge-ts@npm:^7.1.5":
+  version: 7.1.5
+  resolution: "deepmerge-ts@npm:7.1.5"
+  checksum: 10/f86d1a0b3b803cbae749ebaabf2c6db388abec57d77a4003829ecf987504f3c93b01d1ff86ef89a5d56e2b06d7402ea2a7502f0d044f19e036ada1f543e78d3d
   languageName: node
   linkType: hard
 
@@ -14166,7 +14170,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"domelementtype@npm:^2.0.1, domelementtype@npm:^2.2.0, domelementtype@npm:^2.3.0":
+"domelementtype@npm:^2.0.1, domelementtype@npm:^2.2.0, domelementtype@npm:^2.3.0, domelementtype@npm:~2.3.0":
   version: 2.3.0
   resolution: "domelementtype@npm:2.3.0"
   checksum: 10/ee837a318ff702622f383409d1f5b25dd1024b692ef64d3096ff702e26339f8e345820f29a68bcdcea8cfee3531776b3382651232fbeae95612d6f0a75efb4f6
@@ -14182,7 +14186,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"domhandler@npm:^5.0.2, domhandler@npm:^5.0.3":
+"domhandler@npm:^5.0.2, domhandler@npm:^5.0.3, domhandler@npm:~5.0.3":
   version: 5.0.3
   resolution: "domhandler@npm:5.0.3"
   dependencies:
@@ -17026,6 +17030,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"html-to-text@npm:^10.0.0":
+  version: 10.0.0
+  resolution: "html-to-text@npm:10.0.0"
+  dependencies:
+    "@selderee/plugin-htmlparser2": "npm:~0.12.0"
+    deepmerge-ts: "npm:^7.1.5"
+    dom-serializer: "npm:^2.0.0"
+    htmlparser2: "npm:^10.1.0"
+    selderee: "npm:~0.12.0"
+  checksum: 10/f941412800fbd9b149079ac67af2371bc8124931e38ea212fd52d7f5efec37f793958555519fa12cbd95d9e9b14d6b296bf2343e8b7ee51fdac6e4039aff98c7
+  languageName: node
+  linkType: hard
+
 "html-to-text@npm:^9.0.5":
   version: 9.0.5
   resolution: "html-to-text@npm:9.0.5"
@@ -19053,6 +19070,13 @@ __metadata:
   version: 0.6.0
   resolution: "leac@npm:0.6.0"
   checksum: 10/bfe6aa128ca98664f124096f65584778194a8e1ddebf77d315fd9681be849c1619b0a9d9f4743e67aea0298808bd69ef25bd74320cad50a80be6852714627870
+  languageName: node
+  linkType: hard
+
+"leac@npm:^0.7.0":
+  version: 0.7.0
+  resolution: "leac@npm:0.7.0"
+  checksum: 10/33bcfae037d626c3bbb3fafd1f0571e525f795fc03ad9383c532fa95fe9c188e79189940e530ea7c73bba573834fc41688654721592edec5c193b93c28f386e6
   languageName: node
   linkType: hard
 
@@ -21457,7 +21481,7 @@ __metadata:
     react: "npm:^19.2.5"
     react-dom: "npm:^19.2.5"
     rimraf: "npm:^6.1.3"
-    typescript: "npm:^5.9.3"
+    typescript: "npm:^6.0.3"
   languageName: unknown
   linkType: soft
 
@@ -21471,7 +21495,7 @@ __metadata:
     "@mikro-orm/decorators": "npm:^7.0.14"
     "@mikro-orm/migrations": "npm:^7.0.14"
     "@mikro-orm/postgresql": "npm:^7.0.14"
-    "@napi-rs/canvas": "npm:^0.1.100"
+    "@napi-rs/canvas": "npm:^1.0.0"
     "@playwright/test": "npm:^1.59.1"
     "@radix-ui/react-checkbox": "npm:^1.3.3"
     "@radix-ui/react-dialog": "npm:^1.0.5"
@@ -21492,7 +21516,7 @@ __metadata:
     "@uiw/react-md-editor": "npm:^4.1.0"
     "@xyflow/react": "npm:^12.10.2"
     ai: "npm:^6.0.168"
-    awilix: "npm:^12.0.5"
+    awilix: "npm:^13.0.3"
     bcryptjs: "npm:^3.0.3"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
@@ -21526,7 +21550,7 @@ __metadata:
     tsconfig-paths: "npm:^4.2.0"
     tsx: "npm:^4.21.0"
     turbo: "npm:^2.9.6"
-    typescript: "npm:^5.9.3"
+    typescript: "npm:^6.0.3"
     zod: "npm:^4.3.6"
   languageName: unknown
   linkType: soft
@@ -21912,6 +21936,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"parseley@npm:~0.13.1":
+  version: 0.13.1
+  resolution: "parseley@npm:0.13.1"
+  dependencies:
+    leac: "npm:^0.7.0"
+    peberminta: "npm:^0.10.0"
+  checksum: 10/47dec80e2fb017c2f184e7261755edb8f0e1406a16123076d72b4b769bb6edab7933388c33826e79c12e54dfbe0013470fdf4536a7f35c0e97a67592a04fff92
+  languageName: node
+  linkType: hard
+
 "parseurl@npm:^1.3.3, parseurl@npm:~1.3.2, parseurl@npm:~1.3.3":
   version: 1.3.3
   resolution: "parseurl@npm:1.3.3"
@@ -22048,6 +22082,13 @@ __metadata:
     node-readable-to-web-readable-stream:
       optional: true
   checksum: 10/69601bb3366dc3c969079b797e7b510025476f79ac0dc168f091882a66d4f91f694315ea921ee434fbb515f4510cc71b5bf8241743f41abc9fd6852a2603b0c6
+  languageName: node
+  linkType: hard
+
+"peberminta@npm:^0.10.0":
+  version: 0.10.0
+  resolution: "peberminta@npm:0.10.0"
+  checksum: 10/a25e424a1e99d64b08a4fa3fffd7d257cc77568df2bfe35cab55a531851cd9246749d8075d50280f0e6910d877687cbe477260e80cad86d7d64c0e7a4c16b40c
   languageName: node
   linkType: hard
 
@@ -23607,17 +23648,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-day-picker@npm:^9.14.0":
-  version: 9.14.0
-  resolution: "react-day-picker@npm:9.14.0"
+"react-day-picker@npm:^10.0.0":
+  version: 10.0.0
+  resolution: "react-day-picker@npm:10.0.0"
   dependencies:
     "@date-fns/tz": "npm:^1.4.1"
-    "@tabby_ai/hijri-converter": "npm:1.0.5"
     date-fns: "npm:^4.1.0"
-    date-fns-jalali: "npm:4.1.0-0"
   peerDependencies:
     react: ">=16.8.0"
-  checksum: 10/a4e05e6af3d5535e34909aa1c258904765da73f5299ddf031838f92fff8493d4bad9140088e94ddc9041b07410f9803d3ee27e7fc67d78cf0d2c8622089723f5
+  checksum: 10/f158cf48cf58b812991ea893394910246d4a756ac78197b7dc9dd3355904d86e1ecc23b8ce353ecdee0b69812884770efd0c78332a6dffbb8dfca4043076595e
   languageName: node
   linkType: hard
 
@@ -24980,6 +25019,15 @@ __metadata:
   dependencies:
     parseley: "npm:^0.12.0"
   checksum: 10/9f697a00b8270354777a8423e555fd3168abead1304b8d267412877a4b007830624d8aa562eb29a3ec2d9d2f7f977808d17b790b9c210a7d828c12ed9ef0f1f0
+  languageName: node
+  linkType: hard
+
+"selderee@npm:~0.12.0":
+  version: 0.12.0
+  resolution: "selderee@npm:0.12.0"
+  dependencies:
+    parseley: "npm:~0.13.1"
+  checksum: 10/758dba9583ce0c238002d25adca2a730492873eb1458d4e11889cc5c78db3d2add14c09c1805bf7c14949657f068fa55b27ebdf7b09219093464446d5653a2ee
   languageName: node
   linkType: hard
 
@@ -26927,23 +26975,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@npm:^5.9.3":
-  version: 5.9.3
-  resolution: "typescript@npm:5.9.3"
+"typescript@npm:^6.0.3":
+  version: 6.0.3
+  resolution: "typescript@npm:6.0.3"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 10/c089d9d3da2729fd4ac517f9b0e0485914c4b3c26f80dc0cffcb5de1719a17951e92425d55db59515c1a7ddab65808466debb864d0d56dcf43f27007d0709594
+  checksum: 10/0ef2357a4cffd916b52b683a021cdab0f81eea4e9aa35f2d254581c9a5106da02224e3392e1b0ed42b7a48f80c966e5f52b8e1a27941fa0523c1705a9c2e0330
   languageName: node
   linkType: hard
 
-"typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
-  version: 5.9.3
-  resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"
+"typescript@patch:typescript@npm%3A^6.0.3#optional!builtin<compat/typescript>":
+  version: 6.0.3
+  resolution: "typescript@patch:typescript@npm%3A6.0.3#optional!builtin<compat/typescript>::version=6.0.3&hash=5786d5"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 10/696e1b017bc2635f4e0c94eb4435357701008e2f272f553d06e35b494b8ddc60aa221145e286c28ace0c89ee32827a28c2040e3a69bdc108b1a5dc8fb40b72e3
+  checksum: 10/22b67a18dafedf9b1468b64ca20d9aa02ea61d449b65413d8aa6552aeb63f52ef369e86beb25b6b4c91a803d9726ee5c196f391a9b64201263263410a4223ee6
   languageName: node
   linkType: hard
 
