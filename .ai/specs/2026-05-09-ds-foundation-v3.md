@@ -389,33 +389,40 @@ Behaviour: tags render as `Tag` primitives with close (`×`) button. Backspace o
 **API:**
 
 ```ts
-type CounterInputProps = {
+type CounterInputProps = Omit<
+  React.ComponentPropsWithoutRef<'input'>,
+  'value' | 'onChange' | 'size' | 'type' | 'children'
+> & {
   value?: number | null
   onChange?: (value: number | null) => void
-  placeholder?: string
-  size?: 'sm' | 'default'
-  disabled?: boolean
+  size?: 'sm' | 'default' | 'lg'                 // 32 / 36 / 40 px per Figma X-Small / Small / Medium
   min?: number
   max?: number
   step?: number                                  // default 1
   precision?: number                             // decimal places, default 0
-  className?: string
-  id?: string
-  name?: string
-  required?: boolean
-  'aria-label'?: string
-  buttonAlign?: 'split' | 'right'                // 'split' (- left, + right) default per Figma
+  decrementAriaLabel?: string                    // default English `Decrease`
+  incrementAriaLabel?: string                    // default English `Increase`
+  inputClassName?: string
 }
 ```
+
+Split layout (`-` left, `+` right) per Figma — no `buttonAlign` prop. The
+`xs` (32) / `sm` (36) / `default` (40) trio in Figma map to Open Mercato's
+`sm` / `default` / `lg` size convention shared with `Input` and `Button`.
 
 **Tests:**
 - `+` button increments by `step`.
 - `−` button decrements by `step`.
 - Buttons disabled at `min` / `max`.
 - Direct typing commits valid number.
-- Invalid input does not commit.
+- Empty input emits `null`.
+- Typed values are clamped to `min` / `max`.
 - `precision=2` formats to 2 decimals.
-- Keyboard arrow up/down increments/decrements.
+- Keyboard ArrowUp / ArrowDown step by `step`.
+- Uncontrolled mode keeps internal state.
+- Custom decrement / increment aria labels are honored.
+- `aria-invalid` flips the wrapper border to destructive.
+- Size variants apply h-8 / h-9 / h-10 on the wrapper.
 
 ### 7. `DigitInput` (OTP)
 
@@ -820,3 +827,4 @@ To be filled in after all 14 commits land and before opening the PR. Sections:
 | 2026-05-09 | DRAFT | Initial spec. Awaiting user approval before commit 1. |
 | 2026-05-11 | SCOPE EXTENSION (DRAFT) | TimePicker added as primitive #11 per user request (`Figma 164611:83414`). Scope freeze updated to 11 primitives + 1 legacy shim rewrite (`backend/inputs/TimePicker.tsx`). Implementation plan extended from 13 to 14 commits. No existing API contracts changed — strictly additive (TimePicker primitive is new file) plus internal-only shim refactor that preserves the legacy `TimePickerProps` interface. |
 | 2026-05-12 | SCOPE EXTENSION (COMMITTED) | TimePicker primitive + ScheduleActivityDialog DateTimeFields real-deployment landed. Primitive composition resolves `Cancel` / `Apply` / `Select status` / `Pick a time` / `Time picker` / `Close` / `Quick duration` / scroll-arrow aria labels through `useT('ui.timePicker.*')`. `HorizontalScrollRow` carries English defaults plus `scrollLeftAriaLabel` / `scrollRightAriaLabel` props for callers outside React context. `formatDuration` stays a pure English helper (preserved for tests and standalone atoms); the customers `DateTimeFields` consumer drives its duration `Select` from a translatable lookup table (`customers.schedule.duration.option.*`) instead of calling `formatDuration` directly. Calendar fix (`[&_button]:!bg-transparent` on selected/range cells) keeps existing `DatePicker` snapshots green. `TimeInput` native number-spinner arrows hidden via `[appearance:textfield]`. Legacy `backend/inputs/TimePicker` shim default `showClearButton: true → false` (mild BC break documented). Phase A consumer audit (30+ native date/time + 13+ native selects) deferred to follow-up PRs B–F. |
+| 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `CounterInput` primitive (§6) landed. API extended from `'sm' \| 'default'` to `'sm' \| 'default' \| 'lg'` (32 / 36 / 40 px) to cover all three Figma sizes; `buttonAlign` prop dropped (Figma is split-only). Stepper UX with `Minus` / `Plus` Lucide icons, clamping to `min`/`max`, ArrowUp/Down keyboard support, `aria-invalid` driven error border, English `Decrease`/`Increase` aria defaults overridable through `decrementAriaLabel`/`incrementAriaLabel`. 21 unit tests. Real deployment in `sales/components/documents/ReturnDialog.tsx` (return quantity per line, `min=1` / `max=line.available`) with PL/EN locale keys `sales.returns.qty.decrease` / `sales.returns.qty.increase`. |
