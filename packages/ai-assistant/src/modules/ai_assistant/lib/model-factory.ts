@@ -88,8 +88,9 @@ export interface AiModelFactoryInput {
   /**
    * Agent-level default provider, typically `AiAgentDefinition.defaultProvider`.
    * Named provider id; falls through transparently when the named provider is
-   * registered-but-unconfigured. Sits between `<MODULE>_AI_PROVIDER` (step 4)
-   * and the global `AI_DEFAULT_PROVIDER` (step 6) in the resolution chain.
+   * registered-but-unconfigured. Sits between `<MODULE>_AI_PROVIDER` and the
+   * global `AI_DEFAULT_PROVIDER` in the provider-axis seed list above
+   * (lines 31-39).
    *
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */

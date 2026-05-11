@@ -455,6 +455,130 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('agent_default')
     })
   })
+
+  describe('Phase 2 — agentDefaultBaseUrl, <MODULE>_AI_BASE_URL, baseUrlOverride', () => {
+    function makeBaseUrlProviderWithSpy(): {
+      provider: FakeProvider
+      createModel: jest.Mock<unknown, [{ modelId: string; apiKey: string; baseURL?: string }]>
+    } {
+      const createModel = jest.fn(
+        (options: { modelId: string; apiKey: string; baseURL?: string }) => ({
+          kind: 'fake-model',
+          ...options,
+        }),
+      ) as jest.Mock<unknown, [{ modelId: string; apiKey: string; baseURL?: string }]>
+      const provider = makeProvider({
+        createModel: createModel as unknown as FakeProvider['createModel'],
+      })
+      return { provider, createModel }
+    }
+
+    it('omits baseURL from AiModelResolution when no caller-side source applies', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({})
+      expect(resolution.baseURL).toBeUndefined()
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: undefined }),
+      )
+    })
+
+    it('forwards agentDefaultBaseUrl to provider.createModel and surfaces it on AiModelResolution', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({
+        agentDefaultBaseUrl: 'https://agent.example.com/v1',
+      })
+      expect(resolution.baseURL).toBe('https://agent.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://agent.example.com/v1' }),
+      )
+    })
+
+    it('<MODULE>_AI_BASE_URL env beats agentDefaultBaseUrl for the baseURL axis', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const env = { CATALOG_AI_BASE_URL: 'https://catalog-env.example.com/v1' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        agentDefaultBaseUrl: 'https://agent.example.com/v1',
+      })
+      expect(resolution.baseURL).toBe('https://catalog-env.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://catalog-env.example.com/v1' }),
+      )
+    })
+
+    it('baseUrlOverride beats <MODULE>_AI_BASE_URL env and agentDefaultBaseUrl', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const env = { CATALOG_AI_BASE_URL: 'https://catalog-env.example.com/v1' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        agentDefaultBaseUrl: 'https://agent.example.com/v1',
+        baseUrlOverride: 'https://caller.example.com/v1',
+      })
+      expect(resolution.baseURL).toBe('https://caller.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://caller.example.com/v1' }),
+      )
+    })
+
+    it('uppercases moduleId when deriving the <MODULE>_AI_BASE_URL env var name', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const env = { INBOX_OPS_AI_BASE_URL: 'https://inbox-env.example.com/v1' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({ moduleId: 'inbox_ops' })
+      expect(resolution.baseURL).toBe('https://inbox-env.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://inbox-env.example.com/v1' }),
+      )
+    })
+
+    it('treats empty baseUrlOverride as "no override" and falls through to env', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const env = { CATALOG_AI_BASE_URL: 'https://catalog-env.example.com/v1' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        baseUrlOverride: '   ',
+      })
+      expect(resolution.baseURL).toBe('https://catalog-env.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://catalog-env.example.com/v1' }),
+      )
+    })
+
+    it('skips <MODULE>_AI_BASE_URL lookup when moduleId is undefined', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const env = { CATALOG_AI_BASE_URL: 'https://catalog-env.example.com/v1' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        agentDefaultBaseUrl: 'https://agent.example.com/v1',
+      } satisfies AiModelFactoryInput)
+      expect(resolution.baseURL).toBe('https://agent.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://agent.example.com/v1' }),
+      )
+    })
+
+    it('baseURL axis is independent of model + provider axes (composes with caller_override)', () => {
+      const { provider, createModel } = makeBaseUrlProviderWithSpy()
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({
+        callerOverride: 'caller-model',
+        baseUrlOverride: 'https://caller.example.com/v1',
+      })
+      expect(resolution.source).toBe('caller_override')
+      expect(resolution.modelId).toBe('caller-model')
+      expect(resolution.baseURL).toBe('https://caller.example.com/v1')
+      expect(createModel).toHaveBeenCalledWith({
+        modelId: 'caller-model',
+        apiKey: 'test-api-key',
+        baseURL: 'https://caller.example.com/v1',
+      })
+    })
+  })
 })
 
 describe('parseSlashShorthand', () => {
