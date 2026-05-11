@@ -19,6 +19,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
+- [TagInput](#taginput)
 - [Common patterns](#common-patterns)
 
 ---
@@ -338,7 +339,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 
 | Variant | Component | Status |
 |---|---|---|
-| Tag input (multi-tag pill) | `TagInput` | TODO — Figma node `428:4860` |
+| Tag input (multi-tag pill) | `TagInput` | Available — see [TagInput](#taginput) section below |
 | Counter (number with +/- buttons) | `CounterInput` | TODO — Figma node `428:5656` |
 | Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
 | Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
@@ -942,6 +943,56 @@ const t = useT()
 - `brand` variant is for user-saved views and renewal/custom category tags only.
 - Use `shape="square"` for chips inside text inputs/combobox/`TagsInput`; keep `shape="pill"` (default) for standalone status/category tags.
 - When passing `onRemove`, MUST also pass `removeAriaLabel` translated via `useT()` — the primitive default `'Remove'` is English-only.
+
+---
+
+## TagInput
+
+```typescript
+import { TagInput } from '@open-mercato/ui/primitives/tag-input'
+```
+
+Two-row primitive (input on top, chips below) for collecting a flat list of free-form tags. Built on `Input` + `Tag shape="square"`. Use when the user types comma/separator-delimited values and the result is `string[]`. For value-from-suggestions (autocomplete with descriptions, async loaders), use `TagsInput` from `@open-mercato/ui/backend/inputs/TagsInput` instead.
+
+### Sizes
+
+| Size | Token | Figma |
+|---|---|---|
+| `sm` | `h-8` (32px) | `428:4860` sm |
+| `default` | `h-9` (36px) | `428:4860` default |
+| `lg` | `h-10` (40px) | `428:4860` lg |
+
+### Behaviors
+
+- **Enter** — commits current input as a tag.
+- **Separator paste** — pasting `'a,b,c'` (or matching `separator`) splits into multiple tags; trailing remainder stays in the input.
+- **Backspace on empty input** — removes the last tag.
+- **Click ×** on chip — removes that tag.
+- **`maxTags` reached** — input becomes `disabled`; further typing is blocked.
+- **`validate`** — `(tag) => true | false | string`. Return `false` to silently reject; return a string to surface as inline error.
+
+### Usage
+
+```tsx
+const t = useT()
+const [tags, setTags] = React.useState<string[]>([])
+
+<TagInput
+  value={tags}
+  onChange={setTags}
+  placeholder={t('mymodule.tags.placeholder', 'Add tag, press Enter')}
+  size="default"
+  maxTags={10}
+  separator={/[,\s]/}
+  validate={(tag) => tag.length <= 32 || t('mymodule.tags.tooLong', 'Max 32 chars')}
+/>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or `TagsInput` (with suggestions/labels).
+- Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
+- For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
 
 ---
 
