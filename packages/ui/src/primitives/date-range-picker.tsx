@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Calendar } from './calendar'
 import { Button } from './button'
+import type { DateRange as RDPRange } from 'react-day-picker'
 import type { DateRange } from '../backend/date-range/dateRanges'
 import {
   defaultDateRangePresets,
@@ -56,8 +57,6 @@ function defaultFormatRange(range: DateRange, locale?: Locale): string {
   const opts = locale ? { locale } : undefined
   return `${format(range.start, fmt, opts)} – ${format(range.end, fmt, opts)}`
 }
-
-type RDPRange = { from?: Date; to?: Date }
 
 function toRDPRange(range: DateRange | null | undefined): RDPRange | undefined {
   if (!range) return undefined
