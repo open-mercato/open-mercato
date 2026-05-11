@@ -96,6 +96,8 @@ function writeModelPickerValue(agentId: string, value: ModelPickerValue | null):
 interface ModelsApiResponse {
   agentId: string
   allowRuntimeOverride: boolean
+  /** @deprecated mirrors `allowRuntimeOverride`; will be removed in a future minor. */
+  allowRuntimeModelOverride?: boolean
   defaultProviderId: string | null
   defaultModelId: string | null
   providers: ModelPickerProvider[]

@@ -28,7 +28,10 @@ export const openApi: OpenApiRouteDoc = {
         'Returns all configured providers with their curated model catalogs, filtered to providers ' +
         'that have an API key configured in the current environment. When the agent declares ' +
         '`allowRuntimeOverride: false`, the response reflects that constraint so the ' +
-        'UI picker can hide itself. Includes the agent\'s resolved default provider/model so ' +
+        'UI picker can hide itself. The response also includes a deprecated alias ' +
+        '`allowRuntimeModelOverride` (mirrors `allowRuntimeOverride`) kept for one minor ' +
+        'release; new clients should read `allowRuntimeOverride`. ' +
+        'Includes the agent\'s resolved default provider/model so ' +
         'the picker can render a "(default)" badge next to the right entry. ' +
         'RBAC: requires the same features as the agent itself (typically `ai_assistant.view`).',
       responses: [
@@ -135,6 +138,10 @@ export async function GET(
     return NextResponse.json({
       agentId,
       allowRuntimeOverride,
+      // @deprecated — use `allowRuntimeOverride`. Kept in the response for
+      // BC per BACKWARD_COMPATIBILITY.md §"API Routes" (response fields are
+      // additive-only). Will be removed in a future minor.
+      allowRuntimeModelOverride: allowRuntimeOverride,
       defaultProviderId,
       defaultModelId,
       providers,

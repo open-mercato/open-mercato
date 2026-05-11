@@ -67,6 +67,8 @@ type AgentResolution = {
   agentId: string
   moduleId: string
   allowRuntimeOverride: boolean
+  /** @deprecated mirrors `allowRuntimeOverride`; will be removed in a future minor. */
+  allowRuntimeModelOverride?: boolean
   providerId: string
   modelId: string
   baseURL: string | null

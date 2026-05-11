@@ -130,6 +130,12 @@ export async function GET(req: NextRequest) {
       agentId: string
       moduleId: string
       allowRuntimeOverride: boolean
+      /**
+       * @deprecated Use `allowRuntimeOverride`. Kept in the response for BC per
+       * BACKWARD_COMPATIBILITY.md §"API Routes" (response fields are
+       * additive-only). Will be removed in a future minor.
+       */
+      allowRuntimeModelOverride: boolean
       providerId: string
       modelId: string
       baseURL: string | null
@@ -198,10 +204,13 @@ export async function GET(req: NextRequest) {
             allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
             tenantOverride: agentTenantOverride,
           })
+          const agentAllowRuntimeOverride = resolveAllowRuntimeOverride(agent)
           return {
             agentId: agent.id,
             moduleId: agent.moduleId,
-            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
+            allowRuntimeOverride: agentAllowRuntimeOverride,
+            // @deprecated alias — mirrors `allowRuntimeOverride`. Kept for BC.
+            allowRuntimeModelOverride: agentAllowRuntimeOverride,
             providerId: agentResolution.providerId,
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,
