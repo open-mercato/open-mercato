@@ -20,6 +20,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
 - [TagInput](#taginput)
+- [CounterInput](#counterinput)
 - [TimePicker](#timepicker)
 - [Common patterns](#common-patterns)
 
@@ -341,7 +342,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 | Variant | Component | Status |
 |---|---|---|
 | Tag input (multi-tag pill) | `TagInput` | Available — see [TagInput](#taginput) section below |
-| Counter (number with +/- buttons) | `CounterInput` | TODO — Figma node `428:5656` |
+| Counter (number with +/- buttons) | `CounterInput` | Available — see [CounterInput](#counterinput) section below |
 | Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
 | Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
@@ -994,6 +995,59 @@ const [tags, setTags] = React.useState<string[]>([])
 - NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or `TagsInput` (with suggestions/labels).
 - Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
 - For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
+
+---
+
+## CounterInput
+
+```typescript
+import { CounterInput } from '@open-mercato/ui/primitives/counter-input'
+```
+
+Stepper primitive for entering an integer or decimal number with `−` / `+` buttons on each side. Built on a flex wrapper with two icon-only buttons and a centered native `<input type="number">`. Use whenever the value is a small bounded count (quantity in a cart, return qty per line, page size selector, retry count). For free-form numbers without min/max, prefer `<Input type="number">` directly.
+
+### Sizes
+
+| Size | Height | Figma | Use case |
+|---|---|---|---|
+| `sm` | h-8 (32px) | X-Small (32) | Dense table cells, inline qty selectors |
+| `default` | h-9 (36px) | Small (36) | Default |
+| `lg` | h-10 (40px) | Medium (40) | Form rows alongside `Input lg` / `Select` etc. |
+
+### Behaviors
+
+- **`+` / `−` buttons** — adjust value by `step` (default `1`). Clamped to `min` / `max`.
+- **Direct typing** — text typed in the input is parsed, clamped, and emitted on each change. Empty input emits `null`.
+- **Keyboard** — ArrowUp / ArrowDown step by `step` (preventDefault to avoid native browser increment).
+- **Disabled at boundary** — the `+` button is disabled when value === `max`; the `−` button is disabled when value === `min`. Both are disabled when the `disabled` prop is set.
+- **Precision** — `precision={n}` formats the displayed value to `n` decimals (default `0`). Useful for currency-adjacent fields.
+- **Native spinner arrows hidden** — `[appearance:textfield]` + the webkit override hide the browser's own spinner buttons so the primitive owns the increment UX.
+
+### Usage
+
+```tsx
+const [qty, setQty] = React.useState<number | null>(1)
+const t = useT()
+
+<CounterInput
+  value={qty}
+  onChange={setQty}
+  min={1}
+  max={available}
+  step={1}
+  decrementAriaLabel={t('cart.qty.decrease', 'Decrease quantity')}
+  incrementAriaLabel={t('cart.qty.increase', 'Increase quantity')}
+/>
+```
+
+For an error state, pass `aria-invalid` — the wrapper border switches to `border-destructive`.
+
+### MUST rules
+
+- NEVER hand-roll `<Input type="number">` + plus/minus buttons — use `CounterInput`.
+- Pass `decrementAriaLabel` / `incrementAriaLabel` translated via `useT()` — primitive defaults `Decrease` / `Increase` are English.
+- For free-form numbers without bounded `min`/`max` (e.g. unit price, percentage, free-text amount), prefer `<Input type="number">` directly — `CounterInput` is for **stepper** UX (small bounded counts).
+- Always pass both `min` and a sensible `max` when a `+` button would otherwise grow the value unbounded — the primitive enforces clamping, but the disabled state on the buttons only kicks in when bounds are known.
 
 ---
 
