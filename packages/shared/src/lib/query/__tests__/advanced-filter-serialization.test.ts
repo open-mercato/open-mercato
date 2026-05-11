@@ -9,6 +9,12 @@ import {
 import type { AdvancedFilterTree, FilterCombinator } from '../advanced-filter-tree'
 
 describe('serializeTree', () => {
+  it('omits params for an empty tree', () => {
+    expect(serializeTree({
+      root: { id: 'r', type: 'group', combinator: 'and', children: [] },
+    })).toEqual({})
+  })
+
   it('emits v2 bracketed params for a single rule', () => {
     const tree: AdvancedFilterTree = {
       root: {

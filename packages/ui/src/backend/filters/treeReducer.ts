@@ -6,31 +6,64 @@ import {
   validateTreeLimits,
   TREE_LIMITS,
 } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import type { FilterOperator } from '@open-mercato/shared/lib/query/advanced-filter'
 
 export type TreeAction =
-  | { type: 'addRule'; groupId: string; defaultField?: string }
-  | { type: 'addGroup'; groupId: string; defaultField?: string }
+  | { type: 'addRule'; groupId: string; defaultField?: string; defaultOperator?: FilterOperator }
+  | { type: 'addGroup'; groupId: string; defaultField?: string; defaultOperator?: FilterOperator }
   | { type: 'removeNode'; nodeId: string }
   | { type: 'updateRule'; ruleId: string; updates: Partial<Pick<FilterRule, 'field' | 'operator' | 'value'>> }
   | { type: 'updateGroupCombinator'; groupId: string; combinator: FilterCombinator }
+  | { type: 'reorderChildren'; groupId: string; fromIdx: number; toIdx: number }
+  | { type: 'removeLast' }
+  | { type: 'replaceRoot'; root: FilterGroup }
 
-function emptyRule(defaultField?: string): FilterRule {
+// Monotonically increasing within a session so that sibling inserts do not
+// collide on `Date.now()` resolution. Runtime-only — never serialized.
+let addedAtCounter = 0
+function nextAddedAt(): number {
+  addedAtCounter += 1
+  return Date.now() + addedAtCounter
+}
+
+function emptyRule(defaultField?: string, defaultOperator?: FilterOperator): FilterRule {
   return {
     id: crypto.randomUUID(),
     type: 'rule',
     field: defaultField ?? '',
-    operator: 'contains',
+    operator: defaultOperator ?? 'contains',
     value: '',
+    addedAt: nextAddedAt(),
   }
 }
 
-function emptyGroup(defaultField?: string): FilterGroup {
+function emptyGroup(defaultField?: string, defaultOperator?: FilterOperator): FilterGroup {
   return {
     id: crypto.randomUUID(),
     type: 'group',
     combinator: 'and',
-    children: [emptyRule(defaultField)],
+    children: [emptyRule(defaultField, defaultOperator)],
+    addedAt: nextAddedAt(),
   }
+}
+
+type WithAddedAt = { addedAt?: number }
+
+function findMaxAddedAtNode(
+  group: FilterGroup,
+): { parent: FilterGroup; idx: number; addedAt: number } | null {
+  let best: { parent: FilterGroup; idx: number; addedAt: number } | null = null
+  function walk(g: FilterGroup) {
+    g.children.forEach((c, idx) => {
+      const a = (c as unknown as WithAddedAt).addedAt
+      if (typeof a === 'number') {
+        if (!best || a > best.addedAt) best = { parent: g, idx, addedAt: a }
+      }
+      if (c.type === 'group') walk(c)
+    })
+  }
+  walk(group)
+  return best
 }
 
 function findGroupAndDepth(root: FilterGroup, id: string, depth = 1): { group: FilterGroup; depth: number } | null {
@@ -54,21 +87,37 @@ function countRules(group: FilterGroup): number {
 }
 
 export function treeReducer(state: AdvancedFilterTree, action: TreeAction): AdvancedFilterTree {
+  // replaceRoot bypasses cloning/walking — it overwrites the entire root.
+  if (action.type === 'replaceRoot') {
+    const next: AdvancedFilterTree = { root: action.root }
+    const v = validateTreeLimits(next)
+    return v.ok ? next : state
+  }
+
   // Deep clone so React detects state change.
   const next: AdvancedFilterTree = JSON.parse(JSON.stringify(state))
+
+  if (action.type === 'removeLast') {
+    const found = findMaxAddedAtNode(next.root)
+    if (!found) return state
+    found.parent.children.splice(found.idx, 1)
+    const v = validateTreeLimits(next)
+    return v.ok ? next : state
+  }
+
   let mutated = false
 
   function apply(group: FilterGroup): boolean {
     switch (action.type) {
       case 'addRule':
         if (group.id === action.groupId) {
-          group.children.push(emptyRule(action.defaultField))
+          group.children.push(emptyRule(action.defaultField, action.defaultOperator))
           return true
         }
         break
       case 'addGroup':
         if (group.id === action.groupId) {
-          group.children.push(emptyGroup(action.defaultField))
+          group.children.push(emptyGroup(action.defaultField, action.defaultOperator))
           return true
         }
         break
@@ -90,6 +139,22 @@ export function treeReducer(state: AdvancedFilterTree, action: TreeAction): Adva
         for (const c of group.children) {
           if (c.type === 'rule' && c.id === action.ruleId) {
             Object.assign(c, action.updates)
+            return true
+          }
+        }
+        break
+      case 'reorderChildren':
+        if (group.id === action.groupId) {
+          const arr = group.children
+          if (
+            action.fromIdx >= 0 &&
+            action.fromIdx < arr.length &&
+            action.toIdx >= 0 &&
+            action.toIdx < arr.length &&
+            action.fromIdx !== action.toIdx
+          ) {
+            const [moved] = arr.splice(action.fromIdx, 1)
+            arr.splice(action.toIdx, 0, moved)
             return true
           }
         }

@@ -10,9 +10,12 @@ export type FilterOperator =
 
 export type FilterFieldType = 'text' | 'number' | 'date' | 'select' | 'boolean' | 'tags'
 
+export type FilterOptionTone = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'brand' | 'pink'
+
 export type FilterOption = {
   value: string
   label: string
+  tone?: FilterOptionTone
 }
 
 export type FilterFieldDef = {
@@ -20,6 +23,7 @@ export type FilterFieldDef = {
   label: string
   type: FilterFieldType
   group?: string
+  iconName?: string
   loadOptions?: (query?: string) => Promise<FilterOption[]>
   options?: FilterOption[]
 }
@@ -315,9 +319,14 @@ import type {
 } from './advanced-filter-tree'
 
 export function serializeTree(tree: AdvancedFilterTree): Record<string, string> {
+  if (!treeHasRules(tree.root)) return {}
   const out: Record<string, string> = { 'filter[v]': '2' }
   serializeTreeGroup(tree.root, 'filter[root]', out)
   return out
+}
+
+function treeHasRules(group: TreeFilterGroup): boolean {
+  return group.children.some((child) => child.type === 'rule' || treeHasRules(child))
 }
 
 function serializeTreeGroup(group: TreeFilterGroup, prefix: string, out: Record<string, string>): void {
@@ -428,4 +437,69 @@ export function flatToTree(flat: AdvancedFilterState): AdvancedFilterTree {
   return {
     root: { id: crypto.randomUUID(), type: 'group', combinator: 'or', children: orChildren },
   }
+}
+
+/**
+ * Map a dictionary entry's display color (named like 'red'/'green' or a hex like '#ef4444')
+ * to a `FilterOptionTone`, so dictionary-backed select options can render with the
+ * correct status dot in chips and value pills. Unknown / undefined inputs return
+ * `undefined` so the consumer falls back to plain (no tone) rendering.
+ */
+export function mapDictionaryColorToTone(color: string | null | undefined): FilterOptionTone | undefined {
+  if (!color || typeof color !== 'string') return undefined
+  const trimmed = color.trim().toLowerCase()
+  if (!trimmed) return undefined
+  const named: Record<string, FilterOptionTone> = {
+    red: 'error',
+    crimson: 'error',
+    pink: 'pink',
+    rose: 'pink',
+    fuchsia: 'pink',
+    magenta: 'pink',
+    green: 'success',
+    emerald: 'success',
+    lime: 'success',
+    teal: 'success',
+    amber: 'warning',
+    yellow: 'warning',
+    orange: 'warning',
+    blue: 'info',
+    cyan: 'info',
+    sky: 'info',
+    indigo: 'info',
+    gray: 'neutral',
+    grey: 'neutral',
+    slate: 'neutral',
+    zinc: 'neutral',
+    stone: 'neutral',
+    violet: 'brand',
+    purple: 'brand',
+  }
+  if (named[trimmed]) return named[trimmed]
+  const hexMatch = /^#?([0-9a-f]{6})$/i.exec(trimmed)
+  if (!hexMatch) return undefined
+  const hex = hexMatch[1]
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  if (delta < 24) return 'neutral'
+  let hue = 0
+  if (max === r) hue = ((g - b) / delta) % 6
+  else if (max === g) hue = (b - r) / delta + 2
+  else hue = (r - g) / delta + 4
+  hue = (hue * 60 + 360) % 360
+  // Hue ranges (degrees): 0-20 red(error), 20-50 orange(warning), 50-80 yellow(warning),
+  // 80-170 green(success), 170-260 blue/indigo(info), 260-320 violet/purple(brand),
+  // 320-340 pink/magenta(pink), 340-360 red(error).
+  if (hue < 20) return 'error'
+  if (hue < 50) return 'warning'
+  if (hue < 80) return 'warning'
+  if (hue < 170) return 'success'
+  if (hue < 260) return 'info'
+  if (hue < 320) return 'brand'
+  if (hue < 340) return 'pink'
+  return 'error'
 }

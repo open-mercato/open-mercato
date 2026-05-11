@@ -17,6 +17,7 @@ type ColumnMeta = {
   filterLoadOptions?: (query?: string) => Promise<FilterOption[]>
   filterable?: boolean
   filterGroup?: string
+  filterIconName?: string
   columnChooserGroup?: string
   alwaysVisible?: boolean
   hidden?: boolean
@@ -85,6 +86,7 @@ export function useAutoDiscoveredFields({
           type,
           group: meta?.filterGroup ?? meta?.columnChooserGroup,
         }
+        if (meta?.filterIconName) field.iconName = meta.filterIconName
         if (meta?.filterOptions) field.options = meta.filterOptions
         if (meta?.filterLoadOptions) field.loadOptions = meta.filterLoadOptions
         filterFields.push(field)

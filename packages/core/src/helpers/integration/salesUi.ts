@@ -94,10 +94,6 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
-function normalizeAdjustmentKindValue(kindLabel: string): string {
-  return kindLabel.trim().toLowerCase().replace(/\s+/g, '_');
-}
-
 function readId(payload: unknown, keys: string[]): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const map = payload as Record<string, unknown>;
@@ -1078,27 +1074,26 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     // Radix Select trigger — target by CrudForm field id (kind picker)
     const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
     await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    const kindLabel = options.kindLabel ?? 'Surcharge';
+    const selectKindOption = async (): Promise<void> => {
+      if ((await kindTrigger.count()) === 0) return;
+      await waitForOptionalTextToDisappear(
+        dialog,
+        /Loading adjustment kinds…|Loading adjustment kinds\.\.\./i,
+        TEST_WAIT_TIMEOUT_MS,
+      );
+      await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      await kindTrigger.click();
+      const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+      await kindOption.waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS });
+      await kindOption.click({ force: true });
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
+    };
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     await labelInput.fill(options.label);
     await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
-
-    if ((await kindTrigger.count()) > 0) {
-      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
-      const kindLabel = options.kindLabel ?? 'Surcharge';
-      // Open Radix Select via click; then drive selection via keyboard so the
-      // listbox keystroke matching jumps to the desired option (Discount /
-      // Surcharge / etc.). This sidesteps modal-backdrop click interception
-      // that occurs when a Radix Select is rendered inside a Radix Dialog.
-      await kindTrigger.click();
-      await page.waitForTimeout(150);
-      // Type the first letter to jump to the matching option
-      await page.keyboard.type(kindLabel.charAt(0));
-      await page.waitForTimeout(150);
-      await page.keyboard.press('Enter');
-      void expectedKindValue;
-    }
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {
@@ -1111,6 +1106,10 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
       await enabledAmountInputs.first().fill(String(options.netAmount));
       await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
     }
+
+    await selectKindOption();
+    await labelInput.fill(options.label);
+    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
   };
 
   let saved = false;

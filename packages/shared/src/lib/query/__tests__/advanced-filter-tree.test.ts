@@ -3,6 +3,9 @@ import {
   validateTreeLimits,
   createEmptyTree,
   compileTreeToWhere,
+  serializeTreeForPersist,
+  deserializeTreeFromPersist,
+  isPersistedFilterTree,
   type AdvancedFilterTree,
   type FilterRule,
   type FilterGroup,
@@ -234,5 +237,90 @@ describe('compileTreeToWhere — every operator', () => {
       root: group('1', [{ id: 'a', type: 'rule', field: 'f', operator, value }]),
     }
     expect(compileTreeToWhere(tree)).toEqual(expected)
+  })
+})
+
+describe('serializeTreeForPersist / deserializeTreeFromPersist', () => {
+  // Build a tree with runtime metadata (`addedAt`) on every node, then
+  // verify it is stripped from the persisted shape and restored cleanly.
+  const tree: AdvancedFilterTree = {
+    root: {
+      id: 'root',
+      type: 'group',
+      combinator: 'and',
+      addedAt: 11,
+      children: [
+        { id: 'a', type: 'rule', field: 'name', operator: 'contains', value: 'X', addedAt: 12 } as FilterRule,
+        {
+          id: 'sub',
+          type: 'group',
+          combinator: 'or',
+          addedAt: 13,
+          children: [
+            { id: 'b', type: 'rule', field: 'status', operator: 'is', value: 'active', addedAt: 14 } as FilterRule,
+            { id: 'c', type: 'rule', field: 'status', operator: 'is', value: 'lead', addedAt: 15 } as FilterRule,
+          ],
+        } as FilterGroup,
+      ],
+    },
+  }
+
+  it('serializeTreeForPersist tags v:2 and strips addedAt from every node', () => {
+    const persisted = serializeTreeForPersist(tree)
+    expect(persisted.v).toBe(2)
+    // Walk every node and assert no addedAt key.
+    function assertNoAddedAt(node: any): void {
+      expect('addedAt' in node).toBe(false)
+      if (node.children) for (const c of node.children) assertNoAddedAt(c)
+    }
+    assertNoAddedAt(persisted.root)
+  })
+
+  it('serializeTreeForPersist preserves ids, combinators, and child order', () => {
+    const persisted = serializeTreeForPersist(tree)
+    expect(persisted.root.id).toBe('root')
+    expect(persisted.root.combinator).toBe('and')
+    expect(persisted.root.children.map((c) => c.id)).toEqual(['a', 'sub'])
+    const sub = persisted.root.children[1] as FilterGroup
+    expect(sub.combinator).toBe('or')
+    expect(sub.children.map((c) => c.id)).toEqual(['b', 'c'])
+  })
+
+  it('isPersistedFilterTree distinguishes persisted shape from legacy filterValues', () => {
+    expect(isPersistedFilterTree(serializeTreeForPersist(tree))).toBe(true)
+    expect(isPersistedFilterTree({ status: 'active', source: 'event' })).toBe(false) // legacy
+    expect(isPersistedFilterTree(null)).toBe(false)
+    expect(isPersistedFilterTree(undefined)).toBe(false)
+    expect(isPersistedFilterTree({ v: 1, root: {} })).toBe(false) // wrong version
+    expect(isPersistedFilterTree({ v: 2 })).toBe(false) // missing root
+    expect(isPersistedFilterTree({ v: 2, root: { type: 'rule' } })).toBe(false) // root not a group
+    expect(isPersistedFilterTree({ v: 2, root: { type: 'group', combinator: 'xor', children: [] } })).toBe(false)
+  })
+
+  it('round-trips through serialize → deserialize without losing structure', () => {
+    const persisted = serializeTreeForPersist(tree)
+    const restored = deserializeTreeFromPersist(persisted as unknown)
+    expect(restored).not.toBeNull()
+    if (!restored) return
+    expect(restored.root.id).toBe('root')
+    expect(restored.root.children.map((c) => c.id)).toEqual(['a', 'sub'])
+    const sub = restored.root.children[1] as FilterGroup
+    expect(sub.combinator).toBe('or')
+    expect(sub.children.map((c) => c.id)).toEqual(['b', 'c'])
+  })
+
+  it('deserializeTreeFromPersist returns null for non-tree shapes', () => {
+    expect(deserializeTreeFromPersist({ status: 'active' })).toBeNull()
+    expect(deserializeTreeFromPersist(null)).toBeNull()
+    expect(deserializeTreeFromPersist(undefined)).toBeNull()
+    expect(deserializeTreeFromPersist({ v: 1, root: {} })).toBeNull()
+  })
+
+  it('compiled WHERE matches before and after a persist round-trip', () => {
+    const before = compileTreeToWhere(tree)
+    const restored = deserializeTreeFromPersist(serializeTreeForPersist(tree) as unknown)
+    expect(restored).not.toBeNull()
+    if (!restored) return
+    expect(compileTreeToWhere(restored)).toEqual(before)
   })
 })

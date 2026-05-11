@@ -1,9 +1,10 @@
 "use client"
 import * as React from 'react'
 import type { AdvancedFilterState, FilterCondition, FilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
-import { createEmptyCondition, getDefaultOperator, normalizeAdvancedFilterState, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
+import { createEmptyCondition, getDefaultOperator, normalizeAdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
-import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { treeReducer, type TreeAction } from '../filters/treeReducer'
+import { validateTreeForApply, type ValidationError } from '../filters/filterValidation'
 
 export type UseAdvancedFilterOptions = {
   fields: FilterFieldDef[]
@@ -78,30 +79,83 @@ export function useAdvancedFilter({ fields, onChange }: UseAdvancedFilterOptions
   }
 }
 
-export type UseAdvancedFilterTreeOptions = {
-  initial?: AdvancedFilterTree
-  onChange?: (state: AdvancedFilterTree) => void
+export type UseAdvancedFilterTreeArgs = {
+  initial: AdvancedFilterTree
+  fields: FilterFieldDef[]
+  onApply: (tree: AdvancedFilterTree) => void
+  debounceMs?: number
 }
 
-export type UseAdvancedFilterTreeReturn = {
-  state: AdvancedFilterTree
-  setState: (next: AdvancedFilterTree) => void
-  serialized: Record<string, string>
-  reset: () => void
+export type UseAdvancedFilterTreeResult = {
+  tree: AdvancedFilterTree
+  setTree: (t: AdvancedFilterTree) => void
+  dispatch: (a: TreeAction) => void
+  pendingErrors: ValidationError[]
+  flush: () => void
+  clear: () => void
+  hasActiveRules: boolean
 }
 
 /**
- * Manage the tree-shaped advanced filter state and expose its v2 URL serialization.
- * Use with `<DataTable advancedFilter={{ value, onChange, ... }} />`.
+ * Tree-shaped advanced filter state with debounced auto-apply, validation gating,
+ * and helpers for the CRM filter builder UI.
+ *
+ * - Debounced `onApply(tree)` (default 400 ms) — fires only when the tree validates.
+ * - `pendingErrors` exposes the latest validation errors for inline UI rendering.
+ * - `flush()` applies immediately if valid; `clear()` empties root children.
+ * - `hasActiveRules` mirrors `tree.root.children.length > 0`.
  */
-export function useAdvancedFilterTree(opts: UseAdvancedFilterTreeOptions = {}): UseAdvancedFilterTreeReturn {
-  const [state, setState] = React.useState<AdvancedFilterTree>(opts.initial ?? createEmptyTree())
-  const onChange = opts.onChange
-  const setStateAndNotify = React.useCallback((next: AdvancedFilterTree) => {
-    setState(next)
-    onChange?.(next)
-  }, [onChange])
-  const serialized = React.useMemo(() => serializeTree(state), [state])
-  const reset = React.useCallback(() => setStateAndNotify(createEmptyTree()), [setStateAndNotify])
-  return { state, setState: setStateAndNotify, serialized, reset }
+export function useAdvancedFilterTree({
+  initial,
+  fields,
+  onApply,
+  debounceMs = 400,
+}: UseAdvancedFilterTreeArgs): UseAdvancedFilterTreeResult {
+  const [tree, setTree] = React.useState<AdvancedFilterTree>(initial)
+  const [pendingErrors, setPendingErrors] = React.useState<ValidationError[]>([])
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const didMountRef = React.useRef(false)
+  const onApplyRef = React.useRef(onApply)
+  const fieldsRef = React.useRef(fields)
+  React.useEffect(() => { onApplyRef.current = onApply }, [onApply])
+  React.useEffect(() => { fieldsRef.current = fields }, [fields])
+
+  const tryApply = React.useCallback((candidate: AdvancedFilterTree): boolean => {
+    const result = validateTreeForApply(candidate, fieldsRef.current)
+    if (result.ok) {
+      setPendingErrors([])
+      onApplyRef.current(candidate)
+      return true
+    }
+    setPendingErrors(result.errors)
+    return false
+  }, [])
+
+  React.useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true
+      return
+    }
+    if (timerRef.current) clearTimeout(timerRef.current)
+    const timer = setTimeout(() => { tryApply(tree) }, debounceMs)
+    timerRef.current = timer
+    return () => clearTimeout(timer)
+  }, [tree, debounceMs, tryApply])
+
+  const dispatch = React.useCallback((action: TreeAction) => {
+    setTree((prev) => treeReducer(prev, action))
+  }, [])
+
+  const flush = React.useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    tryApply(tree)
+  }, [tree, tryApply])
+
+  const clear = React.useCallback(() => {
+    setTree((prev) => ({ root: { ...prev.root, children: [] } }))
+  }, [])
+
+  const hasActiveRules = tree.root.children.length > 0
+
+  return { tree, setTree, dispatch, pendingErrors, flush, clear, hasActiveRules }
 }

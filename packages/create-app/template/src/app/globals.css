@@ -22,6 +22,14 @@ TODO: Fix that latter to have reference by the package names
   z-index: var(--z-index-popover);
 }
 
+/* Explicitly written outside @theme — Tailwind 4 only emits @theme inline
+   variables that some compiled utility references, so writing the value
+   inline here guarantees the rule lands in the bundle even if the source
+   scanner misses the className literal. */
+@utility z-modal-elevated {
+  z-index: var(--z-index-modal-elevated, 55);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -121,6 +129,7 @@ TODO: Fix that latter to have reference by the package names
   --z-index-overlay: 30;
   --z-index-modal: 40;
   --z-index-popover: 45;
+  --z-index-modal-elevated: 55;
   --z-index-toast: 50;
   --z-index-tooltip: 60;
   --z-index-banner: 70;

@@ -3,7 +3,6 @@ import {
   treeReducer,
   canAddRule,
   canAddGroup,
-  type TreeAction,
 } from '../treeReducer'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 
@@ -129,5 +128,62 @@ describe('canAddRule / canAddGroup', () => {
       },
     }
     expect(canAddRule(t, 'r')).toBe(false)
+  })
+})
+
+describe('treeReducer — reorderChildren', () => {
+  it('swaps two children inside the same group', () => {
+    const tree: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [
+      { id: 'a', type: 'rule', field: 'name', operator: 'contains', value: 'X' } as any,
+      { id: 'b', type: 'rule', field: 'name', operator: 'contains', value: 'Y' } as any,
+      { id: 'c', type: 'rule', field: 'name', operator: 'contains', value: 'Z' } as any,
+    ] } }
+    const out = treeReducer(tree, { type: 'reorderChildren', groupId: 'r', fromIdx: 0, toIdx: 2 })
+    expect(out.root.children.map((c: any) => c.id)).toEqual(['b', 'c', 'a'])
+  })
+  it('no-op when group not found', () => {
+    const tree: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [] } }
+    expect(treeReducer(tree, { type: 'reorderChildren', groupId: 'missing', fromIdx: 0, toIdx: 1 })).toBe(tree)
+  })
+})
+
+describe('treeReducer — removeLast', () => {
+  it('removes the rule with the highest addedAt', () => {
+    const tree: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [
+      { id: 'a', type: 'rule', field: 'name', operator: 'contains', value: 'X', addedAt: 1 } as any,
+      { id: 'b', type: 'rule', field: 'name', operator: 'contains', value: 'Y', addedAt: 3 } as any,
+      { id: 'c', type: 'rule', field: 'name', operator: 'contains', value: 'Z', addedAt: 2 } as any,
+    ] } }
+    const out = treeReducer(tree, { type: 'removeLast' })
+    expect(out.root.children.map((c: any) => c.id)).toEqual(['a', 'c'])
+  })
+  it('no-op when no node has addedAt', () => {
+    const tree: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [] } }
+    expect(treeReducer(tree, { type: 'removeLast' })).toBe(tree)
+  })
+})
+
+describe('treeReducer — replaceRoot', () => {
+  it('overwrites the root group', () => {
+    const tree: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [] } }
+    const newRoot = { id: 'r2', type: 'group' as const, combinator: 'or' as const, children: [] }
+    const out = treeReducer(tree, { type: 'replaceRoot', root: newRoot })
+    expect(out.root.id).toBe('r2')
+    expect(out.root.combinator).toBe('or')
+  })
+})
+
+describe('treeReducer — addedAt stamping', () => {
+  it('stamps addedAt on addRule', () => {
+    const before: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [] } }
+    const after = treeReducer(before, { type: 'addRule', groupId: 'r' })
+    const inserted = after.root.children[0] as any
+    expect(typeof inserted.addedAt).toBe('number')
+  })
+  it('stamps addedAt on addGroup', () => {
+    const before: AdvancedFilterTree = { root: { id: 'r', type: 'group', combinator: 'and', children: [] } }
+    const after = treeReducer(before, { type: 'addGroup', groupId: 'r' })
+    const inserted = after.root.children[0] as any
+    expect(typeof inserted.addedAt).toBe('number')
   })
 })

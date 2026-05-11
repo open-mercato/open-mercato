@@ -14,6 +14,7 @@ const tagVariants = cva(
         info:    'border-status-info-border bg-status-info-bg text-status-info-text',
         neutral: 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text',
         brand:   'border-brand-violet/30 bg-brand-violet/10 text-brand-violet',
+        pink:    'border-status-pink-border bg-status-pink-bg text-status-pink-text',
       },
     },
     defaultVariants: { variant: 'default' },
@@ -28,9 +29,10 @@ const dotColorMap: Record<TagVariant, string> = {
   info:    'bg-status-info-icon',
   neutral: 'bg-status-neutral-icon',
   brand:   'bg-brand-violet',
+  pink:    'bg-status-pink-icon',
 }
 
-export type TagVariant = 'default' | 'success' | 'warning' | 'error' | 'info' | 'neutral' | 'brand'
+export type TagVariant = 'default' | 'success' | 'warning' | 'error' | 'info' | 'neutral' | 'brand' | 'pink'
 
 export type TagProps = React.HTMLAttributes<HTMLSpanElement> & {
   variant?: TagVariant

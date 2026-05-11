@@ -74,11 +74,15 @@ test.describe('TC-CRM-046: Deal list filter by people uses value-keyed IDs', () 
       });
       await expect(page.getByRole('cell', { name: distractorDealTitle, exact: true })).toHaveCount(0);
 
-      // The chip displays the resolved person label (via formatValue), not the raw UUID.
-      await expect(page.getByRole('button', { name: /people.*qa tc-crm-046 keeper/i })).toBeVisible();
+      // The chip displays the resolved person label, not the raw UUID.
+      const peopleChip = page
+        .locator('[data-testid="active-filter-chip"]')
+        .filter({ hasText: /people.*qa tc-crm-046 keeper/i })
+        .first();
+      await expect(peopleChip).toBeVisible();
 
       // Removing the filter via the chip must widen the list again.
-      await page.getByRole('button', { name: /people.*qa tc-crm-046 keeper/i }).click();
+      await peopleChip.getByRole('button', { name: /remove filter/i }).click();
       await expect(page.getByRole('cell', { name: distractorDealTitle, exact: true })).toBeVisible({
         timeout: 10000,
       });

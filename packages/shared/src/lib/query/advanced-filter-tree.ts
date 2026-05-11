@@ -11,6 +11,10 @@ export type FilterRule = {
   field: string
   operator: FilterOperator
   value: unknown
+  // Runtime-only metadata. MUST NOT be serialized into URL state or persisted
+  // perspectives. Used by the editor reducer (e.g. removeLast) to find the
+  // most recently inserted node.
+  addedAt?: number
 }
 
 export type FilterGroup = {
@@ -18,6 +22,10 @@ export type FilterGroup = {
   type: 'group'
   combinator: FilterCombinator
   children: Array<FilterRule | FilterGroup>
+  // Runtime-only metadata. MUST NOT be serialized into URL state or persisted
+  // perspectives. Used by the editor reducer (e.g. removeLast) to find the
+  // most recently inserted node.
+  addedAt?: number
 }
 
 export type AdvancedFilterTree = {
@@ -172,3 +180,103 @@ function compileGroup(node: FilterGroup): Record<string, unknown> | null {
 
 // Re-export isValuelessOperator so consumers of this module can access it
 export { isValuelessOperator }
+
+/**
+ * Build a single-rule tree wrapped in an AND root group.
+ * Useful for quick-filter presets that apply one rule.
+ */
+export function makeRuleTree(rule: { field: string; operator: FilterOperator; value: unknown }): AdvancedFilterTree {
+  const ruleNode: FilterRule = {
+    id: crypto.randomUUID(),
+    type: 'rule',
+    field: rule.field,
+    operator: rule.operator,
+    value: rule.value,
+  }
+  return {
+    root: {
+      id: crypto.randomUUID(),
+      type: 'group',
+      combinator: 'and',
+      children: [ruleNode],
+    },
+  }
+}
+
+/**
+ * Persisted shape of an `AdvancedFilterTree` inside `PerspectiveSettings.filters`.
+ * Carries a version marker so the loader can distinguish a tree from a legacy
+ * flat `FilterValues` record (and from the plain `{root: ...}` shape that
+ * `maybeMigrateLegacyFilterValues` already passes through).
+ *
+ * Runtime-only metadata (`addedAt`) is stripped before persisting so that
+ * saved perspectives stay deterministic across reloads.
+ */
+export type PersistedFilterTree = {
+  v: 2
+  root: FilterGroup
+}
+
+function stripRuntimeMetadataDeep<T extends FilterRule | FilterGroup>(node: T): T {
+  if (node.type === 'rule') {
+    const { addedAt: _ignored, ...rest } = node as FilterRule & { addedAt?: number }
+    return rest as T
+  }
+  const { addedAt: _ignored, children, ...rest } = node as FilterGroup & { addedAt?: number }
+  const cleanChildren = children.map((c) => stripRuntimeMetadataDeep(c))
+  return { ...rest, children: cleanChildren } as T
+}
+
+/** Serialize a tree for persistence (perspective settings, exports, etc.). */
+export function serializeTreeForPersist(tree: AdvancedFilterTree): PersistedFilterTree {
+  return { v: 2, root: stripRuntimeMetadataDeep(tree.root) }
+}
+
+/** Type guard: does `value` look like a persisted filter tree? */
+export function isPersistedFilterTree(value: unknown): value is PersistedFilterTree {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  if (record.v !== 2) return false
+  const root = record.root
+  if (!root || typeof root !== 'object') return false
+  const r = root as Record<string, unknown>
+  return r.type === 'group' && (r.combinator === 'and' || r.combinator === 'or') && Array.isArray(r.children)
+}
+
+/**
+ * Restore a tree from its persisted shape. Returns `null` when the input is
+ * not a recognizable persisted tree — callers should fall back to legacy
+ * filter handling in that case.
+ */
+export function deserializeTreeFromPersist(value: unknown): AdvancedFilterTree | null {
+  if (!isPersistedFilterTree(value)) return null
+  return { root: value.root }
+}
+
+/**
+ * Build a multi-rule tree wrapped in a root group with the given combinator.
+ * Useful for quick-filter presets that combine multiple rules (e.g.
+ * `status is win AND close_date is_after start_of_quarter`).
+ */
+export function makeMultiRuleTree(
+  rules: Array<{ field: string; operator: FilterOperator; value: unknown }>,
+  combinator: FilterCombinator = 'and',
+): AdvancedFilterTree {
+  return {
+    root: {
+      id: crypto.randomUUID(),
+      type: 'group',
+      combinator,
+      children: rules.map((rule) => {
+        const node: FilterRule = {
+          id: crypto.randomUUID(),
+          type: 'rule',
+          field: rule.field,
+          operator: rule.operator,
+          value: rule.value,
+        }
+        return node
+      }),
+    },
+  }
+}

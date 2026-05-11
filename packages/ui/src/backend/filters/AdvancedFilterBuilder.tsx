@@ -1,6 +1,25 @@
-"use client"
+'use client'
 import * as React from 'react'
-import { Plus, Trash2, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Plus, Trash2, X, GripVertical, ChevronDown } from 'lucide-react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Input } from '../../primitives/input'
@@ -11,6 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../primitives/select'
+import { Popover, PopoverContent, PopoverTrigger } from '../../primitives/popover'
+import { Checkbox } from '../../primitives/checkbox'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   FilterFieldDef,
@@ -30,6 +51,7 @@ import {
   TREE_LIMITS,
 } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { treeReducer, canAddRule, canAddGroup, type TreeAction } from './treeReducer'
+import { FilterFieldPicker } from './FilterFieldPicker'
 
 export type AdvancedFilterBuilderProps = {
   fields: FilterFieldDef[]
@@ -37,6 +59,7 @@ export type AdvancedFilterBuilderProps = {
   onChange: (state: AdvancedFilterTree) => void
   onApply: () => void
   onClear: () => void
+  pendingErrors?: Array<{ ruleId: string; messageKey: string; message: string }>
 }
 
 const OPERATOR_LABELS: Record<FilterOperator, string> = {
@@ -52,8 +75,38 @@ function getFieldType(fields: FilterFieldDef[], fieldKey: string): FilterFieldTy
   return fields.find((f) => f.key === fieldKey)?.type ?? 'text'
 }
 
+/**
+ * Operator "shapes" describe what a rule's `value` looks like for that operator.
+ * - `valueless`  — no value (is_empty / is_true / etc.)
+ * - `multi`      — array of values (is_any_of / has_all_of / etc.)
+ * - `range`      — exactly two values (between)
+ * - `single`     — one scalar (default)
+ *
+ * Used to decide whether switching operators on a rule should preserve the
+ * current value. Switching `is` → `is not` keeps "Active"; switching
+ * `is` → `between` resets because the value shape changes.
+ */
+type OperatorShape = 'valueless' | 'multi' | 'range' | 'single'
+
+const MULTI_VALUE_OPS = new Set<FilterOperator>([
+  'is_any_of', 'is_none_of', 'has_any_of', 'has_all_of', 'has_none_of',
+])
+
+function getOperatorShape(op: FilterOperator): OperatorShape {
+  if (isValuelessOperator(op)) return 'valueless'
+  if (MULTI_VALUE_OPS.has(op)) return 'multi'
+  if (op === 'between') return 'range'
+  return 'single'
+}
+
+type DragHandleProps = React.HTMLAttributes<HTMLButtonElement> & {
+  ref?: React.Ref<HTMLButtonElement>
+}
+
+type Translator = ReturnType<typeof useT>
+
 export function AdvancedFilterBuilder({
-  fields, value, onChange, onApply, onClear,
+  fields, value, onChange, onApply, onClear, pendingErrors,
 }: AdvancedFilterBuilderProps) {
   const t = useT()
 
@@ -61,7 +114,6 @@ export function AdvancedFilterBuilder({
     onChange(treeReducer(value, action))
   }, [onChange, value])
 
-  // Cmd/Ctrl+Enter to apply (matches AGENTS.md UI conventions)
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -73,64 +125,174 @@ export function AdvancedFilterBuilder({
     return () => window.removeEventListener('keydown', onKey)
   }, [onApply])
 
+  const errorByRuleId = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of pendingErrors ?? []) m.set(e.ruleId, t(e.messageKey, e.message))
+    return m
+  }, [pendingErrors, t])
+
   const empty = value.root.children.length === 0
   const defaultField = fields.length > 0 ? fields[0].key : undefined
 
-  return (
-    <div className="inline-flex flex-col gap-3 p-3 min-w-[640px]">
-      {empty ? (
-        <p className="text-sm text-muted-foreground">
-          {t('ui.advancedFilter.noConditions', 'No filter conditions. Click "Add filter" to start.')}
-        </p>
-      ) : (
-        <GroupView
-          group={value.root}
-          level={1}
-          fields={fields}
-          tree={value}
-          dispatch={dispatch}
-          defaultField={defaultField}
-          t={t}
-        />
-      )}
+  // Per-group SortableContexts scope drag-and-drop to within-group ordering.
+  // The DragOverlay below renders a stable preview that
+  // matches the original row's footprint — without it, dnd-kit applies
+  // `transform` to the source row in place, which the wrapping flex layout
+  // distorted into a "tall" / morphed ghost.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const [activeDrag, setActiveDrag] = React.useState<{ node: FilterRule | FilterGroup; parent: FilterGroup } | null>(null)
+  const findNode = React.useCallback((id: string) => locateInTree(value.root, id), [value])
 
-      <div className="flex items-center gap-3 pt-2 border-t">
-        {empty ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto px-0 py-0 text-base font-medium text-primary hover:bg-transparent hover:text-primary/90"
-            onClick={() => dispatch({ type: 'addRule', groupId: value.root.id, defaultField })}
-          >
-            <Plus className="size-4" />
-            {t('ui.advancedFilter.addFilter', 'Add filter')}
-          </Button>
+  const handleDragStart = React.useCallback((e: DragStartEvent) => {
+    const found = findNode(String(e.active.id))
+    if (found) setActiveDrag(found)
+  }, [findNode])
+
+  const handleDragEnd = React.useCallback((e: DragEndEvent) => {
+    setActiveDrag(null)
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const from = findNode(String(active.id))
+    const to = findNode(String(over.id))
+    if (!from || !to) return
+    if (from.parent.id !== to.parent.id) return
+    const fromIdx = from.parent.children.findIndex((c) => c.id === active.id)
+    const toIdx = to.parent.children.findIndex((c) => c.id === over.id)
+    if (fromIdx < 0 || toIdx < 0) return
+    dispatch({ type: 'reorderChildren', groupId: from.parent.id, fromIdx, toIdx })
+  }, [dispatch, findNode])
+
+  const handleDragCancel = React.useCallback(() => setActiveDrag(null), [])
+
+  // No `min-w-[640px]` on the wrapper — that forced horizontal scroll inside a
+  // 375px mobile viewport. On desktop the dialog is `sm:max-w-[720px]` so a
+  // 6-item rule (drag handle + connector + field + operator + value + trash)
+  // fits on one line; on mobile the row wraps onto 2-3 lines, which is the
+  // right compromise for a complex form on a small screen.
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="flex flex-col gap-3 p-3">
+        {!empty ? (
+          <GroupView
+            group={value.root}
+            level={1}
+            fields={fields}
+            tree={value}
+            dispatch={dispatch}
+            defaultField={defaultField}
+            errorByRuleId={errorByRuleId}
+            t={t}
+          />
         ) : null}
         {!empty ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto px-0 py-0 text-base text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={onClear}
-          >
-            <X className="size-4" />
-            {t('ui.advancedFilter.clear', 'Clear')}
-          </Button>
-        ) : null}
-        {!empty ? (
-          <Button type="button" className="ml-auto min-w-[8rem]" onClick={onApply}>
-            {t('ui.advancedFilter.apply', 'Apply')}
-          </Button>
+          <div className="flex items-center gap-3 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto px-0 py-0 text-base text-muted-foreground hover:bg-transparent hover:text-foreground"
+              onClick={onClear}
+            >
+              <X className="size-4" />
+              {t('ui.advancedFilter.clearAll', 'Clear all')}
+            </Button>
+          </div>
         ) : null}
       </div>
+      {/* Portal the DragOverlay to document.body. The host AdvancedFilterPanel
+          renders inside a Radix DialogContent that uses
+          `transform: translate(-50%, -50%)` for centering — that turns the
+          dialog into the containing block for `position: fixed` descendants,
+          and dnd-kit's DragOverlay wrapper IS `position: fixed`. Without the
+          portal, the overlay's viewport-relative coordinates are calculated
+          against the dialog instead of the viewport, so the ghost lands far
+          off-screen and looks invisible. (Same root cause already documented
+          for popovers at AdvancedFilterPanel.tsx — `modal={false}` +
+          ignorePopoverInteractions exists for the same containing-block
+          trap.) Portaling lifts the overlay above the dialog so its
+          coordinates resolve against the viewport again. */}
+      {typeof document !== 'undefined'
+        ? createPortal(
+            <DragOverlay dropAnimation={null} style={{ zIndex: 60 }}>
+              {activeDrag ? (
+                <DragGhost node={activeDrag.node} parent={activeDrag.parent} fields={fields} t={t} />
+              ) : null}
+            </DragOverlay>,
+            document.body,
+          )
+        : null}
+    </DndContext>
+  )
+}
+
+/** Find a node in the tree along with its parent group. Used by drag handlers. */
+function locateInTree(root: FilterGroup, id: string): { node: FilterRule | FilterGroup; parent: FilterGroup } | null {
+  for (const child of root.children) {
+    if (child.id === id) return { node: child, parent: root }
+    if (child.type === 'group') {
+      const found = locateInTree(child, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/**
+ * Lightweight visual stand-in for the dragged row, rendered inside the
+ * DragOverlay so the cursor follows a clean snapshot. We deliberately don't
+ * re-render the full RuleRow / GroupView (their popovers and form inputs
+ * fight the overlay); instead we show field label + operator + value as a
+ * compact pill that mirrors the row's content at-a-glance.
+ */
+function DragGhost({
+  node, parent, fields, t,
+}: {
+  node: FilterRule | FilterGroup
+  parent: FilterGroup
+  fields: FilterFieldDef[]
+  t: Translator
+}) {
+  const isGroup = node.type === 'group'
+  const labelParts: string[] = []
+  if (isGroup) {
+    const ruleCount = countRulesIn(node)
+    labelParts.push(t('ui.advancedFilter.dragGhost.group', 'Group'))
+    labelParts.push(`(${ruleCount})`)
+  } else {
+    const def = fields.find((f) => f.key === node.field)
+    labelParts.push(def?.label ?? (node.field || t('ui.advancedFilter.dragGhost.unsetField', 'Unset field')))
+    labelParts.push(OPERATOR_LABELS[node.operator] ?? node.operator)
+    if (typeof node.value === 'string' && node.value) labelParts.push(`"${node.value}"`)
+  }
+  return (
+    <div className="inline-flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-1.5 text-sm shadow-md cursor-grabbing">
+      <GripVertical className="size-4 text-muted-foreground" />
+      <span className="text-muted-foreground">{parent.combinator === 'and' ? t('ui.advancedFilter.connector.and', 'and') : t('ui.advancedFilter.connector.or', 'or')}</span>
+      <span className="font-medium">{labelParts.join(' ')}</span>
     </div>
   )
 }
 
+function countRulesIn(group: FilterGroup): number {
+  let n = 0
+  for (const c of group.children) {
+    if (c.type === 'rule') n += 1
+    else n += countRulesIn(c)
+  }
+  return n
+}
+
 function GroupView({
-  group, level, fields, tree, dispatch, defaultField, t,
+  group, level, fields, tree, dispatch, defaultField, errorByRuleId, t,
 }: {
   group: FilterGroup
   level: number
@@ -138,212 +300,408 @@ function GroupView({
   tree: AdvancedFilterTree
   dispatch: (a: TreeAction) => void
   defaultField?: string
-  t: ReturnType<typeof useT>
+  errorByRuleId: Map<string, string>
+  t: Translator
 }) {
   const isRoot = level === 1
+  // Sub-group containers render as a card (Figma SPEC-048 / Kendo React
+  // Filter): subtle muted background, full border, rounded corners and
+  // padding so the nesting boundary is visually unmistakable. The root group
+  // stays flush with the popover so it doesn't double up the dialog's own
+  // card chrome.
   const containerClass = isRoot
-    ? 'space-y-2'
-    : 'space-y-2 ml-3 pl-3 border-l-2 border-primary/30 rounded-l py-2'
+    ? 'space-y-3'
+    : 'space-y-3 rounded-lg border border-border bg-muted/30 p-3'
 
-  const widthCapHit = group.children.length >= TREE_LIMITS.maxChildrenPerGroup
-  const depthCapHit = level >= TREE_LIMITS.maxGroupLevel
-
+  // Toolbar-first layout (Kendo React Filter pattern): each group renders a
+  // single row at the top with the [And] [Or] segmented toggle, the
+  // "+ Add condition" / "+ Add subgroup" buttons, and (for non-root groups)
+  // a trailing delete `x`. There are no per-row connector words and no
+  // `Where:` prefix — the toggle is the SINGLE source of truth for the
+  // group's combinator, and to mix AND with OR the user clicks
+  // "+ Add subgroup" which spawns a nested group with its own toggle.
+  // This matches `CompositeFilterDescriptor` semantics (one logic per group,
+  // nested groups for mixed logic).
   return (
     <div className={containerClass}>
-      {group.children.length > 1 || !isRoot ? (
-        <div className={`flex items-center gap-2 ${isRoot ? 'mb-1' : '-ml-3 -mt-1 mb-1'}`}>
-          <Select
-            value={group.combinator}
-            onValueChange={(v) => dispatch({ type: 'updateGroupCombinator', groupId: group.id, combinator: v as FilterCombinator })}
-          >
-            <SelectTrigger className="h-8 min-w-[120px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="and">{t('ui.advancedFilter.matchAll', 'Match all')}</SelectItem>
-              <SelectItem value="or">{t('ui.advancedFilter.matchAny', 'Match any')}</SelectItem>
-            </SelectContent>
-          </Select>
-          {!isRoot ? (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              type="button"
-              onClick={() => dispatch({ type: 'removeNode', nodeId: group.id })}
-              aria-label={t('ui.advancedFilter.deleteGroup', 'Delete group')}
-              title={t('ui.advancedFilter.deleteGroup', 'Delete group')}
-            >
-              <X className="size-4 text-muted-foreground" />
-            </IconButton>
-          ) : null}
-        </div>
-      ) : null}
+      <GroupToolbar
+        group={group}
+        level={level}
+        tree={tree}
+        dispatch={dispatch}
+        defaultField={defaultField}
+        fields={fields}
+        isRoot={isRoot}
+        t={t}
+      />
 
+      <SortableChildrenList
+        group={group}
+        level={level}
+        fields={fields}
+        tree={tree}
+        dispatch={dispatch}
+        defaultField={defaultField}
+        errorByRuleId={errorByRuleId}
+        t={t}
+      />
+    </div>
+  )
+}
+
+// Kendo-style segmented `[And] [Or]` toggle. Mutually exclusive — clicking
+// the unselected side flips the group's combinator. Selected side is filled
+// with the brand violet to give the toolbar a clear, unambiguous primary
+// affordance (the user reported that the previous quiet text+chevron header
+// was easy to miss). The toggle is the SINGLE place to set a group's
+// combinator; row connector words and the `Where:` prefix were removed.
+function AndOrToggle({
+  combinator, onChange, t,
+}: {
+  combinator: FilterCombinator
+  onChange: (c: FilterCombinator) => void
+  t: Translator
+}) {
+  const andLabel = t('ui.advancedFilter.combinator.and', 'And')
+  const orLabel = t('ui.advancedFilter.combinator.or', 'Or')
+  const baseBtn = 'h-8 px-3 text-sm font-medium outline-none focus-visible:shadow-focus disabled:cursor-not-allowed'
+  const selBtn = 'bg-brand-violet text-white hover:bg-brand-violet/90'
+  const unselBtn = 'bg-background text-foreground hover:bg-accent'
+  return (
+    <div
+      role="group"
+      aria-label={t('ui.advancedFilter.combinator.label', 'Group combinator')}
+      className="inline-flex rounded-md border border-input overflow-hidden shrink-0"
+      data-testid="advanced-filter-combinator-toggle"
+      data-combinator={combinator}
+    >
+      <button
+        type="button"
+        aria-pressed={combinator === 'and'}
+        onClick={() => combinator !== 'and' && onChange('and')}
+        className={`${baseBtn} ${combinator === 'and' ? selBtn : unselBtn}`}
+      >
+        {andLabel}
+      </button>
+      <button
+        type="button"
+        aria-pressed={combinator === 'or'}
+        onClick={() => combinator !== 'or' && onChange('or')}
+        className={`${baseBtn} border-l border-input ${combinator === 'or' ? selBtn : unselBtn}`}
+      >
+        {orLabel}
+      </button>
+    </div>
+  )
+}
+
+function SortableChildrenList({
+  group, level, fields, tree, dispatch, defaultField, errorByRuleId, t,
+}: {
+  group: FilterGroup
+  level: number
+  fields: FilterFieldDef[]
+  tree: AdvancedFilterTree
+  dispatch: (a: TreeAction) => void
+  defaultField?: string
+  errorByRuleId: Map<string, string>
+  t: Translator
+}) {
+  // The DndContext + drag handlers live one level up in AdvancedFilterBuilder
+  // so a single drag can move children across groups. Each group still owns
+  // its own SortableContext to scope sort ordering and produce stable
+  // measurements within the group.
+  return (
+    <SortableContext items={group.children.map((c) => c.id)} strategy={verticalListSortingStrategy}>
       {group.children.map((child, idx) => (
-        child.type === 'rule' ? (
-          <RuleRow
-            key={child.id}
-            rule={child}
-            index={idx}
-            parent={group}
-            fields={fields}
-            dispatch={dispatch}
-            t={t}
-          />
-        ) : (
-          <GroupView
-            key={child.id}
-            group={child}
-            level={level + 1}
-            fields={fields}
-            tree={tree}
-            dispatch={dispatch}
-            defaultField={defaultField}
-            t={t}
-          />
-        )
+        <SortableRow
+          key={child.id}
+          child={child}
+          idx={idx}
+          parent={group}
+          level={level}
+          fields={fields}
+          tree={tree}
+          dispatch={dispatch}
+          defaultField={defaultField}
+          errorByRuleId={errorByRuleId}
+          t={t}
+        />
       ))}
+    </SortableContext>
+  )
+}
 
-      <div className="flex items-center gap-2 pt-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={!canAddRule(tree, group.id)}
-          title={!canAddRule(tree, group.id)
-            ? (widthCapHit
-                ? t('ui.advancedFilter.limitWidthReached', 'Maximum {max} conditions per group', { max: TREE_LIMITS.maxChildrenPerGroup })
-                : t('ui.advancedFilter.limitTotalReached', 'Maximum {max} conditions reached', { max: TREE_LIMITS.maxTotalRules }))
-            : undefined}
-          onClick={() => dispatch({ type: 'addRule', groupId: group.id, defaultField })}
-        >
-          <Plus className="size-4" />
-          {t('ui.advancedFilter.addFilter', 'Add filter')}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={!canAddGroup(tree, group.id)}
-          title={!canAddGroup(tree, group.id)
-            ? (depthCapHit
-                ? t('ui.advancedFilter.limitDepthReached', 'Maximum nesting depth reached')
-                : widthCapHit
-                  ? t('ui.advancedFilter.limitWidthReached', 'Maximum {max} conditions per group', { max: TREE_LIMITS.maxChildrenPerGroup })
-                  : t('ui.advancedFilter.limitTotalReached', 'Maximum {max} conditions reached', { max: TREE_LIMITS.maxTotalRules }))
-            : undefined}
-          onClick={() => dispatch({ type: 'addGroup', groupId: group.id, defaultField })}
-        >
-          <Plus className="size-4" />
-          {t('ui.advancedFilter.addGroup', 'Add group')}
-        </Button>
-      </div>
+function SortableRow({
+  child, idx, parent, level, fields, tree, dispatch, defaultField, errorByRuleId, t,
+}: {
+  child: FilterRule | FilterGroup
+  idx: number
+  parent: FilterGroup
+  level: number
+  fields: FilterFieldDef[]
+  tree: AdvancedFilterTree
+  dispatch: (a: TreeAction) => void
+  defaultField?: string
+  errorByRuleId: Map<string, string>
+  t: Translator
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: child.id,
+  })
+  // While the row is being dragged, hide the source completely — the
+  // DragOverlay renders the moving snapshot. Without this the wrapping
+  // flex layout applies both `transform` AND its own resizing rules to the
+  // source, producing the stretched/morphed ghost the user reported.
+  // We keep the row in layout (`visibility: hidden`) so siblings don't jump
+  // while the user holds the drag.
+  const style: React.CSSProperties = isDragging
+    ? { visibility: 'hidden' as const }
+    : { transform: CSS.Transform.toString(transform), transition }
+  const dragHandleProps: DragHandleProps = { ...attributes, ...listeners }
+
+  return (
+    <div ref={setNodeRef} style={style} data-testid="filter-rule-row" data-filter-node-id={child.id}>
+      {child.type === 'rule' ? (
+        <RuleRow
+          rule={child}
+          fields={fields}
+          dispatch={dispatch}
+          errorByRuleId={errorByRuleId}
+          dragHandleProps={dragHandleProps}
+          t={t}
+        />
+      ) : (
+        <div className="flex items-start gap-2">
+          {/* Raw <button> required: dnd-kit's useSortable spreads `attributes` + `listeners` directly
+              onto the activator element. <Button> has its own props/ref handling that interferes
+              with the keyboard-sensor coordinates lookup. DS focus-visible shadow + a11y label kept. */}
+          <button
+            type="button"
+            {...dragHandleProps}
+            data-testid="filter-drag-handle"
+            className="mt-1 text-muted-foreground/60 hover:text-muted-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
+            aria-label={t('ui.advancedFilter.dragHandle', 'Drag to reorder')}
+          >
+            <GripVertical className="size-4" />
+          </button>
+          <div className="flex-1">
+            <GroupView
+              group={child}
+              level={level + 1}
+              fields={fields}
+              tree={tree}
+              dispatch={dispatch}
+              defaultField={defaultField}
+              errorByRuleId={errorByRuleId}
+              t={t}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function RuleRow({
-  rule, index, parent, fields, dispatch, t,
+  rule, fields, dispatch, errorByRuleId, dragHandleProps, t,
 }: {
   rule: FilterRule
-  index: number
-  parent: FilterGroup
   fields: FilterFieldDef[]
   dispatch: (a: TreeAction) => void
-  t: ReturnType<typeof useT>
+  errorByRuleId: Map<string, string>
+  dragHandleProps: DragHandleProps
+  t: Translator
 }) {
   const fieldType = getFieldType(fields, rule.field)
   const operators = OPERATORS_BY_FIELD_TYPE[fieldType] ?? OPERATORS_BY_FIELD_TYPE.text
   const valueless = isValuelessOperator(rule.operator)
-
-  const connectorLabel = index === 0
-    ? t('ui.advancedFilter.where', 'Where')
-    : (parent.combinator === 'and' ? t('ui.advancedFilter.and', 'And') : t('ui.advancedFilter.or', 'Or'))
+  const errorMsg = errorByRuleId.get(rule.id)
+  const fieldDef = fields.find((f) => f.key === rule.field)
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const fieldBtnRef = React.useRef<HTMLButtonElement>(null)
 
   return (
-    <div className="flex flex-wrap items-start gap-2">
-      <div className="w-16 shrink-0 pt-1.5 text-sm text-muted-foreground">
-        {connectorLabel}
+    <div className="flex flex-col gap-1" data-testid="filter-rule" data-filter-rule-id={rule.id}>
+      <div className="flex flex-wrap items-start gap-2">
+        {/* Raw <button> required for dnd-kit activator: see SortableRow drag-handle comment. */}
+        <button
+          type="button"
+          {...dragHandleProps}
+          data-testid="filter-drag-handle"
+          className="mt-1 text-muted-foreground/60 hover:text-muted-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
+          aria-label={t('ui.advancedFilter.dragHandle', 'Drag to reorder')}
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <Button
+          ref={fieldBtnRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setPickerOpen(true)}
+          className="min-w-[140px] justify-start"
+        >
+          {fieldDef?.label ?? t('ui.advancedFilter.selectField', 'Select field')}
+        </Button>
+        <FilterFieldPicker
+          fields={fields}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          onSelect={(f) => {
+            const nextType = getFieldType(fields, f.key)
+            dispatch({
+              type: 'updateRule',
+              ruleId: rule.id,
+              updates: { field: f.key, operator: getDefaultOperator(nextType), value: '' },
+            })
+          }}
+          triggerRef={fieldBtnRef as React.RefObject<HTMLElement | null>}
+        />
+        <Select
+          value={rule.operator}
+          onValueChange={(next) => {
+            // Preserve the value when both old and new operators take the same
+            // value shape (single → single, multi → multi). Reset only when the
+            // shape changes — otherwise typing "Active" then choosing "is not"
+            // would silently wipe the value.
+            const nextOp = next as FilterOperator
+            const sameShape = getOperatorShape(rule.operator) === getOperatorShape(nextOp)
+            const updates: Partial<Pick<FilterRule, 'operator' | 'value'>> = sameShape
+              ? { operator: nextOp }
+              : { operator: nextOp, value: getOperatorShape(nextOp) === 'multi' || getOperatorShape(nextOp) === 'range' ? [] : '' }
+            dispatch({ type: 'updateRule', ruleId: rule.id, updates })
+          }}
+        >
+          {/* `SelectTrigger` ships `w-full` in its base variants — that fills
+              the flex row and forces the operator/value selects onto their own
+              lines. `w-auto` neutralizes it so the trigger only takes its
+              content width (with min-w-[140px] as the floor). */}
+          <SelectTrigger
+            size="sm"
+            className="w-auto min-w-[140px]"
+            aria-label={t('ui.advancedFilter.selectOperator', 'Select operator')}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent data-advanced-filter-portal="">
+            {operators.map((op) => (
+              <SelectItem key={op} value={op}>
+                {t(`ui.advancedFilter.operator.${op}`, OPERATOR_LABELS[op])}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!valueless ? (
+          <ValueInput
+            rule={rule}
+            fields={fields}
+            fieldType={fieldType}
+            dispatch={dispatch}
+            hasError={!!errorMsg}
+            t={t}
+          />
+        ) : null}
+        <IconButton
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={() => dispatch({ type: 'removeNode', nodeId: rule.id })}
+          aria-label={t('ui.advancedFilter.removeCondition', 'Remove condition')}
+          title={t('ui.advancedFilter.removeCondition', 'Remove condition')}
+        >
+          <Trash2 className="size-4 text-muted-foreground" />
+        </IconButton>
       </div>
-      <Select
-        value={rule.field || undefined}
-        onValueChange={(next) => {
-          const nextType = getFieldType(fields, next ?? '')
-          dispatch({
-            type: 'updateRule',
-            ruleId: rule.id,
-            updates: { field: next ?? '', operator: getDefaultOperator(nextType), value: '' },
-          })
-        }}
-      >
-        <SelectTrigger className="min-w-[140px]" aria-label={t('ui.advancedFilter.selectField', 'Select field')}>
-          <SelectValue placeholder={t('ui.advancedFilter.selectFieldPlaceholder', 'Select field...')} />
-        </SelectTrigger>
-        <SelectContent>
-          {fields.map((f) => (
-            <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={rule.operator}
-        onValueChange={(next) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { operator: next as FilterOperator, value: '' } })}
-      >
-        <SelectTrigger className="min-w-[140px]" aria-label={t('ui.advancedFilter.selectOperator', 'Select operator')}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {operators.map((op) => (
-            <SelectItem key={op} value={op}>
-              {t(`ui.advancedFilter.operator.${op}`, OPERATOR_LABELS[op])}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {!valueless ? (
-        <ValueInput rule={rule} fields={fields} fieldType={fieldType} dispatch={dispatch} t={t} />
+      {errorMsg ? (
+        <div className="ml-6 pl-12 text-xs text-status-error-text">{errorMsg}</div>
       ) : null}
-      <IconButton
-        variant="ghost"
-        size="sm"
-        type="button"
-        onClick={() => dispatch({ type: 'removeNode', nodeId: rule.id })}
-        aria-label={t('ui.advancedFilter.removeCondition', 'Remove condition')}
-        title={t('ui.advancedFilter.removeCondition', 'Remove condition')}
-      >
-        <Trash2 className="size-4 text-muted-foreground" />
-      </IconButton>
     </div>
   )
 }
 
 function ValueInput({
-  rule, fields, fieldType, dispatch, t,
+  rule, fields, fieldType, dispatch, hasError, t,
 }: {
   rule: FilterRule
   fields: FilterFieldDef[]
   fieldType: FilterFieldType
   dispatch: (a: TreeAction) => void
-  t: ReturnType<typeof useT>
+  hasError: boolean
+  t: Translator
 }) {
   const fieldDef = fields.find((f) => f.key === rule.field)
   const value = rule.value
+  const errorClass = hasError
+    ? 'border-status-error-border ring-1 ring-status-error-border focus-visible:border-status-error-border focus-within:border-status-error-border'
+    : ''
 
   if (fieldType === 'select' && fieldDef?.options) {
+    // Multi-value operators (`is_any_of`, `is_none_of`, `has_any_of`, etc.)
+    // need an array value with multiple selectable options. Radix `Select` is
+    // single-select only, so the previous code silently overwrote each
+    // selection (and validation kept failing because the value never became an
+    // array). Render a checkbox-list popover when the operator is multi-shape.
+    if (getOperatorShape(rule.operator) === 'multi') {
+      return (
+        <MultiValuePicker
+          rule={rule}
+          options={fieldDef.options}
+          dispatch={dispatch}
+          errorClass={errorClass}
+          t={t}
+        />
+      )
+    }
     return (
       <Select
         value={typeof value === 'string' && value.length ? value : undefined}
-        onValueChange={(next) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: next ?? '' } })}
+        onValueChange={(next) =>
+          dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: next ?? '' } })
+        }
       >
-        <SelectTrigger className="min-w-[160px]" aria-label={t('ui.advancedFilter.selectValue', 'Select value')}>
+        <SelectTrigger
+          size="sm"
+          className={`w-auto min-w-[160px] ${errorClass}`}
+          aria-label={t('ui.advancedFilter.selectValue', 'Select value')}
+        >
           <SelectValue placeholder={t('ui.advancedFilter.selectValuePlaceholder', 'Select...')} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent data-advanced-filter-portal="">
           {fieldDef.options.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.tone ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className={toneDotClass(opt.tone)} aria-hidden="true" />
+                  {opt.label}
+                </span>
+              ) : (
+                opt.label
+              )}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>
+    )
+  }
+
+  // `Input` ships `w-full` in its base variants — same problem as SelectTrigger
+  // above. Use `w-auto` to keep the input at its natural / min width inside the
+  // wrapping flex row instead of stretching to fill it.
+
+  // The `between` operator (number / date) takes a `[start, end]` pair. Render
+  // two inputs side-by-side instead of a single one — the previous code fell
+  // through to the single-input branch, so the value never became an array
+  // and validation kept failing with no UI affordance to fix it.
+  if (rule.operator === 'between' && (fieldType === 'number' || fieldType === 'date')) {
+    return (
+      <BetweenInput
+        rule={rule}
+        fieldType={fieldType}
+        dispatch={dispatch}
+        errorClass={errorClass}
+        t={t}
+      />
     )
   }
 
@@ -351,9 +709,12 @@ function ValueInput({
     return (
       <Input
         type="date"
-        className="min-w-[160px]"
+        size="sm"
+        className={`w-auto min-w-[160px] ${errorClass}`}
         value={typeof value === 'string' ? value : ''}
-        onChange={(e) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })}
+        onChange={(e) =>
+          dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })
+        }
         aria-label={t('ui.advancedFilter.dateValue', 'Date value')}
       />
     )
@@ -363,9 +724,12 @@ function ValueInput({
     return (
       <Input
         type="number"
-        className="w-[120px]"
+        size="sm"
+        className={`w-[120px] ${errorClass}`}
         value={typeof value === 'number' ? value : typeof value === 'string' ? value : ''}
-        onChange={(e) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })}
+        onChange={(e) =>
+          dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })
+        }
         placeholder={t('ui.advancedFilter.numberPlaceholder', 'Value')}
         aria-label={t('ui.advancedFilter.numberValue', 'Number value')}
       />
@@ -375,11 +739,286 @@ function ValueInput({
   return (
     <Input
       type="text"
-      className="min-w-[160px]"
+      size="sm"
+      className={`w-auto min-w-[160px] ${errorClass}`}
       value={typeof value === 'string' ? value : ''}
-      onChange={(e) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })}
+      onChange={(e) =>
+        dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: e.target.value } })
+      }
       placeholder={t('ui.advancedFilter.textPlaceholder', 'Value...')}
       aria-label={t('ui.advancedFilter.textValue', 'Text value')}
     />
+  )
+}
+
+/**
+ * Two inputs (start / end) for the `between` operator on date and number
+ * fields. Stores the value as `[start, end]`; either side can be empty while
+ * the user types, but validation requires both to be set before apply.
+ */
+function BetweenInput({
+  rule, fieldType, dispatch, errorClass, t,
+}: {
+  rule: FilterRule
+  fieldType: FilterFieldType
+  dispatch: (a: TreeAction) => void
+  errorClass: string
+  t: Translator
+}) {
+  const pair = Array.isArray(rule.value) ? rule.value : []
+  const start = typeof pair[0] === 'string' || typeof pair[0] === 'number' ? String(pair[0] ?? '') : ''
+  const end = typeof pair[1] === 'string' || typeof pair[1] === 'number' ? String(pair[1] ?? '') : ''
+  const update = (which: 'start' | 'end', next: string) => {
+    const value = which === 'start' ? [next, end] : [start, next]
+    dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value } })
+  }
+  const inputType = fieldType === 'date' ? 'date' : 'number'
+  const inputWidth = fieldType === 'date' ? 'w-auto min-w-[140px]' : 'w-[110px]'
+  return (
+    <div className="inline-flex items-center gap-1">
+      <Input
+        type={inputType}
+        size="sm"
+        className={`${inputWidth} ${errorClass}`}
+        value={start}
+        onChange={(e) => update('start', e.target.value)}
+        placeholder={fieldType === 'number' ? t('ui.advancedFilter.numberPlaceholder', 'Value') : undefined}
+        aria-label={t('ui.advancedFilter.betweenStart', 'Start')}
+      />
+      <span className="text-xs text-muted-foreground">{t('ui.advancedFilter.and', 'and')}</span>
+      <Input
+        type={inputType}
+        size="sm"
+        className={`${inputWidth} ${errorClass}`}
+        value={end}
+        onChange={(e) => update('end', e.target.value)}
+        placeholder={fieldType === 'number' ? t('ui.advancedFilter.numberPlaceholder', 'Value') : undefined}
+        aria-label={t('ui.advancedFilter.betweenEnd', 'End')}
+      />
+    </div>
+  )
+}
+
+/**
+ * Trigger + popover with a checkbox list. Used when a select-typed rule has a
+ * multi-shape operator (`is_any_of`, `has_all_of`, etc.). The trigger displays
+ * a "{first} +N" summary; the popover lets the user toggle each option.
+ */
+function MultiValuePicker({
+  rule, options, dispatch, errorClass, t,
+}: {
+  rule: FilterRule
+  options: NonNullable<FilterFieldDef['options']>
+  dispatch: (a: TreeAction) => void
+  errorClass: string
+  t: Translator
+}) {
+  const selected: string[] = Array.isArray(rule.value)
+    ? rule.value.map((v) => String(v)).filter((v) => v.length > 0)
+    : []
+  const selectedLabel = (() => {
+    if (selected.length === 0) return t('ui.advancedFilter.selectValuePlaceholder', 'Select...')
+    const firstOpt = options.find((o) => o.value === selected[0])
+    const head = firstOpt?.label ?? selected[0]
+    const more = selected.length - 1
+    return more > 0 ? `${head} +${more}` : head
+  })()
+  const toggle = (val: string) => {
+    const next = selected.includes(val) ? selected.filter((v) => v !== val) : [...selected, val]
+    dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: next } })
+  }
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        {/* Visually mirrors `SelectTrigger size="sm"` (h-8, rounded-md, border)
+            so the operator + value pair stays visually consistent. */}
+        <button
+          type="button"
+          className={`inline-flex h-8 items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs shadow-xs transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground w-auto min-w-[160px] ${errorClass}`}
+          aria-label={t('ui.advancedFilter.selectValue', 'Select value')}
+          data-testid="multi-value-trigger"
+        >
+          <span className={selected.length === 0 ? 'text-muted-foreground' : ''}>{selectedLabel}</span>
+          <ChevronDown className="size-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-1" align="start" data-advanced-filter-portal="">
+        <div className="max-h-64 overflow-y-auto" role="listbox" aria-multiselectable="true">
+          {options.map((opt) => {
+            const isOn = selected.includes(opt.value)
+            return (
+              // Raw <button>: needs `role="option"` + `aria-selected`; <Button> would override role.
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={isOn}
+                onClick={() => toggle(opt.value)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+              >
+                <Checkbox checked={isOn} aria-hidden="true" tabIndex={-1} className="pointer-events-none" />
+                {opt.tone ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className={toneDotClass(opt.tone)} aria-hidden="true" />
+                    {opt.label}
+                  </span>
+                ) : (
+                  <span>{opt.label}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function toneDotClass(tone: NonNullable<FilterFieldDef['options']>[number]['tone']): string {
+  // Solid filled dot using the saturated `*-icon` token (matches Tag primitive's
+  // `dotColorMap`). Earlier this used `bg-*-bg` + ring, which in dark mode
+  // resolved to a near-black fill behind a bright ring — looking like a hollow
+  // donut instead of the filled dot the Figma mockups show.
+  const base = 'inline-block size-2 rounded-full shrink-0'
+  switch (tone) {
+    case 'success': return `${base} bg-status-success-icon`
+    case 'error': return `${base} bg-status-error-icon`
+    case 'warning': return `${base} bg-status-warning-icon`
+    case 'info': return `${base} bg-status-info-icon`
+    case 'neutral': return `${base} bg-status-neutral-icon`
+    case 'pink': return `${base} bg-status-pink-icon`
+    case 'brand': return `${base} bg-brand-violet`
+    default: return `${base} bg-muted-foreground/40`
+  }
+}
+
+// Single Kendo-style toolbar at the top of each group: combinator toggle,
+// "+ Add condition" with field picker, "+ Add subgroup" / "+ Add group", and
+// (for non-root groups) a trailing delete `x`. Replaces the old
+// `NaturalLanguageHeader` + `GroupFooter` pair so the user has ONE clear
+// place to manage everything about the group.
+function GroupToolbar({
+  group, level, tree, dispatch, defaultField, fields, isRoot, t,
+}: {
+  group: FilterGroup
+  level: number
+  tree: AdvancedFilterTree
+  dispatch: (a: TreeAction) => void
+  defaultField?: string
+  fields: FilterFieldDef[]
+  isRoot: boolean
+  t: Translator
+}) {
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const addBtnRef = React.useRef<HTMLButtonElement>(null)
+  const addRuleEnabled = canAddRule(tree, group.id)
+  const addGroupEnabled = canAddGroup(tree, group.id)
+
+  const widthCapHit = group.children.length >= TREE_LIMITS.maxChildrenPerGroup
+  const depthCapHit = level >= TREE_LIMITS.maxGroupLevel
+
+  const addRuleTitle = !addRuleEnabled
+    ? widthCapHit
+      ? t('ui.advancedFilter.limitWidthReached', 'Maximum {max} conditions per group', {
+          max: TREE_LIMITS.maxChildrenPerGroup,
+        })
+      : t('ui.advancedFilter.limitTotalReached', 'Maximum {max} conditions reached', {
+          max: TREE_LIMITS.maxTotalRules,
+        })
+    : undefined
+
+  const addGroupTitle = !addGroupEnabled
+    ? depthCapHit
+      ? t('ui.advancedFilter.limitDepthReached', 'Maximum nesting depth reached')
+      : widthCapHit
+      ? t('ui.advancedFilter.limitWidthReached', 'Maximum {max} conditions per group', {
+          max: TREE_LIMITS.maxChildrenPerGroup,
+        })
+      : t('ui.advancedFilter.limitTotalReached', 'Maximum {max} conditions reached', {
+          max: TREE_LIMITS.maxTotalRules,
+        })
+    : undefined
+
+  const addGroupLabel = level === 1
+    ? t('ui.advancedFilter.addGroup', '+ Add group')
+    : t('ui.advancedFilter.addSubgroup', '+ Add subgroup')
+
+  // The custom `text-brand-violet` foreground overrides Button's default
+  // `disabled:text-text-disabled` token. Add explicit muted disabled colors so
+  // the limit ("Maximum nesting depth reached") is visually obvious — the
+  // user reported that disabled-but-still-violet buttons look clickable.
+  const ctaClass = 'text-brand-violet hover:text-brand-violet/80 hover:bg-transparent px-0 disabled:text-muted-foreground/50 disabled:hover:text-muted-foreground/50'
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <AndOrToggle
+          combinator={group.combinator}
+          onChange={(c) => dispatch({ type: 'updateGroupCombinator', groupId: group.id, combinator: c })}
+          t={t}
+        />
+        <Button
+          ref={addBtnRef}
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!addRuleEnabled}
+          title={addRuleTitle}
+          onClick={() => setPickerOpen(true)}
+          className={ctaClass}
+        >
+          <Plus className="size-4" />
+          {t('ui.advancedFilter.addCondition', '+ Add condition')}
+        </Button>
+        <FilterFieldPicker
+          fields={fields}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          onSelect={(f) =>
+            dispatch({
+              type: 'addRule',
+              groupId: group.id,
+              defaultField: f.key,
+              defaultOperator: getDefaultOperator(f.type),
+            })
+          }
+          triggerRef={addBtnRef as React.RefObject<HTMLElement | null>}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!addGroupEnabled}
+          title={addGroupTitle}
+          onClick={() =>
+            dispatch({ type: 'addGroup', groupId: group.id, defaultField })
+          }
+          className={ctaClass}
+        >
+          <Plus className="size-4" />
+          {addGroupLabel}
+        </Button>
+        {!isRoot ? (
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            onClick={() => dispatch({ type: 'removeNode', nodeId: group.id })}
+            aria-label={t('ui.advancedFilter.deleteGroup', 'Delete group')}
+            title={t('ui.advancedFilter.deleteGroup', 'Delete group')}
+            className="ml-auto"
+          >
+            <X className="size-4 text-muted-foreground" />
+          </IconButton>
+        ) : null}
+      </div>
+      {!addGroupEnabled && depthCapHit ? (
+        <p className="text-xs text-muted-foreground" data-testid="filter-depth-limit-hint">
+          {t('ui.advancedFilter.limitDepthHint', 'You\'ve reached the maximum nesting depth ({max} levels). Switch this group\'s combinator with the toggle above instead of nesting deeper.', {
+            max: TREE_LIMITS.maxGroupLevel,
+          })}
+        </p>
+      ) : null}
+    </div>
   )
 }
