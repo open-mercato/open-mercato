@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import {
   PROJECT_COLORS,
   PROJECT_COLOR_KEYS,
