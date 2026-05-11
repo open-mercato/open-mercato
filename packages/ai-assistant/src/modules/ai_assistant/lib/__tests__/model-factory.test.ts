@@ -121,9 +121,9 @@ describe('createModelFactory', () => {
     expect(resolution.modelId).toBe('agent-pinned-model')
   })
 
-  it('prefers <MODULE>_AI_MODEL env override over agent default', () => {
+  it('prefers OM_AI_<MODULE>_MODEL env override over agent default', () => {
     const provider = makeProvider()
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned-model' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -133,9 +133,33 @@ describe('createModelFactory', () => {
     expect(resolution.modelId).toBe('env-pinned-model')
   })
 
+  it('falls back to legacy <MODULE>_AI_MODEL when OM_AI_<MODULE>_MODEL is unset', () => {
+    const provider = makeProvider()
+    const env = { INBOX_OPS_AI_MODEL: 'legacy-env-model' }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({
+      moduleId: 'inbox_ops',
+      agentDefaultModel: 'agent-pinned-model',
+    })
+    expect(resolution.source).toBe('module_env')
+    expect(resolution.modelId).toBe('legacy-env-model')
+  })
+
+  it('prefers OM_AI_<MODULE>_MODEL over the legacy <MODULE>_AI_MODEL fallback', () => {
+    const provider = makeProvider()
+    const env = {
+      OM_AI_INBOX_OPS_MODEL: 'canonical-model',
+      INBOX_OPS_AI_MODEL: 'legacy-model',
+    }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({ moduleId: 'inbox_ops' })
+    expect(resolution.source).toBe('module_env')
+    expect(resolution.modelId).toBe('canonical-model')
+  })
+
   it('uppercases moduleId when deriving the env var name', () => {
     const provider = makeProvider()
-    const env = { INBOX_OPS_AI_MODEL: 'from-env' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'from-env' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({ moduleId: 'inbox_ops' })
     expect(resolution.modelId).toBe('from-env')
@@ -143,7 +167,7 @@ describe('createModelFactory', () => {
 
   it('prefers non-empty callerOverride over every other source', () => {
     const provider = makeProvider()
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned-model' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -156,7 +180,7 @@ describe('createModelFactory', () => {
 
   it('treats empty callerOverride as "no override" and falls through to env', () => {
     const provider = makeProvider()
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned-model' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -169,7 +193,7 @@ describe('createModelFactory', () => {
 
   it('skips env-override lookup when moduleId is undefined (does not crash)', () => {
     const provider = makeProvider()
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned-model' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({
       agentDefaultModel: 'agent-pinned-model',
@@ -203,7 +227,7 @@ describe('createModelFactory', () => {
     }
   })
 
-  it('prefers OM_AI_MODEL global env over agent default but loses to <MODULE>_AI_MODEL', () => {
+  it('prefers agent_default over OM_AI_MODEL env_default fallback', () => {
     const provider = makeProvider()
     const env = { OM_AI_MODEL: 'global-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
@@ -211,26 +235,33 @@ describe('createModelFactory', () => {
       moduleId: 'catalog',
       agentDefaultModel: 'agent-pinned-model',
     })
-    expect(resolution.source).toBe('global_env')
+    expect(resolution.source).toBe('agent_default')
+    expect(resolution.modelId).toBe('agent-pinned-model')
+  })
+
+  it('uses OM_AI_MODEL as the env_default when neither caller, module_env, nor agent default applies', () => {
+    const provider = makeProvider()
+    const env = { OM_AI_MODEL: 'global-pinned-model' }
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+    const resolution = factory.resolveModel({ moduleId: 'catalog' })
+    expect(resolution.source).toBe('env_default')
     expect(resolution.modelId).toBe('global-pinned-model')
   })
 
-  it('falls back to legacy OPENCODE_MODEL when OM_AI_MODEL is unset', () => {
+  it('falls back to legacy OPENCODE_MODEL as env_default when OM_AI_MODEL is unset', () => {
     const provider = makeProvider()
     const env = { OPENCODE_MODEL: 'legacy-pinned-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
-    const resolution = factory.resolveModel({
-      agentDefaultModel: 'agent-pinned-model',
-    })
-    expect(resolution.source).toBe('global_env')
+    const resolution = factory.resolveModel({})
+    expect(resolution.source).toBe('env_default')
     expect(resolution.modelId).toBe('legacy-pinned-model')
   })
 
-  it('lets <MODULE>_AI_MODEL win over OM_AI_MODEL global env', () => {
+  it('lets OM_AI_<MODULE>_MODEL win over OM_AI_MODEL global env', () => {
     const provider = makeProvider()
     const env = {
       OM_AI_MODEL: 'global-pinned-model',
-      CATALOG_AI_MODEL: 'catalog-env-model',
+      OM_AI_CATALOG_MODEL: 'catalog-env-model',
     }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     const resolution = factory.resolveModel({ moduleId: 'catalog' })
@@ -291,7 +322,7 @@ describe('createModelFactory', () => {
       ...options,
     }))
     const provider = makeProvider({ createModel })
-    const env = { CATALOG_AI_MODEL: 'catalog-env-model' }
+    const env = { OM_AI_CATALOG_MODEL: 'catalog-env-model' }
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
     factory.resolveModel({ moduleId: 'catalog' })
     expect(createModel).toHaveBeenCalledWith({

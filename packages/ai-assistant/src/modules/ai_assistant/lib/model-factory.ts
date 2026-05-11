@@ -10,9 +10,12 @@
  *
  *   1. `callerOverride` (non-empty string) — highest precedence, e.g. the
  *      `modelOverride` field on `runAiAgentText`/`runAiAgentObject`.
- *   2. Env variable `<MODULE>_AI_MODEL` (uppercased `moduleId`) when
- *      `moduleId` is provided. Example: `INBOX_OPS_AI_MODEL=claude-haiku-4-5`,
- *      `CATALOG_AI_MODEL=gpt-4o-mini`.
+ *   2. Env variable `OM_AI_<MODULE>_MODEL` (uppercased `moduleId`) when
+ *      `moduleId` is provided. Example:
+ *      `OM_AI_INBOX_OPS_MODEL=claude-haiku-4-5`,
+ *      `OM_AI_CATALOG_MODEL=gpt-4o-mini`. The legacy
+ *      `<MODULE>_AI_MODEL` form (e.g. `INBOX_OPS_AI_MODEL`) is read as a
+ *      backward-compatibility fallback when the canonical name is unset.
  *   3. `agentDefaultModel` — typically `AiAgentDefinition.defaultModel`.
  *   4. Global env `OM_AI_MODEL` (canonical) with `OPENCODE_MODEL` kept as
  *      a backward-compatibility fallback. Accepts either a plain model id
@@ -65,8 +68,10 @@ export type AiModelInstance = unknown
 export interface AiModelFactoryInput {
   /**
    * Owning module id (matches `Module.id`). When set, the factory checks
-   * `<MODULE>_AI_MODEL` (uppercased) as the env-override source. Example:
-   * `moduleId: 'inbox_ops'` → env var `INBOX_OPS_AI_MODEL`.
+   * `OM_AI_<MODULE>_MODEL` (uppercased) as the env-override source, with
+   * the legacy `<MODULE>_AI_MODEL` form honored as a backward-compatibility
+   * fallback. Example: `moduleId: 'inbox_ops'` → canonical env var
+   * `OM_AI_INBOX_OPS_MODEL` (legacy `INBOX_OPS_AI_MODEL`).
    */
   moduleId?: string
   /**
@@ -210,8 +215,24 @@ function readGlobalModelFromEnv(env: EnvLookup): string | null {
   return normalizeOverride(env.OM_AI_MODEL) ?? normalizeOverride(env.OPENCODE_MODEL)
 }
 
+/** Canonical per-module model env. Example: `OM_AI_INBOX_OPS_MODEL`. */
 function moduleEnvVarName(moduleId: string): string {
+  return `OM_AI_${moduleId.toUpperCase()}_MODEL`
+}
+
+/**
+ * Legacy per-module model env (pre-OM_AI_* rename). Example:
+ * `INBOX_OPS_AI_MODEL`. Read as a backward-compatibility fallback only.
+ */
+function legacyModuleEnvVarName(moduleId: string): string {
   return `${moduleId.toUpperCase()}_AI_MODEL`
+}
+
+function readModuleEnvOverride(env: EnvLookup, moduleId: string): string | null {
+  return (
+    normalizeOverride(env[moduleEnvVarName(moduleId)]) ??
+    normalizeOverride(env[legacyModuleEnvVarName(moduleId)])
+  )
 }
 
 /**
@@ -292,7 +313,7 @@ export function createModelFactory(
       const callerOverride = normalizeOverride(input.callerOverride)
       const moduleEnvOverride =
         input.moduleId && input.moduleId.length > 0
-          ? normalizeOverride(env[moduleEnvVarName(input.moduleId)])
+          ? readModuleEnvOverride(env, input.moduleId)
           : null
       const agentDefault = normalizeOverride(input.agentDefaultModel)
       // The slash parser already split the global model token; use the

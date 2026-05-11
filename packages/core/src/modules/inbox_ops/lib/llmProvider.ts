@@ -37,7 +37,7 @@ function asAiModel(model: unknown): AiModel {
  * `OPENCODE_MODEL` / `OPENCODE_PROVIDER` envs remain honored via
  * {@link resolveExtractionProviderId} and {@link resolveOpenCodeModel} so
  * inbox_ops deployments do not see a behavior change — the factory is
- * consulted first (honoring `INBOX_OPS_AI_MODEL` + `input.modelOverride`),
+ * consulted first (honoring `OM_AI_INBOX_OPS_MODEL` — legacy `INBOX_OPS_AI_MODEL` — + `input.modelOverride`),
  * with the legacy path as the fallback when no registry provider is
  * configured (preserving the historical error messages).
  */
