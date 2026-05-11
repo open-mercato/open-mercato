@@ -82,10 +82,11 @@ None.
 
 ### Phase 3: Open PR, label, and cross-link
 
-- [ ] 3.1 Open PR against develop
-- [ ] 3.2 Apply labels (review, dependencies, skip-qa)
-- [ ] 3.3 Comment on closed #1875 / #1877
+- [x] 3.1 Open PR against develop — PR #1884
+- [x] 3.2 Apply labels (review, dependencies, skip-qa) — rationale comments posted per-label
+- [x] 3.3 Comment on closed #1875 / #1877 — cross-link comments posted
 
 ## Changelog
 
 - 2026-05-11 — Plan created.
+- 2026-05-11 — PR #1884 opened against `develop`.
