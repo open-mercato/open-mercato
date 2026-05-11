@@ -106,7 +106,7 @@ function applySuggestionPatch(
 }
 
 function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinition {
-  const rawProvider = (candidate as Record<string, unknown>).defaultProvider
+  const rawProvider = (candidate as unknown as Record<string, unknown>).defaultProvider
   if (typeof rawProvider !== 'string' || rawProvider.trim().length === 0) {
     return candidate
   }

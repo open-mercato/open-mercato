@@ -117,54 +117,64 @@ function GlobalOverrideForm({
 
   const selectedProvider = availableProviders.find((p) => p.id === selectedProviderId)
 
-  const saveMutation = useGuardedMutation({ operationId: 'ai-settings-save-override' })
-  const clearMutation = useGuardedMutation({ operationId: 'ai-settings-clear-override' })
+  const { runMutation: runSaveMutation } = useGuardedMutation({ contextId: 'ai-settings-save-override' })
+  const { runMutation: runClearMutation } = useGuardedMutation({ contextId: 'ai-settings-clear-override' })
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isClearing, setIsClearing] = React.useState(false)
 
   const handleSave = React.useCallback(async () => {
-    await saveMutation.runMutation({
-      operation: async () => {
-        const result = await apiCall('/api/ai_assistant/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerId: selectedProviderId || null,
-            modelId: selectedModelId || null,
-          }),
-        })
-        if (!result.ok) {
-          const err = (result.result as { error?: string } | null)?.error
-          throw new Error(err ?? t('ai_assistant.settings.saveError', 'Failed to save override.'))
-        }
-      },
-      context: {},
-    })
-    flash(t('ai_assistant.settings.saveSuccess', 'Default model override saved.'), 'success')
-    onSaved()
-  }, [onSaved, saveMutation, selectedModelId, selectedProviderId, t])
+    setIsSaving(true)
+    try {
+      await runSaveMutation({
+        operation: async () => {
+          const result = await apiCall('/api/ai_assistant/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              providerId: selectedProviderId || null,
+              modelId: selectedModelId || null,
+            }),
+          })
+          if (!result.ok) {
+            const err = (result.result as { error?: string } | null)?.error
+            throw new Error(err ?? t('ai_assistant.settings.saveError', 'Failed to save override.'))
+          }
+        },
+        context: {},
+      })
+      flash(t('ai_assistant.settings.saveSuccess', 'Default model override saved.'), 'success')
+      onSaved()
+    } finally {
+      setIsSaving(false)
+    }
+  }, [onSaved, runSaveMutation, selectedModelId, selectedProviderId, t])
 
   const handleClear = React.useCallback(async () => {
-    await clearMutation.runMutation({
-      operation: async () => {
-        const result = await apiCall('/api/ai_assistant/settings', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        if (!result.ok) {
-          const err = (result.result as { error?: string } | null)?.error
-          throw new Error(err ?? t('ai_assistant.settings.clearError', 'Failed to clear override.'))
-        }
-      },
-      context: {},
-    })
-    flash(t('ai_assistant.settings.clearSuccess', 'Default model override cleared.'), 'success')
-    setSelectedProviderId('')
-    setSelectedModelId('')
-    onSaved()
-  }, [clearMutation, onSaved, t])
+    setIsClearing(true)
+    try {
+      await runClearMutation({
+        operation: async () => {
+          const result = await apiCall('/api/ai_assistant/settings', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+          if (!result.ok) {
+            const err = (result.result as { error?: string } | null)?.error
+            throw new Error(err ?? t('ai_assistant.settings.clearError', 'Failed to clear override.'))
+          }
+        },
+        context: {},
+      })
+      flash(t('ai_assistant.settings.clearSuccess', 'Default model override cleared.'), 'success')
+      setSelectedProviderId('')
+      setSelectedModelId('')
+      onSaved()
+    } finally {
+      setIsClearing(false)
+    }
+  }, [runClearMutation, onSaved, t])
 
-  const isSaving = saveMutation.isPending
-  const isClearing = clearMutation.isPending
   const isBusy = isSaving || isClearing
 
   const configuredProviders = availableProviders.filter((p) => p.configured)
@@ -279,28 +289,34 @@ function PerAgentOverrideList({
   onCleared: () => void
 }) {
   const t = useT()
-  const clearMutation = useGuardedMutation({ operationId: 'ai-settings-clear-agent-override' })
+  const { runMutation: runClearAgentMutation } = useGuardedMutation({ contextId: 'ai-settings-clear-agent-override' })
+  const [clearingAgentId, setClearingAgentId] = React.useState<string | null>(null)
 
   const handleClearAgentOverride = React.useCallback(
     async (agentId: string) => {
-      await clearMutation.runMutation({
-        operation: async () => {
-          const result = await apiCall('/api/ai_assistant/settings', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agentId }),
-          })
-          if (!result.ok) {
-            const err = (result.result as { error?: string } | null)?.error
-            throw new Error(err ?? t('ai_assistant.settings.clearAgentError', 'Failed to clear agent override.'))
-          }
-        },
-        context: {},
-      })
-      flash(t('ai_assistant.settings.clearAgentSuccess', 'Agent override cleared.'), 'success')
-      onCleared()
+      setClearingAgentId(agentId)
+      try {
+        await runClearAgentMutation({
+          operation: async () => {
+            const result = await apiCall('/api/ai_assistant/settings', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agentId }),
+            })
+            if (!result.ok) {
+              const err = (result.result as { error?: string } | null)?.error
+              throw new Error(err ?? t('ai_assistant.settings.clearAgentError', 'Failed to clear agent override.'))
+            }
+          },
+          context: {},
+        })
+        flash(t('ai_assistant.settings.clearAgentSuccess', 'Agent override cleared.'), 'success')
+        onCleared()
+      } finally {
+        setClearingAgentId(null)
+      }
     },
-    [clearMutation, onCleared, t],
+    [runClearAgentMutation, onCleared, t],
   )
 
   if (agents.length === 0) return null
@@ -357,7 +373,7 @@ function PerAgentOverrideList({
                         variant="ghost"
                         size="sm"
                         className="h-6 gap-1 text-xs"
-                        disabled={clearMutation.isPending}
+                        disabled={clearingAgentId !== null}
                         onClick={() => void handleClearAgentOverride(agent.agentId)}
                         data-ai-settings-clear-agent-override={agent.agentId}
                       >
