@@ -56,61 +56,63 @@ export async function POST(req: Request) {
     }
     const staffMemberId = staffMember.id
 
-    let created = 0
-    let updated = 0
-    let deleted = 0
-
     const existingIds = entries
       .map((entry) => entry.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
-    const existingEntries = existingIds.length > 0
-      ? await findWithDecryption(
-          em,
-          StaffTimeEntry,
-          { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
-          {},
-          scopeCtx,
-        )
-      : []
+    const counts = await em.transactional(async (trx) => {
+      let created = 0
+      let updated = 0
+      let deleted = 0
 
-    const existingMap = new Map(existingEntries.map((entry) => [entry.id, entry]))
+      const existingEntries = existingIds.length > 0
+        ? await findWithDecryption(
+            trx,
+            StaffTimeEntry,
+            { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
+            {},
+            scopeCtx,
+          )
+        : []
 
-    for (const entry of entries) {
-      if (entry.id && existingMap.has(entry.id)) {
-        const existing = existingMap.get(entry.id)!
-        if (entry.durationMinutes === 0) {
-          existing.deletedAt = new Date()
-          deleted++
+      const existingMap = new Map(existingEntries.map((entry) => [entry.id, entry]))
+
+      for (const entry of entries) {
+        if (entry.id && existingMap.has(entry.id)) {
+          const existing = existingMap.get(entry.id)!
+          if (entry.durationMinutes === 0) {
+            existing.deletedAt = new Date()
+            deleted++
+          } else {
+            existing.date = entry.date
+            existing.timeProjectId = entry.timeProjectId
+            existing.durationMinutes = entry.durationMinutes
+            existing.notes = entry.notes ?? existing.notes
+            existing.updatedAt = new Date()
+            updated++
+          }
         } else {
-          existing.date = entry.date
-          existing.timeProjectId = entry.timeProjectId
-          existing.durationMinutes = entry.durationMinutes
-          existing.notes = entry.notes ?? existing.notes
-          existing.updatedAt = new Date()
-          updated++
+          const now = new Date()
+          trx.create(StaffTimeEntry, {
+            tenantId,
+            organizationId,
+            staffMemberId,
+            date: entry.date,
+            timeProjectId: entry.timeProjectId,
+            durationMinutes: entry.durationMinutes,
+            notes: entry.notes ?? null,
+            source: 'manual',
+            createdAt: now,
+            updatedAt: now,
+          })
+          created++
         }
-      } else {
-        const now = new Date()
-        em.create(StaffTimeEntry, {
-          tenantId,
-          organizationId,
-          staffMemberId,
-          date: entry.date,
-          timeProjectId: entry.timeProjectId,
-          durationMinutes: entry.durationMinutes,
-          notes: entry.notes ?? null,
-          source: 'manual',
-          createdAt: now,
-          updatedAt: now,
-        })
-        created++
       }
-    }
 
-    await em.flush()
+      return { created, updated, deleted }
+    })
 
-    return NextResponse.json({ ok: true, created, updated, deleted }, { status: 200 })
+    return NextResponse.json({ ok: true, ...counts }, { status: 200 })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
