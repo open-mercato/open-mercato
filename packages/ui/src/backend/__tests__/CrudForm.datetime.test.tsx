@@ -90,9 +90,11 @@ describe('CrudForm — datetime field types render correct picker component', ()
     expect(html).toContain('2026')
   })
 
-  it('time shows HH:MM in trigger when initialValues provided', () => {
+  it('time shows 12h-formatted value in trigger when initialValues provided', () => {
     const fields: CrudField[] = [{ id: 'sync_time', label: 'Sync Time', type: 'time' }]
     const html = renderForm(fields, { sync_time: '14:30' })
-    expect(html).toContain('14:30')
+    // Legacy TimePicker shim renders the trigger in 12h "HH:MM AM/PM" format to
+    // match the slot list inside the popover.
+    expect(html).toContain('02:30 PM')
   })
 })
