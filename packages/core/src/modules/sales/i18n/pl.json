@@ -1298,6 +1298,8 @@
   "sales.returns.notes.placeholder": "Opcjonalne",
   "sales.returns.orderMissing": "Nie znaleziono zamówienia.",
   "sales.returns.quantity": "Ilość",
+  "sales.returns.qty.decrease": "Zmniejsz ilość",
+  "sales.returns.qty.increase": "Zwiększ ilość",
   "sales.returns.quantityExceeded": "Nie można zwrócić więcej niż pozostała ilość.",
   "sales.returns.reason": "Powód",
   "sales.returns.reason.placeholder": "Opcjonalny",
