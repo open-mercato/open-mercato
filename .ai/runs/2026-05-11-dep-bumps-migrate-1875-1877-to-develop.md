@@ -71,14 +71,14 @@ None.
 
 ### Phase 2: Full validation gate
 
-- [ ] 2.1 yarn build:packages
-- [ ] 2.2 yarn generate
-- [ ] 2.3 yarn build:packages (post-generate)
-- [ ] 2.4 yarn i18n:check-sync
-- [ ] 2.5 yarn i18n:check-usage
-- [ ] 2.6 yarn typecheck
-- [ ] 2.7 yarn test
-- [ ] 2.8 yarn build:app
+- [x] 2.1 yarn build:packages — pass (18/18, 6.4s)
+- [x] 2.2 yarn generate — pass (1/1, 10.9s; 339 OpenAPI paths)
+- [x] 2.3 yarn build:packages (post-generate) — pass (18/18, 12 cached, 13.1s)
+- [x] 2.4 yarn i18n:check-sync — pass (4 locales, 46 modules)
+- [x] 2.5 yarn i18n:check-usage — pass (advisory: 3520 unused keys)
+- [x] 2.6 yarn typecheck — pass (18/18, 2m58s)
+- [x] 2.7 yarn test — 1 flake on `@open-mercato/ai-assistant` perf guard (`normalizePath` 1M-slash input took 312ms > 200ms budget under parallel load). Confirmed transient by re-running the test in isolation (18/18 pass, 1.7s). Unrelated to yarn.lock changes — fast-uri and the babel plugin are not imported by `normalizePath`.
+- [x] 2.8 yarn build:app — **pre-existing failure** on `/_global-error` prerender (`TypeError: Cannot read properties of null (reading 'useContext')`). Same failure documented in PR #1775 against the same develop base, also seen on PR #1625. Not introduced by this PR. Reviewers should treat as a known issue tracked elsewhere.
 
 ### Phase 3: Open PR, label, and cross-link
 
