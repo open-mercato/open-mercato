@@ -64,10 +64,10 @@ a `things/[id]` route exists in the same module.
 
 ### Phase 1: Core fix — specificity sort at manifest registration
 
-- [ ] 1.1 Add `segmentSpecificity` and `sortRoutesBySpecificity` helpers
-- [ ] 1.2 Apply sort in all three register functions
+- [x] 1.1 Add `segmentSpecificity` and `sortRoutesBySpecificity` helpers — 712325b4f
+- [x] 1.2 Apply sort in all three register functions — 712325b4f
 
 ### Phase 2: Tests
 
-- [ ] 2.1 Add `findRouteManifestMatch` and `findApiRouteManifestMatch` specificity tests
-- [ ] 2.2 Add `sortRoutesBySpecificity` ordering tests
+- [x] 2.1 Add `findRouteManifestMatch` and `findApiRouteManifestMatch` specificity tests — 712325b4f
+- [x] 2.2 Add `sortRoutesBySpecificity` ordering tests — 712325b4f
