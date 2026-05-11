@@ -124,18 +124,42 @@ export function Calendar({
         day_button: cn(
           'h-9 w-9 p-0 font-normal aria-selected:opacity-100',
           'inline-flex items-center justify-center rounded-md text-sm',
-          'ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2',
-          'focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none',
+          'transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
+          // Focus indicator is a soft accent fill instead of a ring overlay — keyboard
+          // users get a visible cue, but mouse-click focus does not leave a stuck ring
+          // on top of the selected cell.
           'hover:bg-accent hover:text-accent-foreground',
+          'focus-visible:bg-accent focus-visible:text-accent-foreground',
         ),
-        selected:
-          '!bg-primary !text-primary-foreground hover:!bg-primary hover:!text-primary-foreground focus:!bg-primary focus:!text-primary-foreground rounded-md',
-        range_start:
-          '!bg-primary !text-primary-foreground hover:!bg-primary hover:!text-primary-foreground rounded-l-md !rounded-r-none',
-        range_end:
-          '!bg-primary !text-primary-foreground hover:!bg-primary hover:!text-primary-foreground rounded-r-md !rounded-l-none',
-        range_middle:
-          '!bg-accent !text-accent-foreground hover:!bg-accent hover:!text-accent-foreground !rounded-none',
+        // React-day-picker v9 applies `classNames.selected` / `range_*` to the day
+        // CELL (`<td>`) wrapper, not to the inner `<button>`. To keep the parent
+        // fill visible through interaction, we (a) paint the cell with the desired
+        // bg/text, and (b) force the inner button to render transparent — so the
+        // button's own hover/focus-visible bg overrides cannot cover the cell fill.
+        selected: cn(
+          '!bg-primary !text-primary-foreground rounded-md',
+          '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+          '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+          '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+        ),
+        range_start: cn(
+          '!bg-primary !text-primary-foreground rounded-l-md !rounded-r-none',
+          '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+          '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+          '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+        ),
+        range_end: cn(
+          '!bg-primary !text-primary-foreground rounded-r-md !rounded-l-none',
+          '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+          '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+          '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+        ),
+        range_middle: cn(
+          '!bg-accent !text-accent-foreground !rounded-none',
+          '[&_button]:!bg-transparent [&_button]:!text-accent-foreground',
+          '[&_button:hover]:!bg-transparent [&_button:hover]:!text-accent-foreground',
+          '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-accent-foreground',
+        ),
         today: 'font-semibold text-primary rounded-md',
         outside:
           'day-outside text-muted-foreground opacity-40 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',

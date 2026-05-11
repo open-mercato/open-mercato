@@ -154,15 +154,28 @@ describe('DatePicker primitive', () => {
     expect(screen.getByRole('button', { name: 'Birthday' })).toBeInTheDocument()
   })
 
-  it('selected day retains primary background regardless of hover (regression: hover override)', async () => {
+  it('selected day cell paints primary fill and forces button transparent (regression)', async () => {
     renderWithI18n(<DatePicker value={new Date(2026, 4, 9)} onChange={() => {}} footer="none" />)
     await openPopover()
-    const selectedCell = document.querySelector('[aria-selected="true"]') as HTMLElement | null
-    expect(selectedCell).not.toBeNull()
-    const className = selectedCell!.className
-    // Important modifier ensures bg-primary wins over default day_button hover:bg-accent
-    expect(className).toMatch(/!bg-primary/)
-    expect(className).toMatch(/hover:!bg-primary/)
+    // react-day-picker v9 applies `selected` className to the day `<td>` cell, not
+    // the inner `<button>`. The button defaults (hover/focus-visible bg) would
+    // otherwise paint over the cell's primary fill, so we force the button to
+    // render transparent on selected cells.
+    const selectedCells = Array.from(document.querySelectorAll('td.\\!bg-primary')) as HTMLElement[]
+    expect(selectedCells.length).toBeGreaterThan(0)
+    const cellClassName = selectedCells[0].className
+    expect(cellClassName).toMatch(/!bg-primary/)
+    // The td-level rule that neutralises the button's bg/hover/focus paint.
+    expect(cellClassName).toMatch(/\[&_button\]:!bg-transparent/)
+    expect(cellClassName).toMatch(/\[&_button:hover\]:!bg-transparent/)
+    expect(cellClassName).toMatch(/\[&_button:focus-visible\]:!bg-transparent/)
+    // No `ring-2` overlay on the default day_button class (replaced by bg-accent
+    // on focus-visible so selected days don't get a ring-on-top). Target a day cell
+    // button specifically (not month-nav buttons which still use ring styling).
+    const dayCellButton = selectedCells[0].querySelector('button')
+    if (dayCellButton) {
+      expect(dayCellButton.className).not.toMatch(/focus-visible:ring-2/)
+    }
   })
 })
 
