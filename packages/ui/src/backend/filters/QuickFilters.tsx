@@ -31,13 +31,7 @@ export function QuickFilters({ presets, userId, onApply }: QuickFiltersProps) {
   if (!availablePresets.length) return null
   return (
     <div className="flex flex-col gap-2">
-      {/* Spec section 5.5 calls for an "overline" heading. The `text-overline`
-          Tailwind utility doesn't resolve in this project (the CSS variable
-          isn't picked up by JIT), so use the explicit 11px overline scale
-          here. Weight dropped to medium and tracking pulled in from
-          `tracking-widest` (0.1em) so the label matches the SPEC-048 mockups
-          instead of looming over the chips. */}
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="text-overline font-medium uppercase tracking-widest text-muted-foreground">
         {t('ui.advancedFilter.quickFilters.heading', 'Quick filters')}
       </div>
       <div className="flex flex-wrap gap-2">

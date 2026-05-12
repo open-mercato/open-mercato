@@ -7,7 +7,6 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   parseScopedCommandInput,
@@ -20,7 +19,7 @@ import {
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 
 const rawBodySchema = z.object({}).passthrough()
 

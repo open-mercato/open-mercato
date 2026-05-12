@@ -14,7 +14,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdExclusion,
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   withScopedPayload,
@@ -27,7 +26,7 @@ import {
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,

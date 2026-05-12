@@ -6,8 +6,6 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { consumeAdvancedFilterState as sharedConsumeAdvancedFilterState } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
-import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 const { withScopedPayload, parseScopedCommandInput } = createScopedApiHelpers({
@@ -277,16 +275,6 @@ export function applyEntityIdExclusion(
     ...(currentIdFilter ?? {}),
     $nin: Array.from(new Set([...currentNotIn, ...uniqueIds])),
   }
-}
-
-/**
- * @deprecated Use `consumeAdvancedFilterState` from
- * `@open-mercato/shared/lib/crud/advanced-filter-integration` instead. This
- * customers-module-local re-export is kept as a thin shim so existing imports
- * keep working while callers migrate.
- */
-export function consumeAdvancedFilterState(query: Record<string, unknown>): AdvancedFilterTree | null {
-  return sharedConsumeAdvancedFilterState(query)
 }
 
 export async function findMatchingEntityIdsWithQueryEngine({

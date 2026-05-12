@@ -217,7 +217,7 @@ function SavedFiltersSection({
   return (
     <div className="flex flex-col gap-2" data-testid="advanced-filter-saved-filters">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="text-overline font-medium uppercase tracking-widest text-muted-foreground">
           {t('ui.advancedFilter.savedFilters.heading', 'Saved filters')}
         </div>
         {canSaveCurrent ? (
