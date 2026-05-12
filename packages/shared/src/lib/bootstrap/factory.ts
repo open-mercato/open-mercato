@@ -133,6 +133,9 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
     injectionRegistry.registerInjectionWidgets(data.injectionWidgetEntries)
     coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
     coreInjection.registerCoreInjectionTables(data.injectionTables)
+    coreInjection.registerEnabledModuleIds(
+      data.modules.map((module) => module.id).filter((id): id is string => typeof id === 'string' && id.length > 0),
+    )
   } catch {
     // UI packages may not be available in all contexts
   }
