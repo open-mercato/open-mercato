@@ -30,6 +30,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Notification](#notification)
 - [Accordion](#accordion)
 - [LogList](#loglist)
+- [RichEditor](#richeditor)
 - [Common patterns](#common-patterns)
 
 ---
@@ -1801,6 +1802,128 @@ The `body` prop accepts any React node. Use it for metadata grids, inline / nest
 - Pre-format `time` in the consumer (the primitive ships no `formatDateTime`); pair with the same locale used elsewhere on the page for consistency.
 - Build `body` content with the same translation keys as the legacy table headers (`<dt>` labels remain the existing `t(...)` keys, so PL / EN translations stay in sync).
 - Keep `body` heavyweight (large `JsonDisplay`, fetch-on-expand) — it mounts lazily, so the closed state stays cheap regardless of payload size.
+
+---
+
+## RichEditor
+
+```typescript
+import {
+  RichEditor,
+  RichEditorToolbar,
+  RichEditorIconButton,
+  RichEditorTextDropdown,
+  RichEditorDropdownButton,
+  RichEditorColorButton,
+  RichEditorColorPalette,
+  RichEditorContent,
+  RichEditorDivider,
+  RICH_EDITOR_COLOR_PALETTE,
+  type RichEditorLabels,
+  type RichEditorColorKey,
+  type RichEditorVariant,
+} from '@open-mercato/ui/primitives/rich-editor'
+```
+
+`contentEditable`-based HTML rich text editor with a Figma-aligned toolbar (`164611:20259`). Compound API + four preset toolbar variants. Output is sanitized through the existing `sanitizeHtmlRichText` pipeline so the editor remains drop-in for any consumer that wrote against the legacy `HtmlRichTextEditor`.
+
+### Quick usage (preset variant)
+
+```tsx
+const [value, setValue] = React.useState('<p>Hello</p>')
+
+<RichEditor value={value} onChange={setValue} variant="standard" />
+```
+
+`variant` chooses the toolbar layout:
+
+| Variant | Items |
+|---|---|
+| `'minimal'` | Bold / Italic / Underline |
+| `'basic'` | Bold / Italic / Underline / Bullet list / Link |
+| `'standard'` (default) | Heading dropdown / Bold / Italic / Underline / Bullet list / Numbered list / Link |
+| `'full'` | Heading / Bold / Italic / Underline / Strikethrough / Color / Bullet list / Numbered list / Quote / Code / Link |
+| `'custom'` | Render `<RichEditorToolbar>...</RichEditorToolbar>` + `<RichEditorContent />` children manually |
+
+The `'standard'` variant is what `CrudForm` `editor: 'html'` consumers get — it matches the legacy six-button toolbar plus the new heading dropdown.
+
+### i18n
+
+Pass `labels` to override the English defaults. The `CrudForm` `editor: 'html'` integration maps the existing `ui.forms.richtext.*` keys (`bold`, `italic`, `underline`, `list`, `orderedList`, `heading`, `heading1`, `heading2`, `heading3`, `paragraph`, `link`, `linkUrlPrompt`, `placeholder`) onto this contract.
+
+```tsx
+const t = useT()
+<RichEditor
+  value={value}
+  onChange={setValue}
+  labels={{
+    bold: t('ui.forms.richtext.bold'),
+    italic: t('ui.forms.richtext.italic'),
+    underline: t('ui.forms.richtext.underline'),
+    // …
+  }}
+/>
+```
+
+### Custom toolbar (compound API)
+
+When `variant="custom"` the primitive renders no preset items — you supply the toolbar layout via children. Useful for slim toolbars, additional buttons, or third-party command bridges. Compound atoms must be rendered inside `<RichEditor>` (they read the editor context).
+
+```tsx
+<RichEditor value={value} onChange={setValue} variant="custom">
+  <RichEditorToolbar>
+    <RichEditorIconButton icon={<Bold />} command="bold" ariaLabel="Bold" />
+    <RichEditorIconButton icon={<Italic />} command="italic" ariaLabel="Italic" />
+    <RichEditorDivider />
+    <RichEditorColorButton ariaLabel="Text color" command="foreColor" />
+  </RichEditorToolbar>
+  <RichEditorContent placeholder="Type here…" minRows={6} />
+</RichEditor>
+```
+
+### Color palette (Figma `Rich Editor Colors`)
+
+```ts
+RICH_EDITOR_COLOR_PALETTE = {
+  gray:   '#7b7b7b',
+  blue:   '#6366f1',
+  orange: '#f59e0b',
+  red:    '#ef4444',
+  green:  '#22c55e',
+  yellow: '#f6b51e',
+  purple: '#7d52f4',
+  sky:    '#47c2ff',
+  pink:   '#fb4ba3',
+  teal:   '#22d3bb',
+}
+```
+
+`<RichEditorColorButton>` uses this palette by default; pass `command="hiliteColor"` for highlight instead of `foreColor`. `<RichEditorColorPalette>` is also exported standalone for popovers or pickers that want the same swatch grid without the toolbar trigger.
+
+### Props
+
+`RichEditor`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | `''` | HTML — sanitized through `sanitizeHtmlRichText` on every mount and on blur. |
+| `onChange` | `(html: string) => void` | — | Called with the sanitized HTML when the editor loses focus. |
+| `variant` | `'minimal' \| 'basic' \| 'standard' \| 'full' \| 'custom'` | `'standard'` | Toolbar preset; pass `'custom'` to render children-supplied atoms. |
+| `placeholder` | `string` | `labels.placeholder` | Rendered via `data-placeholder` + Tailwind `empty:before:content`. |
+| `minRows` | `number` | `4` | Sets the content area `min-height` in line-height units. |
+| `disabled` | `boolean` | `false` | Disables editing + dims the surface to `opacity-60`. |
+| `labels` | `Partial<RichEditorLabels>` | English defaults | Translation overrides — see i18n example above. |
+| `className` / `contentClassName` | `string` | — | Compose extra utilities on the wrapper / content. |
+| `aria-invalid` | `boolean` | — | Forwarded to the root for form validation styling hooks. |
+
+Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDropdownButton`, `RichEditorColorButton`) expose `active`, `tooltipLabel`, `ariaLabel`, `command`, and `onActivate` props for full customization. All four follow the Figma `Rich Editor Items` spec (28×h, `rounded-md`, `bg-card` default, `bg-muted` hover/active).
+
+### MUST rules
+
+- Pass an `ariaLabel` on every custom toolbar button — the primitive uses it for `aria-label` and the `<title>` tooltip fallback.
+- Wrap any `RichEditorToolbar` / `RichEditorIconButton` / `RichEditorTextDropdown` / `RichEditorDropdownButton` / `RichEditorColorButton` inside `<RichEditor>` — they throw outside the editor context (the error message points to the offending component).
+- Keep the editor output trustworthy: do not bypass `onChange` (the sanitizer enforces the allowed tag/attr set). For custom commands, write through `useRichEditorContext().exec`.
+- For server-rendered content always feed the editor through `dangerouslySetInnerHTML` of `sanitizeHtmlRichText(value)` before passing to `value` — the primitive re-sanitizes but storing pre-sanitized HTML keeps the DB clean.
 
 ---
 
