@@ -42,13 +42,18 @@ export function getNextPatchVersion(currentVersion) {
   return `${major}.${minor}.${patch + 1}`
 }
 
-export function buildSnapshotVersion({ currentVersion, channel, buildId, commitSha }) {
+export function buildSnapshotVersion({ currentVersion, channel, buildId, buildAttempt, commitSha }) {
   const nextVersion = getNextPatchVersion(currentVersion)
   const normalizedChannel = normalizePrereleaseIdentifier(channel, 'snapshot')
   const normalizedBuildId = normalizePrereleaseIdentifier(buildId, '0')
+  const normalizedBuildAttempt =
+    buildAttempt == null || String(buildAttempt).trim() === ''
+      ? ''
+      : normalizePrereleaseIdentifier(buildAttempt, '1')
   const normalizedCommitSha = normalizePrereleaseIdentifier(commitSha, 'local', { prefixIfNumeric: 'g' })
+  const buildIdentity = normalizedBuildAttempt ? `${normalizedBuildId}.${normalizedBuildAttempt}` : normalizedBuildId
 
-  return `${nextVersion}-${normalizedChannel}.${normalizedBuildId}.${normalizedCommitSha}`
+  return `${nextVersion}-${normalizedChannel}.${buildIdentity}.${normalizedCommitSha}`
 }
 
 export function resolveSnapshotPublishConfig({ eventName, refName }) {
@@ -116,6 +121,7 @@ function runCli() {
       currentVersion: requireOption(options, 'current-version'),
       channel: requireOption(options, 'channel'),
       buildId: requireOption(options, 'build-id'),
+      buildAttempt: options['build-attempt'] ?? '',
       commitSha: requireOption(options, 'commit-sha'),
     })
 

@@ -26,7 +26,7 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       await page.getByRole('textbox').first().fill(roleName);
       await page.getByRole('button', { name: 'Create' }).first().click();
       await expect(page).toHaveURL(/\/backend\/roles(?:\?.*)?$/);
-      await page.getByRole('textbox', { name: 'Search' }).fill(roleName);
+      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(roleName);
       await page.getByRole('row', { name: new RegExp(roleName, 'i') }).click();
       await expect(page).toHaveURL(/\/backend\/roles\/[0-9a-f-]{36}\/edit$/i);
       roleId = page.url().match(/\/backend\/roles\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;

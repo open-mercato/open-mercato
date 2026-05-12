@@ -29,9 +29,11 @@ jest.mock('../../emails/MessageEmail', () => ({
 }))
 
 function createEm() {
+  const flush = jest.fn(async () => {})
   return {
     create: jest.fn((_entity, payload) => payload),
-    persistAndFlush: jest.fn(async () => {}),
+    persist: jest.fn(() => ({ flush })),
+    flush,
   }
 }
 
@@ -65,7 +67,8 @@ describe('messages email sender', () => {
 
     expect(token).toHaveLength(64)
     expect(em.create).toHaveBeenCalledTimes(1)
-    expect(em.persistAndFlush).toHaveBeenCalledTimes(1)
+    expect(em.persist).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalledTimes(1)
     const [, payload] = em.create.mock.calls[0] as [unknown, { token: string }]
     const { hashAuthToken } = require('../../../auth/lib/tokenHash')
     expect(payload.token).toBe(hashAuthToken(token))

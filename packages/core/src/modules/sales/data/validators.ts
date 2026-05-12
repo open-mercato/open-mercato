@@ -419,6 +419,41 @@ export const quoteLineUpdateSchema = z
   })
   .merge(quoteLineCreateSchema.partial())
 
+// A `return` adjustment must never increase the grand total. The calculation
+// engine is defensively normalized to negative, but the API edge also rejects
+// positive amounts so bad input is caught before it reaches storage. See #1705.
+export const RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE =
+  'Return adjustments must use a non-positive amountNet (returns reduce the total).'
+export const RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE =
+  'Return adjustments must use a non-positive amountGross (returns reduce the total).'
+
+type AdjustmentSignInput = {
+  kind?: string
+  amountNet?: number
+  amountGross?: number
+}
+
+export const enforceReturnAdjustmentSign = (
+  value: AdjustmentSignInput,
+  ctx: z.RefinementCtx
+) => {
+  if (value.kind !== 'return') return
+  if (typeof value.amountNet === 'number' && value.amountNet > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
+      path: ['amountNet'],
+    })
+  }
+  if (typeof value.amountGross === 'number' && value.amountGross > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
+      path: ['amountGross'],
+    })
+  }
+}
+
 export const orderAdjustmentCreateSchema = scoped.extend({
   orderId: uuid(),
   orderLineId: uuid().optional(),

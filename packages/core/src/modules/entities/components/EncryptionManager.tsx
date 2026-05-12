@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -269,7 +276,7 @@ export function EncryptionManager() {
     }
     if (!fields.length) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('entities.encryption.empty', 'No fields are encrypted yet. Add the first one below.')}
         </div>
       )
@@ -303,33 +310,39 @@ export function EncryptionManager() {
               return (
                 <tr key={row.id} className="border-t">
                   <td className="px-3 py-2 align-top">
-                    <select
-                      className="w-full rounded border bg-background px-3 py-2 text-sm"
-                      value={row.field}
-                      onChange={(event) => updateField(row.id, { field: event.target.value })}
+                    <Select
+                      value={row.field || undefined}
+                      onValueChange={(value) => updateField(row.id, { field: value ?? '' })}
                     >
-                      <option value="">{t('entities.encryption.fields.selectField', 'Select field')}</option>
-                      {fieldOpts.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('entities.encryption.fields.selectField', 'Select field')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fieldOpts.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <select
-                      className="w-full rounded border bg-background px-3 py-2 text-sm"
-                      value={row.hashField || ''}
-                      onChange={(event) => updateField(row.id, { hashField: event.target.value ? event.target.value : null })}
+                    <Select
+                      value={row.hashField || undefined}
+                      onValueChange={(value) => updateField(row.id, { hashField: value || null })}
                     >
-                      <option value="">{t('entities.encryption.fields.selectHash', 'Select hash field (optional)')}</option>
-                      {hashOpts.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('entities.encryption.fields.selectHash', 'Select hash field (optional)')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {hashOpts.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-overline text-muted-foreground">
                       {t('entities.encryption.fields.hashHint', 'Use when lookups must stay deterministic (e.g., login by email).')}
                     </p>
                   </td>
@@ -368,19 +381,22 @@ export function EncryptionManager() {
               <label className="text-xs text-muted-foreground">
                 {t('entities.encryption.selectEntity', 'Choose entity')}
               </label>
-              <select
-                className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                value={selectedEntityId}
-                onChange={(event) => setSelectedEntityId(event.target.value)}
+              <Select
+                value={selectedEntityId || undefined}
+                onValueChange={(value) => setSelectedEntityId(value ?? '')}
                 disabled={loadingEntities || !!entitiesError}
               >
-                {!selectedEntityId ? <option value="">{t('entities.encryption.placeholder', 'Select an entity')}</option> : null}
-                {(entities?.items || []).map((item) => (
-                  <option key={item.entityId} value={item.entityId}>
-                    {item.label || item.entityId} {item.source === 'custom' ? `(${t('entities.encryption.source.custom', 'custom')})` : ''}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('entities.encryption.placeholder', 'Select an entity')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(entities?.items || []).map((item) => (
+                    <SelectItem key={item.entityId} value={item.entityId}>
+                      {item.label || item.entityId} {item.source === 'custom' ? `(${t('entities.encryption.source.custom', 'custom')})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {entitiesError ? (
                 <p className="mt-1 text-xs text-red-600">
                   {t('entities.encryption.errors.loadEntities', 'Failed to load entities')}
@@ -401,7 +417,7 @@ export function EncryptionManager() {
             </label>
           </div>
         </div>
-        <div className="rounded-lg border bg-background/70 p-4">
+        <div className="rounded-lg border bg-background/80 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium">{t('entities.encryption.fields.title', 'Encrypted fields')}</h3>

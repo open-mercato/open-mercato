@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -89,13 +89,20 @@
     }
   },
   "dependencies": {
-    "rate-limiter-flexible": "^11.0.1",
-    "sanitize-html": "^2.17.2"
+    "@mikro-orm/core": "^7.0.15",
+    "@mikro-orm/decorators": "^7.0.15",
+    "@mikro-orm/postgresql": "^7.0.15",
+    "@open-mercato/cache": "0.6.0",
+    "dotenv": "^17.4.2",
+    "rate-limiter-flexible": "^11.1.0",
+    "reflect-metadata": "^0.2.2",
+    "sanitize-html": "^2.17.3",
+    "undici": "^7.24.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/sanitize-html": "^2.16.1",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

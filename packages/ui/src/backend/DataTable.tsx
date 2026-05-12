@@ -3,10 +3,17 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, ChevronDown, Check } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
 import { Spinner } from '../primitives/spinner'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
@@ -204,6 +211,7 @@ export type DataTableProps<T> = {
   rowClickActionIds?: string[]
   disableRowClick?: boolean
   bulkActions?: BulkAction<T>[]
+  selectionScopeKey?: string
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -627,7 +635,6 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
       <Button
         ref={buttonRef}
         variant="outline"
-        size="sm"
         type="button"
         onClick={() => {
           if (disabled) return
@@ -643,7 +650,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
+          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-dropdown"
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
@@ -861,6 +868,7 @@ export function DataTable<T>({
   rowClickActionIds,
   disableRowClick = false,
   bulkActions: bulkActionsProp,
+  selectionScopeKey,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -1031,7 +1039,7 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId])
   const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
-  const resolvedInjectionContext = React.useMemo(
+  const baseInjectionContext = React.useMemo(
     () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
     [injectionContext, perspective?.tableId, title]
   )
@@ -1041,6 +1049,10 @@ export function DataTable<T>({
   )
   const toolbarInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    [resolvedInjectionSpotId]
+  )
+  const searchTrailingInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
     [resolvedInjectionSpotId]
   )
   const footerInjectionSpotId = React.useMemo(
@@ -1289,6 +1301,7 @@ export function DataTable<T>({
   const hasPropBulkActions = Array.isArray(bulkActionsProp) && bulkActionsProp.length > 0
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
@@ -1314,10 +1327,32 @@ export function DataTable<T>({
   })
   React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
   React.useEffect(() => {
+    if (selectionScopeKey === undefined) {
+      selectionScopeKeyRef.current = undefined
+      return
+    }
+    if (selectionScopeKeyRef.current === undefined) {
+      selectionScopeKeyRef.current = selectionScopeKey
+      return
+    }
+    if (selectionScopeKeyRef.current === selectionScopeKey) return
+    selectionScopeKeyRef.current = selectionScopeKey
+    setRowSelection({})
+  }, [selectionScopeKey])
+  React.useEffect(() => {
     if (hasInjectedBulkActions) return
     if (Object.keys(rowSelection).length === 0) return
     setRowSelection({})
   }, [hasInjectedBulkActions, rowSelection])
+  const resolvedInjectionContext = React.useMemo(
+    () => {
+      if (!hasInjectedBulkActions) return baseInjectionContext
+      const selectedIds = Object.keys(rowSelection).filter((key) => rowSelection[key])
+      if (selectedIds.length === 0) return baseInjectionContext
+      return { ...baseInjectionContext, _selectedRowIds: selectedIds, _selectedCount: selectedIds.length }
+    },
+    [baseInjectionContext, hasInjectedBulkActions, rowSelection],
+  )
   React.useEffect(() => {
     const ids = table.getAllLeafColumns().map((column) => column.id)
     if (!ids.length) return
@@ -1745,19 +1780,26 @@ export function DataTable<T>({
       : []
     const pageSizeSelect = pageSizeOptions.length > 0 && pagination.onPageSizeChange ? (
       <span className="inline-flex items-center gap-1.5">
-        <select
-          className="rounded border bg-background pl-2 pr-7 py-0.5 text-sm min-w-[3.5rem]"
-          value={pagination.pageSize}
-          onChange={(event) => {
-            pagination.onPageSizeChange!(Number(event.target.value))
+        <Select
+          value={String(pagination.pageSize)}
+          onValueChange={(value) => {
+            pagination.onPageSizeChange!(Number(value))
             scrollTableIntoView()
           }}
-          aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
         >
-          {pageSizeOptions.map((size) => (
-            <option key={size} value={size}>{size}</option>
-          ))}
-        </select>
+          <SelectTrigger
+            size="sm"
+            className="min-w-[4rem]"
+            aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((size) => (
+              <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
       </span>
     ) : null
@@ -2090,17 +2132,21 @@ export function DataTable<T>({
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('ui.dataTable.fieldset.label', 'Fieldset')}
             </div>
-            <select
-              className="w-full rounded border bg-background px-2 py-2 text-sm"
-              value={activeCustomFieldFilterFieldset ?? ''}
-              onChange={(event) => handleCustomFieldFilterFieldsetChange(event.target.value)}
+            <Select
+              value={activeCustomFieldFilterFieldset || undefined}
+              onValueChange={(value) => handleCustomFieldFilterFieldsetChange(value)}
             >
-              {(cfFilterFieldsetsByEntity[resolvedEntityIds[0]] ?? []).map((fieldset) => (
-                <option key={fieldset.code} value={fieldset.code}>
-                  {fieldset.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(cfFilterFieldsetsByEntity[resolvedEntityIds[0]] ?? []).map((fieldset) => (
+                  <SelectItem key={fieldset.code} value={fieldset.code}>
+                    {fieldset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )
         : null
@@ -2119,7 +2165,6 @@ export function DataTable<T>({
             <Button
               key={action.id}
               type="button"
-              size="sm"
               variant="outline"
               title={label}
               aria-label={label}
@@ -2138,7 +2183,6 @@ export function DataTable<T>({
             <Button
               key={action.id}
               type="button"
-              size="sm"
               variant={action.destructive ? 'destructive' : 'outline'}
               onClick={() => void runPropBulkAction(action)}
             >
@@ -2148,6 +2192,9 @@ export function DataTable<T>({
           )
         }) : null}
       </div>
+    ) : null
+    const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
+      <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
     ) : null
     return (
       <FilterBar
@@ -2161,6 +2208,7 @@ export function DataTable<T>({
         onClear={onFiltersClear}
         leadingItems={leadingItems}
         trailingItems={trailingItems}
+        searchTrailing={searchTrailingNode}
         filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
@@ -2193,6 +2241,8 @@ export function DataTable<T>({
     selectedRows,
     runBulkAction,
     runPropBulkAction,
+    searchTrailingInjectionSpotId,
+    resolvedInjectionContext,
   ])
 
   const hasTitle = title != null
@@ -2292,7 +2342,7 @@ export function DataTable<T>({
                     >
                       <Filter className="h-4 w-4" />
                       {advancedFilter.value.conditions.length > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-overline text-primary-foreground">
                           {advancedFilter.value.conditions.length}
                         </span>
                       ) : null}
@@ -2389,10 +2439,12 @@ export function DataTable<T>({
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {sortable && header.column.getCanSort?.() ? (
-                        <span className="ml-1 inline-flex flex-col text-[10px] leading-none gap-px">
-                          <span className={header.column.getIsSorted() === 'asc' ? 'text-foreground' : 'text-muted-foreground/40'}>▲</span>
-                          <span className={header.column.getIsSorted() === 'desc' ? 'text-foreground' : 'text-muted-foreground/40'}>▼</span>
-                        </span>
+                        (() => {
+                          const sortState = header.column.getIsSorted()
+                          if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                          if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                          return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                        })()
                       ) : null}
                     </Button>
                   )

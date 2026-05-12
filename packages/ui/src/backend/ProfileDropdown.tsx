@@ -321,7 +321,7 @@ export function ProfileDropdown({
       {open && (
         <div
           ref={menuRef}
-          className="absolute right-0 top-full mt-1 w-56 rounded-md border bg-background p-1 shadow-lg z-50"
+          className="absolute right-0 top-full mt-1 w-56 rounded-md border bg-background p-1 shadow-lg z-dropdown"
           role="menu"
           data-testid="profile-dropdown"
         >

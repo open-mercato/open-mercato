@@ -1,0 +1,133 @@
+---
+title: AI Framework Overview
+description: Unified AI agent runtime, tool packs, and mutation approval gate shipped as part of the AI Framework Unification release.
+---
+
+# AI Framework Overview
+
+The **AI Framework** is a typed, module-owned runtime for building focused AI agents that can read and — with explicit user approval — mutate tenant data. It ships as part of `@open-mercato/ai-assistant` alongside the existing OpenCode Code Mode chat surface.
+
+![Cmd/Ctrl+L opens the global AI assistant picker listing every agent the operator can launch](/screenshots/open-mercato-ai-assistant-available-assistants.png)
+
+:::tip Two complementary surfaces
+This framework **does not replace** the OpenCode-backed Command Palette (`Cmd+K`). Both stacks run side-by-side:
+
+- **OpenCode Code Mode** keeps powering the general-purpose Cmd+K chat with its two meta-tools (`search` + `execute`) against the OpenAPI spec.
+- **The AI framework** powers focused, typed agents embedded in admin pages via `<AiChat>`, structured-output callers via `runAiAgentObject`, and the D18 merchandising demo on `/backend/catalog/catalog/products`.
+:::
+
+## What you get
+
+- **`AiAgentDefinition`** — declarative agent contracts in `<module>/ai-agents.ts` with `requiredFeatures`, `allowedTools`, `acceptedMediaTypes`, `readOnly`, and `mutationPolicy`.
+- **`defineAiTool`** — typed tool definitions registered per module with `isMutation`, `requiredFeatures`, and Zod input schemas.
+- **Tool packs** — shared `search.*`, `attachments.*`, `meta.*` packs plus module-local packs (customers, catalog).
+- **Chat and object execution modes** — stream-first chat via `runAiAgentText`, structured outputs via `runAiAgentObject`.
+- **Mutation approval gate** — the `ai_pending_actions` table, three typed events (`ai.action.confirmed|cancelled|expired`), approval cards, and a TTL cleanup worker.
+- **Prompt and mutation-policy overrides** — tenant-scoped additive prompt sections and non-escalating policy downgrades at `/backend/config/ai-assistant/agents`.
+
+## Architecture flow
+
+```
+<AiChat agent="module.agent_id">
+        │
+        ▼
+POST /api/ai_assistant/ai/chat?agent=<module>.<agent>
+        │
+        ├── checkAgentPolicy() — features, tool whitelist, mutationPolicy, media
+        ├── createModelFactory().resolveModel() — LLM resolution
+        ├── resolveAiAgentTools() — expose whitelisted tools to the model
+        │
+        ▼
+runAiAgentText() / runAiAgentObject()
+        │
+        ├── Mutation tool call → prepareMutation() → ai_pending_actions row
+        │   └── UI renders mutation-preview-card / field-diff-card
+        │
+        ▼
+POST /api/ai/actions/:id/confirm   (user approves)
+        │
+        ├── runPendingActionRechecks() — stale-version guard
+        ├── executePendingActionConfirm() — tool handler runs inside DB txn
+        └── emit ai.action.confirmed → DOM event bridge → DataTable refresh
+```
+
+## Agent contract at a glance
+
+```ts
+import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
+
+export const agent: AiAgentDefinition = {
+  id: 'customers.account_assistant',
+  moduleId: 'customers',
+  label: 'Account Assistant',
+  description: 'Read-only CRM explorer for people, companies, deals.',
+  systemPrompt: '...',
+  allowedTools: ['search.entities', 'customers.get_person', /* ... */],
+  readOnly: true,
+  mutationPolicy: 'read-only',
+  requiredFeatures: ['customers.view'],
+  acceptedMediaTypes: ['image', 'pdf'],
+  defaultModel: 'claude-haiku-4-5',
+}
+```
+
+See [AI Agents](./agents) for the full declaration guide and the end-to-end example.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | — | Standard provider keys; at least one MUST be set. The runtime picks the first configured provider via `llmProviderRegistry.resolveFirstConfigured()`. |
+| `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 min) | Expiry window for pending mutation approvals. The cleanup worker flips stale rows to `expired`. |
+| `OM_AI_<MODULE>_MODEL` | unset | Per-module model override. Uppercased from the `moduleId`. Examples: `OM_AI_INBOX_OPS_MODEL=claude-haiku-4-5`, `OM_AI_CATALOG_MODEL=gpt-4o-mini`. The legacy `<MODULE>_AI_MODEL` form (`INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`) is read as a backward-compatibility fallback. |
+| `OM_AI_PROVIDER` | `openai` (when an `OPENAI_API_KEY` is set) | Process-wide default provider id. Built-in ids: `openai`, `anthropic`, `google`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. Falls through transparently when the named provider is registered-but-unconfigured. Legacy `OPENCODE_PROVIDER` is read as a backward-compatibility fallback. |
+| `OM_AI_MODEL` | `gpt-5-mini` (under the default `openai` provider) | Process-wide default model id. Plain ids resolve under the chosen provider; slash-qualified ids (`openai/gpt-5-mini`) consume the provider axis at the same step. DeepInfra-style ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. Legacy `OPENCODE_MODEL` is read as a backward-compatibility fallback. |
+
+`OM_AI_PROVIDER` / `OM_AI_MODEL` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored as backward-compatibility fallbacks for the unified AI runtime.
+
+### Model resolution order
+
+The shared `createModelFactory(container)` picks one model per agent run. Highest precedence first:
+
+1. `callerOverride` — `runAiAgentText({ modelOverride })`.
+2. `OM_AI_<MODULE>_MODEL` env var.
+3. `agentDefaultModel` — usually `AiAgentDefinition.defaultModel`.
+4. `OM_AI_MODEL` env var.
+5. Provider default.
+
+The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
+
+1. The slash-prefix from `OM_AI_MODEL` (when present and matches a registered provider id).
+2. `OM_AI_PROVIDER`.
+
+The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
+
+:::caution Do not re-introduce ad-hoc provider lookups
+Route every model creation through `createModelFactory(container).resolveModel({...})`. Inline `createAnthropic` / `createOpenAI` / `createGoogleGenerativeAI` calls in new modules will be rejected in review.
+:::
+
+## Migration and backward compatibility
+
+The release is **additive** — no existing event ids, API routes, widget spot ids, DI keys, ACL feature ids, notification type ids, CLI commands, or generated file contracts were renamed or removed.
+
+- `Migration20260419134235_ai_assistant` adds `ai_pending_actions`, `ai_agent_prompt_overrides`, and `ai_agent_mutation_policy_overrides`. Apply via `yarn db:migrate`.
+- After migrate, refresh the structural cache so the cleanup worker registers on existing tenants:
+
+  ```bash
+  yarn mercato configs cache structural --all-tenants
+  ```
+
+- OpenCode's `/api/chat`, `/api/tools`, and `/api/tools/execute` routes are untouched. The new dispatcher lives at `/api/ai_assistant/ai/chat` and the pending-action routes under `/api/ai/actions/:id/*`.
+
+## Where to go next
+
+- [Architecture](./architecture) — system map, request flow, persistence, generators.
+- [Developer Guide](./developer-guide) — soup-to-nuts walkthrough for adding a new agent end-to-end.
+- [AI Agents](./agents) — `ai-agents.ts`, tool packs, chat vs object mode, escape hatches.
+- [UI Parts](./ui-parts) — record cards + custom inline widgets the agent streams into the chat.
+- [Attachments](./attachments) — file upload contract, base64 inline encoding, the input-index pairing.
+- [Mutation Approvals](./mutation-approvals) — `ai_pending_actions` lifecycle, events, approval cards.
+- [Global Launcher](./launcher) — topbar AI button + Cmd/Ctrl+L global shortcut.
+- [Overrides](./overrides) — replace or disable agents and tools registered by other modules.
+- [Agent Settings](./settings) — prompt overrides and mutation-policy overrides at `/backend/config/ai-assistant/agents`.
+- [Playground](./playground) — interactive sandbox for running agents with structured inputs.

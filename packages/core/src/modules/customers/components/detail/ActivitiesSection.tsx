@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from 'react'
-import { Clock } from 'lucide-react'
+import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import type { ActivitySummary, InteractionSummary } from './types'
@@ -104,15 +105,48 @@ export function ActivitiesSection({
   onLoadingChange,
   refreshKey = 0,
   onEditActivity,
+  runGuardedMutation,
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
   const [filterDateFrom, setFilterDateFrom] = React.useState('')
   const [filterDateTo, setFilterDateTo] = React.useState('')
+  const [searchTerm, setSearchTerm] = React.useState('')
   const [activities, setActivities] = React.useState<InteractionSummary[]>([])
   const [loading, setLoading] = React.useState(false)
   const [hasMore, setHasMore] = React.useState(false)
   const [loadedPages, setLoadedPages] = React.useState(1)
+  const searchInputRef = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    if (!entityId) return
+    function handleShortcut(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === '1') {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [entityId])
+
+  const visibleActivities = React.useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return activities
+    return activities.filter((activity) => {
+      const haystack = [
+        activity.title,
+        activity.body,
+        activity.authorName,
+        activity.dealTitle,
+        activity.interactionType,
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(term)
+    })
+  }, [activities, searchTerm])
 
   React.useEffect(() => {
     onActionChange?.(null)
@@ -132,13 +166,17 @@ export function ActivitiesSection({
     setLoading(true)
     try {
       // Always fetch canonical interactions (new activities are always created here)
+      const taskFilterActive = filterTypes.includes('task')
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
-        excludeInteractionType: 'task',
       })
+      // Hide tasks from the activity timeline by default — they have their own tab —
+      // but lift the exclusion when the user explicitly toggled the Task chip on
+      // (mirrors `ActivityHistorySection.tsx` after the #1805 fix).
+      if (!taskFilterActive) canonicalParams.set('excludeInteractionType', 'task')
       if (dealId) canonicalParams.set('dealId', dealId)
       if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
@@ -217,6 +255,31 @@ export function ActivitiesSection({
     setLoadedPages(1)
   }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
 
+  const handleMarkDone = React.useCallback(async (activityId: string) => {
+    try {
+      const operation = () =>
+        apiCallOrThrow('/api/customers/interactions/complete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
+        })
+      if (runGuardedMutation) {
+        await runGuardedMutation(operation, {
+          id: activityId,
+          status: 'done',
+          operation: 'completeActivity',
+        })
+      } else {
+        await operation()
+      }
+      flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
+      await loadActivities()
+    } catch (err) {
+      console.warn('[customers.activitiesSection] mark done failed', activityId, err)
+      flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+    }
+  }, [loadActivities, runGuardedMutation, t])
+
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
   // Resolve missing author names from user IDs
@@ -269,55 +332,77 @@ export function ActivitiesSection({
     return () => controller.abort()
   }, [activities])
 
+  const totalCount = activities.length
+  const visibleCount = visibleActivities.length
+
   return (
-    <div className="rounded-2xl border border-border/70 bg-card p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Clock className="size-4 text-muted-foreground" />
-          <h3 className="text-base font-semibold text-foreground">
-            {entityName
-              ? t('customers.timeline.history.title', 'Interaction history with {{name}}', { name: entityName })
-              : t('customers.timeline.history.titleGeneric', 'Interaction history')}
-          </h3>
-        </div>
+    <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card pt-4 pb-[18px] px-[18px]">
+      <div className="flex items-center gap-2">
+        <Clock className="size-[15px] text-muted-foreground" />
+        <h3 className="text-[13px] font-semibold text-foreground">
+          {entityName
+            ? t('customers.timeline.history.title', 'Interaction history with {{name}}', { name: entityName })
+            : t('customers.timeline.history.titleGeneric', 'Interaction history')}
+        </h3>
       </div>
 
-      <div className="mb-4">
-        <ActivityTimelineFilters
-          entityId={entityId}
-          activeTypes={filterTypes}
-          dateFrom={filterDateFrom}
-          dateTo={filterDateTo}
-          onTypesChange={setFilterTypes}
-          onDateFromChange={setFilterDateFrom}
-          onDateToChange={setFilterDateTo}
-          onReset={() => {
-            setFilterTypes([])
-            setFilterDateFrom('')
-            setFilterDateTo('')
-          }}
+      <label className="relative flex items-center">
+        <Search className="pointer-events-none absolute left-2.5 size-5 text-muted-foreground" aria-hidden />
+        <input
+          ref={searchInputRef}
+          type="search"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          placeholder={t('customers.timeline.history.searchPlaceholder', 'Search...')}
+          aria-label={t('customers.timeline.history.searchAriaLabel', 'Search interaction history')}
+          className="h-9 w-full rounded-[10px] border border-border bg-card pl-9 pr-14 text-sm text-foreground shadow-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
         />
-      </div>
+        <Kbd className="pointer-events-none absolute right-2 hidden text-[11px] uppercase tracking-[0.48px] sm:inline-flex">
+          ⌘1
+        </Kbd>
+      </label>
 
-      {loading && activities.length === 0 ? (
+      <ActivityTimelineFilters
+        entityId={entityId}
+        activeTypes={filterTypes}
+        dateFrom={filterDateFrom}
+        dateTo={filterDateTo}
+        onTypesChange={setFilterTypes}
+        onDateFromChange={setFilterDateFrom}
+        onDateToChange={setFilterDateTo}
+        onReset={() => {
+          setFilterTypes([])
+          setFilterDateFrom('')
+          setFilterDateTo('')
+        }}
+      />
+
+      {loading && totalCount === 0 ? (
         <div className="rounded-lg border border-dashed border-border/70 px-4 py-8 text-sm text-muted-foreground">
           {t('customers.people.detail.activities.loading', 'Loading activities…')}
         </div>
       ) : (
         <>
-          <ActivityTimeline activities={activities} onEdit={onEditActivity} />
-          {activities.length > 0 ? (
-            <div className="border-t px-5 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">
-                  {t('customers.activities.seeAll', 'See all {count} activities', { count: activities.length })}
-                </span>
-                {hasMore ? (
-                  <Button type="button" variant="link" size="sm" onClick={() => setLoadedPages((value) => value + 1)}>
-                    {t('customers.activities.loadMore', 'Load more')}
-                  </Button>
-                ) : null}
-              </div>
+          <ActivityTimeline
+            activities={visibleActivities}
+            onEdit={onEditActivity}
+            onMarkDone={handleMarkDone}
+          />
+          {totalCount > 0 ? (
+            <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+              <span className="text-xs text-muted-foreground">
+                {searchTerm.trim()
+                  ? t('customers.activities.seeMatching', 'Showing {visible} of {total} activities', {
+                      visible: visibleCount,
+                      total: totalCount,
+                    })
+                  : t('customers.activities.seeAll', 'See all {count} activities', { count: totalCount })}
+              </span>
+              {hasMore ? (
+                <Button type="button" variant="link" size="sm" onClick={() => setLoadedPages((value) => value + 1)}>
+                  {t('customers.activities.loadMore', 'Load more')}
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </>

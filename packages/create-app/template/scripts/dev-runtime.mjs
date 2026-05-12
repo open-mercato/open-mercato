@@ -1526,7 +1526,10 @@ async function runClassicRuntime() {
     return
   }
 
-  shutdown(resolveChildExitCode(result, 0))
+  // Unexpected child exit MUST surface as non-zero even if the child reported
+  // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+  const childCode = resolveChildExitCode(result, 1)
+  shutdown(childCode === 0 ? 1 : childCode)
 }
 
 if (classic) {
@@ -1543,5 +1546,8 @@ const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServ
 
 const result = await Promise.race([waitForExit(watch), waitForExit(server)])
 if (!isGracefulShutdownResult(result)) {
-  shutdown(resolveChildExitCode(result, 0))
+  // Unexpected child exit MUST surface as non-zero even if the child reported
+  // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+  const childCode = resolveChildExitCode(result, 1)
+  shutdown(childCode === 0 ? 1 : childCode)
 }

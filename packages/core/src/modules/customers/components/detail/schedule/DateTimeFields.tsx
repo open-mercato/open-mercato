@@ -65,6 +65,11 @@ export function DateTimeFields({
   const showAllDay = isVisible(activityType, 'allDay')
   const showRecurrence = isVisible(activityType, 'recurrence')
 
+  const dateMissing = !date.trim()
+  const timeMissing = showStartTime && !allDay && !startTime.trim()
+  const dateErrorId = 'schedule-date-error'
+  const timeErrorId = 'schedule-time-error'
+
   return (
     <>
       {/* Date / Time / Duration */}
@@ -72,24 +77,69 @@ export function DateTimeFields({
         <div className="flex flex-[2] flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
+            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
-          <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
+              dateMissing ? 'border-status-error-border' : 'border-border',
+            )}
+          >
             <Calendar className="size-3.5 text-muted-foreground" />
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground focus:outline-none" />
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+              aria-required="true"
+              aria-invalid={dateMissing ? true : undefined}
+              aria-describedby={dateMissing ? dateErrorId : undefined}
+              className="flex-1 bg-transparent text-sm text-foreground focus:outline-none"
+            />
           </div>
+          {dateMissing ? (
+            <p id={dateErrorId} className="text-xs text-status-error-foreground">
+              {t('customers.activities.errors.dateRequired', 'Date is required')}
+            </p>
+          ) : null}
         </div>
         {showStartTime && (
           <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">{t('customers.schedule.start', 'Start')}</label>
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
+            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+              {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
+              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            </label>
+            <div
+              className={cn(
+                'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
+                timeMissing ? 'border-status-error-border' : 'border-border',
+              )}
+            >
               <Clock className="size-3.5 text-muted-foreground" />
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={allDay} className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50" />
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                disabled={allDay}
+                required={!allDay}
+                aria-required={!allDay}
+                aria-invalid={timeMissing ? true : undefined}
+                aria-describedby={timeMissing ? timeErrorId : undefined}
+                className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50"
+              />
             </div>
+            {timeMissing ? (
+              <p id={timeErrorId} className="text-xs text-status-error-foreground">
+                {t('customers.activities.errors.timeRequired', 'Time is required')}
+              </p>
+            ) : null}
           </div>
         )}
         {showDuration && (
           <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">{t('customers.schedule.duration', 'Duration')}</label>
+            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+              {getFieldLabel(activityType, 'duration', t, 'customers.schedule.duration', 'Duration')}
+            </label>
             <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
               <select
                 value={duration}

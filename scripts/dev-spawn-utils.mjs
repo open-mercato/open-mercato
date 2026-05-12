@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
 function isWindowsCmdScript(command, platform = process.platform) {
   return platform === 'win32' && /\.(cmd|bat)$/i.test(String(command))
 }
@@ -21,6 +24,34 @@ function assertWindowsCmdSafeValue(value, label) {
   }
 
   return stringValue
+}
+
+export function resolveProjectBinary(command, options = {}) {
+  const safeCommand = assertProcessSafeValue(command, 'Process command')
+  const cwd = options.cwd ?? process.cwd()
+  const platform = options.platform ?? process.platform
+
+  if (path.isAbsolute(safeCommand) || safeCommand.includes('/') || safeCommand.includes('\\')) {
+    return safeCommand
+  }
+
+  const binDir = path.join(cwd, 'node_modules', '.bin')
+  const candidates = platform === 'win32'
+    ? [
+        path.join(binDir, safeCommand),
+        path.join(binDir, `${safeCommand}.cmd`),
+        path.join(binDir, `${safeCommand}.bat`),
+        path.join(binDir, `${safeCommand}.exe`),
+      ]
+    : [path.join(binDir, safeCommand)]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return safeCommand
 }
 
 export function resolveSpawnCommand(command, commandArgs = [], options = {}) {

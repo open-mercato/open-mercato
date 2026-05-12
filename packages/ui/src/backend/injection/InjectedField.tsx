@@ -8,6 +8,13 @@ import { Input } from '../../primitives/input'
 import { Checkbox } from '../../primitives/checkbox'
 import { Textarea } from '../../primitives/textarea'
 import { Label } from '../../primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { Spinner } from '../../primitives/spinner'
 
 type InjectedFieldProps = {
@@ -53,20 +60,22 @@ function SelectField({
   return (
     <div className="space-y-2" data-crud-field-id={field.id}>
       <Label htmlFor={field.id}>{label}</Label>
-      <select
-        id={field.id}
-        className="flex h-9 w-full rounded-md border border-input bg-background pl-3 pr-8 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        value={typeof value === 'string' ? value : ''}
+      <Select
+        value={typeof value === 'string' && value ? value : undefined}
+        onValueChange={(next) => onChange(field.id, next || undefined)}
         disabled={disabled || (options.length === 0 && !field.options?.length)}
-        onChange={(event) => onChange(field.id, event.target.value || undefined)}
       >
-        <option value="">{t('ui.filters.select.placeholder', 'Select...')}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.labelKey ? t(option.labelKey, option.label) : option.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger id={field.id}>
+          <SelectValue placeholder={t('ui.filters.select.placeholder', 'Select...')} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.labelKey ? t(option.labelKey, option.label) : option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {optionsError ? (
         <div className="text-xs text-muted-foreground">{t('ui.forms.optionsUnavailable', 'Options unavailable')}</div>
       ) : null}

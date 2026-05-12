@@ -3,19 +3,23 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { sql } from 'kysely'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -99,7 +103,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
-          await assertCanAssignRoles(ctx.request, parsed.roles)
+          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
       },
@@ -114,7 +118,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
-          await assertCanAssignRoles(ctx.request, parsed.roles)
+          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
       },
@@ -154,15 +158,15 @@ export async function GET(req: Request) {
     console.error('users: failed to resolve rbac', err)
   }
   const { id, page, pageSize, search, organizationId, roleIds } = parsed.data
-  const where: any = { deletedAt: null }
+  const filters: any[] = [{ deletedAt: null }]
+  const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   if (!isSuperAdmin) {
-    if (!auth.tenantId) {
+    if (!actorTenantId) {
       return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     }
-    where.tenantId = auth.tenantId
+    filters.push({ tenantId: actorTenantId })
   }
-  if (organizationId) where.organizationId = organizationId
-  if (search) where.email = { $ilike: `%${escapeLikePattern(search)}%` } as any
+  if (organizationId) filters.push({ organizationId })
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
@@ -182,11 +186,81 @@ export async function GET(req: Request) {
     }
     if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   }
-  if (idFilter && idFilter.size) {
-    where.id = { $in: Array.from(idFilter) as any }
-  } else if (id) {
-    where.id = id
+  const trimmedSearch = typeof search === 'string' ? search.trim() : ''
+  if (trimmedSearch) {
+    // Email is encrypted at rest, so plaintext search must go through search_tokens.
+    const tenantScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
+    const searchFilters: any[] = []
+
+    const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedSearch, tenantScope)
+    if (matchedIds && matchedIds.length) {
+      searchFilters.push({ id: { $in: matchedIds as any } })
+    }
+
+    const searchPattern = `%${escapeLikePattern(trimmedSearch)}%`
+    const organizationSearchFilters: any[] = [
+      { deletedAt: null },
+      { name: { $ilike: searchPattern } },
+    ]
+    if (tenantScope) {
+      organizationSearchFilters.push({ tenant: tenantScope })
+    }
+    const matchingOrganizations = await em.find(
+      Organization,
+      organizationSearchFilters.length > 1 ? { $and: organizationSearchFilters } : organizationSearchFilters[0],
+    )
+    const matchingOrganizationIds = matchingOrganizations
+      .map((org) => (org?.id ? String(org.id) : null))
+      .filter((orgId): orgId is string => typeof orgId === 'string' && orgId.length > 0)
+    if (matchingOrganizationIds.length) {
+      searchFilters.push({ organizationId: { $in: matchingOrganizationIds as any } })
+    }
+
+    const roleSearchFilters: any[] = [
+      { deletedAt: null },
+      { name: { $ilike: searchPattern } },
+    ]
+    if (tenantScope) {
+      roleSearchFilters.push({ $or: [{ tenantId: tenantScope }, { tenantId: null }] })
+    }
+    const matchingRoles = await em.find(
+      Role,
+      roleSearchFilters.length > 1 ? { $and: roleSearchFilters } : roleSearchFilters[0],
+    )
+    const matchingRoleIds = matchingRoles
+      .map((role) => (role?.id ? String(role.id) : null))
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    if (matchingRoleIds.length) {
+      const roleSearchLinks = await em.find(
+        UserRole,
+        { role: { $in: matchingRoleIds as any } } as any,
+      )
+      const matchingRoleUserIds = Array.from(new Set(
+        roleSearchLinks
+          .map((link) => {
+            const userRef = (link as any).user
+            const userId = userRef?.id ?? userRef
+            return userId ? String(userId) : null
+          })
+          .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0),
+      ))
+      if (matchingRoleUserIds.length) {
+        searchFilters.push({ id: { $in: matchingRoleUserIds as any } })
+      }
+    }
+
+    if (!searchFilters.length) {
+      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+    }
+
+    filters.push(searchFilters.length > 1 ? { $or: searchFilters } : searchFilters[0])
   }
+  if (idFilter && idFilter.size) {
+    filters.push({ id: { $in: Array.from(idFilter) as any } })
+  } else if (id) {
+    filters.push({ id })
+  }
+  const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
   const links = userIds.length
@@ -298,48 +372,92 @@ export async function GET(req: Request) {
 }
 
 export const POST = async (req: Request) => {
-  const body = await req.clone().json().catch(() => ({}))
-  await assertCanAssignRoles(req, body?.roles)
   return crud.POST(req)
 }
 
 export const PUT = async (req: Request) => {
-  const body = await req.clone().json().catch(() => ({}))
-  await assertCanAssignRoles(req, body?.roles)
   return crud.PUT(req)
 }
 
 export const DELETE = crud.DELETE
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+async function findUserIdsBySearchTokens(
+  em: EntityManager,
+  entityType: string,
+  search: string,
+  tenantScope: string | null | undefined,
+): Promise<string[] | null> {
+  const trimmed = search.trim()
+  if (!trimmed) return null
+  const searchConfig = resolveSearchConfig()
+  if (!searchConfig.enabled) return []
+  const { hashes } = tokenizeText(trimmed, searchConfig)
+  if (!hashes.length) return []
 
-async function assertCanAssignRoles(req: Request, roles: unknown) {
+  const db = (em as any).getKysely() as any
+  let query = db
+    .selectFrom('search_tokens')
+    .select('entity_id')
+    .where('entity_type', '=', entityType)
+    .where('token_hash', 'in', hashes)
+    .groupBy('entity_id')
+    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (tenantScope !== undefined) {
+    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
+  }
+  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
+  return rows
+    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
+async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
   if (!Array.isArray(roles)) return
-  const values = roles
-    .map((role) => (typeof role === 'string' ? role.trim() : null))
-    .filter((role): role is string => !!role)
-  if (!values.length) return
-
-  let hasSuperAdmin = values.some((v) => v.toLowerCase() === 'superadmin')
-  if (!hasSuperAdmin) {
-    const uuids = values.filter((v) => UUID_RE.test(v))
-    if (uuids.length) {
-      const container = await createRequestContainer()
-      const em = container.resolve('em') as EntityManager
-      const matched = await em.find(Role, { id: { $in: uuids as any } })
-      hasSuperAdmin = matched.some((r) => String(r.name).toLowerCase() === 'superadmin')
-    }
-  }
-  if (!hasSuperAdmin) return
-
   const auth = await getAuthFromRequest(req)
-  if (!auth) throw new Error('Unauthorized')
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
   const container = await createRequestContainer()
-  const rbac = container.resolve('rbacService') as RbacService
-  const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-  if (!acl?.isSuperAdmin) {
-    throw forbidden('Only super administrators can assign the superadmin role.')
+  const em = container.resolve('em') as EntityManager
+  const tenantId = await resolveTargetTenantIdForRoleGrant(em, payload, auth.tenantId ?? null)
+  await assertActorCanGrantRoleTokens({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId,
+    organizationId: auth.orgId ?? null,
+    roleTokens: roles,
+  })
+}
+
+async function resolveTargetTenantIdForRoleGrant(
+  em: EntityManager,
+  payload: Record<string, unknown>,
+  fallbackTenantId: string | null,
+): Promise<string | null> {
+  const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+  if (organizationId) {
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: organizationId },
+      { populate: ['tenant'] },
+      { tenantId: null, organizationId },
+    )
+    return organization?.tenant?.id ? String(organization.tenant.id) : fallbackTenantId
   }
+
+  const userId = typeof payload.id === 'string' ? payload.id : null
+  if (userId) {
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: userId, deletedAt: null },
+      {},
+      { tenantId: null, organizationId: null },
+    )
+    return user?.tenantId ? String(user.tenantId) : fallbackTenantId
+  }
+
+  return fallbackTenantId
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -349,7 +467,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the current tenant. Super administrators may scope the response via organization or role filters.',
+        'Returns users for the current tenant. Search matches email, organization name, and role name. Super administrators may scope the response via organization or role filters.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

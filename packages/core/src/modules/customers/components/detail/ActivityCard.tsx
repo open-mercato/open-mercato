@@ -1,17 +1,34 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, ExternalLink, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { ActivityAiActions } from './ActivityAiActions'
 import { getInitials } from './utils'
 
+type GuardedMutationRunner = <T,>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
+
 type ActivityCardProps = {
   activity: InteractionSummary
   onOpen?: (activity: InteractionSummary) => void
+  /** Called after a successful mark-done so the parent can refresh the timeline. */
+  onChanged?: () => void
+  /**
+   * Optional guarded-mutation runner. When provided, mutations route through the parent's
+   * `useGuardedMutation` so retry-last-mutation and the global injection contract apply.
+   * When omitted, mutations run directly via `apiCallOrThrow` (e.g. read-only contexts
+   * or jest unit tests that don't supply a guarded runner).
+   */
+  runMutation?: GuardedMutationRunner
 }
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -19,6 +36,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   email: Mail,
   meeting: Users,
   note: StickyNote,
+  task: ListTodo,
 }
 
 function formatDayLabel(value: string, t: ReturnType<typeof useT>): string {
@@ -54,7 +72,7 @@ function resolveTarget(activity: InteractionSummary): string | null {
   return null
 }
 
-export function ActivityCard({ activity, onOpen }: ActivityCardProps) {
+export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
   const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
@@ -69,6 +87,36 @@ export function ActivityCard({ activity, onOpen }: ActivityCardProps) {
       ? t('customers.activityLog.direction.with', 'with')
       : ''
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
+  const [markingDone, setMarkingDone] = React.useState(false)
+
+  const handleMarkDone = React.useCallback(async () => {
+    if (markingDone) return
+    setMarkingDone(true)
+    try {
+      const operation = () =>
+        apiCallOrThrow('/api/customers/interactions/complete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
+        })
+      if (runMutation) {
+        await runMutation(operation, {
+          id: activity.id,
+          status: 'done',
+          operation: 'completeActivity',
+        })
+      } else {
+        await operation()
+      }
+      flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
+      onChanged?.()
+    } catch (err) {
+      console.warn('[customers.activityCard] mark done failed', activity.id, err)
+      flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+    } finally {
+      setMarkingDone(false)
+    }
+  }, [activity.id, markingDone, onChanged, runMutation, t])
 
   return (
     <div
@@ -111,18 +159,35 @@ export function ActivityCard({ activity, onOpen }: ActivityCardProps) {
             ) : null}
           </div>
 
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label={t('customers.timeline.more', 'More')}
-            onClick={(event) => {
-              event.stopPropagation()
-              onOpen?.(activity)
-            }}
-          >
-            <MoreHorizontal className="size-4" />
-          </IconButton>
+          <div className="flex items-center gap-1.5">
+            {activity.status === 'planned' ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={markingDone}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleMarkDone()
+                }}
+              >
+                <Check className="size-3.5" />
+                {t('customers.activities.actions.markDone', 'Mark done')}
+              </Button>
+            ) : null}
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t('customers.timeline.more', 'More')}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpen?.(activity)
+              }}
+            >
+              <MoreHorizontal className="size-4" />
+            </IconButton>
+          </div>
         </div>
 
         <div className="mt-2">

@@ -397,7 +397,7 @@ export function AddressTiles<C = unknown>({
     (key: string) => (
       <div
         key={key}
-        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm"
+        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
         onKeyDown={(event) => {
           if (!(event.metaKey || event.ctrlKey)) return
           if (event.key !== 'Enter') return
@@ -514,7 +514,7 @@ export function AddressTiles<C = unknown>({
             return (
               <div
                 key={address.id}
-                className="group rounded-lg border border-border/60 bg-card p-4 text-sm transition hover:border-border"
+                className="group rounded-lg border border-border/70 bg-card p-4 text-sm transition hover:border-border"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
@@ -523,7 +523,7 @@ export function AddressTiles<C = unknown>({
                         {address.name ?? label('labelFallback', 'Address')}
                       </p>
                       {address.isPrimary ? (
-                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
+                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-overline font-semibold uppercase">
                           {label('primaryBadge', 'Primary')}
                         </span>
                       ) : null}

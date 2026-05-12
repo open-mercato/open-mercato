@@ -188,7 +188,7 @@ export function ConfirmDialog({
         onClick={handleBackdropClick}
         className={cn(
           // Reset dialog defaults
-          "m-0 p-0 max-w-none bg-transparent border-none",
+          "m-0 p-0 max-w-none bg-transparent border-none pointer-events-auto",
           // Backdrop styling
           "backdrop:bg-black/50 backdrop:backdrop-blur-sm backdrop:transition-opacity",
           // Mobile: bottom sheet

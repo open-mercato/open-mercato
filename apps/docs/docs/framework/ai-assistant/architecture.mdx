@@ -1,0 +1,208 @@
+---
+title: AI Architecture
+description: System map of the unified AI framework — packages, request flow, persistence, events, and how the chat sheet, the global launcher, and the playground all share the same runtime.
+---
+
+# AI Architecture
+
+The AI framework is a typed, module-owned runtime built on the [Vercel AI SDK](https://sdk.vercel.ai/). It deliberately runs **alongside** the older OpenCode-backed Cmd+K Code Mode chat — the two stacks never share state and never share endpoints.
+
+Use this page when you want a single map of every piece: packages, request flow, persistence, events, and where the wires cross.
+
+## Package map
+
+| Package | What lives here |
+|---------|-----------------|
+| `@open-mercato/ai-assistant` | Runtime: `runAiAgentText`, `runAiAgentObject`, `prepareMutation`, model factory, agent + tool registries, mutation-approval gate, pending-action repo + worker, dispatcher routes, health/agents APIs, agent settings UI |
+| `@open-mercato/ui` (`/ai`) | Client surface: `<AiChat>`, `<AiAssistantLauncher>`, `useAiChat`, `useAiChatUpload`, the UI-part registry, the four mutation approval cards, the typed record-card components |
+| `@open-mercato/core` | Domain modules contributing agents and tool packs (`customers`, `catalog`, `inbox_ops`, …). Each module ships `ai-agents.ts` + `ai-tools.ts` at its root |
+| `@open-mercato/cli` | The generator that aggregates per-module `ai-agents.ts` / `ai-tools.ts` into `apps/<app>/.mercato/generated/ai-agents.generated.ts` + `ai-tools.generated.ts` |
+| `@open-mercato/shared` | Auth, RBAC, encryption, i18n helpers used by every dispatcher route. The agent runtime never imports from here directly except through DI |
+
+## Request flow — chat agent
+
+```
+<AiChat agent="<module>.<agent>" pageContext={{...}} />
+        │  (fetch, SSE)
+        ▼
+POST /api/ai_assistant/ai/chat?agent=<module>.<agent>
+        │
+        ├── getAuthFromRequest()  — shared cookie/JWT/API-key resolver
+        ├── checkAgentPolicy()    — requiredFeatures, allowedTools whitelist,
+        │                           readOnly + mutationPolicy, acceptedMediaTypes
+        ├── createModelFactory()  — caller override → OM_AI_<MODULE>_MODEL → agent default
+        ├── resolveAiAgentTools() — typed tool-pack filtering, system-prompt compose,
+        │                           resolvePageContext hydration
+        ├── resolveAttachmentPartsForAgent() — base64 inline / signed URL / extracted text
+        │
+        ▼
+runAiAgentText({ model, tools, system, messages, attachments })
+        │  (streamText)
+        ├── tool call (read)        → handler(args, McpToolContext) → JSON
+        ├── tool call (mutation)    → adaptToolToAiSdk wraps with prepareMutation():
+        │                              insert ai_pending_actions row,
+        │                              enqueue mutation-preview-card AiUiPart
+        │
+        ▼
+SSE stream  text-delta / reasoning-delta / tool-* / data-aiui (UI parts)
+        │
+        ▼
+useAiChat parser → assistant message + AiChatMessageUiPart entries
+        │
+        ▼
+<AiChat> renders text, reasoning panel, tool calls, record cards, approval cards
+```
+
+## Request flow — confirmation
+
+```
+mutation-preview-card  →  user clicks Confirm
+        │
+        ▼
+POST /api/ai/actions/:id/confirm
+        │
+        ├── pending-action-recheck  — re-read each target row, compare record_version
+        ├── tx { executePendingActionConfirm() }
+        │     ├── tool.handler(action.normalizedInput, ctx { tool, container, ... })
+        │     ├── update ai_pending_actions row → status=confirmed (or failed)
+        │     └── emit ai.action.confirmed (or ai.action.failed) on the system bus
+        │
+        ▼
+ai.action.confirmed → DOM event bridge (clientBroadcast on consumer module's
+                       events.ts) → useAppEvent in <DataTable> → refresh
+```
+
+`POST /api/ai/actions/:id/cancel` is the symmetric cancel path. The TTL cleanup worker (`ai_assistant:pending-action-cleanup`, 5-min interval) flips stale `pending` rows to `expired` and emits `ai.action.expired`.
+
+## Persistence
+
+| Table | Owner | Purpose |
+|-------|-------|---------|
+| `ai_pending_actions` | `@open-mercato/ai-assistant` | One row per staged mutation. Drives the approval card and the confirm/cancel routes |
+| `ai_agent_prompt_overrides` | `@open-mercato/ai-assistant` | Per-tenant additive prompt-section overrides authored at `/backend/config/ai-assistant/agents` |
+| `ai_agent_mutation_policy_overrides` | `@open-mercato/ai-assistant` | Per-tenant downgrade-only mutation policy. Cannot escalate above the code-declared policy |
+| `attachments` | `@open-mercato/core` | Every chat upload lands here. The agent runtime resolves bytes / signed URL / extracted text from this table |
+
+All three new tables ship via `Migration20260419134235_ai_assistant`. After `yarn db:migrate`, run:
+
+```bash
+yarn mercato configs cache structural --all-tenants
+```
+
+…so existing tenants register the cleanup worker.
+
+## Events (FROZEN ids)
+
+| Event | Emitted by | Use it to… |
+|-------|------------|-----------|
+| `ai.action.confirmed` | `executePendingActionConfirm` | Refresh DataTables, fan out per-record domain events, audit the approval |
+| `ai.action.cancelled` | `executePendingActionCancel` | Audit the rejection, clean up any optimistic UI |
+| `ai.action.expired` | TTL worker + cancel-race short-circuit | Notify the operator their proposal lapsed |
+
+All three use `category: 'system'`, `entity: 'ai_pending_action'`. Set `clientBroadcast: true` in the consumer module's `events.ts` if a browser surface needs them; see [Mutation Approvals](./mutation-approvals).
+
+## HTTP surface
+
+| Route | Used by | Purpose |
+|-------|---------|---------|
+| `POST /api/ai_assistant/ai/chat?agent=...` | `<AiChat>` | Stream chat tokens + AiUiParts |
+| `GET /api/ai_assistant/ai/agents` | `<AiAssistantLauncher>`, agent settings | List agents the caller can invoke (filtered by ACL features) |
+| `GET /api/ai_assistant/health` | `<AiAssistantLauncher>` | Render-or-hide gate — non-2xx hides every AI launcher in the chrome |
+| `GET /api/ai/actions/:id` | `<AiChat>` rehydration | Reconnect / poll the current pending-action state |
+| `POST /api/ai/actions/:id/confirm` | Approval card | Run the confirm handler |
+| `POST /api/ai/actions/:id/cancel` | Approval card | Atomic cancel |
+| `POST /api/attachments` | `useAiChatUpload` | Multipart upload from the chat composer (per-file 60s timeout) |
+
+## Generators
+
+`yarn generate` drives two file aggregations the runtime depends on:
+
+| Generated file | Source | Consumed by |
+|----------------|--------|-------------|
+| `apps/<app>/.mercato/generated/ai-agents.generated.ts` | every `<module>/ai-agents.ts` (root file only) | `loadAgentRegistry()` at first agent invocation |
+| `apps/<app>/.mercato/generated/ai-tools.generated.ts` | every `<module>/ai-tools.ts` (root file only) | `registerGeneratedAiToolEntries()` at boot |
+
+Agents and tools must live at the **module root** — sub-files (`ai-tools/<surface>-pack.ts`) are imported from the root file but never auto-discovered.
+
+## Where each piece lives in `@open-mercato/ai-assistant`
+
+```
+src/modules/ai_assistant/
+├── api/                            # Dispatcher + agents + actions + health routes
+│   ├── ai/
+│   │   ├── chat/route.ts           # POST chat — runAiAgentText
+│   │   ├── chat-object/route.ts    # POST object — runAiAgentObject
+│   │   └── agents/route.ts         # GET agents
+│   ├── ai/actions/[id]/
+│   │   ├── confirm/route.ts        # POST confirm
+│   │   ├── cancel/route.ts         # POST cancel
+│   │   └── route.ts                # GET (rehydrate)
+│   └── health/route.ts             # GET health (used by the launcher gate)
+│
+├── lib/
+│   ├── agent-runtime.ts            # runAiAgentText / runAiAgentObject
+│   ├── agent-policy.ts             # checkAgentPolicy + resolveEffectiveMutationPolicy
+│   ├── agent-tools.ts              # resolveAiAgentTools, mutation interceptor
+│   ├── agent-registry.ts           # loadAgentRegistry, listAgents
+│   ├── tool-registry.ts            # toolRegistry
+│   ├── tool-loader.ts              # registerGeneratedAiToolEntries
+│   ├── tool-executor.ts            # executeTool (read tools)
+│   ├── prepare-mutation.ts         # writes ai_pending_actions, returns AiUiPart
+│   ├── pending-action-executor.ts  # executePendingActionConfirm
+│   ├── pending-action-cancel.ts    # executePendingActionCancel
+│   ├── pending-action-recheck.ts   # stale-version guard
+│   ├── attachment-parts.ts         # bytes / signed URL / extracted text
+│   ├── model-factory.ts            # createModelFactory + resolution order
+│   └── llm-adapters/               # provider registry
+│
+├── data/
+│   ├── entities/                   # ai_pending_actions, prompt overrides, policy overrides
+│   └── repositories/AiPendingActionRepository.ts
+│
+├── workers/
+│   └── pending-action-cleanup/     # TTL worker
+│
+├── backend/config/ai-assistant/    # Agent settings UI (prompt + policy overrides)
+└── frontend/                       # Legacy OpenCode command palette (unchanged)
+```
+
+## Where each piece lives in `@open-mercato/ui/ai`
+
+```
+packages/ui/src/ai/
+├── AiChat.tsx                  # Chat sheet — composer, transcript, attachments, UI parts
+├── AiAssistantLauncher.tsx     # Topbar launcher + Cmd/Ctrl+L global shortcut
+├── AiDock.tsx                  # Right-side docked chat surface
+├── AiChatSessions.tsx          # Multi-session tab persistence (localStorage)
+├── ChatPaneTabs.tsx            # Tab strip for the dock
+├── useAiChat.ts                # SSE parser, message state, request builder
+├── useAiChatUpload.ts          # Upload state + per-file progress
+├── upload-adapter.ts           # multipart POST /api/attachments + per-file timeout
+├── useAiShortcuts.ts           # Cmd+Enter / Esc shortcuts shared by every dialog
+├── ui-part-registry.ts         # AiUiPartRegistry — register/resolve componentIds
+├── ui-part-slots.ts            # Reserved part ids
+├── AiMessageContent.tsx        # Markdown + record-card fence parser
+├── records/                    # Typed record cards (deal, person, company, product, activity)
+└── parts/                      # Mutation approval cards (preview, field-diff, confirm, result)
+```
+
+## Coexistence with OpenCode Code Mode
+
+OpenCode is the older AI surface that powers the Cmd+K command palette. It shares **nothing** with the new framework at runtime:
+
+| Surface | OpenCode (Cmd+K) | New framework |
+|---------|------------------|---------------|
+| Chat entrypoint | `POST /api/chat` (Code Mode SSE) | `POST /api/ai_assistant/ai/chat?agent=...` |
+| Tool transport | MCP HTTP server :3001 (legacy `registerMcpTool`) | Typed tool packs registered via `defineAiTool` |
+| Mutation gate | None (Code Mode is read-only by design) | `ai_pending_actions` + approval cards |
+| UI | Raycast-style command palette | `<AiChat>`, `<AiAssistantLauncher>`, AI Agent settings |
+| Keyboard | `Cmd+K` (palette), `Cmd+J` (chat) | `Cmd/Ctrl+L` (global launcher) |
+
+Both can be used in the same tenant — one for ad-hoc Code Mode exploration, the other for focused, mutation-capable agents with the approval contract. Disable either by removing the corresponding ACL feature (`ai_assistant.view` / search.global / etc.) from role grants.
+
+## Where to go next
+
+- Build something: [Developer Guide](./developer-guide)
+- Ship custom UI inside the chat: [UI Parts](./ui-parts)
+- Embed the global launcher: [Global Launcher](./launcher)
+- Approval contract end-to-end: [Mutation Approvals](./mutation-approvals)

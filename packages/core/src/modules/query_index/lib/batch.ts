@@ -1,4 +1,4 @@
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 
@@ -45,7 +45,7 @@ function normalizeScopedValue(value: unknown): string | null {
 }
 
 export async function upsertIndexBatch(
-  knex: Knex,
+  db: Kysely<any>,
   entityType: string,
   rows: AnyRow[],
   scope: ScopeOverrides,
@@ -68,25 +68,31 @@ export async function upsertIndexBatch(
       ),
     )
     if (entityIds.length) {
-      const entityRows = await knex<AnyRow>('customer_entities').whereIn('id', entityIds)
+      const entityRows = await db
+        .selectFrom('customer_entities' as any)
+        .selectAll()
+        .where('id' as any, 'in', entityIds)
+        .execute() as AnyRow[]
       customerEntitiesById = new Map(entityRows.map((row) => [normalizeId(row.id), row]))
     }
   }
 
-  const customFieldRows = await knex<CustomFieldRow>('custom_field_values')
+  const customFieldRows = await db
+    .selectFrom('custom_field_values' as any)
     .select([
-      'record_id',
-      'field_key',
-      'value_text',
-      'value_multiline',
-      'value_int',
-      'value_float',
-      'value_bool',
-      'organization_id',
-      'tenant_id',
+      'record_id' as any,
+      'field_key' as any,
+      'value_text' as any,
+      'value_multiline' as any,
+      'value_int' as any,
+      'value_float' as any,
+      'value_bool' as any,
+      'organization_id' as any,
+      'tenant_id' as any,
     ])
-    .where('entity_id', entityType)
-    .whereIn('record_id', recordIds)
+    .where('entity_id' as any, '=', entityType)
+    .where('record_id' as any, 'in', recordIds)
+    .execute() as CustomFieldRow[]
 
   const customFieldMap = new Map<string, CustomFieldRow[]>()
   for (const fieldRow of customFieldRows) {
@@ -207,10 +213,10 @@ export async function upsertIndexBatch(
     entity_id: payload.entity_id,
     organization_id: payload.organization_id,
     tenant_id: payload.tenant_id,
-    doc: payload.doc,
+    doc: sql`${JSON.stringify(payload.doc)}::jsonb`,
     index_version: payload.index_version,
-    created_at: knex.fn.now(),
-    updated_at: knex.fn.now(),
+    created_at: sql`now()`,
+    updated_at: sql`now()`,
     deleted_at: null,
   }))
 
@@ -223,19 +229,22 @@ export async function upsertIndexBatch(
   }))
 
   try {
-    await knex('entity_indexes')
-      .insert(insertRows)
-      .onConflict(['entity_type', 'entity_id', 'organization_id_coalesced'])
-      .merge({
-        doc: knex.raw('excluded.doc'),
-        index_version: knex.raw('excluded.index_version'),
-        organization_id: knex.raw('excluded.organization_id'),
-        tenant_id: knex.raw('excluded.tenant_id'),
-        deleted_at: knex.raw('excluded.deleted_at'),
-        updated_at: knex.fn.now(),
-      })
+    await db
+      .insertInto('entity_indexes' as any)
+      .values(insertRows as any)
+      .onConflict((oc: any) => oc
+        .columns(['entity_type', 'entity_id', 'organization_id_coalesced'])
+        .doUpdateSet({
+          doc: sql`excluded.doc`,
+          index_version: sql`excluded.index_version`,
+          organization_id: sql`excluded.organization_id`,
+          tenant_id: sql`excluded.tenant_id`,
+          deleted_at: sql`excluded.deleted_at`,
+          updated_at: sql`now()`,
+        } as any))
+      .execute()
     try {
-      await replaceSearchTokensForBatch(knex, tokenPayloads)
+      await replaceSearchTokensForBatch(db, tokenPayloads)
     } catch {}
     if (debugEnabled) {
       console.info('[reindex:batch:tokens]', {
@@ -247,36 +256,40 @@ export async function upsertIndexBatch(
     }
     return
   } catch {
-    await knex.transaction(async (trx) => {
-      const now = trx.fn.now()
+    await db.transaction().execute(async (trx) => {
       for (const payload of basePayloads) {
-        const updated = await trx('entity_indexes')
-          .where({
-            entity_type: payload.entity_type,
-            entity_id: payload.entity_id,
-            organization_id: payload.organization_id ?? null,
-          })
-          .update({
-            doc: payload.doc,
+        let updateQuery = trx
+          .updateTable('entity_indexes' as any)
+          .set({
+            doc: sql`${JSON.stringify(payload.doc)}::jsonb`,
             index_version: payload.index_version,
             organization_id: payload.organization_id ?? null,
             tenant_id: payload.tenant_id ?? null,
-            updated_at: now,
+            updated_at: sql`now()`,
             deleted_at: null,
-          })
-        if (updated) continue
+          } as any)
+          .where('entity_type' as any, '=', payload.entity_type)
+          .where('entity_id' as any, '=', payload.entity_id)
+        updateQuery = payload.organization_id == null
+          ? updateQuery.where('organization_id' as any, 'is', null as any)
+          : updateQuery.where('organization_id' as any, '=', payload.organization_id)
+        const result = await updateQuery.executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
+        if (result && Number(result.numUpdatedRows ?? 0) > 0) continue
         try {
-          await trx('entity_indexes').insert({
-            entity_type: payload.entity_type,
-            entity_id: payload.entity_id,
-            organization_id: payload.organization_id,
-            tenant_id: payload.tenant_id,
-            doc: payload.doc,
-            index_version: payload.index_version,
-            created_at: now,
-            updated_at: now,
-            deleted_at: null,
-          })
+          await trx
+            .insertInto('entity_indexes' as any)
+            .values({
+              entity_type: payload.entity_type,
+              entity_id: payload.entity_id,
+              organization_id: payload.organization_id,
+              tenant_id: payload.tenant_id,
+              doc: sql`${JSON.stringify(payload.doc)}::jsonb`,
+              index_version: payload.index_version,
+              created_at: sql`now()`,
+              updated_at: sql`now()`,
+              deleted_at: null,
+            } as any)
+            .execute()
         } catch {
           // ignore duplicate insert race; another concurrent worker updated the row
         }
@@ -284,6 +297,6 @@ export async function upsertIndexBatch(
     })
   }
   try {
-    await replaceSearchTokensForBatch(knex, tokenPayloads)
+    await replaceSearchTokensForBatch(db, tokenPayloads)
   } catch {}
 }

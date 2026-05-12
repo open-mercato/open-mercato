@@ -175,4 +175,41 @@ describe('AssignRoleDialog', () => {
 
     expect(await screen.findByText('Showing 26 of 26 team members')).toBeInTheDocument()
   })
+
+  it('shows "Manage role types" link when canManageRoleTypes is true', () => {
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[
+          { id: 'rt-1', value: 'account_manager', label: 'Account manager' },
+        ]}
+        entityName="Acme Corp"
+        canManageRoleTypes
+      />,
+    )
+
+    const link = screen.getByTestId('assign-role-dialog-manage-role-types')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/backend/config/customers')
+    expect(link).toHaveTextContent('Manage role types')
+  })
+
+  it('hides "Manage role types" link when canManageRoleTypes is false or absent', () => {
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[
+          { id: 'rt-1', value: 'account_manager', label: 'Account manager' },
+        ]}
+        entityName="Acme Corp"
+      />,
+    )
+
+    expect(screen.queryByTestId('assign-role-dialog-manage-role-types')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('assign-role-dialog-manage-role-types-step2')).not.toBeInTheDocument()
+  })
 })

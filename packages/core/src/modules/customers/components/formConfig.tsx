@@ -7,6 +7,15 @@ import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { coerceDisplayName, deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   Dialog,
   DialogContent,
@@ -254,9 +263,8 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <input
+        <Input
           type="email"
-          className="w-full h-9 rounded border px-2 text-sm"
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -560,19 +568,22 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <select
-          className="w-full h-9 rounded border px-2 text-sm"
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(next || undefined)}
           disabled={loading}
         >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder={labels.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button
@@ -594,8 +605,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{labels.inputLabel}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                <Input
                   placeholder={labels.inputPlaceholder}
                   value={newCompany}
                   onChange={(event) => {
@@ -703,16 +713,18 @@ export const createDisplayNameSection = (t: Translator) =>
   function DisplayNameSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
     const [editing, setEditing] = React.useState(false)
     const [manualOverride, setManualOverride] = React.useState(() => {
-      const current = typeof values.displayName === 'string' ? values.displayName.trim() : ''
-      return current.length > 0
+      const current = typeof values.displayName === 'string' ? values.displayName : ''
+      const firstInit = typeof values.firstName === 'string' ? values.firstName : ''
+      const lastInit = typeof values.lastName === 'string' ? values.lastName : ''
+      // Sticky-manual: treat as user-customized only when the persisted display name
+      // doesn't match the first+last derivation (matches the server-side rule in
+      // updatePersonCommand). Empty values are considered derived.
+      return !isDerivedDisplayName(current, firstInit, lastInit)
     })
 
     const first = typeof values.firstName === 'string' ? values.firstName.trim() : ''
     const last = typeof values.lastName === 'string' ? values.lastName.trim() : ''
-    const derived = React.useMemo(() => {
-      const parts = [first, last].filter((part) => !!part)
-      return parts.join(' ').trim()
-    }, [first, last])
+    const derived = React.useMemo(() => deriveDisplayName(first, last), [first, last])
 
     React.useEffect(() => {
       if (!manualOverride) {
@@ -757,8 +769,7 @@ export const createDisplayNameSection = (t: Translator) =>
             </div>
             {editing ? (
               <div className="mt-2 space-y-2">
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                <Input
                   value={currentValue}
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}
@@ -1553,7 +1564,13 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="company" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="company"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {
@@ -1645,7 +1662,13 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.roles.groupTitle', 'Roles'),
     column: 1,
     component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? <RolesSection entityType="person" entityId={values.id as string} /> : null
+      values.id ? (
+        <RolesSection
+          entityType="person"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
     ),
   },
   {
@@ -1672,40 +1695,56 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
  * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
  * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
  */
-export const createPersonPersonalDataGroups = (t: Translator): CrudFormGroup[] => [
-  {
-    id: 'personalData',
-    title: t('customers.people.form.groups.personalData', 'Personal data'),
-    column: 1,
-    fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
-  },
-  {
-    id: 'companyRole',
-    title: t('customers.people.form.groups.companyRole', 'Company & role'),
-    column: 1,
-    fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
-  },
-  {
-    id: 'customFields',
-    title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
-    column: 1,
-    kind: 'customFields',
-  },
-  {
-    id: 'roles',
-    title: t('customers.people.form.groups.roles', 'My roles'),
-    column: 1,
-    component: ({ values }: CrudFormGroupComponentProps) => (
-      values.id ? (
-        <RolesSection
-          entityType="person"
-          entityId={values.id as string}
-          entityName={typeof values.displayName === 'string' ? values.displayName : null}
-        />
-      ) : null
-    ),
-  },
-]
+export const createPersonPersonalDataGroups = (
+  t: Translator,
+  options?: { entityName?: string | null },
+): CrudFormGroup[] => {
+  const entityName = options?.entityName?.trim() || null
+  const rolesTitle = entityName
+    ? t('customers.roles.groupTitle.person', 'My roles with {{name}}', { name: entityName })
+    : t('customers.people.form.groups.roles', 'My roles')
+  return [
+    {
+      id: 'personalDataDisplay',
+      title: t('customers.people.form.groups.displayName', 'Display name'),
+      column: 1,
+      bare: true,
+      component: createDisplayNameSection(t),
+    },
+    {
+      id: 'personalData',
+      title: t('customers.people.form.groups.personalData', 'Personal data'),
+      column: 1,
+      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+    },
+    {
+      id: 'companyRole',
+      title: t('customers.people.form.groups.companyRole', 'Company & role'),
+      column: 1,
+      fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+    },
+    {
+      id: 'customFields',
+      title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
+      column: 1,
+      kind: 'customFields',
+    },
+    {
+      id: 'roles',
+      title: rolesTitle,
+      column: 1,
+      component: ({ values }: CrudFormGroupComponentProps) => (
+        values.id ? (
+          <RolesSection
+            entityType="person"
+            entityId={values.id as string}
+            entityName={typeof values.displayName === 'string' ? values.displayName : null}
+          />
+        ) : null
+      ),
+    },
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Edit-mode payload builders
@@ -1913,7 +1952,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
-    displayName: overview.company.displayName,
+    displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
     status: overview.company.status ?? '',
@@ -1936,7 +1975,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
-    displayName: overview.person.displayName,
+    displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',

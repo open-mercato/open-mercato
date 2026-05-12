@@ -30,6 +30,7 @@ import {
   extractCustomFieldValuesFromPayload,
   extractAllCustomFieldEntries,
   decorateRecordWithCustomFields,
+  applyCustomFieldsNormalization,
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
@@ -162,6 +163,14 @@ export type CustomFieldsConfig =
 export type CrudListCustomFieldDecorator = {
   entityIds: EntityId | EntityId[]
   resolveContext?: (item: any, ctx: CrudCtx) => { organizationId?: string | null; tenantId?: string | null }
+  /**
+   * When true, the factory removes raw `cf_*` and `cf:*` keys from each list
+   * item after extracting them into `customValues` / `customFields`. Recommended
+   * for new modules — produces the single canonical response shape requested in
+   * #1769. Defaults to `false` so existing callers that read `cf_*` from the
+   * top level keep working until they migrate.
+   */
+  stripPrefixedKeys?: boolean
 }
 
 export type ListConfig<TList> = {
@@ -631,13 +640,16 @@ function isUuid(v: any): v is string {
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
 
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  const registrations = (container as { registrations?: Record<string, unknown> }).registrations
+  if (registrations && !Object.prototype.hasOwnProperty.call(registrations, 'accessLogService')) {
+    return null
+  }
+
   try {
     const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
     if (service && typeof service.log === 'function') return service
-  } catch (err) {
-    try {
-      console.warn('[crud] accessLogService not available in container', err)
-    } catch {}
+  } catch {
+    return null
   }
   return null
 }
@@ -921,12 +933,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           organizationId: organizationId ?? null,
           tenantId: tenantId ?? null,
         })
-        const output = {
-          ...item,
-          customValues: decorated.customValues,
-          customFields: decorated.customFields,
-        }
-        return output
+        return applyCustomFieldsNormalization(item, decorated, {
+          stripPrefixedKeys: listCustomFieldDecorator.stripPrefixedKeys === true,
+        })
       })
       cfProfiler.mark('decorate_complete', { itemCount: decoratedItems.length })
       endProfile({

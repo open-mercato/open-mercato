@@ -9,9 +9,16 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import {
+  resolveAutoSpawnWorkersMode,
+  resolveLazyPollMs,
+  resolveLazyRestart,
+} from './lib/auto-spawn-workers'
+import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -19,6 +26,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let envLoaded = false
+const initialProcessEnvironmentEntries = Object.entries(process.env)
 
 async function runWithCapturedExitCode(action: () => Promise<void>): Promise<number> {
   const previousExitCode = process.exitCode
@@ -305,6 +313,104 @@ function buildServerProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.P
   return runtimeEnv
 }
 
+type ManagedProcessExitResult = {
+  label: string
+  code: number | null
+  signal: NodeJS.Signals | null
+}
+
+type DevServerRestartResult = {
+  label: string
+  restart: true
+  filePath: string
+}
+
+type DevServerExitResult = ManagedProcessExitResult | DevServerRestartResult
+
+type ModuleCommandLookupResult =
+  | {
+      status: 'ok'
+      module: Module
+      command: NonNullable<Module['cli']>[number]
+    }
+  | {
+      status: 'missing-module' | 'missing-cli' | 'missing-command'
+    }
+
+function waitForManagedProcessExit(proc: ChildProcess, label: string): Promise<ManagedProcessExitResult> {
+  return new Promise((resolve) => {
+    proc.on('exit', (code, signal) => {
+      resolve({ label, code, signal })
+    })
+  })
+}
+
+function isExpectedManagedExitSignal(signal: NodeJS.Signals | null): boolean {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function formatManagedProcessExitStatus(result: ManagedProcessExitResult): string {
+  if (typeof result.code === 'number') {
+    return `exit code ${result.code}`
+  }
+  if (result.signal) {
+    return `signal ${result.signal}`
+  }
+  return 'an unknown status'
+}
+
+function createManagedProcessExitError(result: ManagedProcessExitResult): Error {
+  return new Error(`[server] ${result.label} exited unexpectedly with ${formatManagedProcessExitStatus(result)}.`)
+}
+
+function isDevServerRestartResult(result: DevServerExitResult): result is DevServerRestartResult {
+  return 'restart' in result && result.restart === true
+}
+
+function formatQueueWorkerLabel(queueNames: string[]): string {
+  if (queueNames.length === 0) return 'Queue worker'
+  const sorted = [...queueNames].sort((a, b) => a.localeCompare(b))
+  const preview = sorted.length > 4 ? `${sorted.slice(0, 4).join(', ')}, +${sorted.length - 4} more` : sorted.join(', ')
+  return `Queue worker (${preview})`
+}
+
+function lookupModuleCommand(
+  allModules: Module[],
+  moduleName: string,
+  commandName: string,
+): ModuleCommandLookupResult {
+  const mod = allModules.find((entry) => entry.id === moduleName)
+  if (!mod) {
+    return { status: 'missing-module' }
+  }
+
+  if (!mod.cli || mod.cli.length === 0) {
+    return { status: 'missing-cli' }
+  }
+
+  const command = mod.cli.find((entry) => entry.command === commandName)
+  if (!command) {
+    return { status: 'missing-command' }
+  }
+
+  return {
+    status: 'ok',
+    module: mod,
+    command,
+  }
+}
+
+function describeMissingModuleCommand(result: Exclude<ModuleCommandLookupResult, { status: 'ok' }>): string {
+  switch (result.status) {
+    case 'missing-module':
+      return 'module not enabled'
+    case 'missing-cli':
+      return 'module has no CLI commands'
+    case 'missing-command':
+      return 'command not found'
+  }
+}
+
 function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   const configuredDistDir = path.join(appDir, '.mercato', 'next')
   const configuredBuildIdPath = path.join(configuredDistDir, 'BUILD_ID')
@@ -371,37 +477,27 @@ async function runModuleCommand(
   commandName: string,
   args: string[] = [],
   options: { optional?: boolean; silentOptional?: boolean } = {},
-): Promise<void> {
-  const mod = allModules.find((m) => m.id === moduleName)
-  if (!mod) {
+): Promise<boolean> {
+  const resolved = lookupModuleCommand(allModules, moduleName, commandName)
+  if (resolved.status !== 'ok') {
     if (options.optional) {
       if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — ${describeMissingModuleCommand(resolved)}`)
       }
-      return
+      return false
     }
-    throw new Error(`Module not found: "${moduleName}"`)
-  }
-  if (!mod.cli || mod.cli.length === 0) {
-    if (options.optional) {
-      if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
-      }
-      return
+    switch (resolved.status) {
+      case 'missing-module':
+        throw new Error(`Module not found: "${moduleName}"`)
+      case 'missing-cli':
+        throw new Error(`Module "${moduleName}" has no CLI commands`)
+      case 'missing-command':
+        throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
     }
-    throw new Error(`Module "${moduleName}" has no CLI commands`)
   }
-  const cmd = mod.cli.find((c) => c.command === commandName)
-  if (!cmd) {
-    if (options.optional) {
-      if (!options.silentOptional) {
-        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
-      }
-      return
-    }
-    throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
-  }
-  await cmd.run(args)
+
+  await resolved.command.run(args)
+  return true
 }
 
 async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
@@ -760,8 +856,11 @@ export async function run(argv = process.argv) {
       console.log('✅ RBAC setup complete:', { tenantId, organizationId: orgId }, '\n')
 
       console.log('🎛️  Seeding feature toggle defaults...')
-      await runModuleCommand(allModules, 'feature_toggles', 'seed-defaults', [])
-      console.log('🎛️  ✅ Feature toggle defaults seeded\n')
+      if (await runModuleCommand(allModules, 'feature_toggles', 'seed-defaults', [], { optional: true })) {
+        console.log('🎛️  ✅ Feature toggle defaults seeded\n')
+      } else {
+        console.log('')
+      }
 
       if (tenantId) {
         console.log('👥 Seeding tenant-scoped roles...')
@@ -828,22 +927,31 @@ export async function run(argv = process.argv) {
           )
           const stressArgs = ['--tenant', tenantId, '--org', orgId, '--count', String(stressTestCount)]
           if (stressTestLite) stressArgs.push('--lite')
-          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })
-          console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
+          if (await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })) {
+            console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
+          } else {
+            console.log('')
+          }
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })
-        console.log('✅ Dashboard widgets enabled\n')
+        if (await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })) {
+          console.log('✅ Dashboard widgets enabled\n')
+        } else {
+          console.log('')
+        }
 
         console.log('📊 Enabling analytics widgets for admin and employee roles...')
-        await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
+        if (await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
           '--tenant',
           tenantId,
           '--roles',
           'admin,employee',
-        ])
-        console.log('✅ Analytics widgets enabled for roles\n')
+        ], { optional: true })) {
+          console.log('✅ Analytics widgets enabled for roles\n')
+        } else {
+          console.log('')
+        }
 
       } else {
         console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
@@ -853,13 +961,19 @@ export async function run(argv = process.argv) {
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
-      console.log('✅ Search indexes built\n')
+      if (await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })) {
+        console.log('✅ Search indexes built\n')
+      } else {
+        console.log('')
+      }
 
       console.log('🔍 Rebuilding query indexes...')
       const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
-      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
-      console.log('✅ Query indexes rebuilt\n')
+      if (await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })) {
+        console.log('✅ Query indexes rebuilt\n')
+      } else {
+        console.log('')
+      }
 
       const adminPasswordOverride = derivedSecrets.adminPassword
       const employeePasswordOverride = derivedSecrets.employeePassword
@@ -1548,12 +1662,12 @@ export async function run(argv = process.argv) {
           const appDir = env.appDir
           const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
-          const processes: ChildProcess[] = []
-          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
-          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
-          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-          const runtimeEnv = buildServerProcessEnvironment(process.env)
+          let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let stopping = false
+          let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
+          let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
+          const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1561,6 +1675,9 @@ export async function run(argv = process.argv) {
               if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
+            }
+            if (activeLazySupervisor) {
+              void activeLazySupervisor.close().catch(() => undefined)
             }
           }
 
@@ -1571,11 +1688,19 @@ export async function run(argv = process.argv) {
               processes.map(
                 (proc) =>
                   new Promise<void>((resolve) => {
-                    if (proc.exitCode !== null) return resolve()
+                    if (proc.exitCode !== null || proc.signalCode !== null) return resolve()
                     proc.on('exit', () => resolve())
                   })
               )
             )
+            if (activeLazySupervisor) {
+              try {
+                await activeLazySupervisor.close()
+              } catch {
+                // Supervisor close errors should not block dev runtime cleanup.
+              }
+              activeLazySupervisor = null
+            }
             // Safety net: remove Next.js dev lock file in case the child didn't clean up
             const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
             try {
@@ -1583,10 +1708,17 @@ export async function run(argv = process.argv) {
             } catch {
               // Lock file may already be removed by Next.js — ignore
             }
+            processes = []
           }
 
-          process.on('SIGTERM', cleanup)
-          process.on('SIGINT', cleanup)
+          process.on('SIGTERM', () => {
+            stopping = true
+            cleanup()
+          })
+          process.on('SIGINT', () => {
+            stopping = true
+            cleanup()
+          })
 
           console.log('[server] Starting Open Mercato in dev mode...')
 
@@ -1598,11 +1730,24 @@ export async function run(argv = process.argv) {
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
-          const startNextDev = (): Promise<void> =>
+          const stopEnvWatcher = watchDevEnvFiles(appDir, (filePath) => {
+            envChangePromiseResolve?.({
+              label: 'Environment file change',
+              restart: true,
+              filePath,
+            })
+          })
+
+          const waitForEnvChange = (): Promise<DevServerRestartResult> =>
+            new Promise((resolve) => {
+              envChangePromiseResolve = resolve
+            })
+
+          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
             new Promise((resolve) => {
               const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: process.env,
+                env: runtimeEnv,
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -1626,62 +1771,95 @@ export async function run(argv = process.argv) {
                 appendOutput(text)
               })
 
-              nextProcess.on('exit', async () => {
+              nextProcess.on('exit', async (code, signal) => {
                 if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
                   didRetryCorruptedTurbopackCache = true
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
-                  await startNextDev()
-                  return resolve()
+                  return resolve(await startNextDev(runtimeEnv))
                 }
-                resolve()
+                resolve({
+                  label: 'Next.js dev server',
+                  code,
+                  signal,
+                })
               })
             })
 
-          const nextExitPromise = startNextDev()
+          try {
+            while (!stopping) {
+              envReloader.reload()
+              const runtimeEnv = buildServerProcessEnvironment(process.env)
+              const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const managedExitPromises: Promise<DevServerExitResult>[] = [
+                startNextDev(runtimeEnv),
+                waitForEnvChange(),
+              ]
 
-          // Start workers if enabled
-          if (autoSpawnWorkers) {
-            const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
-            if (discoveredWorkerQueues.length === 0) {
-              console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
-            } else {
-              console.log('[server] Starting workers for all queues...')
-              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-                stdio: 'inherit',
-                env: process.env,
-                cwd: appDir,
-              })
-              processes.push(workerProcess)
+              // Start workers if enabled
+              if (autoSpawnWorkersMode !== 'off') {
+                const discoveredWorkers = getRegisteredCliWorkers()
+                const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
+                if (discoveredWorkerQueues.length === 0) {
+                  console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                } else if (autoSpawnWorkersMode === 'lazy') {
+                  console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                  activeLazySupervisor = startLazyWorkerSupervisor({
+                    mercatoBin,
+                    appDir,
+                    runtimeEnv,
+                    workers: discoveredWorkers,
+                    pollMs: resolveLazyPollMs(process.env),
+                    restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  })
+                } else {
+                  console.log('[server] Starting workers for all queues...')
+                  const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                    stdio: 'inherit',
+                    env: runtimeEnv,
+                    cwd: appDir,
+                  })
+                  processes.push(workerProcess)
+                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
+                }
+              }
+
+              if (autoSpawnScheduler && queueStrategy === 'local') {
+                if (schedulerCommand.status !== 'ok') {
+                  console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                } else {
+                  console.log('[server] Starting scheduler polling engine...')
+                  const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                    stdio: 'inherit',
+                    env: runtimeEnv,
+                    cwd: appDir,
+                  })
+                  processes.push(schedulerProcess)
+                  managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+                }
+              }
+
+              const firstExit = await Promise.race(managedExitPromises)
+              await cleanupAndWait()
+              envChangePromiseResolve = null
+
+              if (isDevServerRestartResult(firstExit)) {
+                console.log(`[server] Detected environment file change (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
+                continue
+              }
+
+              if (!isExpectedManagedExitSignal(firstExit.signal)) {
+                throw createManagedProcessExitError(firstExit)
+              }
+
+              stopping = true
             }
+          } finally {
+            stopEnvWatcher()
           }
-
-          if (autoSpawnScheduler && queueStrategy === 'local') {
-            console.log('[server] Starting scheduler polling engine...')
-            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-              stdio: 'inherit',
-              env: process.env,
-              cwd: appDir,
-            })
-            processes.push(schedulerProcess)
-          }
-
-          // Wait for any process to exit
-          await Promise.race(
-            [
-              nextExitPromise,
-              ...processes
-                .filter((proc) => proc.spawnargs[1] !== nextBin)
-                .map(
-                  (proc) =>
-                    new Promise<void>((resolve) => {
-                      proc.on('exit', () => resolve())
-                    })
-                ),
-            ]
-          )
-
-          await cleanupAndWait()
         },
       },
       {
@@ -1694,20 +1872,25 @@ export async function run(argv = process.argv) {
           const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
           const processes: ChildProcess[] = []
-          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
           })
+          let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
 
           function cleanup() {
             console.log('[server] Shutting down...')
             for (const proc of processes) {
-              if (!proc.killed) {
+              if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
+            }
+            if (activeLazySupervisor) {
+              void activeLazySupervisor.close().catch(() => undefined)
             }
           }
 
@@ -1717,11 +1900,19 @@ export async function run(argv = process.argv) {
               processes.map(
                 (proc) =>
                   new Promise<void>((resolve) => {
-                    if (proc.exitCode !== null) return resolve()
+                    if (proc.exitCode !== null || proc.signalCode !== null) return resolve()
                     proc.on('exit', () => resolve())
                   })
               )
             )
+            if (activeLazySupervisor) {
+              try {
+                await activeLazySupervisor.close()
+              } catch {
+                // Supervisor close errors should not block server shutdown.
+              }
+              activeLazySupervisor = null
+            }
           }
 
           process.on('SIGTERM', cleanup)
@@ -1741,12 +1932,26 @@ export async function run(argv = process.argv) {
               cwd: appDir,
             })
             processes.push(nextProcess)
+            const managedExitPromises: Promise<ManagedProcessExitResult>[] = [
+              waitForManagedProcessExit(nextProcess, 'Next.js production server'),
+            ]
 
             // Start workers if enabled
-            if (autoSpawnWorkers) {
-              const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+            if (autoSpawnWorkersMode !== 'off') {
+              const discoveredWorkers = getRegisteredCliWorkers()
+              const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+              } else if (autoSpawnWorkersMode === 'lazy') {
+                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                activeLazySupervisor = startLazyWorkerSupervisor({
+                  mercatoBin,
+                  appDir,
+                  runtimeEnv,
+                  workers: discoveredWorkers,
+                  pollMs: resolveLazyPollMs(process.env),
+                  restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                })
               } else {
                 console.log('[server] Starting workers for all queues...')
                 const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
@@ -1755,30 +1960,32 @@ export async function run(argv = process.argv) {
                   cwd: appDir,
                 })
                 processes.push(workerProcess)
+                managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
               }
             }
 
             if (autoSpawnScheduler && queueStrategy === 'local') {
-              console.log('[server] Starting scheduler polling engine...')
-              const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-                stdio: 'inherit',
-                env: runtimeEnv,
-                cwd: appDir,
-              })
-              processes.push(schedulerProcess)
+              if (schedulerCommand.status !== 'ok') {
+                console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+              } else {
+                console.log('[server] Starting scheduler polling engine...')
+                const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                  stdio: 'inherit',
+                  env: runtimeEnv,
+                  cwd: appDir,
+                })
+                processes.push(schedulerProcess)
+                managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+              }
             }
 
-            // Wait for any process to exit
-            await Promise.race(
-              processes.map(
-                (proc) =>
-                  new Promise<void>((resolve) => {
-                    proc.on('exit', () => resolve())
-                  })
-              )
-            )
+            const firstExit = await Promise.race(managedExitPromises)
 
             await cleanupAndWait()
+
+            if (!isExpectedManagedExitSignal(firstExit.signal)) {
+              throw createManagedProcessExitError(firstExit)
+            }
           } finally {
             serverStartLock.release()
           }

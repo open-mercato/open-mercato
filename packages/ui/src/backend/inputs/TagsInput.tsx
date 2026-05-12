@@ -24,6 +24,7 @@ export type TagsInputProps = {
   disabled?: boolean
   allowCustomValues?: boolean
   showSuggestionsOnFocus?: boolean
+  suppressInitialSuggestionsOnFocus?: boolean
 }
 
 function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOption[] {
@@ -59,6 +60,7 @@ export function TagsInput({
   disabled = false,
   allowCustomValues = true,
   showSuggestionsOnFocus = true,
+  suppressInitialSuggestionsOnFocus = false,
 }: TagsInputProps) {
   const t = useT()
   const [input, setInput] = React.useState('')
@@ -66,11 +68,16 @@ export function TagsInput({
   const [loading, setLoading] = React.useState(false)
   const [touched, setTouched] = React.useState(false)
   const suppressBlurCommitRef = React.useRef(false)
+  const suppressSuggestionsOnFocusRef = React.useRef(Boolean(autoFocus && suppressInitialSuggestionsOnFocus && !disabled))
   const valueRef = React.useRef(value)
 
   React.useEffect(() => {
     valueRef.current = value
   }, [value])
+
+  React.useEffect(() => {
+    suppressSuggestionsOnFocusRef.current = Boolean(autoFocus && suppressInitialSuggestionsOnFocus && !disabled)
+  }, [autoFocus, disabled, suppressInitialSuggestionsOnFocus])
 
   const staticOptions = React.useMemo(() => normalizeOptions(suggestions), [suggestions])
   const selectedOptionList = React.useMemo(
@@ -205,7 +212,7 @@ export function TagsInput({
               <span className="flex flex-col items-start leading-tight">
                 <span className="whitespace-nowrap">{label}</span>
                 {description ? (
-                  <span className="text-[10px] text-muted-foreground">{description}</span>
+                  <span className="text-overline text-muted-foreground">{description}</span>
                 ) : null}
               </span>
               <IconButton
@@ -229,6 +236,10 @@ export function TagsInput({
           data-crud-focus-target=""
           disabled={disabled}
           onFocus={() => {
+            if (suppressSuggestionsOnFocusRef.current) {
+              suppressSuggestionsOnFocusRef.current = false
+              return
+            }
             if (showSuggestionsOnFocus) {
               setTouched(true)
             }
@@ -285,7 +296,7 @@ export function TagsInput({
               >
                 <span>{option.label}</span>
                 {option.description ? (
-                  <span className="text-[10px] text-muted-foreground">{option.description}</span>
+                  <span className="text-overline text-muted-foreground">{option.description}</span>
                 ) : null}
               </Button>
             ))}

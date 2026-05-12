@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { z } from 'zod'
+import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
@@ -429,7 +430,7 @@ export async function POST(req: Request) {
     content: extractedContent,
     storageMetadata: metadata,
   })
-  await em.persistAndFlush(att)
+  await em.persist(att).flush()
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
@@ -491,12 +492,13 @@ export async function POST(req: Request) {
 
 async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
   try {
-    const knex = (em as any).getConnection().getKnex()
-    const row = await knex('attachments')
-      .where({ tenant_id: tenantId })
-      .sum({ totalSize: 'file_size' })
-      .first()
-    const total = row?.totalSize
+    const db = em.getKysely<any>() as any
+    const row = await db
+      .selectFrom('attachments')
+      .select(sql<string>`sum(file_size)`.as('total_size'))
+      .where('tenant_id', '=', tenantId)
+      .executeTakeFirst() as { total_size: string | number | null } | undefined
+    const total = row?.total_size
     if (typeof total === 'number') return Number.isFinite(total) ? total : 0
     if (typeof total === 'string') {
       const parsed = Number(total)
@@ -520,7 +522,7 @@ export async function DELETE(req: Request) {
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  await em.removeAndFlush(record)
+  await em.remove(record).flush()
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     console.error('[attachments] failed to cleanup cached thumbnails', error)
   })

@@ -32,7 +32,7 @@ export function createSyncRunService(em: EntityManager) {
         tenantId: scope.tenantId,
       })
 
-      await em.persistAndFlush(row)
+      await em.persist(row).flush()
       return row
     },
 

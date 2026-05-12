@@ -209,6 +209,7 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'inbox-actions.ts'), `export const inboxActions = [\n  { type: 'orders.approve', id: 'orders.approve-order', label: 'Approve Order', icon: 'check', description: 'Approve pending', async execute(a: any) { return { ok: true } } },\n]\nexport default inboxActions\n`)
   touchFile(pkgModulePath('orders', 'analytics.ts'), `export const analyticsConfig = {\n  entities: [{ entityId: 'orders:sales_order', requiredFeatures: ['orders.view'], entityConfig: { tableName: 'sales_orders', dateField: 'created_at' }, fieldMappings: { id: { dbColumn: 'id', type: 'uuid' } } }],\n}\nexport default analyticsConfig\n`)
   touchFile(pkgModulePath('orders', 'ai-tools.ts'), `export const aiTools = [\n  { name: 'list_orders', description: 'List recent orders', inputSchema: {}, requiredFeatures: ['orders.view'] },\n]\nexport default aiTools\n`)
+  touchFile(pkgModulePath('orders', 'ai-agents.ts'), `export const aiAgents = [\n  { id: 'orders.assistant', module: 'orders', displayName: 'Orders Assistant', allowedTools: ['list_orders'], readOnly: true },\n]\nexport default aiAgents\n`)
   touchFile(pkgModulePath('orders', 'frontend', 'middleware.ts'), `export const middleware = [\n  { id: 'orders.auth-check', pattern: '/orders/**', handler: async (req: any) => req },\n]\nexport default middleware\n`)
   touchFile(pkgModulePath('orders', 'backend', 'middleware.ts'), `export const middleware = [\n  { id: 'orders.admin-check', pattern: '/backend/orders/**', handler: async (req: any) => req },\n]\nexport default middleware\n`)
   touchFile(pkgModulePath('orders', 'message-types.ts'), `export const messageTypes = [\n  { type: 'orders.order_confirmation', module: 'orders', labelKey: 'orders.messages.confirmation.label', icon: 'mail', color: 'blue', allowReply: false, allowForward: true },\n]\nexport default messageTypes\n`)
@@ -938,6 +939,31 @@ describe('ai-tools.generated.ts', () => {
 })
 
 // ---------------------------------------------------------------------------
+// ai-agents.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('ai-agents.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('ai-agents.generated.ts')
+  })
+
+  it('exports filtered entries and flattened allAiAgents', () => {
+    expect(content).toContain('export const aiAgentConfigEntries')
+    expect(content).toContain('export const allAiAgents')
+  })
+
+  it('has orders module entry with agents property', () => {
+    expectModuleIds(content, ['orders'])
+    expect(content).toContain('agents:')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // translations-fields.generated.ts
 // ---------------------------------------------------------------------------
 
@@ -1197,6 +1223,25 @@ describe('bootstrap-modules.generated.ts', () => {
 
     expect(content).toContain('modules.app.generated')
     expect(content).toContain('export const bootstrapModules: Module[] = modules')
+  })
+})
+
+describe('enabled-module-ids.generated.ts', () => {
+  it('exports a plain string array of every enabled module id without runtime imports', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('enabled-module-ids.generated.ts')
+
+    expect(content).toContain('export const enabledModuleIds: readonly string[]')
+    expect(content).toContain('"orders"')
+    expect(content).toContain('"products"')
+    expect(content).toContain('"custom_app"')
+
+    expect(content).not.toMatch(/^import\s+/m)
+    expect(content).not.toContain('@open-mercato/')
+    expect(content).not.toContain('createElement')
+    expect(content).not.toContain('createLazyModuleSubscriber')
   })
 })
 

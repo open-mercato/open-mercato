@@ -62,9 +62,19 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-splash-git-repo-flow.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-url.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-url.mjs'),
+    rel: 'scripts/dev-splash-url.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-orchestration-log-policy.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-orchestration-log-policy.mjs'),
     rel: 'scripts/dev-orchestration-log-policy.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
+    rel: 'scripts/dev-database-url.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),

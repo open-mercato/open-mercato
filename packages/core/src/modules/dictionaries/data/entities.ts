@@ -1,12 +1,5 @@
-import {
-  Entity,
-  PrimaryKey,
-  Property,
-  Unique,
-  Index,
-  ManyToOne,
-  OptionalProps,
-} from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { OptionalProps } from '@mikro-orm/core'
 
 export type DictionaryManagerVisibility = 'default' | 'hidden'
 

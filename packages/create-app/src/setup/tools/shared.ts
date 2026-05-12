@@ -154,6 +154,40 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
+  // Agent automation / auto-* skills. Some skills also ship with a
+  // STANDALONE.md portability override that adjusts the workflow for use in
+  // standalone apps (default-branch discovery, opt-in pipeline labels,
+  // probe-before-run validation gate, src/modules/... file layout).
+  for (const autoSkill of [
+    'auto-create-pr',
+    'auto-continue-pr',
+    'auto-create-pr-loop',
+    'auto-continue-pr-loop',
+    'auto-review-pr',
+    'auto-fix-github',
+  ]) {
+    if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
+      continue
+    }
+    copyFile(
+      `ai/skills/${autoSkill}/SKILL.md`,
+      join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
+    )
+    if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
+      copyFile(
+        `ai/skills/${autoSkill}/STANDALONE.md`,
+        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
+      )
+    }
+  }
+
+  // Classic-mode slimdown skill — offered after the user adds a new module
+  // so unused built-in modules can be disabled from src/modules.ts.
+  copyFile(
+    'ai/skills/trim-unused-modules/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'trim-unused-modules', 'SKILL.md'),
+  )
+
   // .ai/qa/tests/ — Playwright config for integration tests
   copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 

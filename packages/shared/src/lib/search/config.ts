@@ -9,6 +9,8 @@ export type SearchConfig = {
   blocklistedFields: string[]
 }
 
+export const DEFAULT_SEARCH_MIN_TOKEN_LENGTH = 3
+
 const DEFAULT_BLOCKLIST = ['password', 'token', 'secret', 'hash']
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
@@ -33,7 +35,7 @@ function parseHashAlgorithm(raw: string | undefined): 'sha256' | 'sha1' | 'md5' 
 export function resolveSearchConfig(): SearchConfig {
   return {
     enabled: parseBoolean(process.env.OM_SEARCH_ENABLED, true),
-    minTokenLength: parseNumber(process.env.OM_SEARCH_MIN_LEN, 3, 1),
+    minTokenLength: resolveSearchMinTokenLength(),
     enablePartials: parseBoolean(process.env.OM_SEARCH_ENABLE_PARTIAL, true),
     hashAlgorithm: parseHashAlgorithm(process.env.OM_SEARCH_HASH_ALGO),
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
@@ -46,4 +48,19 @@ export function resolveSearchConfig(): SearchConfig {
       .concat(DEFAULT_BLOCKLIST)
       .filter((value, index, arr) => arr.indexOf(value) === index),
   }
+}
+
+/**
+ * Browser-safe accessor for the minimum search token length.
+ *
+ * Why: client components (e.g. global search dialog) must mirror the server-side
+ * tokenizer's `minTokenLength` so the UI gates the request before hitting an
+ * empty result set. Pulling the value through this single helper keeps the env
+ * contract (`OM_SEARCH_MIN_LEN`) authoritative on both sides.
+ *
+ * How to apply: call from anywhere — server, client (when the host app exposes
+ * `OM_SEARCH_MIN_LEN` through `next.config.ts`'s `env` block), or tests.
+ */
+export function resolveSearchMinTokenLength(): number {
+  return parseNumber(process.env.OM_SEARCH_MIN_LEN, DEFAULT_SEARCH_MIN_TOKEN_LENGTH, 1)
 }

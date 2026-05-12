@@ -10,6 +10,13 @@ import {
   InlineDateRangeSelect,
   type DateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
@@ -163,18 +170,21 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
           >
             {t('dashboards.analytics.settings.granularity', 'Granularity')}
           </label>
-          <select
-            id="revenue-trend-granularity"
-            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          <Select
             value={hydrated.granularity}
-            onChange={(e) => onSettingsChange({ ...hydrated, granularity: e.target.value as DateGranularity })}
+            onValueChange={(value) => onSettingsChange({ ...hydrated, granularity: value as DateGranularity })}
           >
-            {GRANULARITY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {t(opt.labelKey, opt.value)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="revenue-trend-granularity" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRANULARITY_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {t(opt.labelKey, opt.value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <label className="flex items-center gap-2 text-sm">
@@ -182,7 +192,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
               type="checkbox"
               checked={hydrated.showArea}
               onChange={(e) => onSettingsChange({ ...hydrated, showArea: e.target.checked })}
-              className="h-4 w-4 rounded border focus:ring-primary"
+              className="h-4 w-4 rounded border focus-visible:ring-ring"
             />
             {t('dashboards.analytics.settings.showArea', 'Show area fill')}
           </label>

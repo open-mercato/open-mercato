@@ -35,7 +35,7 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     await expect(page.getByRole('link', { name: 'Create' })).toBeVisible();
 
     // Verify Search box
-    await expect(page.getByRole('textbox', { name: 'Search' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search', exact: true })).toBeVisible();
 
     // Navigate to Create form
     await page.getByRole('link', { name: 'Create' }).click();

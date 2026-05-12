@@ -1,17 +1,19 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Users, StickyNote, SlidersHorizontal } from 'lucide-react'
+import { Phone, Mail, Users, StickyNote, ListTodo, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 const FILTER_TYPES = [
-  { type: 'call', icon: Phone },
-  { type: 'email', icon: Mail },
-  { type: 'meeting', icon: Users },
   { type: 'note', icon: StickyNote },
+  { type: 'call', icon: Phone },
+  { type: 'meeting', icon: Users },
+  { type: 'email', icon: Mail },
+  { type: 'task', icon: ListTodo },
 ] as const
 
 type InteractionCounts = {
@@ -19,8 +21,14 @@ type InteractionCounts = {
   email: number
   meeting: number
   note: number
+  task: number
   total: number
 }
+
+type InteractionCountsResponse = {
+  ok?: boolean
+  result?: InteractionCounts
+} & Partial<InteractionCounts>
 
 interface ActivityTimelineFiltersProps {
   entityId: string | null
@@ -32,6 +40,10 @@ interface ActivityTimelineFiltersProps {
   onDateToChange: (value: string) => void
   onReset: () => void
 }
+
+const CHIP_BASE = 'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors'
+const CHIP_INACTIVE = 'border border-border bg-card text-muted-foreground hover:bg-accent/40'
+const CHIP_ACTIVE = 'border border-status-info-border bg-status-info-bg text-status-info-text'
 
 export function ActivityTimelineFilters({
   entityId,
@@ -45,6 +57,7 @@ export function ActivityTimelineFilters({
 }: ActivityTimelineFiltersProps) {
   const t = useT()
   const hasActiveFilters = activeTypes.length > 0 || dateFrom || dateTo
+  const allActive = activeTypes.length === 0
   const [counts, setCounts] = React.useState<InteractionCounts | null>(null)
 
   React.useEffect(() => {
@@ -52,11 +65,22 @@ export function ActivityTimelineFilters({
     const controller = new AbortController()
     void (async () => {
       try {
-        const nextCounts = await readApiResultOrThrow<InteractionCounts>(
+        const payload = await readApiResultOrThrow<InteractionCountsResponse>(
           `/api/customers/interactions/counts?entityId=${encodeURIComponent(entityId)}`,
           { signal: controller.signal },
         )
-        setCounts(nextCounts)
+        // Endpoint envelope is `{ ok, result: {...counts} }`. Some legacy fixtures
+        // return the counts at the top level — fall back to that shape so the chip
+        // badges keep working in either case.
+        const source = (payload.result ?? payload) as Partial<InteractionCounts>
+        setCounts({
+          call: source.call ?? 0,
+          email: source.email ?? 0,
+          meeting: source.meeting ?? 0,
+          note: source.note ?? 0,
+          task: source.task ?? 0,
+          total: source.total ?? 0,
+        })
       } catch {
         setCounts(null)
       }
@@ -72,38 +96,43 @@ export function ActivityTimelineFilters({
     }
   }, [activeTypes, onTypesChange])
 
+  const handleSelectAll = React.useCallback(() => {
+    onTypesChange([])
+  }, [onTypesChange])
+
   return (
-    <div className="flex flex-col gap-3 border-b border-border/60 pb-4 md:flex-row md:items-center md:justify-between">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground">
-          {t('customers.people.detail.activities.filterLabel', 'FILTER:')}
-        </span>
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleSelectAll}
+          aria-pressed={allActive}
+          className={cn(CHIP_BASE, allActive ? CHIP_ACTIVE : CHIP_INACTIVE)}
+        >
+          <span>{t('customers.timeline.filter.all', 'All Activities')}</span>
+        </Button>
 
         {FILTER_TYPES.map(({ type, icon: Icon }) => {
           const isActive = activeTypes.includes(type)
           const count = counts?.[type as keyof InteractionCounts]
+          const hasCount = typeof count === 'number' && count > 0
           return (
             <Button
               key={type}
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => handleTypeToggle(type)}
-              className={cn(
-                'h-7 rounded-full px-2.5 text-xs gap-1.5',
-                isActive
-                  ? 'border-foreground bg-background text-foreground'
-                  : 'border-border bg-background text-muted-foreground',
-              )}
               aria-pressed={isActive}
+              className={cn(CHIP_BASE, isActive ? CHIP_ACTIVE : CHIP_INACTIVE)}
             >
-              <Icon className="size-2.5" />
-              <span className="font-semibold">{t(`customers.timeline.filter.${type}`, type)}</span>
-              {typeof count === 'number' && count > 0 ? (
-                <span className="rounded-full bg-muted px-1 text-overline leading-4 text-muted-foreground">
-                  {count}
-                </span>
-              ) : null}
+              <Icon className="size-[18px] shrink-0" />
+              <span>
+                {t(`customers.timeline.filter.${type}`, type)}
+                {hasCount ? ` ${count}` : ''}
+              </span>
             </Button>
           )
         })}
@@ -111,15 +140,15 @@ export function ActivityTimelineFilters({
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button
+          <IconButton
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 rounded-md px-2.5 text-xs text-muted-foreground"
+            className="size-7 rounded-md text-muted-foreground"
+            aria-label={t('customers.people.detail.activities.moreFilters', 'More filters')}
           >
-            <SlidersHorizontal className="size-2.5" />
-            {t('customers.people.detail.activities.moreFilters', 'More')}
-          </Button>
+            <SlidersHorizontal className="size-3.5" />
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-72 space-y-3">
           <div className="space-y-1.5">

@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline'
+import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +12,8 @@ import {
   validateImportedReadyAppSnapshot,
   validateSlug,
 } from './lib/ready-apps.js'
+import { applyStarterPreset } from './lib/apply-starter-preset.js'
+import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,7 +24,9 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 interface Options {
   app?: string
   appUrl?: string
+  preset?: string
   registry?: string
+  initGit?: boolean
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -41,6 +46,9 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --preset <id>      Starter preset: classic, empty, or crm (omit to choose interactively)
+  --init-git         Initialize a local Git repository after scaffolding
+  --no-init-git      Do not prompt for or initialize a local Git repository
   --skip-agentic-setup  Skip the interactive agentic setup wizard
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
@@ -49,6 +57,10 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-store --preset classic
+  npx create-mercato-app my-store --preset empty
+  npx create-mercato-app my-store --preset crm
+  npx create-mercato-app my-store --init-git
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -73,7 +85,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   const options: Options = {
     app: undefined,
     appUrl: undefined,
+    preset: undefined,
     registry: undefined,
+    initGit: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -90,6 +104,10 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.version = true
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
+    } else if (arg === '--init-git') {
+      options.initGit = true
+    } else if (arg === '--no-init-git') {
+      options.initGit = false
     } else if (arg === '--verdaccio') {
       options.verdaccio = true
     } else if (arg === '--registry') {
@@ -101,12 +119,195 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     } else if (arg === '--app-url') {
       options.appUrl = requireOptionValue(args, index, arg)
       index += 1
+    } else if (arg === '--preset') {
+      options.preset = requireOptionValue(args, index, arg)
+      index += 1
     } else if (!arg.startsWith('-')) {
       appName = arg
     }
   }
 
   return { appName, options }
+}
+
+type Ask = (question: string) => Promise<string>
+
+const PRESET_PROMPT_OPTIONS = [
+  { number: '1', id: 'classic', label: 'Classic     (default)', hint: 'full demo-ready starter' },
+  { number: '2', id: 'empty', label: 'Empty', hint: 'minimal builder-ready baseline' },
+  { number: '3', id: 'crm', label: 'CRM', hint: 'minimal CRM starter' },
+] as const
+
+export function normalizePresetAnswer(answer: string): string {
+  const normalized = answer.trim().toLowerCase()
+
+  if (!normalized) return DEFAULT_PRESET_ID
+
+  const selected = PRESET_PROMPT_OPTIONS.find((option) => (
+    option.number === normalized || option.id === normalized
+  ))
+
+  if (!selected) {
+    throw new Error(`Unknown preset "${answer}". Choose classic, empty, or crm.`)
+  }
+
+  return selected.id
+}
+
+async function promptForStarterPreset(ask: Ask): Promise<string> {
+  console.log('')
+  console.log('🧩  Starter module setup')
+  console.log('')
+  console.log('   Which starter module set do you want?')
+  console.log('')
+  for (const option of PRESET_PROMPT_OPTIONS) {
+    console.log(`   ${option.number}. ${option.label} - ${option.hint}`)
+  }
+  console.log('')
+
+  while (true) {
+    const answer = await ask('   Enter number [1]: ')
+
+    try {
+      return normalizePresetAnswer(answer)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.log(pc.yellow(`   ${message}`))
+    }
+  }
+}
+
+async function resolveStarterPresetId(options: Options, readyAppSource: ReadyAppSource | null): Promise<string> {
+  if (options.preset) {
+    if (!VALID_PRESET_IDS.includes(options.preset)) {
+      throw new Error(`Unknown preset "${options.preset}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
+    }
+    if (options.preset !== DEFAULT_PRESET_ID && readyAppSource) {
+      throw new Error(
+        `--preset ${options.preset} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
+      )
+    }
+
+    return options.preset
+  }
+
+  if (readyAppSource) return DEFAULT_PRESET_ID
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log(pc.dim(`No starter preset selected; using ${DEFAULT_PRESET_ID}.`))
+    console.log('')
+    return DEFAULT_PRESET_ID
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (question: string) =>
+    new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+
+  try {
+    return await promptForStarterPreset(ask)
+  } finally {
+    rl.close()
+  }
+}
+
+function normalizeGitInitAnswer(answer: string): boolean {
+  const normalized = answer.trim().toLowerCase()
+  if (!normalized) return true
+  if (['y', 'yes'].includes(normalized)) return true
+  if (['n', 'no'].includes(normalized)) return false
+  throw new Error(`Unknown answer "${answer}". Choose yes or no.`)
+}
+
+async function promptForGitInitialization(ask: Ask): Promise<boolean> {
+  console.log('')
+  console.log('🌱  Git repository setup')
+  console.log('')
+  console.log('   Initialize a local Git repository now?')
+  console.log(pc.dim('   You can publish it to GitHub later with `gh repo create --source=. --remote=origin --push`.'))
+  console.log('')
+
+  while (true) {
+    const answer = await ask('   Initialize Git repository? [Y/n]: ')
+
+    try {
+      return normalizeGitInitAnswer(answer)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.log(pc.yellow(`   ${message}`))
+    }
+  }
+}
+
+async function resolveGitInitialization(options: Options): Promise<boolean> {
+  if (typeof options.initGit === 'boolean') return options.initGit
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (question: string) =>
+    new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+
+  try {
+    return await promptForGitInitialization(ask)
+  } finally {
+    rl.close()
+  }
+}
+
+type GitInitializationResult =
+  | { status: 'skipped' }
+  | { status: 'initialized' }
+  | { status: 'already-initialized' }
+  | { status: 'failed'; message: string }
+
+function runGitCommand(targetDir: string, args: string[]) {
+  return spawnSync('git', args, {
+    cwd: targetDir,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: process.platform === 'win32',
+  })
+}
+
+function initializeGitRepository(targetDir: string): GitInitializationResult {
+  if (existsSync(join(targetDir, '.git'))) {
+    return { status: 'already-initialized' }
+  }
+
+  const initWithBranch = runGitCommand(targetDir, ['init', '-b', 'main'])
+  if (initWithBranch.status === 0) {
+    return { status: 'initialized' }
+  }
+
+  const fallbackInit = runGitCommand(targetDir, ['init'])
+  if (fallbackInit.status !== 0) {
+    const message = fallbackInit.stderr || initWithBranch.stderr || fallbackInit.stdout || initWithBranch.stdout
+    return { status: 'failed', message: message.trim() || 'git init failed' }
+  }
+
+  const branchRename = runGitCommand(targetDir, ['branch', '-M', 'main'])
+  if (branchRename.status !== 0) {
+    const message = branchRename.stderr || branchRename.stdout
+    return { status: 'failed', message: message.trim() || 'git branch -M main failed' }
+  }
+
+  return { status: 'initialized' }
+}
+
+async function maybeInitializeGitRepository(targetDir: string, options: Options): Promise<GitInitializationResult> {
+  const shouldInitialize = await resolveGitInitialization(options)
+  if (!shouldInitialize) return { status: 'skipped' }
+
+  const result = initializeGitRepository(targetDir)
+  if (result.status === 'initialized') {
+    console.log(pc.green('Initialized local Git repository.'))
+  } else if (result.status === 'already-initialized') {
+    console.log(pc.dim('Git repository already initialized.'))
+  } else if (result.status === 'failed') {
+    console.log(pc.yellow(`Could not initialize Git repository: ${result.message}`))
+  }
+  console.log('')
+
+  return result
 }
 
 function buildRegistryConfig(registryUrl: string): string {
@@ -278,6 +479,25 @@ function printImportedReadyAppNextSteps(appName: string): void {
   console.log('')
 }
 
+function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
+  console.log('Optional GitHub publish:')
+  console.log('')
+
+  if (gitResult.status === 'skipped' || gitResult.status === 'failed') {
+    console.log(pc.cyan('  git init -b main'))
+  }
+
+  console.log(pc.cyan('  git add -A'))
+  console.log(pc.cyan('  git commit -m "Initial commit"'))
+  console.log(pc.dim('  # With GitHub CLI:'))
+  console.log(pc.cyan('  gh repo create --source=. --remote=origin --push'))
+  console.log(pc.dim('  # Or create an empty GitHub repo in the browser, then:'))
+  console.log(pc.cyan('  git remote add origin https://github.com/<owner>/<repo>.git'))
+  console.log(pc.cyan('  git push -u origin main'))
+  console.log(pc.dim('  # You can also publish from the standalone dev splash after `yarn dev`.'))
+  console.log('')
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const { appName: appNameArg, options } = parseArgs(argv)
 
@@ -308,6 +528,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
 
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
+
+  const presetId = await resolveStarterPresetId(options, readyAppSource)
+
   const registryConfig = options.verdaccio
     ? buildRegistryConfig('http://localhost:4873')
     : options.registry
@@ -330,17 +553,24 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await scaffoldImportedReadyApp(targetDir, readyAppSource)
   } else {
     await scaffoldTemplateApp(targetDir, placeholders)
+    applyStarterPreset(presetId, targetDir)
   }
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
 
+  if (!readyAppSource) {
+    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
+  }
+
+  const gitResult = await maybeInitializeGitRepository(targetDir, options)
+
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
     printTemplateNextSteps(appName)
   }
+  printGitHubSyncInstructions(gitResult)
 
   console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
   console.log('')

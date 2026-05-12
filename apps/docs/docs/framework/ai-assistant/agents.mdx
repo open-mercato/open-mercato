@@ -1,0 +1,318 @@
+---
+title: AI Agents
+description: Declare typed AI agents, wire tool packs, and choose between chat and structured-output execution modes.
+---
+
+# AI Agents
+
+An **agent** is a module-owned contract the runtime uses to dispatch an LLM call with a deterministic tool surface, feature-gated access, and an explicit mutation posture. Agents live in each module's `ai-agents.ts` at the module root and are discovered by the generator.
+
+## Writing an `ai-agents.ts`
+
+```ts
+// packages/core/src/modules/customers/ai-agents.ts
+import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
+
+export const accountAssistant: AiAgentDefinition = {
+  id: 'customers.account_assistant',
+  moduleId: 'customers',
+  label: 'Account Assistant',
+  description: 'Read-only CRM explorer for people, companies, deals.',
+  systemPrompt: '...composed from PromptTemplate sections...',
+  allowedTools: [
+    'search.entities',
+    'attachments.download',
+    'meta.describe_agent',
+    'customers.get_person',
+    'customers.list_deals',
+    'customers.get_activities',
+  ],
+  readOnly: true,
+  mutationPolicy: 'read-only',
+  requiredFeatures: ['customers.view'],
+  acceptedMediaTypes: ['image', 'pdf'],
+  defaultModel: 'claude-haiku-4-5',
+  domain: 'customers',
+  keywords: ['crm', 'people', 'companies', 'deals'],
+  suggestions: [
+    { label: 'Show recent deals', prompt: 'Show recent deals' },
+  ],
+}
+
+export default [accountAssistant]
+```
+
+After adding or editing `ai-agents.ts`, run:
+
+```bash
+yarn generate
+```
+
+The generator aggregates every module's agents into `apps/mercato/.mercato/generated/ai-agents.generated.ts`.
+
+## `AiAgentDefinition` fields
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `id` | yes | Must match `<moduleId>.<agent>` (lowercase, digits, underscores). |
+| `moduleId` | yes | Used for `OM_AI_<MODULE>_MODEL` resolution and generator grouping. |
+| `label` / `description` | yes | Shown in the agent picker and playground. |
+| `systemPrompt` | yes | The composed system prompt the runtime feeds to the model. |
+| `allowedTools` | yes | Whitelist. Tools not listed here are never exposed — even when registered. |
+| `readOnly` | no (default `true`) | When `true`, every `isMutation: true` tool is filtered out BEFORE the model sees it. |
+| `mutationPolicy` | no | `read-only` \| `confirm-required` \| `destructive-confirm-required`. |
+| `requiredFeatures` | no | ACL features gated at the dispatcher route. |
+| `acceptedMediaTypes` | no | Subset of `image` \| `pdf` \| `file`. |
+| `executionMode` | no (default `chat`) | `chat` or `object`. See below. |
+| `output` | no | Structured-output schema when `executionMode === 'object'`. |
+| `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). |
+| `maxSteps` | no | Upper bound on AI SDK tool-use loops. |
+| `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
+| `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
+| `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
+
+## Tool packs
+
+Tools are declared per module with `defineAiTool` and registered under a tool pack. Every tool advertises whether it mutates:
+
+```ts
+import { defineAiTool } from '@open-mercato/ai-assistant'
+import { z } from 'zod'
+
+export const getPerson = defineAiTool({
+  name: 'customers.get_person',
+  description: 'Return a single person by id with linked addresses and tags.',
+  isMutation: false,
+  requiredFeatures: ['customers.view'],
+  inputSchema: z.object({ personId: z.string().uuid() }),
+  async handler(args, ctx) {
+    const em = ctx.container.resolve('em')
+    // ... load, scope by tenant, return a serializable object
+    return { person: { /* ... */ } }
+  },
+})
+```
+
+### Shipped packs
+
+| Pack | Tools (examples) | When to use |
+|------|------------------|-------------|
+| `search.*` | `search.entities`, `search.customers` | Cross-entity fulltext/vector search |
+| `attachments.*` | `attachments.download`, `attachments.list` | Read attachment metadata and fetch blobs |
+| `meta.*` | `meta.describe_agent` | Self-description so the model can list its own capabilities |
+| `customers.*` | `customers.get_person`, `customers.list_deals`, `customers.update_deal_stage` | CRM read + a single curated mutation |
+| `catalog.*` | `catalog.list_products`, `catalog.update_product`, `catalog.bulk_update_products`, `catalog.apply_attribute_extraction`, `catalog.update_product_media_descriptions` | Merchandising demo tools (read + four D18 writes) |
+
+:::caution Mutation tools never bypass `readOnly`
+When `agent.readOnly === true` (the default), the runtime strips any tool with `isMutation: true` from the model's tool surface. To unlock writes you MUST set `readOnly: false` AND declare a non-`read-only` `mutationPolicy`. Operators can then further downgrade — but never escalate — via the tenant settings page.
+:::
+
+### Default policy for write-capable agents
+
+Agents shipped in `packages/core` that whitelist any `isMutation: true` tool default to **`mutationPolicy: 'confirm-required'`**, not `read-only`. The intent: writes are allowed but every one needs explicit user approval through the [mutation approval card](./mutation-approvals). Per-tenant overrides can downgrade to `read-only` to lock writes back down without a redeploy. They cannot escalate above what the agent declares.
+
+### Replacing or disabling a registered agent
+
+Modules can replace or disable an agent registered by another module via three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the module's existing `ai-agents.ts` / `ai-tools.ts`, inline on a `ModuleEntry` in `apps/<app>/src/modules.ts`, or programmatically via `applyAiAgentOverrides({ ... })` / `applyAiToolOverrides({ ... })` at boot. `null` disables; a definition replaces. See [Overrides](./overrides) for the full contract, file layout, and resolution order.
+
+### Extending a registered agent
+
+When a downstream module only needs to patch tools, prompt text, or starter prompts on an existing agent, export `aiAgentExtensions` instead of replacing the full agent:
+
+```ts
+import { defineAiAgentExtension } from '@open-mercato/ai-assistant'
+
+export const aiAgentExtensions = [
+  defineAiAgentExtension({
+    targetAgentId: 'catalog.catalog_assistant',
+    deleteAllowedTools: ['catalog.old_stats'],
+    appendAllowedTools: ['example.catalog_stats'],
+    appendSystemPrompt: 'Use example.catalog_stats when the operator asks for catalog metrics.',
+    deleteSuggestions: ['Old catalog stats'],
+    appendSuggestions: [
+      { label: 'Show catalog stats', prompt: 'Show catalog stats' },
+    ],
+  }),
+]
+```
+
+Extensions run after replacement/disable overrides. They cannot resurrect a disabled agent; an extension whose `targetAgentId` is missing is skipped with a warning. Patch order is deterministic: `replace*` first, `delete*` second, `append*` last.
+
+Supported patch fields:
+
+| Field | Effect |
+|-------|--------|
+| `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools` | Replace, remove, or append tool names in the agent whitelist. |
+| `replaceSystemPrompt` / `appendSystemPrompt` | Replace the prompt or append an extra prompt paragraph. |
+| `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions` | Replace, remove by label/prompt, or append starter prompts. |
+| `suggestions` | Backward-compatible alias for `appendSuggestions`. |
+
+Concretely:
+
+- `customers.account_assistant` — `confirm-required` (whitelists `customers.update_deal_stage` + comment/activity tools)
+- `catalog.merchandising_assistant` — `confirm-required` (whitelists the four D18 mutation tools)
+- `catalog.catalog_assistant` — `read-only` (genuinely read-only — no mutation tools)
+
+## Chat vs object execution mode
+
+| Mode | Helper | Output | When to use |
+|------|--------|--------|-------------|
+| `chat` (default) | `runAiAgentText` | Streamed text + UI parts | `<AiChat>` sheets, conversational assistants, multi-turn sessions |
+| `object` | `runAiAgentObject` | Validated JSON matching an `output.schema` | Single-shot structured extraction, batch background enrichment, headless callers |
+
+Object-mode agents declare a Zod `output.schema`:
+
+```ts
+import { z } from 'zod'
+
+export const attributeExtractor: AiAgentDefinition = {
+  id: 'catalog.attribute_extractor',
+  moduleId: 'catalog',
+  // ...
+  executionMode: 'object',
+  output: {
+    schemaName: 'CatalogAttributeExtraction',
+    schema: z.object({
+      productId: z.string().uuid(),
+      attributes: z.array(z.object({
+        key: z.string(),
+        value: z.string(),
+      })),
+    }),
+  },
+}
+```
+
+The runtime delegates to Vercel AI SDK's `generateObject` / `streamObject` and returns the parsed result.
+
+## End-to-end example
+
+```ts
+// 1. Define the agent
+// packages/core/src/modules/customers/ai-agents.ts
+export const accountAssistant: AiAgentDefinition = { /* as above */ }
+
+// 2. Define or whitelist the tools
+// packages/core/src/modules/customers/ai-tools/get-person.ts
+export const getPerson = defineAiTool({ /* as above */ })
+
+// 3. Embed the chat UI
+// packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx
+import { AiChat } from '@open-mercato/ui/ai'
+
+<AiChat
+  agent="customers.account_assistant"
+  pageContext={{ entityType: 'customers:person', recordId: params.id }}
+/>
+```
+
+## Where the runtime reads each field
+
+- `checkAgentPolicy` in `lib/agent-policy.ts` enforces `requiredFeatures`, tool whitelisting, `readOnly`/`mutationPolicy`, and `acceptedMediaTypes`.
+- `resolveAiAgentTools` in `lib/agent-tools.ts` filters the registered tool pack down to the agent's `allowedTools` and wires the mutation interceptor.
+- `createModelFactory` in `lib/model-factory.ts` picks the LLM per the resolution order.
+- `runAiAgentText` / `runAiAgentObject` in `lib/agent-runtime.ts` compose the final request.
+- `tool-loader.ts` registers every tool's full typed shape — `isMutation`, `displayName`, `loadBeforeRecord(s)`, `tags` — so the agent settings UI badges mutation tools correctly and the mutation interceptor fires.
+
+When the runtime invokes a tool handler it injects the matching `AiToolDefinition` into the `McpToolContext.tool` slot, so handlers can build an `AiToolExecutionContext` for `createAiApiOperationRunner` without losing route-gate coverage.
+
+## Using the Vercel AI SDK natively
+
+Most code should go through `runAiAgentText` / `runAiAgentObject` so policy, tool whitelisting, model resolution, mutation approvals, and tenant scoping are enforced for you. There are two escape hatches when you genuinely need raw AI SDK access — one fully bypassed, one wrapped.
+
+### Option A — Raw AI SDK (no agent wrapper)
+
+Use this only for internal scripts, migrations, evaluation harnesses, or non-tenant contexts. Reuse the framework's model factory so provider keys, env overrides, and tenant settings still flow through.
+
+```ts
+import { generateText, generateObject, streamText, streamObject } from 'ai'
+import { z } from 'zod'
+import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+
+const factory = createModelFactory({ moduleId: 'catalog' })
+const model = await factory.resolve()
+
+// Text
+const { text } = await generateText({ model, prompt: 'Summarize this...' })
+
+// Structured object
+const { object } = await generateObject({
+  model,
+  schema: z.object({ summary: z.string(), tags: z.array(z.string()) }),
+  prompt: 'Extract summary and tags from ...',
+})
+
+// Streaming
+const stream = streamText({ model, prompt: '...' })
+for await (const chunk of stream.textStream) { /* ... */ }
+```
+
+Optionally reuse the registered tool packs (still without agent policy):
+
+```ts
+import { resolveAiAgentTools } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-tools'
+
+const tools = await resolveAiAgentTools({
+  allowedTools: ['search.entities', 'attachments.list'],
+  container,
+  authContext,
+})
+const { text } = await generateText({ model, tools, prompt: '...', maxSteps: 5 })
+```
+
+**What you lose by going raw:**
+
+- `checkAgentPolicy` — `requiredFeatures`, `allowedTools` whitelist, `readOnly`/`mutationPolicy`, `acceptedMediaTypes` are not enforced.
+- The mutation approval flow — `prepareMutation` + `ai_pending_actions` + approval cards do not run; never call mutation tools this way.
+- Page-context resolution — `resolvePageContext` and tenant-scoped system-prompt composition are skipped.
+- Audit trail — runs are not associated with an agent id, so playground/settings overrides and per-agent telemetry do not apply.
+- Per-tenant prompt and model overrides set in the AI Assistant settings UI.
+- Attachment-to-model bridging (image/PDF parts produced by `acceptedMediaTypes`).
+
+### Option B — Wrapped agent with a native SDK callback (recommended escape hatch)
+
+When you want most of the wrapper's guarantees but need to reach into the raw AI SDK call (custom `providerOptions`, `experimental_*` flags, telemetry, additional `onStepFinish` logic, custom `abortSignal` plumbing, etc.), pass a `generateText` callback to `runAiAgentText` (or a `generateObject` callback to `runAiAgentObject`). The callback name mirrors the AI SDK function it ultimately invokes, so the call site stays coherent with the underlying SDK. The runtime still:
+
+- runs `checkAgentPolicy` (features, tool whitelist, mutation policy, media types),
+- resolves the model via `createModelFactory` and tenant overrides,
+- builds the tool map from `allowedTools`,
+- composes the system prompt (including `resolvePageContext`),
+- routes any mutation tool calls through `prepareMutation` + the approval contract,
+
+and then hands the fully prepared options object to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
+
+```ts
+import { runAiAgentText } from '@open-mercato/ai-assistant'
+import { generateText } from 'ai'
+
+const result = await runAiAgentText({
+  agentId: 'customers.account_assistant',
+  container,
+  authContext,
+  prompt: 'Summarize this account',
+  generateText: async ({ model, tools, system, messages, maxSteps }) => {
+    return generateText({
+      model,
+      tools,
+      system,
+      messages,
+      maxSteps,
+      experimental_telemetry: { isEnabled: true, functionId: 'customers.account_assistant' },
+      providerOptions: {
+        anthropic: { cacheControl: { type: 'ephemeral' } },
+      },
+      onStepFinish: (step) => { /* custom logging */ },
+    })
+  },
+})
+```
+
+The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` so the callback can call `generateObject` / `streamObject` directly.
+
+**What you still lose with the `generateText` / `generateObject` callbacks:**
+
+- If your callback ignores the supplied `tools` / `system` / `messages` arguments, you also bypass tool whitelisting, prompt composition, and mutation approvals — only the model factory and feature gate remain. Treat the supplied arguments as required inputs unless you know exactly which guardrail you are dropping.
+- Custom transports (e.g. swapping the HTTP client) move you outside the model factory's provider routing; per-tenant API key overrides set in settings will not apply.
+- UI streaming parts (`AiUiPart` tags consumed by `<AiChat>`) are produced by the default runtime path; if your callback returns a stream that does not emit those parts, the embedded chat UI degrades to plain text.
+
+Pick Option B by default when you "just need one extra AI SDK option" — it keeps every other guardrail in place. Reach for Option A only when you are deliberately working outside the agent contract.

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -85,11 +85,11 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.71",
-    "@ai-sdk/google": "^3.0.64",
-    "@ai-sdk/openai": "^3.0.53",
+    "@ai-sdk/anthropic": "^3.0.76",
+    "@ai-sdk/google": "^3.0.71",
+    "@ai-sdk/openai": "^3.0.63",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "ai": "^6.0.168",
+    "ai": "^6.0.177",
     "cmdk": "^1.0.0",
     "framer-motion": "^12.38.0",
     "isolated-vm": "^6.1.2",

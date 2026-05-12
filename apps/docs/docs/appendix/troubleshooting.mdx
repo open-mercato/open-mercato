@@ -43,6 +43,20 @@ The native monorepo dev runtime starts multiple PostgreSQL-backed processes at o
 
 If you continue to hit connection limits, verify that background workers and migrations use the same pool settings, and confirm that your database `max_connections` value comfortably exceeds the aggregate pool size across all applications connecting to it.
 
+## Dev Memory Usage (`🧠 Memory ... RSS`)
+
+The dev runtime prints a `🧠 Memory ... RSS (peak ...)` line that measures the **process-tree RSS** rooted at the app runtime — so the Next.js dev server, the auto-spawned queue workers, and the scheduler are all included in the number. A high idle RSS often reflects per-queue runner overhead rather than Next.js itself.
+
+To shrink idle RSS in development, enable lazy worker auto-spawn:
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
+```
+
+In lazy mode the runtime starts a lightweight supervisor that watches each discovered queue for the first ready job and only then spawns `mercato queue worker <queueName>`. Queues that stay idle do not contribute polling timers (local strategy) or BullMQ `Worker`/Redis resources (async strategy) to the process tree. See [Queue Workers — Lazy Worker Auto-Spawn](../framework/events/queue-workers.mdx#lazy-worker-auto-spawn-memory-sensitive-dev) for the env variable reference.
+
+For production deployments, prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
+
 ## PostgreSQL auth errors on local setup
 
 If local commands such as `yarn generate`, `yarn db:generate`, or app startup fail with errors like:

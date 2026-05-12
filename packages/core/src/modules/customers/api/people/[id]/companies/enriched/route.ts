@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -20,7 +20,10 @@ import {
   CustomerDeal,
   CustomerInteraction,
 } from '../../../../../data/entities'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../../../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../../../../lib/personCompanyLinkTable'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -187,12 +190,14 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       },
       'customers.people.companiesEnriched.GET',
     )
-    const links = await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      linkWhere,
-      { populate: ['company'] },
-      entityScope,
+    const links = filterActivePersonCompanyLinks(
+      await findWithDecryption(
+        em,
+        CustomerPersonCompanyLink,
+        linkWhere,
+        { populate: ['company'] },
+        entityScope,
+      ),
     )
 
     const companyIds = links.map((link) => (link.company as CustomerEntity).id)
@@ -375,7 +380,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       totalPages,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/people/[id]/companies/enriched] GET failed', err)

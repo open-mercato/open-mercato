@@ -1,5 +1,7 @@
 # Progress Module Specification
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `persist().flush()` replaces `persistAndFlush`.
+
 ## Overview
 
 The Progress module provides a generic server-side progress tracking system with real-time UI updates. It replaces the existing `entity_index_jobs` table with a more flexible, reusable solution that any module can use to track long-running operations.
@@ -393,7 +395,7 @@ export function createProgressService(em: EntityManager, eventBus: EventBus): Pr
         status: 'pending',
       })
       
-      await em.persistAndFlush(job)
+      await em.persist(job).flush()
       
       await eventBus.emit('progress.job.created', {
         jobId: job.id,

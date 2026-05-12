@@ -1,6 +1,6 @@
 ---
 name: auto-review-pr
-description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /auto-review-pr <PR-number>
+description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
 ---
 
 # Auto Review PR
@@ -280,8 +280,8 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | Hardcoded user-facing string in API errors or UI labels | Medium: must use i18n |
 | New `any` type annotation outside tests | Medium: use zod plus `z.infer` |
 | `alert(` or custom toast instead of `flash()` | Medium: use `flash()` |
-| Hand-written migration SQL file | Medium: never hand-write migrations |
-| Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
+| Hand-written migration SQL file without snapshot update or scope rationale | Medium: prefer generated migrations; manual SQL must be scoped and update `.snapshot-open-mercato.json` |
+| Entity schema changed but no migration file or no-op rationale in the diff | Medium: create a scoped migration and update the snapshot |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
 | New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
 

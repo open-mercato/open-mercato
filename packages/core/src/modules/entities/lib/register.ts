@@ -64,7 +64,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
       if (!ent) {
         if (dryRun) return 'created'
         ent = tem.create(CustomEntity as any, { ...where, ...desired, createdAt: now, updatedAt: now, deletedAt: null })
-        await tem.persistAndFlush(ent)
+        await tem.persist(ent).flush()
         return 'created' as UpsertCustomEntityResult
       }
       if (createOnly) return 'unchanged'

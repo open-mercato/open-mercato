@@ -138,7 +138,7 @@ export async function POST(req: Request) {
     em.persist(userRole)
   }
 
-  await em.persistAndFlush(user)
+  await em.persist(user).flush()
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
   const verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)

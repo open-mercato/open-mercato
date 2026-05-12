@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -38,13 +39,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+  const em = container.resolve('em') as EntityManager
   const user = await customerUserService.findById(params.id, auth.tenantId!)
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  await customerUserService.updatePassword(user, parsed.data.newPassword)
-  await customerSessionService.revokeAllUserSessions(user.id)
+  await em.transactional(async (trx) => {
+    await customerUserService.updatePassword(user, parsed.data.newPassword, trx)
+    await customerSessionService.revokeAllUserSessions(user.id, trx)
+  })
 
   void emitCustomerAccountsEvent('customer_accounts.password.reset', {
     id: user.id,
@@ -52,6 +56,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
     resetBy: auth.sub,
+  }).catch(() => undefined)
+
+  void emitCustomerAccountsEvent('customer_accounts.password.changed', {
+    userId: user.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+    changedBy: 'admin',
+    changedById: auth.sub,
+    at: new Date().toISOString(),
   }).catch(() => undefined)
 
   return NextResponse.json({ ok: true })

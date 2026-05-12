@@ -75,6 +75,10 @@ export function BackendHeaderChrome({
     () => hasVisibleRoute(payload?.groups, '/backend/messages'),
     [payload?.groups],
   )
+  const showNotifications = React.useMemo(
+    () => hasFeature(grantedFeatures, 'notifications.view'),
+    [grantedFeatures],
+  )
 
   return (
     <>
@@ -89,13 +93,11 @@ export function BackendHeaderChrome({
           missingConfigMessage={missingConfigMessage}
         />
       ) : null}
-      <div className="hidden lg:contents">
-        {isReady ? <LazyOrganizationSwitcher /> : null}
-      </div>
+      {isReady ? <LazyOrganizationSwitcher /> : null}
       {showIntegrationsButton ? <IntegrationsButton /> : null}
       <SettingsButton />
       <ProfileDropdown email={email} />
-      {isReady ? <LazyNotificationBellWrapper /> : null}
+      {isReady && showNotifications ? <LazyNotificationBellWrapper /> : null}
       {isReady && showMessages ? <LazyMessagesIcon /> : null}
     </>
   )

@@ -1,5 +1,5 @@
 {
-  "search.api.errors.autoIndexingDisabled": "Automatische Indizierung ist deaktiviert.",
+  "search.api.errors.autoIndexingDisabled": "Die Auto-Indizierung ist über OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING deaktiviert (Legacy-Alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).",
   "search.api.errors.configUnavailable": "Konfigurationsdienst nicht verfügbar.",
   "search.api.errors.confirmAllRequired": "Bestätigung ist für alle Einträge erforderlich.",
   "search.api.errors.indexFetchFailed": "Indexdaten konnten nicht abgerufen werden.",
@@ -25,7 +25,7 @@
   "search.dialog.actions.openGlobalSearch": "Globale Suche öffnen",
   "search.dialog.actions.openSelected": "Öffnen (Enter)",
   "search.dialog.actions.search": "Suchen",
-  "search.dialog.empty.hint": "Mindestens zwei Zeichen eingeben, um in indizierten Datensätzen zu suchen.",
+  "search.dialog.empty.hint": "Mindestens {{count}} Zeichen eingeben, um in indizierten Datensätzen zu suchen.",
   "search.dialog.empty.none": "Keine Ergebnisse gefunden.",
   "search.dialog.errors.noPermission": "Sie haben keine Berechtigung, die globale Suche zu verwenden.",
   "search.dialog.errors.searchFailed": "Suche ist fehlgeschlagen.",

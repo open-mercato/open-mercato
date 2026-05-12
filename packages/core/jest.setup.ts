@@ -1,5 +1,23 @@
 import '@testing-library/jest-dom'
 
+// Web Streams polyfill for jsdom — `eventsource-parser/stream` (loaded
+// transitively through `ai` -> `@ai-sdk/*` whenever a test file imports
+// `@open-mercato/ui/ai/useAiChat` or any UI component that touches it)
+// references TransformStream/ReadableStream/WritableStream at module
+// load time. jsdom doesn't ship those globals, so the import throws
+// before the test body runs. Pull them from `node:stream/web` (Node 18+).
+import { ReadableStream, WritableStream, TransformStream } from 'node:stream/web'
+
+if (typeof globalThis.TransformStream === 'undefined') {
+  ;(globalThis as any).TransformStream = TransformStream
+}
+if (typeof globalThis.ReadableStream === 'undefined') {
+  ;(globalThis as any).ReadableStream = ReadableStream
+}
+if (typeof globalThis.WritableStream === 'undefined') {
+  ;(globalThis as any).WritableStream = WritableStream
+}
+
 jest.mock('react-markdown', () => ({
   __esModule: true,
   default: ({ children }: { children?: unknown }) => children ?? null,
@@ -25,6 +43,12 @@ class MockResponse {
 
   async text() {
     return this.body
+  }
+
+  clone() {
+    const cloned = new MockResponse(this.body, { status: this.status })
+    cloned.headers = new Map(this.headers)
+    return cloned
   }
 }
 

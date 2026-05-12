@@ -67,6 +67,7 @@ export function TranslationManager({
   const [selectedRecordId, setSelectedRecordId] = React.useState(propRecordId ?? '')
   const [activeLocale, setActiveLocale] = React.useState('')
   const [editedTranslations, setEditedTranslations] = React.useState<Record<string, Record<string, string>>>({})
+  const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
@@ -194,7 +195,10 @@ export function TranslationManager({
     lastTranslationSignatureRef.current = sig
 
     if (!translationData?.translations) {
-      if (!hasUserEdited) setEditedTranslations({})
+      if (!hasUserEdited) {
+        editedTranslationsRef.current = {}
+        setEditedTranslations({})
+      }
       return
     }
 
@@ -206,7 +210,10 @@ export function TranslationManager({
         parsed[locale][key] = typeof val === 'string' ? val : ''
       }
     }
-    if (!hasUserEdited) setEditedTranslations(parsed)
+    if (!hasUserEdited) {
+      editedTranslationsRef.current = parsed
+      setEditedTranslations(parsed)
+    }
   }, [translationSignature, translationData, hasUserEdited])
 
   const mutation = useMutation({
@@ -215,7 +222,7 @@ export function TranslationManager({
         throw new Error(t('translations.manager.errors.selectRecord', 'Select an entity and record before saving'))
       }
       const body: Record<string, Record<string, string | null>> = {}
-      for (const [locale, fields] of Object.entries(editedTranslations)) {
+      for (const [locale, fields] of Object.entries(editedTranslationsRef.current)) {
         const localeFields: Record<string, string | null> = {}
         let hasValues = false
         for (const [key, val] of Object.entries(fields)) {
@@ -225,6 +232,10 @@ export function TranslationManager({
           }
         }
         if (hasValues) body[locale] = localeFields
+      }
+      if (Object.keys(body).length === 0) {
+        console.warn('[translations] Save skipped: payload is empty — no locale contains any non-empty field')
+        throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
       const res = await apiCall(
         `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
@@ -252,13 +263,15 @@ export function TranslationManager({
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
     setHasUserEdited(true)
-    setEditedTranslations((prev) => ({
-      ...prev,
+    const next = {
+      ...editedTranslationsRef.current,
       [locale]: {
-        ...prev[locale],
+        ...editedTranslationsRef.current[locale],
         [fieldKey]: value,
       },
-    }))
+    }
+    editedTranslationsRef.current = next
+    setEditedTranslations(next)
   }
 
   const getBaseValue = (fieldKey: string): string => resolveBaseValue(baseValues, fieldKey)
@@ -289,27 +302,32 @@ export function TranslationManager({
 
   const renderLocaleTabs = () => (
     <div className="flex gap-1 border-b">
-      {locales.map((locale) => (
-        <button
-          key={locale}
-          type="button"
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-            activeLocale === locale
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveLocale(locale)}
-        >
-          {locale.toUpperCase()}
-        </button>
-      ))}
+      {locales.map((locale) => {
+        const isActive = activeLocale === locale
+        return (
+          <button
+            key={locale}
+            type="button"
+            data-state={isActive ? 'active' : 'inactive'}
+            data-locale={locale}
+            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+              isActive
+                ? 'border-b-2 border-primary text-primary'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setActiveLocale(locale)}
+          >
+            {locale.toUpperCase()}
+          </button>
+        )
+      })}
     </div>
   )
 
   const renderFieldTable = () => {
     if (!entityType || !recordId) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('translations.manager.selectFirst', 'Select an entity and record to manage translations.')}
         </div>
       )
@@ -336,7 +354,7 @@ export function TranslationManager({
     }
     if (!fieldList.length) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('translations.manager.noFields', 'No translatable fields found for this entity type.')}
         </div>
       )
@@ -483,7 +501,7 @@ export function TranslationManager({
           </div>
         )}
 
-        <div className="rounded-lg border bg-background/70 p-4">
+        <div className="rounded-lg border bg-background/80 p-4">
           {renderLocaleTabs()}
           <div className="mt-3">
             {renderFieldTable()}

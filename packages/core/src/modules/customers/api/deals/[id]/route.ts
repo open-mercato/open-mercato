@@ -17,6 +17,7 @@ import {
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '#generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -529,7 +530,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     organizationIdByRecord: { [deal.id]: deal.organizationId ?? null },
     tenantFallbacks: [deal.tenantId ?? auth.tenantId ?? null].filter((value): value is string => !!value),
   })
-  const customFields = customFieldValues[deal.id] ?? {}
+  const customFields = normalizeCustomFieldResponse(customFieldValues[deal.id]) ?? {}
 
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   let viewerName: string | null = null

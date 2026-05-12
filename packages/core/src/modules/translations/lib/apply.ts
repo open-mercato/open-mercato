@@ -1,11 +1,11 @@
 import type { AwilixContainer } from 'awilix'
-import type { Knex } from 'knex'
+import type { Kysely } from 'kysely'
 import { applyLocalizedContent } from '@open-mercato/shared/lib/localization/resolver'
 import { batchLoadTranslations } from './batch'
 
-function resolveKnex(container: AwilixContainer): Knex {
-  const em = container.resolve('em') as { getConnection(): { getKnex(): Knex } }
-  return em.getConnection().getKnex()
+function resolveDb(container: AwilixContainer): Kysely<any> {
+  const em = container.resolve('em') as { getKysely<T = any>(): Kysely<T> }
+  return em.getKysely<any>()
 }
 
 export async function applyTranslationOverlays(
@@ -18,9 +18,9 @@ export async function applyTranslationOverlays(
     container: AwilixContainer
   },
 ): Promise<Record<string, unknown>[]> {
-  const knex = resolveKnex(options.container)
+  const db = resolveDb(options.container)
   const entityIds = items.map((item) => String(item.id)).filter(Boolean)
-  const translationsMap = await batchLoadTranslations(knex, options.entityType, entityIds, {
+  const translationsMap = await batchLoadTranslations(db, options.entityType, entityIds, {
     tenantId: options.tenantId,
     organizationId: options.organizationId,
   })

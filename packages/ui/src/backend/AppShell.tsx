@@ -3,9 +3,11 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Input } from '../primitives/input'
+import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
@@ -17,6 +19,7 @@ import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
@@ -27,6 +30,9 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
+import { AiDockProvider } from '../ai/AiDock'
+import { AiChatSessionsProvider } from '../ai/AiChatSessions'
+import { AiAssistantLauncher } from '../ai/AiAssistantLauncher'
 import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
@@ -41,8 +47,14 @@ import {
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
+export type ShellLogo = {
+  src: string
+  alt?: string
+}
+
 export type AppShellProps = {
   productName?: string
+  logo?: ShellLogo
   email?: string
   groups: {
     id?: string
@@ -92,16 +104,8 @@ export type AppShellProps = {
 
 type Breadcrumb = Array<{ label: string; href?: string }>
 
-type SidebarCustomizationDraft = {
-  order: string[]
-  groupLabels: Record<string, string>
-  itemLabels: Record<string, string>
-  hiddenItemIds: Record<string, boolean>
-}
-
 type SidebarGroup = AppShellProps['groups'][number]
 type SidebarItem = SidebarGroup['items'][number]
-type SidebarRoleTarget = { id: string; name: string; hasPreference: boolean }
 
 function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: string): SidebarItem | null {
   if (!item.href) return null
@@ -392,20 +396,24 @@ export function AppShell(props: AppShellProps) {
   return (
     <QueryProvider>
       <BackendChromeProvider adminNavApi={props.adminNavApi}>
-        <AppShellBody {...props} />
+        <AiChatSessionsProvider>
+          <AiDockProvider>
+            <AppShellBody {...props} />
+          </AiDockProvider>
+        </AiChatSessionsProvider>
       </BackendChromeProvider>
     </QueryProvider>
   )
 }
 
-function AppShellBody({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
   const { payload: chromePayload, isReady: isChromeReady, isLoading: isChromeLoading } = useBackendChrome()
   const resolvedGroups = React.useMemo(
-    () => AppShell.cloneGroups(chromePayload?.groups ?? groups),
+    () => cloneSidebarGroups(chromePayload?.groups ?? groups),
     [chromePayload?.groups, groups],
   )
   const resolvedSettingsSections = chromePayload?.settingsSections ?? settingsSections
@@ -426,19 +434,94 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(resolvedGroups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
   )
-  const [customizing, setCustomizing] = React.useState(false)
-  const [customDraft, setCustomDraft] = React.useState<SidebarCustomizationDraft | null>(null)
-  const [loadingPreferences, setLoadingPreferences] = React.useState(false)
-  const [savingPreferences, setSavingPreferences] = React.useState(false)
-  const [customizationError, setCustomizationError] = React.useState<string | null>(null)
-  const [availableRoleTargets, setAvailableRoleTargets] = React.useState<SidebarRoleTarget[]>([])
-  const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
-  const [canApplyToRoles, setCanApplyToRoles] = React.useState(false)
-  const originalNavRef = React.useRef<SidebarGroup[] | null>(null)
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
-  const effectiveCollapsed = customizing ? false : collapsed
-  const expandedSidebarWidth = customizing ? '320px' : '240px'
+  const [navQuery, setNavQuery] = React.useState('')
+  const navQueryNorm = navQuery.trim().toLowerCase()
+  const navQueryActive = navQueryNorm.length > 0
+  const matchesQuery = React.useCallback((label: string | undefined) => {
+    if (!navQueryActive) return true
+    if (!label) return false
+    return label.toLowerCase().includes(navQueryNorm)
+  }, [navQueryActive, navQueryNorm])
+  const effectiveCollapsed = collapsed
+  const expandedSidebarWidth = '240px'
+
+  // Track scroll position of the desktop sidebar's inner scroll container so we can
+  // flip the affordance chevron between down/up (and hide it entirely when content
+  // fits without scrolling). The inner div is rendered deep in renderSidebar /
+  // renderSectionSidebar — we tag it with `data-sidebar-scroll="true"` and look it
+  // up via the aside ref so we don't have to thread refs through the JSX tree.
+  const sidebarAsideRef = React.useRef<HTMLElement>(null)
+  const [sidebarScrollState, setSidebarScrollState] = React.useState<'down' | 'up' | 'none'>('down')
+  const sidebarScrollIntentRef = React.useRef<'top' | 'bottom' | null>(null)
+
+  // Click-to-scroll handler for the sidebar affordance chevron (#1803). Resolves the
+  // scroll target lazily through the aside ref so we don't have to thread refs into
+  // renderSidebar; respects `prefers-reduced-motion` by falling back to instant
+  // scrolling when the user has opted out of smooth motion.
+  const handleSidebarChevronScroll = React.useCallback((target: 'top' | 'bottom') => {
+    const aside = sidebarAsideRef.current
+    if (!aside) return
+    const scrollTarget = aside.querySelector<HTMLElement>('[data-sidebar-scroll="true"]')
+    if (!scrollTarget) return
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth'
+    const maxScrollTop = Math.max(0, scrollTarget.scrollHeight - scrollTarget.clientHeight)
+    if (maxScrollTop <= 1) {
+      sidebarScrollIntentRef.current = null
+      setSidebarScrollState('none')
+      return
+    }
+    sidebarScrollIntentRef.current = target
+    setSidebarScrollState(target === 'bottom' ? 'up' : 'down')
+    scrollTarget.scrollTo({
+      top: target === 'top' ? 0 : maxScrollTop,
+      behavior,
+    })
+  }, [])
+  React.useEffect(() => {
+    const aside = sidebarAsideRef.current
+    if (!aside) return
+    const target = aside.querySelector<HTMLElement>('[data-sidebar-scroll="true"]')
+    if (!target) return
+    const update = () => {
+      const { scrollTop, scrollHeight, clientHeight } = target
+      const canScroll = scrollHeight > clientHeight + 1
+      if (!canScroll) {
+        sidebarScrollIntentRef.current = null
+        setSidebarScrollState('none')
+        return
+      }
+      const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+      const atTop = scrollTop <= 8
+      const atBottom = scrollTop >= maxScrollTop - 8
+      const scrollIntent = sidebarScrollIntentRef.current
+      if (scrollIntent === 'bottom') {
+        if (atBottom) sidebarScrollIntentRef.current = null
+        setSidebarScrollState('up')
+        return
+      }
+      if (scrollIntent === 'top') {
+        if (atTop) sidebarScrollIntentRef.current = null
+        setSidebarScrollState('down')
+        return
+      }
+      setSidebarScrollState(atBottom ? 'up' : 'down')
+    }
+    update()
+    target.addEventListener('scroll', update, { passive: true })
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    ro?.observe(target)
+    return () => {
+      target.removeEventListener('scroll', update)
+      ro?.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, effectiveCollapsed])
   const injectionContext = React.useMemo(
     () => ({
       path: pathname ?? '',
@@ -500,264 +583,41 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
-  const updateDraft = React.useCallback((updater: (draft: SidebarCustomizationDraft) => SidebarCustomizationDraft) => {
-    setCustomDraft((prev) => {
-      if (!prev) return prev
-      const next = updater(prev)
-      if (originalNavRef.current) {
-        setNavGroups(applyCustomizationDraft(originalNavRef.current, next))
-      }
-      return next
-    })
-  }, [])
-
-  const startCustomization = React.useCallback(async () => {
-    if (customizing || loadingPreferences) return
-    setCustomizationError(null)
-    setLoadingPreferences(true)
-   try {
-     const baseSnapshot = filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
-     const call = await apiCall<{
-       settings?: Record<string, unknown>
-       canApplyToRoles?: boolean
-       roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>
-     }>('/api/auth/sidebar/preferences')
-      const data = call.ok ? (call.result ?? null) : null
-      const rawSettings = data?.settings
-      const responseOrder = Array.isArray(rawSettings?.groupOrder)
-        ? rawSettings.groupOrder
-            .map((id: unknown) => (typeof id === 'string' ? id.trim() : ''))
-            .filter((id: string) => id.length > 0)
-        : []
-      const responseGroupLabels: Record<string, string> = {}
-      if (rawSettings?.groupLabels && typeof rawSettings.groupLabels === 'object') {
-        for (const [key, value] of Object.entries(rawSettings.groupLabels as Record<string, unknown>)) {
-          if (typeof value !== 'string') continue
-          const trimmedKey = key.trim()
-          if (!trimmedKey) continue
-          responseGroupLabels[trimmedKey] = value
-        }
-      }
-      const responseItemLabels: Record<string, string> = {}
-      if (rawSettings?.itemLabels && typeof rawSettings.itemLabels === 'object') {
-        for (const [key, value] of Object.entries(rawSettings.itemLabels as Record<string, unknown>)) {
-          if (typeof value !== 'string') continue
-          const trimmedKey = key.trim()
-          if (!trimmedKey) continue
-          responseItemLabels[trimmedKey] = value
-        }
-      }
-      const responseHiddenItems = Array.isArray(rawSettings?.hiddenItems)
-        ? rawSettings.hiddenItems
-            .map((itemId: unknown) => (typeof itemId === 'string' ? itemId.trim() : ''))
-            .filter((itemId: string) => itemId.length > 0)
-        : []
-      const canManageRoles = data?.canApplyToRoles === true
-      setCanApplyToRoles(canManageRoles)
-      if (canManageRoles) {
-        const roles = Array.isArray(data?.roles)
-          ? (data.roles as Array<{ id?: string; name?: string; hasPreference?: boolean }>).filter((role) => typeof role?.id === 'string' && typeof role?.name === 'string')
-          : []
-        const mappedRoles: SidebarRoleTarget[] = roles.map((role) => ({
-          id: role.id as string,
-          name: role.name as string,
-          hasPreference: role.hasPreference === true,
-        }))
-        setAvailableRoleTargets(mappedRoles)
-        setSelectedRoleIds(mappedRoles.filter((role) => role.hasPreference).map((role) => role.id))
-      } else {
-        setAvailableRoleTargets([])
-        setSelectedRoleIds([])
-      }
-      const currentIds = baseSnapshot.map((group) => resolveGroupKey(group))
-      const order = mergeGroupOrder(responseOrder, currentIds)
-      const { itemDefaults } = collectSidebarDefaults(baseSnapshot)
-      const hiddenItemIds: Record<string, boolean> = {}
-      for (const itemId of responseHiddenItems) {
-        if (!itemDefaults.has(itemId)) continue
-        hiddenItemIds[itemId] = true
-      }
-      const draft: SidebarCustomizationDraft = {
-        order,
-        groupLabels: { ...responseGroupLabels },
-        itemLabels: { ...responseItemLabels },
-        hiddenItemIds,
-      }
-      originalNavRef.current = baseSnapshot
-      setCustomDraft(draft)
-      setNavGroups(applyCustomizationDraft(baseSnapshot, draft))
-      setCustomizing(true)
-    } catch (error) {
-      console.error('Failed to load sidebar preferences', error)
-      setCustomizationError(t('appShell.sidebarCustomizationLoadError'))
-    } finally {
-      setLoadingPreferences(false)
-    }
-  }, [customizing, loadingPreferences, navGroups, t])
-
-  const cancelCustomization = React.useCallback(() => {
-    setCustomizing(false)
-    setCustomDraft(null)
-    setCustomizationError(null)
-    setAvailableRoleTargets([])
-    setSelectedRoleIds([])
-    setCanApplyToRoles(false)
-    if (originalNavRef.current) {
-      setNavGroups(AppShell.cloneGroups(originalNavRef.current))
-    }
-    originalNavRef.current = null
-  }, [])
-
-  const resetCustomization = React.useCallback(() => {
-    if (!originalNavRef.current) return
-    const base = AppShell.cloneGroups(originalNavRef.current)
-    const order = base.map((group) => resolveGroupKey(group))
-    const draft: SidebarCustomizationDraft = { order, groupLabels: {}, itemLabels: {}, hiddenItemIds: {} }
-    originalNavRef.current = base
-    setCustomDraft(draft)
-    setNavGroups(applyCustomizationDraft(base, draft))
-    if (canApplyToRoles) {
-      setSelectedRoleIds(availableRoleTargets.filter((role) => role.hasPreference).map((role) => role.id))
-    }
-  }, [availableRoleTargets, canApplyToRoles])
-
-  const saveCustomization = React.useCallback(async () => {
-    if (!customDraft) return
-    setSavingPreferences(true)
-    setCustomizationError(null)
-    try {
-      const baseGroups = originalNavRef.current ?? filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
-      const { groupDefaults, itemDefaults } = collectSidebarDefaults(baseGroups)
-      const sanitizedGroupLabels: Record<string, string> = {}
-      for (const [key, value] of Object.entries(customDraft.groupLabels)) {
-        const trimmed = value.trim()
-        const base = groupDefaults.get(key)
-        if (!trimmed || !base) continue
-        if (trimmed !== base) sanitizedGroupLabels[key] = trimmed
-      }
-      const sanitizedItemLabels: Record<string, string> = {}
-      for (const [itemId, value] of Object.entries(customDraft.itemLabels)) {
-        const trimmed = value.trim()
-        const base = itemDefaults.get(itemId)
-        if (!trimmed || !base) continue
-        if (trimmed !== base) sanitizedItemLabels[itemId] = trimmed
-      }
-      const sanitizedHiddenItems: string[] = []
-      for (const [itemId, hidden] of Object.entries(customDraft.hiddenItemIds)) {
-        if (!hidden) continue
-        if (!itemDefaults.has(itemId)) continue
-        sanitizedHiddenItems.push(itemId)
-      }
-      const applyToRolesPayload = canApplyToRoles ? [...selectedRoleIds] : []
-      const clearRoleIdsPayload = canApplyToRoles
-        ? availableRoleTargets
-            .filter((role) => role.hasPreference && !selectedRoleIds.includes(role.id))
-            .map((role) => role.id)
-        : []
-      const payload: Record<string, unknown> = {
-        groupOrder: customDraft.order,
-        groupLabels: sanitizedGroupLabels,
-        itemLabels: sanitizedItemLabels,
-        hiddenItems: sanitizedHiddenItems,
-      }
-      if (canApplyToRoles) {
-        payload.applyToRoles = applyToRolesPayload
-        payload.clearRoleIds = clearRoleIdsPayload
-      }
-      const call = await apiCall<{
-        canApplyToRoles?: boolean
-        roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>
-      }>('/api/auth/sidebar/preferences', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!call.ok) {
-        setCustomizationError(t('appShell.sidebarCustomizationSaveError'))
-        return
-      }
-      const data = call.result ?? null
-      if (data?.canApplyToRoles !== undefined) {
-        setCanApplyToRoles(data.canApplyToRoles === true)
-      }
-      if (Array.isArray(data?.roles)) {
-        const mappedRoles: SidebarRoleTarget[] = (data.roles as Array<{ id?: string; name?: string; hasPreference?: boolean }>).filter((role) => typeof role?.id === 'string' && typeof role?.name === 'string').map((role) => ({
-          id: role.id as string,
-          name: role.name as string,
-          hasPreference: role.hasPreference === true,
-        }))
-        setAvailableRoleTargets(mappedRoles)
-        setSelectedRoleIds(mappedRoles.filter((role) => role.hasPreference).map((role) => role.id))
-      }
-      originalNavRef.current = applyCustomizationDraft(baseGroups, customDraft)
-      setNavGroups(AppShell.cloneGroups(originalNavRef.current))
-      setCustomizing(false)
-      setCustomDraft(null)
-      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
-    } catch (error) {
-      console.error('Failed to save sidebar preferences', error)
-      setCustomizationError(t('appShell.sidebarCustomizationSaveError'))
-    } finally {
-      setSavingPreferences(false)
-    }
-  }, [customDraft, navGroups, t])
-
-  const moveGroup = React.useCallback((groupId: string, offset: number) => {
-    updateDraft((draft) => {
-      const order = [...draft.order]
-      const index = order.indexOf(groupId)
-      if (index === -1) return draft
-      const nextIndex = Math.max(0, Math.min(order.length - 1, index + offset))
-      if (nextIndex === index) return draft
-      order.splice(index, 1)
-      order.splice(nextIndex, 0, groupId)
-      return { ...draft, order }
-    })
-  }, [updateDraft])
-
-  const setGroupLabel = React.useCallback((groupId: string, value: string) => {
-    updateDraft((draft) => {
-      const next = { ...draft.groupLabels }
-      if (value.trim().length === 0) delete next[groupId]
-      else next[groupId] = value
-      return { ...draft, groupLabels: next }
-    })
-  }, [updateDraft])
-
-  const setItemLabel = React.useCallback((itemId: string, value: string) => {
-    updateDraft((draft) => {
-      const next = { ...draft.itemLabels }
-      if (value.trim().length === 0) delete next[itemId]
-      else next[itemId] = value
-      return { ...draft, itemLabels: next }
-    })
-  }, [updateDraft])
-  const setItemHidden = React.useCallback((itemId: string, hidden: boolean) => {
-    updateDraft((draft) => {
-      const next = { ...draft.hiddenItemIds }
-      if (hidden) next[itemId] = true
-      else delete next[itemId]
-      return { ...draft, hiddenItemIds: next }
-    })
-  }, [updateDraft])
-
-  const toggleRoleSelection = React.useCallback((roleId: string) => {
-    setSelectedRoleIds((prev) => (prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]))
-  }, [])
-
-  const asideWidth = effectiveCollapsed ? '72px' : expandedSidebarWidth
+  const asideWidth = effectiveCollapsed ? '80px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh`;
+  const asideClassesBase = `border-r bg-background py-4`;
 
-  // Persist collapse state to localStorage and cookie
+  // Persist collapse state to localStorage and cookie. Both writes can throw in
+  // private/incognito mode (storage blocked) or when cookies are disabled —
+  // the persisted preference is purely a UX nice-to-have, never functional, so
+  // swallow the failure and let the component fall back to the default state.
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch {}
+    try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch { /* localStorage blocked (private mode) — non-critical */ }
     try {
       document.cookie = `om_sidebar_collapsed=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
-    } catch {}
+    } catch { /* cookies disabled — non-critical */ }
   }, [collapsed])
+
+  // Two-level sidebar (Option B): when entering settings/profile mode, force the
+  // main sidebar to collapsed (icons only) so the section sub-nav can sit beside
+  // it; restore the user's previous expansion when returning to the main mode.
+  // Initial ref is 'main' so direct mounts on /backend/settings also auto-collapse.
+  const collapsedBeforeSectionRef = React.useRef<boolean | null>(null)
+  const previousSidebarModeRef = React.useRef<'main' | 'settings' | 'profile'>('main')
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch {}
+    const previous = previousSidebarModeRef.current
+    if (previous === 'main' && sidebarMode !== 'main') {
+      collapsedBeforeSectionRef.current = collapsed
+      if (!collapsed) setCollapsed(true)
+    } else if (previous !== 'main' && sidebarMode === 'main' && collapsedBeforeSectionRef.current !== null) {
+      const restoreTo = collapsedBeforeSectionRef.current
+      collapsedBeforeSectionRef.current = null
+      if (collapsed !== restoreTo) setCollapsed(restoreTo)
+    }
+    previousSidebarModeRef.current = sidebarMode
+  }, [sidebarMode, collapsed])
+  React.useEffect(() => {
+    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
   }, [openGroups])
 
   // Ensure current route's group is expanded on load
@@ -786,45 +646,68 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
-    if (customizing && customDraft && originalNavRef.current) {
-      originalNavRef.current = filterMainSidebarGroups(AppShell.cloneGroups(resolvedGroups))
-      setNavGroups(applyCustomizationDraft(originalNavRef.current, customDraft))
-      return
-    }
-    setNavGroups(AppShell.cloneGroups(resolvedGroups))
-  }, [resolvedGroups, customizing, customDraft])
+    setNavGroups(cloneSidebarGroups(resolvedGroups))
+  }, [resolvedGroups])
 
   function renderSectionSidebar(
     sections: SectionNavGroup[],
     title: string,
     compact: boolean,
-    hideHeader?: boolean
+    hideHeader?: boolean,
+    hideSearch?: boolean
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
 
     return (
-      <div className="flex flex-col min-h-full gap-3">
+      <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+          <div className="mb-2">
+            <Link
+              href="/backend"
+              className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
+              aria-label={t('appShell.goToDashboard')}
+            >
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
+              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
             </Link>
           </div>
         )}
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
-          <Link
-            href="/backend"
-            className={`flex items-center gap-2 ${compact ? 'justify-center px-2' : 'px-2'} py-1 text-sm text-muted-foreground hover:text-foreground transition-colors`}
-            aria-label={t('backend.nav.backToMain', 'Back')}
-          >
-            <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
-            {!compact && <span>{title}</span>}
-          </Link>
+        {!compact && !hideSearch && (
+          <Input
+            type="text"
+            value={navQuery}
+            onChange={(e) => setNavQuery(e.target.value)}
+            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+            aria-label={t('appShell.searchNavAria', 'Search navigation')}
+            leftIcon={<Search aria-hidden />}
+            rightIcon={navQueryActive ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setNavQuery('')}
+                aria-label={t('appShell.searchNavClear', 'Clear search')}
+              >
+                <X className="size-3.5" aria-hidden />
+              </IconButton>
+            ) : undefined}
+            className="mb-2"
+          />
+        )}
+        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
-            const visibleItems = section.items
+            const sectionNavQueryActive = hideSearch ? false : navQueryActive
+            const matchesItemQuery = (item: typeof section.items[number]): boolean => {
+              if (!sectionNavQueryActive) return true
+              const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+              if (matchesQuery(label)) return true
+              return Array.isArray(item.children) && item.children.some(matchesItemQuery)
+            }
+            const visibleItems = sectionNavQueryActive
+              ? section.items.filter(matchesItemQuery)
+              : section.items
             if (visibleItems.length === 0) return null
             const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
             const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
@@ -832,10 +715,15 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             const open = openGroups[sectionKey] !== false
             const sortSectionItems = (items: typeof section.items = []) =>
               [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            const filterChildren = (children: typeof section.items | undefined) => {
+              if (!children) return [] as typeof section.items
+              if (!sectionNavQueryActive) return [...children]
+              return children.filter(matchesItemQuery)
+            }
 
             const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
               const label = item.labelKey ? t(item.labelKey, item.label) : item.label
-              const childItems = sortSectionItems(item.children)
+              const childItems = sortSectionItems(filterChildren(item.children))
               const isOnItemBranch = !!pathname && (
                 pathname === item.href ||
                 pathname.startsWith(`${item.href}/`)
@@ -844,13 +732,13 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                 pathname === child.href ||
                 pathname.startsWith(`${child.href}/`)
               )))
-              const showChildren = childItems.length > 0 && isOnItemBranch
+              const showChildren = childItems.length > 0 && (isOnItemBranch || sectionNavQueryActive)
               const isActive = isOnItemBranch || hasActiveChild
-              const base = compact ? 'w-10 h-10 justify-center' : 'py-1 gap-2'
+              const base = compact ? 'w-10 h-10 justify-center' : 'w-full py-2 gap-2'
               const spacingStyle = !compact
                 ? {
-                    paddingLeft: `${8 + depth * 16}px`,
-                    paddingRight: '8px',
+                    paddingLeft: `${12 + depth * 16}px`,
+                    paddingRight: '12px',
                   }
                 : undefined
 
@@ -858,10 +746,10 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                 <React.Fragment key={item.id}>
                   <Link
                     href={item.href}
-                    className={`relative text-sm rounded inline-flex items-center ${base} ${
+                    className={`relative text-sm font-medium rounded-lg inline-flex items-center ${base} ${
                       isActive
-                        ? 'bg-background border shadow-sm'
-                        : 'hover:bg-accent hover:text-accent-foreground'
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:bg-muted'
                     }`}
                     style={spacingStyle}
                     title={compact ? label : undefined}
@@ -869,9 +757,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                     onClick={() => setMobileOpen(false)}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                      <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
                     )}
-                    <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                    <span className="flex items-center justify-center shrink-0">
                       {renderIcon(
                         item.icon,
                         item.iconName,
@@ -888,21 +776,23 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
             return (
               <div key={section.id}>
-                <Button
-                  variant="muted"
-                  onClick={() => toggleGroup(sectionKey)}
-                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
-                  aria-expanded={open}
-                >
-                  {!compact && <span>{sectionLabel}</span>}
-                  {!compact && <Chevron open={open} />}
-                </Button>
-                {open && (
-                  <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                {!compact && (
+                  <Button
+                    variant="muted"
+                    onClick={() => toggleGroup(sectionKey)}
+                    className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                    aria-expanded={open}
+                  >
+                    <span>{sectionLabel}</span>
+                    <Chevron open={open} />
+                  </Button>
+                )}
+                {(open || compact) && (
+                  <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
                     {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
-                {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
+                {sectionIndex !== lastVisibleIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
               </div>
             )
           })}
@@ -912,32 +802,36 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
     )
   }
 
-  function renderSidebar(compact: boolean, hideHeader?: boolean) {
+  function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
     if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
           {!hideHeader ? (
-            <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-              <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-                {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+            <div className="mb-2">
+              <Link
+                href="/backend"
+                className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
+                aria-label={t('appShell.goToDashboard')}
+              >
+                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
+                {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
               </Link>
             </div>
           ) : null}
           <div className="flex flex-1 flex-col gap-3 pr-1">
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
                 <div className="h-8 rounded bg-muted/50" />
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
             <div className="space-y-3">
-              <div className="h-8 rounded bg-muted/60" />
+              <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
-                <div className="h-8 rounded bg-muted/40" />
-                <div className="h-8 rounded bg-muted/40" />
+                <div className="h-8 rounded bg-muted/50" />
+                <div className="h-8 rounded bg-muted/50" />
               </div>
             </div>
           </div>
@@ -945,7 +839,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       )
     }
 
-    if (sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
+    if (!forceMainOnly && sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
       const mergedSettingsSections = mergeSectionGroupsWithInjected(
         resolvedSettingsSections,
         settingsSidebarInjectedMenuItems,
@@ -959,7 +853,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       )
     }
 
-    if (sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
+    if (!forceMainOnly && sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
       const mergedProfileSections = mergeSectionGroupsWithInjected(
         resolvedProfileSections,
         profileSidebarInjectedMenuItems,
@@ -975,201 +869,18 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
     const isMobileVariant = !!hideHeader
     const shouldRenderSidebarInjectionSpots = !isMobileVariant
-    const baseGroupsForDefaults = originalNavRef.current ?? mainNavGroupsWithInjected
-    const baseGroupMap = new Map<string, SidebarGroup>()
-    for (const group of baseGroupsForDefaults) {
-      baseGroupMap.set(resolveGroupKey(group), group)
-    }
-    const localeLabel = (locale || '').toUpperCase()
-
-    const orderedGroupIds = customDraft
-      ? mergeGroupOrder(customDraft.order, Array.from(baseGroupMap.keys()))
-      : mainNavGroupsWithInjected.map((group) => resolveGroupKey(group))
-
-    const lastVisibleGroupIndex = (() => {
-      for (let idx = navGroups.length - 1; idx >= 0; idx -= 1) {
-        if (navGroups[idx].items.some((item) => item.hidden !== true)) return idx
-      }
-      return -1
-    })()
-
-    const renderEditableItems = (baseItems: SidebarItem[], currentItems: SidebarItem[], depth = 0): React.ReactNode => {
-      if (!customDraft) return null
-      return baseItems.map((baseItem) => {
-        const itemKey = resolveItemKey(baseItem)
-        const current = currentItems.find((item) => item.href === baseItem.href) ?? baseItem
-        const placeholder = baseItem.defaultTitle ?? baseItem.title
-        const value = customDraft.itemLabels[itemKey] ?? ''
-        const hidden = customDraft.hiddenItemIds[itemKey] === true
-        return (
-          <div
-            key={itemKey}
-            className={`flex flex-col gap-1 ${hidden ? 'opacity-60' : ''}`}
-            style={depth ? { marginLeft: depth * 16 } : undefined}
-          >
-            <span className="text-xs font-medium text-muted-foreground">{placeholder}</span>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-foreground"
-                checked={!hidden}
-                onChange={(event) => setItemHidden(itemKey, !event.target.checked)}
-                disabled={savingPreferences}
-                aria-label={t('appShell.sidebarCustomizationShowItem')}
-                title={t('appShell.sidebarCustomizationShowItem')}
-              />
-              <input
-                value={value}
-                onChange={(event) => setItemLabel(itemKey, event.target.value)}
-                placeholder={placeholder}
-                disabled={savingPreferences}
-                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-              />
-            </div>
-            {baseItem.children && baseItem.children.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                {renderEditableItems(baseItem.children, current.children ?? [], depth + 1)}
-              </div>
-            ) : null}
-          </div>
-        )
-      })
-    }
-
-    const customizationEditor = customizing ? (
-      customDraft ? (
-        <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm font-semibold">{t('appShell.sidebarCustomizationHeading')}</div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={resetCustomization}
-                disabled={savingPreferences}
-              >
-                {t('appShell.sidebarCustomizationReset')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={cancelCustomization}
-                disabled={savingPreferences}
-              >
-                {t('appShell.sidebarCustomizationCancel')}
-              </Button>
-              <Button
-                size="sm"
-                className="bg-foreground text-background hover:bg-foreground/90"
-                onClick={saveCustomization}
-                disabled={savingPreferences}
-              >
-                {savingPreferences ? t('appShell.sidebarCustomizationSaving') : t('appShell.sidebarCustomizationSave')}
-              </Button>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
-          {canApplyToRoles ? (
-            <div className="flex flex-col gap-2 rounded border bg-background/70 p-3 shadow-sm">
-              <div>
-                <div className="text-sm font-semibold">{t('appShell.sidebarApplyToRolesTitle')}</div>
-                <p className="text-xs text-muted-foreground">{t('appShell.sidebarApplyToRolesDescription')}</p>
-              </div>
-              {availableRoleTargets.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  {availableRoleTargets.map((role) => {
-                    const checked = selectedRoleIds.includes(role.id)
-                    const willClear = role.hasPreference && !checked
-                    return (
-                      <label key={role.id} className="flex items-center gap-2 rounded border bg-background px-2 py-1 text-sm shadow-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-foreground"
-                          checked={checked}
-                          onChange={() => toggleRoleSelection(role.id)}
-                          disabled={savingPreferences}
-                        />
-                        <span className="flex-1 truncate">{role.name}</span>
-                        {role.hasPreference ? (
-                          <span className={`text-xs ${willClear ? 'text-destructive' : 'text-muted-foreground'}`}>
-                            {willClear ? t('appShell.sidebarRoleWillClear') : t('appShell.sidebarRoleHasPreset')}
-                          </span>
-                        ) : null}
-                      </label>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t('appShell.sidebarApplyToRolesEmpty')}</p>
-              )}
-            </div>
-          ) : null}
-          {customizationError ? <p className="text-xs text-destructive">{customizationError}</p> : null}
-          <div className="flex flex-col gap-3">
-            {orderedGroupIds.map((groupId, index) => {
-              const baseGroup = baseGroupMap.get(groupId)
-              if (!baseGroup) return null
-              const currentGroup = navGroups.find((group) => resolveGroupKey(group) === groupId) ?? baseGroup
-              const placeholder = baseGroup.defaultName ?? baseGroup.name
-              const value = customDraft.groupLabels[groupId] ?? ''
-              return (
-                <div key={groupId} className="flex flex-col gap-3 rounded border bg-background p-3 shadow-sm">
-                  <div className={`flex ${compact ? 'flex-col gap-2' : 'items-center gap-2'}`}>
-                    <div className="flex-1">
-                      <span className="text-xs font-medium text-muted-foreground">{t('appShell.sidebarCustomizationGroupLabel')}</span>
-                      <input
-                        value={value}
-                        onChange={(event) => setGroupLabel(groupId, event.target.value)}
-                        placeholder={placeholder}
-                        disabled={savingPreferences}
-                        className="mt-1 h-8 w-full rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1 self-start">
-                      <IconButton
-                        variant="outline"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => moveGroup(groupId, -1)}
-                        disabled={index === 0 || savingPreferences}
-                        aria-label={t('appShell.sidebarCustomizationMoveUp')}
-                      >
-                        <ChevronUp className="size-4" />
-                      </IconButton>
-                      <IconButton
-                        variant="outline"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => moveGroup(groupId, 1)}
-                        disabled={index === orderedGroupIds.length - 1 || savingPreferences}
-                        aria-label={t('appShell.sidebarCustomizationMoveDown')}
-                      >
-                        <ChevronDown className="size-4" />
-                      </IconButton>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {renderEditableItems(baseGroup.items, currentGroup.items)}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : (
-        <div className="rounded border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
-          {t('appShell.sidebarCustomizationLoading')}
-        </div>
-      )
-    ) : null
 
     return (
-      <div className="flex flex-col min-h-full gap-3">
+      <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+          <div className="mb-2">
+            <Link
+              href="/backend"
+              className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
+              aria-label={t('appShell.goToDashboard')}
+            >
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
+              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
             </Link>
           </div>
         )}
@@ -1179,11 +890,30 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             context={injectionContext}
           />
         ) : null}
-        <div className="flex flex-1 flex-col gap-3 pr-1">
-          {customizing ? (
-            customizationEditor
-          ) : (
-            (() => {
+        {!compact && (
+          <Input
+            type="text"
+            value={navQuery}
+            onChange={(e) => setNavQuery(e.target.value)}
+            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+            aria-label={t('appShell.searchNavAria', 'Search navigation')}
+            leftIcon={<Search aria-hidden />}
+            rightIcon={navQueryActive ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setNavQuery('')}
+                aria-label={t('appShell.searchNavClear', 'Clear search')}
+              >
+                <X className="size-3.5" aria-hidden />
+              </IconButton>
+            ) : undefined}
+            className="mb-2"
+          />
+        )}
+        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+          {(() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
                 return resolvedSettingsPathPrefixes.some((prefix) => href.startsWith(prefix))
@@ -1218,34 +948,48 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                     ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
-                      const open = openGroups[groupId] !== false
-                      const visibleItems = g.items.filter((item) => item.hidden !== true)
+                      const open = navQueryActive ? true : openGroups[groupId] !== false
+                      const visibleItems = g.items.filter((item) => {
+                        if (item.hidden === true) return false
+                        if (!navQueryActive) return true
+                        if (matchesQuery(item.title)) return true
+                        const itemChildren = (item.children ?? []).filter((c) => c.hidden !== true)
+                        return itemChildren.some((c) => matchesQuery(c.title))
+                      })
                       if (visibleItems.length === 0) return null
                       return (
                         <div key={groupId}>
-                          <Button
-                            variant="muted"
-                            onClick={() => toggleGroup(groupId)}
-                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
-                            aria-expanded={open}
-                          >
-                            {!compact && <span>{g.name}</span>}
-                            {!compact && <Chevron open={open} />}
-                          </Button>
-                          {open && (
-                            <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                          {!compact && (
+                            <Button
+                              variant="muted"
+                              onClick={() => toggleGroup(groupId)}
+                              className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                              aria-expanded={open}
+                            >
+                              <span>{g.name}</span>
+                              <Chevron open={open} />
+                            </Button>
+                          )}
+                          {(open || compact) && (
+                            <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
                               {visibleItems.map((i) => {
-                                const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
-                                const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
-                                const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
-                                const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
-                                const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                                const allChildItems = (i.children ?? []).filter((child) => child.hidden !== true)
+                                const matchingChildItems = navQueryActive
+                                  ? allChildItems.filter((c) => matchesQuery(c.title))
+                                  : allChildItems
+                                const childItems = navQueryActive ? matchingChildItems : allChildItems
+                                const showChildren = navQueryActive
+                                  ? matchingChildItems.length > 0
+                                  : (!!pathname && allChildItems.length > 0 && pathname.startsWith(i.href))
+                                const hasActiveChild = !!(pathname && allChildItems.some((c) => pathname.startsWith(c.href)))
+                                const isParentActive = (pathname === i.href) || (!navQueryActive && showChildren && !hasActiveChild)
+                                const base = compact ? 'w-10 h-10 justify-center' : 'w-full px-3 py-2 gap-2'
                                 return (
                                   <React.Fragment key={i.href}>
                                     <Link
                                       href={i.href}
-                                      className={`relative text-sm rounded inline-flex items-center ${base} ${
-                                        isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                      className={`relative text-sm font-medium rounded-lg inline-flex items-center ${base} ${
+                                        isParentActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
                                       title={compact ? i.title : undefined}
@@ -1253,9 +997,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                       onClick={() => setMobileOpen(false)}
                                     >
                                       {isParentActive ? (
-                                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                        <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
                                       ) : null}
-                                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                      <span className="flex items-center justify-center shrink-0">
                                         {renderIcon(
                                           i.icon,
                                           i.iconName,
@@ -1266,16 +1010,19 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                       {!compact && <span>{i.title}</span>}
                                     </Link>
                                     {showChildren ? (
-                                      <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
+                                      <div className={`relative flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
+                                        {!compact && (
+                                          <span aria-hidden className="pointer-events-none absolute left-1.5 top-1 bottom-1 w-px bg-border" />
+                                        )}
                                         {childItems.map((c) => {
                                           const childActive = pathname?.startsWith(c.href)
-                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'w-full pl-5 pr-3 py-2 gap-2'
                                           return (
                                             <Link
                                               key={c.href}
                                               href={c.href}
-                                              className={`relative text-sm rounded inline-flex items-center ${childBase} ${
-                                                childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                              className={`relative text-sm font-medium rounded-lg inline-flex items-center ${childBase} ${
+                                                childActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
                                               } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                               aria-disabled={c.enabled === false}
                                               title={compact ? c.title : undefined}
@@ -1283,9 +1030,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                                               onClick={() => setMobileOpen(false)}
                                             >
                                               {childActive ? (
-                                                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                                <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
                                               ) : null}
-                                              <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                              <span className="flex items-center justify-center shrink-0">
                                                 {renderIcon(
                                                   c.icon,
                                                   c.iconName,
@@ -1304,78 +1051,28 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
                               })}
                             </div>
                           )}
-                          {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                          {gi !== mainLastVisibleGroupIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
                         </div>
                       )
                     })}
                   </nav>
                 </>
               )
-            })()
-          )}
+            })()}
         </div>
-        <div className="sticky bottom-0 pt-4 border-t bg-background/60 backdrop-blur-sm pb-1">
+        <div className="sticky bottom-0 bg-background pb-1">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
               context={injectionContext}
             />
           ) : null}
-          <Link
-            href="/backend/settings"
-            className={`relative text-sm rounded inline-flex items-center w-full ${
-              compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-            } ${
-              pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
-                ? 'bg-background border shadow-sm font-medium'
-                : 'hover:bg-accent hover:text-accent-foreground'
-            }`}
-            title={compact ? t('backend.nav.settings', 'Settings') : undefined}
-            onClick={() => setMobileOpen(false)}
-          >
-            {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
-              <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-            )}
-            <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </span>
-            {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
-          </Link>
-          {!customizing && (
-            <div className="mt-2">
-            {shouldRenderSidebarInjectionSpots ? (
-              <StatusBadgeInjectionSpot
-                spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
-                context={injectionContext}
-              />
-            ) : null}
-            {compact || isMobileVariant ? (
-              <IconButton
-                variant="outline"
-                size="lg"
-                onClick={startCustomization}
-                disabled={loadingPreferences}
-                aria-label={t('appShell.customizeSidebar')}
-              >
-                {CustomizeIcon}
-              </IconButton>
-            ) : (
-              <Button
-                variant="outline"
-                size="default"
-                onClick={startCustomization}
-                disabled={loadingPreferences}
-                aria-label={t('appShell.customizeSidebar')}
-              >
-                {CustomizeIcon}
-                {loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}
-              </Button>
-            )}
-            </div>
-          )}
+          {shouldRenderSidebarInjectionSpots ? (
+            <StatusBadgeInjectionSpot
+              spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          ) : null}
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
@@ -1387,9 +1084,49 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
     )
   }
 
-  const gridColsClass = customizing
-    ? 'lg:grid-cols-[320px_1fr]'
-    : (effectiveCollapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[240px_1fr]')
+  function renderSectionAside() {
+    let sections: SectionNavGroup[] | null = null
+    let title = ''
+    if (sidebarMode === 'settings' && resolvedSettingsSections && resolvedSettingsSections.length > 0) {
+      sections = mergeSectionGroupsWithInjected(
+        resolvedSettingsSections,
+        settingsSidebarInjectedMenuItems,
+        t,
+      )
+      title = settingsSectionTitle ?? t('backend.nav.settings', 'Settings')
+    } else if (sidebarMode === 'profile' && resolvedProfileSections && resolvedProfileSections.length > 0) {
+      sections = mergeSectionGroupsWithInjected(
+        resolvedProfileSections,
+        profileSidebarInjectedMenuItems,
+        t,
+      )
+      title = profileSectionTitle ?? t('backend.nav.profile', 'Profile')
+    }
+    if (!sections) return null
+    return (
+      <div className="flex h-full flex-col gap-2">
+        <Link
+          href="/backend"
+          className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+          data-testid="appshell-section-back-to-main"
+          aria-label={t('backend.nav.backToMain', 'Back to Main')}
+        >
+          <ChevronLeft className="size-4 shrink-0" aria-hidden />
+          <span className="truncate">{title}</span>
+        </Link>
+        <div className="min-h-0 flex-1">
+          {renderSectionSidebar(sections, title, false, true, true)}
+        </div>
+      </div>
+    )
+  }
+
+  const isSectionView =
+    (sidebarMode === 'settings' && !!resolvedSettingsSections && resolvedSettingsSections.length > 0) ||
+    (sidebarMode === 'profile' && !!resolvedProfileSections && resolvedProfileSections.length > 0)
+  const gridColsClass = isSectionView
+    ? (effectiveCollapsed ? 'lg:grid-cols-[80px_240px_1fr]' : 'lg:grid-cols-[240px_240px_1fr]')
+    : (effectiveCollapsed ? 'lg:grid-cols-[80px_1fr]' : 'lg:grid-cols-[240px_1fr]')
   const headerCtxValue = React.useMemo(() => ({
     setBreadcrumb: setHeaderBreadcrumb,
     setTitle: setHeaderTitle,
@@ -1429,12 +1166,70 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
-    <div className={`min-h-svh lg:grid ${gridColsClass}`}>
-      {/* Desktop sidebar */}
-      <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
+    <div className={`min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}>
+      {/* Desktop main sidebar */}
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
+        {renderSidebar(effectiveCollapsed, false, isSectionView)}
+        {/* Scroll affordance — gradient fade + clickable chevron that flips up when
+            the user reaches the bottom and disappears when nothing is scrollable
+            (#1803). Clicking the chevron scrolls the inner sidebar container to
+            top/bottom (`prefers-reduced-motion: reduce` collapses to instant
+            scrolling). The wrapper is `pointer-events-none` so the gradient fade
+            doesn't block hover/click on the rendered nav items behind it; the
+            IconButton restores `pointer-events-auto` so it stays interactive. */}
+        {sidebarScrollState !== 'none' ? (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex h-10 items-end justify-center bg-gradient-to-t from-background via-background/80 to-transparent pb-1.5"
+          >
+            {/* The IconButton owns hover/focus affordance; the inner span owns the
+                rotate transition so it doesn't fight with the animate-bounce
+                keyframes (both target `transform`). */}
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="sidebar-scroll-chevron"
+              data-sidebar-scroll-chevron={sidebarScrollState}
+              aria-label={
+                sidebarScrollState === 'up'
+                  ? t('ui.sidebar.chevron.scrollTop', 'Scroll to top')
+                  : t('ui.sidebar.chevron.scrollBottom', 'Scroll to bottom')
+              }
+              className="pointer-events-auto text-muted-foreground/70 hover:text-foreground"
+              onClick={() => handleSidebarChevronScroll(sidebarScrollState === 'up' ? 'top' : 'bottom')}
+            >
+              <span
+                className={`inline-flex transition-transform duration-300 ${sidebarScrollState === 'up' ? 'rotate-180' : ''}`}
+              >
+                <ChevronDown className="size-4 animate-bounce" />
+              </span>
+            </IconButton>
+          </div>
+        ) : null}
+      </aside>
+
+      {/* Desktop section sidebar (Option B two-level) — sits beside the main sidebar
+          when the user is on settings/profile routes. Mobile drawer keeps the
+          original swap behavior to fit the narrow width. */}
+      {isSectionView ? (
+        <aside
+          className={`${asideClassesBase} px-3 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
+          style={{ width: '240px' }}
+          data-testid="appshell-section-sidebar"
+        >
+          {renderSectionAside()}
+          {/* Static bottom fade — covers the native iOS scroll indicator and signals
+              that the section list is scrollable. Same look as the main sidebar's
+              affordance but without the chevron / scroll-state machinery. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/80 to-transparent"
+          />
+        </aside>
+      ) : null}
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1452,7 +1247,6 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
               className="hidden lg:inline-flex"
               aria-label={t('appShell.toggleSidebar')}
               onClick={() => setCollapsed((c) => !c)}
-              disabled={customizing}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="16" rx="2"/>
@@ -1505,6 +1299,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
               context={injectionContext}
             />
             {renderedTopbarInjectedActions}
+            <AiAssistantLauncher variant="topbar" />
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -1512,8 +1307,8 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-10" />
-        <main className="flex-1 p-4 lg:p-6">
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
@@ -1528,7 +1323,7 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           {children}
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
@@ -1547,12 +1342,12 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+        <div className="lg:hidden fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setMobileOpen(false)} aria-hidden="true" />
           <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
             <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
+                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
               <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
@@ -1573,132 +1368,4 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
     <UmesDevToolsPanel />
     </HeaderContext.Provider>
   )
-}
-
-// Helper: deep-clone minimal shape we mutate (children arrays)
-AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): AppShellProps['groups'] {
-  const cloneItem = (item: SidebarItem): SidebarItem => ({
-    id: item.id,
-    href: item.href,
-    title: item.title,
-    defaultTitle: item.defaultTitle,
-    icon: item.icon,
-    iconName: item.iconName,
-    iconMarkup: item.iconMarkup,
-    enabled: item.enabled,
-    hidden: item.hidden,
-    pageContext: item.pageContext,
-    children: item.children ? item.children.map((child) => cloneItem(child)) : undefined,
-  })
-  return groups.map((group) => ({
-    id: group.id,
-    name: group.name,
-    defaultName: group.defaultName,
-    items: group.items.map((item) => cloneItem(item)),
-  }))
-}
-
-function applyCustomizationDraft(baseGroups: SidebarGroup[], draft: SidebarCustomizationDraft): SidebarGroup[] {
-  const clones = AppShell.cloneGroups(baseGroups)
-  const byId = new Map<string, SidebarGroup>()
-  for (const group of clones) {
-    byId.set(resolveGroupKey(group), group)
-  }
-  const orderedIds = mergeGroupOrder(draft.order, Array.from(byId.keys()))
-  const seen = new Set<string>()
-  const result: SidebarGroup[] = []
-  for (const id of orderedIds) {
-    if (seen.has(id)) continue
-    const group = byId.get(id)
-    if (!group) continue
-    seen.add(id)
-    const baseName = group.defaultName ?? group.name
-    const override = draft.groupLabels[id]?.trim()
-    result.push({
-      ...group,
-      name: override && override.length > 0 ? override : baseName,
-      items: group.items.map((item) => applyItemDraft(item, draft)),
-    })
-  }
-  return result
-}
-
-function applyItemDraft(item: SidebarItem, draft: SidebarCustomizationDraft): SidebarItem {
-  const itemKey = resolveItemKey(item)
-  const baseTitle = item.defaultTitle ?? item.title
-  const override = draft.itemLabels[itemKey]?.trim()
-  const children = item.children
-    ? item.children
-        .map((child) => applyItemDraft(child, draft))
-    : undefined
-  const hidden = draft.hiddenItemIds[itemKey] === true
-  return {
-    ...item,
-    title: override && override.length > 0 ? override : baseTitle,
-    hidden,
-    children,
-  }
-}
-
-function mergeGroupOrder(preferred: string[], current: string[]): string[] {
-  const seen = new Set<string>()
-  const merged: string[] = []
-  for (const id of preferred) {
-    const trimmed = id.trim()
-    if (!trimmed || seen.has(trimmed) || !current.includes(trimmed)) continue
-    seen.add(trimmed)
-    merged.push(trimmed)
-  }
-  for (const id of current) {
-    if (seen.has(id)) continue
-    seen.add(id)
-    merged.push(id)
-  }
-  return merged
-}
-
-function collectSidebarDefaults(groups: SidebarGroup[]) {
-  const groupDefaults = new Map<string, string>()
-  const itemDefaults = new Map<string, string>()
-
-  const visitItems = (items: SidebarItem[]) => {
-    for (const item of items) {
-      const key = resolveItemKey(item)
-      const baseTitle = item.defaultTitle ?? item.title
-      itemDefaults.set(key, baseTitle)
-      // Backward-compatible alias for legacy stored href-based preferences.
-      itemDefaults.set(item.href, baseTitle)
-      if (item.children && item.children.length > 0) visitItems(item.children)
-    }
-  }
-
-  for (const group of groups) {
-    const key = resolveGroupKey(group)
-    groupDefaults.set(key, group.defaultName ?? group.name)
-    visitItems(group.items)
-  }
-
-  return { groupDefaults, itemDefaults }
-}
-
-/**
- * Filters groups to include only main sidebar items.
- * Excludes items with pageContext 'settings' or 'profile' from customization.
- * Per SPEC-007: Sidebar customization applies only to the main sidebar.
- */
-function filterMainSidebarGroups(groups: SidebarGroup[]): SidebarGroup[] {
-  const isMainItem = (item: SidebarItem): boolean => {
-    if (item.pageContext && item.pageContext !== 'main') return false
-    return true
-  }
-
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(isMainItem).map((item) => ({
-        ...item,
-        children: item.children?.filter(isMainItem),
-      })),
-    }))
-    .filter((group) => group.items.length > 0)
 }

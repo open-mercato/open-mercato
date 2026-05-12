@@ -11,6 +11,13 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -888,7 +895,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         <section className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              <p className="text-overline uppercase tracking-wide text-muted-foreground">
                 {t('integrations.detail.state.label', 'State')}
               </p>
               <Badge variant="outline" className={cn('gap-1.5 rounded-full px-3 py-1 text-xs font-medium', stateBadgeClass)}>
@@ -1154,7 +1161,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     <div className={`grid gap-3 ${healthMessage && healthDetailEntries.length > 0 ? 'xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]' : ''}`}>
                       {healthMessage ? (
                         <div className="rounded-lg border px-4 py-3">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          <p className="text-overline font-medium uppercase tracking-widest text-muted-foreground">
                             {t('integrations.detail.health.lastResult', 'Last result')}
                           </p>
                           <p className="mt-1.5 text-sm">{healthMessage}</p>
@@ -1162,7 +1169,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                       ) : null}
                       {healthDetailEntries.length > 0 ? (
                         <div className="rounded-lg border px-4 py-3">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          <p className="text-overline font-medium uppercase tracking-widest text-muted-foreground">
                             {t('integrations.detail.health.details', 'Details')}
                           </p>
                           <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
@@ -1185,18 +1192,20 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="relative inline-flex">
-                <select
-                  className="h-11 min-w-40 appearance-none rounded-xl border border-border bg-card pl-4 pr-11 text-sm font-medium text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                  value={logLevel}
-                  onChange={(event) => setLogLevel(event.target.value)}
+              <div className="inline-flex">
+                <Select
+                  value={logLevel || undefined}
+                  onValueChange={(value) => setLogLevel(value ?? '')}
                 >
-                  <option value="">{t('integrations.detail.logs.level.all')}</option>
-                  <option value="info">{t('integrations.detail.logs.level.info')}</option>
-                  <option value="warn">{t('integrations.detail.logs.level.warn')}</option>
-                  <option value="error">{t('integrations.detail.logs.level.error')}</option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <SelectTrigger size="lg" className="min-w-40">
+                    <SelectValue placeholder={t('integrations.detail.logs.level.all')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="info">{t('integrations.detail.logs.level.info')}</SelectItem>
+                    <SelectItem value="warn">{t('integrations.detail.logs.level.warn')}</SelectItem>
+                    <SelectItem value="error">{t('integrations.detail.logs.level.error')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             {isLoadingLogs ? (
@@ -1251,7 +1260,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                             </td>
                           </tr>
                           {isExpanded ? (
-                            <tr className="border-b bg-muted/20 last:border-0">
+                            <tr className="border-b bg-muted/30 last:border-0">
                               <td colSpan={3} className="px-4 py-4">
                                 <div className="space-y-4 rounded-lg border bg-card p-4">
                                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
@@ -1267,7 +1276,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                                           <dl className="grid gap-3 sm:grid-cols-2">
                                             {metadataEntries.map(([label, value]) => (
                                               <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
                                                   {label}
                                                 </dt>
                                                 <dd className="mt-1 break-all text-sm">{value}</dd>
@@ -1285,7 +1294,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                                           <dl className="grid gap-3 sm:grid-cols-2">
                                             {inlineEntries.map(([key, value]) => (
                                               <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
                                                   {formatLogDetailLabel(key)}
                                                 </dt>
                                                 <dd className="mt-1 break-words text-sm">

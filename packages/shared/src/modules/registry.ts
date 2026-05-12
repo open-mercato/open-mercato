@@ -249,6 +249,46 @@ function normPath(s: string) {
   return (s.startsWith('/') ? s : '/' + s).replace(/\/+$/, '') || '/'
 }
 
+// 0 = literal (most specific), 1 = dynamic [param], 2 = catch-all [...param] or [[...param]]
+function segmentSpecificity(seg: string): 0 | 1 | 2 {
+  if (seg.startsWith('[[...') || seg.startsWith('[...')) return 2
+  if (seg.startsWith('[')) return 1
+  return 0
+}
+
+function compareRouteSpecificity(aPattern: string, bPattern: string): number {
+  const aSegs = aPattern.split('/')
+  const bSegs = bPattern.split('/')
+  const len = Math.max(aSegs.length, bSegs.length)
+  for (let i = 0; i < len; i++) {
+    const av = i < aSegs.length ? segmentSpecificity(aSegs[i]) : -1
+    const bv = i < bSegs.length ? segmentSpecificity(bSegs[i]) : -1
+    if (av !== bv) return av - bv
+  }
+  return 0
+}
+
+export function sortRoutesBySpecificity<T extends { pattern?: string; path?: string }>(routes: T[]): T[] {
+  return [...routes].sort((a, b) =>
+    compareRouteSpecificity(a.pattern ?? a.path ?? '/', b.pattern ?? b.path ?? '/'),
+  )
+}
+
+// Memoized per-array sorted view, so direct callers (e.g., the Next.js catch-all
+// routes that import generated `frontendRoutes`/`backendRoutes`/`apiRoutes`
+// arrays) match against a specificity-sorted view even if they never call
+// `register*RouteManifests`. Keyed by array reference; generated arrays are
+// module-level constants so this caches once per process.
+const sortedRoutesCache = new WeakMap<object, readonly unknown[]>()
+
+function ensureSortedRoutes<T extends { pattern?: string; path?: string }>(routes: readonly T[]): readonly T[] {
+  const cached = sortedRoutesCache.get(routes) as readonly T[] | undefined
+  if (cached) return cached
+  const sorted = sortRoutesBySpecificity([...routes])
+  sortedRoutesCache.set(routes, sorted)
+  return sorted
+}
+
 export function matchRoutePattern(pattern: string, pathname: string): RouteMatchParams | undefined {
   const p = normPath(pattern)
   const u = normPath(pathname)
@@ -331,7 +371,7 @@ export function findRouteManifestMatch<T extends { pattern?: string; path?: stri
   routes: T[],
   pathname: string
 ): { route: T; params: RouteMatchParams } | undefined {
-  for (const route of routes) {
+  for (const route of ensureSortedRoutes(routes)) {
     const params = matchRoutePattern(route.pattern ?? route.path ?? '/', pathname)
     if (params) {
       return { route, params }
@@ -344,7 +384,7 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
   method: HttpMethod,
   pathname: string
 ): { route: T; params: RouteMatchParams } | undefined {
-  for (const route of routes) {
+  for (const route of ensureSortedRoutes(routes)) {
     if (!route.methods.includes(method)) continue
     const params = matchRoutePattern(route.path, pathname)
     if (params) {
@@ -356,7 +396,7 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
 let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
 
 export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
-  _backendRouteManifests = routes
+  _backendRouteManifests = sortRoutesBySpecificity(routes)
 }
 
 export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
@@ -366,11 +406,21 @@ export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
 let _frontendRouteManifests: FrontendRouteManifestEntry[] | null = null
 
 export function registerFrontendRouteManifests(routes: FrontendRouteManifestEntry[]) {
-  _frontendRouteManifests = routes
+  _frontendRouteManifests = sortRoutesBySpecificity(routes)
 }
 
 export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
   return _frontendRouteManifests ?? []
+}
+
+let _apiRouteManifests: ApiRouteManifestEntry[] | null = null
+
+export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
+  _apiRouteManifests = sortRoutesBySpecificity(routes)
+}
+
+export function getApiRouteManifests(): ApiRouteManifestEntry[] {
+  return _apiRouteManifests ?? []
 }
 
 // CLI modules registry - shared between CLI and module workers

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -13,7 +13,10 @@ import {
   CustomerPersonCompanyLink,
   CustomerPersonProfile,
 } from '../../../../data/entities'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../../../lib/personCompanyLinkTable'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -129,12 +132,14 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       },
       'customers.companies.people.GET',
     )
-    const links = await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      linkWhere,
-      { populate: ['person'] },
-      entityScope,
+    const links = filterActivePersonCompanyLinks(
+      await findWithDecryption(
+        em,
+        CustomerPersonCompanyLink,
+        linkWhere,
+        { populate: ['person'] },
+        entityScope,
+      ),
     )
 
     const personIds = links
@@ -196,7 +201,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       totalPages,
     })
   } catch (error) {
-    if (error instanceof CrudHttpError) {
+    if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
     console.error('[customers.companies.people.GET]', error)

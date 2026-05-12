@@ -31,7 +31,7 @@ export function ProductImageCell({ mediaId, mediaUrl, title, cropType = 'cover' 
   }
 
   return (
-    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted/10">
+    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted/30">
       <img
         src={previewUrl}
         alt={title ?? ''}

@@ -7,6 +7,13 @@ import { Plus, Settings } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -216,8 +223,8 @@ export function AddressEditor<C = unknown>({
 
   const inputClass = (field: AddressEditorField) =>
     [
-      'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-      errors[field] ? 'border-red-500 focus:ring-red-500' : 'border-input bg-background',
+      'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      errors[field] ? 'border-red-500 aria-invalid:ring-destructive' : 'border-input bg-background',
     ].join(' ')
 
   return (
@@ -232,24 +239,31 @@ export function AddressEditor<C = unknown>({
           aria-invalid={errors.name ? 'true' : undefined}
         />
         <div className="flex gap-2">
-          <select
-            className={inputClass('purpose')}
-            value={current.purpose}
-            onChange={(evt) => update('purpose', evt.target.value)}
+          <Select
+            value={current.purpose || undefined}
+            onValueChange={(next) => update('purpose', next ?? '')}
             disabled={disabled}
-            aria-invalid={errors.purpose ? 'true' : undefined}
           >
-            <option value="">
-              {addressTypesLoading
-                ? label('types.loading', 'Loading…')
-                : label('types.placeholder', 'Address type')}
-            </option>
-            {addressTypes.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              className={errors.purpose ? 'border-destructive' : undefined}
+              aria-invalid={errors.purpose ? 'true' : undefined}
+            >
+              <SelectValue
+                placeholder={
+                  addressTypesLoading
+                    ? label('types.loading', 'Loading…')
+                    : label('types.placeholder', 'Address type')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {addressTypes.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {addressTypesAdapter?.create ? (
             <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
               <DialogTrigger asChild>
@@ -430,7 +444,7 @@ export function AddressEditor<C = unknown>({
                 value={countryQuery}
                 onChange={(evt) => setCountryQuery(evt.target.value)}
               />
-              <div className="max-h-64 overflow-auto rounded-md border border-border/60">
+              <div className="max-h-64 overflow-auto rounded-md border border-border/70">
                 <ul className="divide-y divide-border/50">
                   {filteredCountryOptions.map((option) => (
                     <li key={option.code}>

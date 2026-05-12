@@ -95,6 +95,16 @@ Useful standalone splash env vars:
 - `OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev` to hide the GitHub publish panel
 - `OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev` to hide the coding-tools menu
 
+To run several persistent standalone apps against the same PostgreSQL server, pass `--database-name[=<name>]` to `yarn setup` or `yarn dev`:
+
+```bash
+yarn setup --database-name=client_a   # explicit name; offers to update .env (default yes)
+yarn setup --database-name            # derives name from the current directory
+yarn dev --database-name=temp_run --no-update-env  # only injects DATABASE_URL into this run
+```
+
+Set `OM_DEV_DATABASE_NAME` / `OM_DEV_DATABASE_UPDATE_ENV` for non-interactive automation. Without the flag, `yarn setup` and `yarn dev` keep their current behavior — no prompt, no `.env` mutation.
+
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
 ## Test create-mercato-app locally from the monorepo
@@ -311,7 +321,8 @@ The `.env.example` file documents all available variables. Key sections:
 | `JWT_SECRET` | Yes | Secret for signing auth tokens. |
 | `REDIS_URL` | Yes | Redis connection for caching and events. |
 | `MEILISEARCH_HOST` | No | Meilisearch URL for full-text search. |
-| `OPENAI_API_KEY` | No | Required for vector search and AI features. |
+| `OPENAI_API_KEY` | No | Enables OpenAI-backed AI features; pair it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` when you want vector auto-indexing. |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | No | Defaults to `true` in the example env. Set to `false` or remove it to enable automatic vector indexing. |
 | `CACHE_STRATEGY` | No | `memory`, `sqlite`, `redis`, or `jsonfile`. Defaults to `memory`. |
 | `QUEUE_STRATEGY` | No | `local` or `async`. Use `async` with Redis for production. |
 | `APP_URL` | No | Public URL, used in emails and onboarding. |

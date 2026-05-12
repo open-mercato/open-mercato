@@ -1,75 +1,20 @@
-import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { SalesCreditMemo, SalesCreditMemoLine } from '../../data/entities'
-import { E } from '#generated/entities.ids.generated'
-import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
-import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteRequestSchema } from '../openapi'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { SalesCreditMemo } from '../../data/entities'
+import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { wrap } from '@mikro-orm/core'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { z } from 'zod'
+import { withScopedPayload } from '../utils'
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultDeleteRequestSchema,
+} from '../openapi'
+import { attachOrderContext, attachCreditMemoLines } from '../_documentListEnrichers'
+import { E } from '#generated/entities.ids.generated'
 
-function readCreditMemoId(item: Record<string, unknown>): string | null {
-  const id = item.id
-  return typeof id === 'string' && id.length > 0 ? id : null
-}
-
-function toPlainItem(item: unknown): Record<string, unknown> {
-  if (item && typeof item === 'object') {
-    try {
-      const wrapped = wrap(item as object, true)
-      if (wrapped && typeof wrapped.toJSON === 'function') {
-        return wrapped.toJSON() as Record<string, unknown>
-      }
-    } catch {
-      // not a managed entity — fall through
-    }
-    return { ...(item as Record<string, unknown>) }
-  }
-  return {}
-}
-
-async function attachCreditMemoLines(payload: any, ctx: CrudCtx) {
-  const items = Array.isArray(payload?.items) ? (payload.items as unknown[]) : []
-  if (!items.length) return
-  const plainItems = items.map(toPlainItem)
-  payload.items = plainItems
-  const memoIds = Array.from(new Set(plainItems.map(readCreditMemoId).filter((id): id is string => !!id)))
-  if (!memoIds.length) {
-    for (const item of plainItems) item.lines = []
-    return
-  }
-  const em = ctx?.container?.resolve?.('em') as EntityManager | undefined
-  if (!em) return
-  const tenantId = ctx?.auth?.tenantId ?? null
-  const organizationId = ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null
-  const where: Record<string, unknown> = { creditMemo: { $in: memoIds } }
-  if (tenantId) where.tenantId = tenantId
-  if (organizationId) where.organizationId = organizationId
-  const lines = await em.find(SalesCreditMemoLine, where as any, { orderBy: { lineNumber: 'asc' } })
-  const linesByMemo = new Map<string, Array<Record<string, unknown>>>()
-  for (const line of lines) {
-    const wrapped = wrap(line, true)
-    const json = (wrapped && typeof wrapped.toJSON === 'function' ? wrapped.toJSON() : { ...line }) as Record<string, unknown>
-    const memoRef = (json.creditMemo ?? json.credit_memo_id) as unknown
-    const memoId =
-      typeof memoRef === 'string'
-        ? memoRef
-        : memoRef && typeof memoRef === 'object'
-          ? ((memoRef as { id?: unknown }).id as string | undefined) ?? null
-          : null
-    if (!memoId) continue
-    const bucket = linesByMemo.get(memoId) ?? []
-    bucket.push(json)
-    linesByMemo.set(memoId, bucket)
-  }
-  for (const item of plainItems) {
-    const memoId = readCreditMemoId(item)
-    item.lines = memoId ? linesByMemo.get(memoId) ?? [] : []
-  }
-}
+const rawBodySchema = z.object({}).passthrough()
 
 const listSchema = z
   .object({
@@ -84,9 +29,15 @@ const listSchema = z
   })
   .passthrough()
 
-const rawBodySchema = z.object({}).passthrough()
+const routeMetadata = {
+  GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+}
 
 const crud = makeCrudRoute({
+  metadata: routeMetadata,
   orm: {
     entity: SalesCreditMemo,
     idField: 'id',
@@ -94,16 +45,31 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: E.sales.sales_credit_memo },
-  metadata: {
-    GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-    POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-    PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-    DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+  indexer: {
+    entityType: E.sales.sales_credit_memo,
   },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_credit_memo,
+    fields: [
+      'id',
+      'order_id',
+      'invoice_id',
+      'credit_memo_number',
+      'status_entry_id',
+      'status',
+      'reason',
+      'issue_date',
+      'currency_code',
+      'subtotal_net_amount',
+      'subtotal_gross_amount',
+      'tax_total_amount',
+      'grand_total_net_amount',
+      'grand_total_gross_amount',
+      'metadata',
+      'created_at',
+      'updated_at',
+    ],
     sortFieldMap: {
       creditMemoNumber: 'credit_memo_number',
       status: 'status',
@@ -112,15 +78,15 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query: z.infer<typeof listSchema>) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = query.id
-      if (query.orderId) filters.orderId = query.orderId
-      if (query.invoiceId) filters.invoiceId = query.invoiceId
+      if (query.id) filters.id = { $eq: query.id }
+      if (query.orderId) filters.order_id = { $eq: query.orderId }
+      if (query.invoiceId) filters.invoice_id = { $eq: query.invoiceId }
       if (query.search) {
         const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { creditMemoNumber: { $ilike: term } },
+          { credit_memo_number: { $ilike: term } },
           { status: { $ilike: term } },
           { reason: { $ilike: term } },
         ]
@@ -129,51 +95,39 @@ const crud = makeCrudRoute({
     },
   },
   hooks: {
-    afterList: attachCreditMemoLines,
+    afterList: async (payload, ctx) => {
+      await attachOrderContext(payload as { items?: unknown }, ctx as never)
+      await attachCreditMemoLines(payload as { items?: unknown }, ctx as never)
+    },
   },
   actions: {
     create: {
       commandId: 'sales.credit_memos.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
+      mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const { base, custom } = splitCustomFieldPayload(raw ?? {})
-        const parsed = parseScopedCommandInput(
-          creditMemoCreateSchema,
-          Object.keys(custom).length ? { ...base, customFields: custom } : base,
-          ctx,
-          translate,
-        )
-        return parsed
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base } = splitCustomFieldPayload(scoped)
+        return creditMemoCreateSchema.parse(base)
       },
-      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
-      status: 201,
     },
     update: {
       commandId: 'sales.credit_memos.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
+      mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const { base, custom } = splitCustomFieldPayload(raw ?? {})
-        const parsed = parseScopedCommandInput(
-          creditMemoUpdateSchema,
-          Object.keys(custom).length ? { ...base, customFields: custom } : base,
-          ctx,
-          translate,
-        )
-        return parsed
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base } = splitCustomFieldPayload(scoped)
+        return creditMemoUpdateSchema.parse(base)
       },
-      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
     },
     delete: {
       commandId: 'sales.credit_memos.delete',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
+      mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const id = resolveCrudRecordId(parsed, ctx, translate)
-        return { id }
+        return withScopedPayload(raw ?? {}, ctx, translate)
       },
-      response: () => ({ ok: true }),
     },
   },
 })
@@ -183,23 +137,6 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
-
-const creditMemoLineSchema = z.object({
-  id: z.string().uuid(),
-  lineNumber: z.number(),
-  name: z.string().nullable().optional(),
-  sku: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  quantity: z.string(),
-  quantityUnit: z.string().nullable().optional(),
-  currencyCode: z.string(),
-  unitPriceNet: z.string(),
-  unitPriceGross: z.string(),
-  taxRate: z.string(),
-  taxAmount: z.string(),
-  totalNetAmount: z.string(),
-  totalGrossAmount: z.string(),
-})
 
 const creditMemoItemSchema = z.object({
   id: z.string().uuid(),
@@ -211,7 +148,6 @@ const creditMemoItemSchema = z.object({
   grandTotalGrossAmount: z.string().optional(),
   grandTotalNetAmount: z.string().optional(),
   taxTotalAmount: z.string().optional(),
-  lines: z.array(creditMemoLineSchema).optional(),
 })
 
 export const openApi = createSalesCrudOpenApi({
@@ -220,5 +156,5 @@ export const openApi = createSalesCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(creditMemoItemSchema),
   create: { schema: creditMemoCreateSchema, description: 'Create a new credit memo' },
   update: { schema: creditMemoUpdateSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Update a credit memo' },
-  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ ok: z.boolean() }), description: 'Delete a credit memo' },
+  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Delete a credit memo' },
 })

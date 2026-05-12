@@ -15,7 +15,7 @@ import {
   type PipelineDeleteInput,
 } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
     }))
     return NextResponse.json({ items, total: items.length })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipelines GET failed', err)
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipelines POST failed', err)
@@ -148,7 +148,7 @@ export async function PUT(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipelines PUT failed', err)
@@ -170,7 +170,7 @@ export async function DELETE(req: Request) {
     )
     return NextResponse.json({ ok: true })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipelines DELETE failed', err)

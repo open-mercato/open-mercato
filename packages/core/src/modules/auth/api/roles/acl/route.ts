@@ -4,11 +4,12 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { assertActorCanGrantAcl, normalizeGrantFeatureList } from '@open-mercato/core/modules/auth/lib/grantChecks'
 
 type TaggableCache = { deleteByTags?: (tags: string[]) => Promise<void> | void }
 
@@ -132,12 +133,6 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const actorAcl = auth.sub
-    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-    : null
-  const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
-
-  const requestedFeatures = normalizeFeatureList(parsed.data.features)
   let acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })
   if (!acl) {
     acl = em.create(RoleAcl, {
@@ -149,28 +144,36 @@ export async function PUT(req: Request) {
   }
 
   const existingIsSuperAdmin = !!acl.isSuperAdmin
+  const existingFeatures = normalizeGrantFeatureList(acl.featuresJson)
+  const existingOrganizations = normalizeOrganizations(acl.organizationsJson)
   const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin
-  let effectiveIsSuperAdmin = requestedIsSuperAdmin
+  const requestedFeatures = parsed.data.features === undefined
+    ? existingFeatures
+    : normalizeGrantFeatureList(parsed.data.features)
+  const requestedOrganizations = parsed.data.organizations === undefined
+    ? existingOrganizations
+    : normalizeOrganizations(parsed.data.organizations)
 
-  if (!actorIsSuperAdmin) {
-    if (requestedIsSuperAdmin && !existingIsSuperAdmin) {
-      throw forbidden('Only super administrators can mark a role as super admin.')
-    }
-    if (existingIsSuperAdmin && requestedIsSuperAdmin === false) {
-      effectiveIsSuperAdmin = false
-    } else {
-      effectiveIsSuperAdmin = existingIsSuperAdmin
-    }
+  try {
+    await assertActorCanGrantAcl({
+      em,
+      rbacService,
+      actorUserId: auth.sub,
+      tenantId: targetTenantId,
+      organizationId: auth.orgId ?? null,
+      isSuperAdmin: requestedIsSuperAdmin,
+      features: requestedFeatures,
+      organizations: requestedOrganizations,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
   }
 
-  const effectiveFeatures = actorIsSuperAdmin
-    ? requestedFeatures
-    : sanitizeTenantFeatures(requestedFeatures)
-
-  if (parsed.data.organizations !== undefined) acl.organizationsJson = parsed.data.organizations
-  acl.isSuperAdmin = effectiveIsSuperAdmin
-  acl.featuresJson = effectiveFeatures
-  await em.persistAndFlush(acl)
+  acl.organizationsJson = requestedOrganizations
+  acl.isSuperAdmin = requestedIsSuperAdmin
+  acl.featuresJson = requestedFeatures
+  await em.persist(acl).flush()
   
   // Invalidate cache for all users in this tenant since role ACL changed
   if (targetTenantId) {
@@ -184,30 +187,13 @@ export async function PUT(req: Request) {
   
   return NextResponse.json({
     ok: true,
-    sanitized: !actorIsSuperAdmin && (effectiveFeatures.length !== requestedFeatures.length || effectiveIsSuperAdmin !== requestedIsSuperAdmin),
+    sanitized: false,
   })
 }
 
-function normalizeFeatureList(features: unknown): string[] {
-  if (!Array.isArray(features)) return []
-  const dedup = new Set<string>()
-  for (const value of features) {
-    if (typeof value !== 'string') continue
-    const trimmed = value.trim()
-    if (!trimmed) continue
-    dedup.add(trimmed)
-  }
-  return Array.from(dedup)
-}
-
-function sanitizeTenantFeatures(features: string[]): string[] {
-  return features.filter((feature) => !isTenantRestrictedFeature(feature))
-}
-
-function isTenantRestrictedFeature(feature: string): boolean {
-  if (feature === '*' || feature === 'directory.*') return true
-  if (feature.startsWith('directory.tenants')) return true
-  return false
+function normalizeOrganizations(organizations: unknown): string[] | null {
+  if (!Array.isArray(organizations)) return null
+  return normalizeGrantFeatureList(organizations)
 }
 
 export const openApi: OpenApiRouteDoc = {

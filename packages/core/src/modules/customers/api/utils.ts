@@ -1,5 +1,6 @@
 import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -50,28 +51,33 @@ async function enrichSearchSourcesWithCustomFieldTokens(
   if (!entityTypes.length) return sources
 
   const em = ctx.container.resolve('em') as EntityManager
-  const knex = (em as any).getConnection().getKnex()
-  let defsQuery = knex('custom_field_defs')
-    .select('entity_id', 'key', 'kind')
-    .whereIn('entity_id', entityTypes)
-    .andWhere('is_active', true)
+  const db = em.getKysely<any>() as any
+  let defsQuery = db
+    .selectFrom('custom_field_defs')
+    .select(['entity_id', 'key', 'kind'])
+    .where('entity_id', 'in', entityTypes)
+    .where('is_active', '=', true)
 
-  defsQuery = defsQuery.andWhere((builder: any) => {
-    builder.where({ tenant_id: ctx.auth?.tenantId ?? null }).orWhereNull('tenant_id')
-  })
+  const tenantScope = ctx.auth?.tenantId ?? null
+  defsQuery = defsQuery.where((eb: any) => eb.or([
+    eb('tenant_id', '=', tenantScope),
+    eb('tenant_id', 'is', null),
+  ]))
 
   if (ctx.selectedOrganizationId) {
-    defsQuery = defsQuery.andWhere((builder: any) => {
-      builder.where({ organization_id: ctx.selectedOrganizationId }).orWhereNull('organization_id')
-    })
+    defsQuery = defsQuery.where((eb: any) => eb.or([
+      eb('organization_id', '=', ctx.selectedOrganizationId),
+      eb('organization_id', 'is', null),
+    ]))
   } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    defsQuery = defsQuery.andWhere((builder: any) => {
-      builder.whereIn('organization_id', ctx.organizationIds).orWhereNull('organization_id')
-    })
+    defsQuery = defsQuery.where((eb: any) => eb.or([
+      eb('organization_id', 'in', ctx.organizationIds),
+      eb('organization_id', 'is', null),
+    ]))
   }
 
   const customFieldKeysByEntity = new Map<string, Set<string>>()
-  const rows = await defsQuery
+  const rows = await defsQuery.execute()
   for (const row of rows as Array<{ entity_id?: unknown; key?: unknown; kind?: unknown }>) {
     if (row.kind === 'attachment') continue
     const entityType = typeof row.entity_id === 'string' ? row.entity_id : null
@@ -108,28 +114,29 @@ async function findSearchTokenEntityIds({
   if (!tokens.hashes.length) return []
 
   const em = ctx.container.resolve('em') as EntityManager
-  const knex = (em as any).getConnection().getKnex()
-  let searchQuery = knex('search_tokens')
+  const db = em.getKysely<any>() as any
+  let searchQuery = db
+    .selectFrom('search_tokens')
     .select('entity_id')
-    .where('entity_type', entityType)
-    .whereIn('field', fields)
-    .whereIn('token_hash', tokens.hashes)
+    .where('entity_type', '=', entityType)
+    .where('field', 'in', fields)
+    .where('token_hash', 'in', tokens.hashes)
     .groupBy('entity_id')
-    .havingRaw('count(distinct token_hash) >= ?', [tokens.hashes.length])
+    .having(sql<boolean>`count(distinct token_hash) >= ${tokens.hashes.length}`)
 
   if (ctx.auth?.tenantId !== undefined) {
-    searchQuery = searchQuery.whereRaw('tenant_id is not distinct from ?', [ctx.auth?.tenantId ?? null])
+    searchQuery = searchQuery.where(sql<boolean>`tenant_id is not distinct from ${ctx.auth?.tenantId ?? null}`)
   }
   if (ctx.selectedOrganizationId) {
-    searchQuery = searchQuery.where('organization_id', ctx.selectedOrganizationId)
+    searchQuery = searchQuery.where('organization_id', '=', ctx.selectedOrganizationId)
   } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    searchQuery = searchQuery.whereIn('organization_id', ctx.organizationIds)
+    searchQuery = searchQuery.where('organization_id', 'in', ctx.organizationIds)
   }
 
-  const rows = await searchQuery
+  const rows = await searchQuery.execute() as Array<{ entity_id?: unknown }>
   return rows
-    .map((row: { entity_id?: unknown }) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-    .filter((id: string | null): id is string => typeof id === 'string' && id.length > 0)
+    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 async function mapScopedEntityIds({
@@ -144,31 +151,32 @@ async function mapScopedEntityIds({
   if (!ids.length) return []
 
   const em = ctx.container.resolve('em') as EntityManager
-  const knex = (em as any).getConnection().getKnex()
+  const db = em.getKysely<any>() as any
   const sourceColumn = config.sourceColumn ?? 'id'
   const tenantColumn = config.tenantColumn ?? 'tenant_id'
   const organizationColumn = config.organizationColumn ?? 'organization_id'
 
-  let mapQuery = knex(config.table)
+  let mapQuery = db
+    .selectFrom(config.table)
     .select(config.targetColumn)
-    .whereIn(sourceColumn, ids)
+    .where(sourceColumn, 'in', ids)
 
   if (ctx.auth?.tenantId !== undefined) {
-    mapQuery = mapQuery.whereRaw('?? is not distinct from ?', [tenantColumn, ctx.auth?.tenantId ?? null])
+    mapQuery = mapQuery.where(sql<boolean>`${sql.ref(tenantColumn)} is not distinct from ${ctx.auth?.tenantId ?? null}`)
   }
   if (ctx.selectedOrganizationId) {
-    mapQuery = mapQuery.where(organizationColumn, ctx.selectedOrganizationId)
+    mapQuery = mapQuery.where(organizationColumn, '=', ctx.selectedOrganizationId)
   } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    mapQuery = mapQuery.whereIn(organizationColumn, ctx.organizationIds)
+    mapQuery = mapQuery.where(organizationColumn, 'in', ctx.organizationIds)
   }
 
-  const rows = await mapQuery
+  const rows = await mapQuery.execute() as Array<Record<string, unknown>>
   return rows
-    .map((row: Record<string, unknown>) => {
+    .map((row) => {
       const value = row[config.targetColumn]
       return typeof value === 'string' ? value : null
     })
-    .filter((id: string | null): id is string => typeof id === 'string' && id.length > 0)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 export async function findMatchingEntityIdsBySearchTokensAcrossSources({
