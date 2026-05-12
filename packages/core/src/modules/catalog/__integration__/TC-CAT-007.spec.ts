@@ -21,7 +21,7 @@ test.describe('TC-CAT-007: Create Product Category', () => {
       await page.getByRole('button', { name: 'Create' }).last().click();
 
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
-      const search = page.getByRole('textbox', { name: 'Search categories' });
+      const search = page.getByRole('searchbox', { name: 'Search categories' });
       await search.fill(categoryName);
       const categoryLink = page.getByText(categoryName, { exact: true }).first();
       await expect(categoryLink).toBeVisible();

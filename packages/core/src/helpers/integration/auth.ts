@@ -207,7 +207,7 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   }
   await page.getByLabel('Email').fill(creds.email);
 
-  const passwordInput = page.getByLabel('Password').first();
+  const passwordInput = page.getByLabel('Password', { exact: true }).first();
   if (await passwordInput.isVisible().catch(() => false)) {
     await passwordInput.fill(creds.password);
     await passwordInput.press('Enter');

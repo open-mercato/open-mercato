@@ -74,7 +74,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
       // so the deal still saves. Re-add an interaction here if a future
       // assertion needs the persisted close date.
 
-      const companySearch = page.getByRole('textbox', { name: /Search companies/i });
+      const companySearch = page.getByRole('searchbox', { name: /Search companies/i });
       await companySearch.fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 

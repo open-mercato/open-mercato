@@ -4,7 +4,7 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__inte
 import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
 
 async function openApiKeysPage(page: import('@playwright/test').Page): Promise<void> {
-  const searchInput = page.getByRole('textbox', { name: 'Search', exact: true });
+  const searchInput = page.getByRole('searchbox', { name: 'Search', exact: true });
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
@@ -72,7 +72,7 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       await openApiKeysPage(page);
 
       // Search for the key
-      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(keyName);
+      await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(keyName);
       await expect(page.getByText(keyName)).toBeVisible({ timeout: 5_000 });
 
       // Find and click the row actions for this key — look for a revoke/delete button
