@@ -40,10 +40,16 @@ function runSetup() {
   })
 }
 
+// Prefer a fresh scan of the checked-out submodule (so newly-created packages are
+// visible immediately); fall back to the cached `available` list when it isn't present.
+function resolveAvailable(config) {
+  const scanned = scanAvailable(path.join(repoRoot, config.path))
+  return scanned.length ? scanned : config.available
+}
+
 function printStatus() {
   const config = readConfig()
-  const absSubmodule = path.join(repoRoot, config.path)
-  const available = config.available.length ? config.available : scanAvailable(absSubmodule)
+  const available = resolveAvailable(config)
   out(`Submodule: ${config.repo} (branch ${config.branch}) -> ${config.path}`)
   out('')
   if (available.length === 0) {
@@ -71,8 +77,8 @@ function applyChange(kind, modules, useLocal) {
   else if (kind === 'remove') next = base.filter((suffix) => !modules.includes(suffix))
   else next = [...new Set(modules)] // set
 
-  // Validate against available modules when we know them.
-  const available = config.available.length ? config.available : scanAvailable(path.join(repoRoot, config.path))
+  // Validate against a fresh scan of the submodule so brand-new packages are accepted.
+  const available = resolveAvailable(config)
   if (available.length > 0) {
     const unknown = next.filter((suffix) => !available.includes(suffix))
     if (unknown.length > 0) {
