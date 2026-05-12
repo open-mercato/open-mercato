@@ -176,6 +176,20 @@ describe('RichEditor — content area + onChange', () => {
     expect(container.querySelector('[data-slot="rich-editor-counter"]')).toBeNull()
   })
 
+  it("matches Figma Active dropdown state — Header trigger gets data-state='open' when popover opens", () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="standard" />)
+    const trigger = screen.getByRole('button', { name: 'Header' })
+    expect(trigger.getAttribute('data-state')).toBe('closed')
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('data-state')).toBe('open')
+    // The cva data-[state=open] selectors should swap bg + text tokens —
+    // we assert the className wiring is present (jsdom can't resolve the
+    // computed styles, but Tailwind compiles `data-[state=open]:bg-muted`
+    // unconditionally so its presence on the class list is the contract).
+    expect(trigger.className).toContain('data-[state=open]:bg-muted')
+    expect(trigger.className).toContain('data-[state=open]:text-foreground')
+  })
+
   it('flips the counter colour when the plaintext exceeds maxLength', () => {
     const { container } = render(
       <RichEditor value="<p>hello world</p>" onChange={jest.fn()} variant="minimal" maxLength={5} />,

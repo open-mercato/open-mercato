@@ -7,10 +7,10 @@ import {
   ChevronDown,
   Code,
   Italic,
-  Link2,
+  Link,
   List,
   ListOrdered,
-  MessageSquare,
+  MessageCircle,
   MoreVertical,
   Strikethrough,
   Underline,
@@ -483,11 +483,13 @@ RichEditorToolbar.displayName = 'RichEditorToolbar'
 
 const richEditorItemVariants = cva(
   // Figma Rich Editor Items (166251 family): 28×h, rounded-6, bg-white default,
-  // bg-weak-50 (= bg-muted token) on hover/active. text/icon colours use the
-  // sub-600 token (= text-muted-foreground, #5c5c5c) per Figma reference, with
-  // a darker text-foreground swap on the active state. No border, no shadow
-  // per item — the surrounding toolbar card carries the chrome.
-  'inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-transparent text-sm font-medium leading-5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground',
+  // bg-weak-50 (= bg-muted token) on hover, on toggle-active (data-active=true,
+  // e.g. Bold inside a bold selection), and on dropdown-open
+  // (data-state=open from Radix PopoverTrigger). Text / icon colours move from
+  // sub-600 (= text-muted-foreground, #5c5c5c) in the default state to
+  // strong-950 (= text-foreground, #171717) in the active / open states per
+  // Figma 166261:22214 / 166261:22217 reference cells.
+  'group/rich-editor-item inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-transparent text-sm font-medium leading-5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground',
   {
     variants: {
       type: {
@@ -596,7 +598,7 @@ export const RichEditorTextDropdown = React.forwardRef<HTMLButtonElement, RichEd
         {...props}
       >
         <span className="truncate">{label}</span>
-        <ChevronDown className="opacity-60" aria-hidden="true" />
+        <ChevronDown className="opacity-60 transition-transform group-data-[state=open]/rich-editor-item:rotate-180" aria-hidden="true" />
       </RichEditorButton>
     )
     if (!menu) return button
@@ -634,7 +636,7 @@ export const RichEditorDropdownButton = React.forwardRef<HTMLButtonElement, Rich
             <span data-slot="rich-editor-item-icon" aria-hidden="true">
               {icon}
             </span>
-            <ChevronDown className="opacity-60" aria-hidden="true" />
+            <ChevronDown className="opacity-60 transition-transform group-data-[state=open]/rich-editor-item:rotate-180" aria-hidden="true" />
           </RichEditorButton>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-44 p-1">
@@ -683,7 +685,7 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
               data-slot="rich-editor-color-swatch"
               aria-hidden="true"
             />
-            <ChevronDown className="opacity-60" aria-hidden="true" />
+            <ChevronDown className="opacity-60 transition-transform group-data-[state=open]/rich-editor-item:rotate-180" aria-hidden="true" />
           </RichEditorButton>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-36 p-1">
@@ -1020,10 +1022,10 @@ function RichEditorPresetItems({
       ) : null}
       {(showLink || showComment || showMention) ? <RichEditorDivider /> : null}
       {showComment ? (
-        <RichEditorIconButton icon={<MessageSquare />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={onComment} />
+        <RichEditorIconButton icon={<MessageCircle />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={onComment} />
       ) : null}
       {showLink ? (
-        <RichEditorIconButton icon={<Link2 />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
+        <RichEditorIconButton icon={<Link />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
       ) : null}
       {showMention ? (
         <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={onMention} />
