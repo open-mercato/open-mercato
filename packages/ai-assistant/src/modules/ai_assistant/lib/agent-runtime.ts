@@ -10,6 +10,7 @@ import {
 } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
 import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
@@ -90,10 +91,21 @@ function resolveAgentModel(
   agent: AiAgentDefinition,
   modelOverride: string | undefined,
 ): ResolvedAgentModel {
-  const provider = llmProviderRegistry.resolveFirstConfigured()
+  const env = process.env
+  // Honor the operator-selected provider (new OM_AI_PROVIDER, with legacy
+  // OPENCODE_PROVIDER as the BC fallback) so deployments that have stale
+  // keys for other providers still hit the intended target.
+  const omProvider = (env.OM_AI_PROVIDER ?? '').trim()
+  const opencodeProvider = (env.OPENCODE_PROVIDER ?? '').trim()
+  const providerHint = omProvider.length > 0 || opencodeProvider.length > 0
+    ? [resolveAiProviderIdFromEnv(env)]
+    : undefined
+  const provider = llmProviderRegistry.resolveFirstConfigured(
+    providerHint ? { order: providerHint } : undefined,
+  )
   if (!provider) {
     throw new Error(
-      'No LLM provider is configured. Set OPENCODE_PROVIDER plus a matching API key such as ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
+      'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
     )
   }
   const apiKey = provider.resolveApiKey()
@@ -102,8 +114,10 @@ function resolveAgentModel(
       `LLM provider "${provider.id}" is advertised as configured but resolveApiKey() returned empty.`,
     )
   }
+  const globalEnvModel = ((env.OM_AI_MODEL ?? env.OPENCODE_MODEL) ?? '').trim()
   const modelId =
     (modelOverride && modelOverride.trim().length > 0 ? modelOverride : undefined) ??
+    (globalEnvModel.length > 0 ? globalEnvModel : undefined) ??
     agent.defaultModel ??
     provider.defaultModel
   const model = provider.createModel({ modelId, apiKey }) as LanguageModel
