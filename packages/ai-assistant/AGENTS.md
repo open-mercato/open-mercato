@@ -315,19 +315,9 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 
 At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
 
-Process-wide defaults (Phase 0 of spec
-`2026-04-27-ai-agents-provider-model-baseurl-overrides`):
+Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased from the agent's `moduleId`): for example, `CATALOG_AI_MODEL=claude-opus-4-20250514`, `INBOX_OPS_AI_MODEL=gpt-4o`.
 
-| Variable | Purpose |
-|----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. |
-| `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
-
-Both are deliberately decoupled from the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs (which stay bound to the OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" below.
-
-Per-module model overrides use `OM_AI_<MODULE>_MODEL` (uppercased from the agent's `moduleId`): for example, `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`.
-
-All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
+All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
 ## Architecture Constraints
 
@@ -512,22 +502,11 @@ modules — route them through the factory instead.
 Resolution order (highest precedence first):
 
 1. `callerOverride` (non-empty string) — typically `runAiAgentText({ modelOverride })`.
-2. `OM_AI_<MODULE>_MODEL` env variable (uppercased from `moduleId`) —
-   e.g. `OM_AI_INBOX_OPS_MODEL`, `OM_AI_CATALOG_MODEL`. Internal convention;
+2. `<MODULE>_AI_MODEL` env variable (uppercased from `moduleId`) —
+   e.g. `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention;
    no need to enumerate each one in `.env.example`.
 3. `agentDefaultModel` (typically `AiAgentDefinition.defaultModel`).
-4. `OM_AI_MODEL` env (Phase 0 of spec
-   `2026-04-27-ai-agents-provider-model-baseurl-overrides`). Plain id
-   uses the resolved provider; slash-qualified id (`openai/gpt-5-mini`)
-   consumes the provider axis at the same step.
-5. The configured provider's own default (`llmProvider.defaultModel`).
-
-The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
-
-1. Slash-prefix from `OM_AI_MODEL` (when present and matches a registered provider id).
-2. `OM_AI_PROVIDER` env.
-
-The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
+4. The configured provider's own default (`llmProvider.defaultModel`).
 
 The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'`
 when the registry has no configured provider and `code: 'api_key_missing'`
@@ -1466,7 +1445,7 @@ This section captures what existing deployments need to know when picking up the
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 minutes) | Expiry window for pending mutation approvals. After this window the cleanup worker flips `status = 'pending'` rows whose `expires_at < now` to `expired` and emits `ai.action.expired`. |
-| `OM_AI_<MODULE>_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `OM_AI_INBOX_OPS_MODEL`, `OM_AI_CATALOG_MODEL`. The legacy `<MODULE>_AI_MODEL` form (`INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`) is read as a backward-compatibility fallback. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
+| `<MODULE>_AI_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
 
 ### New database table
 
@@ -1529,7 +1508,7 @@ Tenants who want both keep OpenCode Code Mode for ad-hoc chat and Code-Mode-styl
 
 For a live end-to-end walkthrough against a real LLM:
 
-1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `OM_AI_CATALOG_MODEL`.
+1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `CATALOG_AI_MODEL`.
 2. Run `yarn db:migrate` to pick up `Migration20260419134235_ai_assistant`.
 3. Run `yarn mercato configs cache structural --all-tenants` to register the cleanup worker on existing tenants.
 4. Open `/backend/catalog/catalog/products`, pick a handful of rows, open the `<AiChat>` sheet, and walk through each of the four named use cases (description drafting, attribute extraction, title variants, price adjustment suggestion).

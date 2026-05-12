@@ -45,8 +45,7 @@ After clicking the deploy button, Railway will prompt you to fill in the require
 |----------|-------------|
 | `OPENAI_API_KEY` | Enables OpenAI-backed AI features (OCR, AI assistant, and vector search when auto-indexing is enabled). |
 | `AI_PENDING_ACTION_TTL_SECONDS` | Expiry window for pending AI mutation approvals. Defaults to `900` (15 minutes). |
-| `OM_AI_PROVIDER` / `OM_AI_MODEL` | Process-wide AI provider id and model id. Default to `openai` / `gpt-5-mini` so a deployment that only sets `OPENAI_API_KEY` works out of the box. Legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` are honored as backward-compatibility fallbacks. |
-| `OM_AI_<MODULE>_MODEL` | Per-module AI model override, uppercased from the module id (e.g. `OM_AI_CATALOG_MODEL`, `OM_AI_INBOX_OPS_MODEL`). Overrides the agent default for that module only. Legacy `<MODULE>_AI_MODEL` (e.g. `CATALOG_AI_MODEL`) is honored as a backward-compatibility fallback. |
+| `<MODULE>_AI_MODEL` | Per-module AI model override, uppercased from the module id (e.g. `CATALOG_AI_MODEL`, `INBOX_OPS_AI_MODEL`). Overrides the agent default for that module only. |
 | `RESEND_API_KEY` | Transactional emails (invitations, password resets). |
 | `RESEND_FROM_EMAIL` | Sender address, e.g. `no-reply@yourdomain.com`. |
 | `DEMO_MODE` | Set to `false` to skip seeding demo CRM data on first boot. Defaults to `true`. |

@@ -45,7 +45,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
 | Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
 | Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — AI today; other domains rolling out) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` |
-| Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
+| Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`<MODULE>_AI_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
 | Sending file/image/PDF attachments through `<AiChat>` and the chat dispatcher API (`attachmentIds`, base64 inline encoding, the 4 MB ceiling) | `apps/docs/docs/framework/ai-assistant/attachments.mdx` + `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` + `packages/ui/src/ai/upload-adapter.ts` |
 | **Specific Modules** | |
 | Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
@@ -273,7 +273,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
 - AI agents: put definitions in `<module>/ai-agents.ts` and run `yarn generate`. Every agent declares `moduleId`, `label`, `executionMode`, `requiredFeatures`, `allowedTools`, `mutationPolicy`, and `defaultModel` (optional). See `packages/ai-assistant/AGENTS.md` and `/framework/ai-assistant/agents`.
 - AI-driven mutations MUST go through `prepareMutation(...)` + pending-action approval; never write directly inside a mutation tool handler — the runtime fails closed if the approval contract is bypassed.
-- AI provider keys: at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` must be set. Per-module model overrides use `OM_AI_<MODULE>_MODEL` (uppercased module id).
+- AI provider keys: at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` must be set. Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased module id).
 
 ## Backward Compatibility Contract
 

@@ -11,13 +11,6 @@ export type OpenCodeProviderDefinition = {
 
 export const OPEN_CODE_PROVIDER_IDS = ['anthropic', 'openai', 'google'] as const
 
-/**
- * Default provider id used by the unified AI framework when neither
- * `OM_AI_PROVIDER` nor the legacy `OPENCODE_PROVIDER` is set. The default
- * targets OpenAI + `gpt-5-mini` (see {@link OPEN_CODE_PROVIDERS.openai}).
- */
-export const DEFAULT_AI_PROVIDER_ID: OpenCodeProviderId = 'openai'
-
 export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDefinition> = {
   anthropic: {
     id: 'anthropic',
@@ -29,7 +22,7 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
     id: 'openai',
     name: 'OpenAI',
     envKeys: ['OPENAI_API_KEY', 'OPENCODE_OPENAI_API_KEY'],
-    defaultModel: 'gpt-5-mini',
+    defaultModel: 'gpt-4o-mini',
   },
   google: {
     id: 'google',
@@ -42,32 +35,7 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
 export type OpenCodeModelResolution = {
   modelId: string
   modelWithProvider: string
-  source: 'override' | 'om_ai_model' | 'opencode_model' | 'default'
-}
-
-/**
- * Resolves the requested AI provider id from the unified env vars.
- *
- * Precedence (highest first):
- *   1. `OM_AI_PROVIDER` — new canonical variable for the unified AI module.
- *   2. `OPENCODE_PROVIDER` — legacy variable, kept for backward compatibility.
- *   3. {@link DEFAULT_AI_PROVIDER_ID} (currently `openai`).
- *
- * Unknown / empty values fall through to the next tier so a typo in
- * `OM_AI_PROVIDER` does not silently disable the legacy fallback.
- */
-export function resolveAiProviderIdFromEnv(
-  env: EnvLookup = process.env,
-  fallback: OpenCodeProviderId = DEFAULT_AI_PROVIDER_ID,
-): OpenCodeProviderId {
-  const candidates = [env.OM_AI_PROVIDER, env.OPENCODE_PROVIDER]
-  for (const candidate of candidates) {
-    const normalized = normalizeToken(candidate)?.toLowerCase()
-    if (normalized && isOpenCodeProviderId(normalized)) {
-      return normalized
-    }
-  }
-  return fallback
+  source: 'override' | 'opencode_model' | 'default'
 }
 
 function normalizeToken(value: string | null | undefined): string | null {
@@ -186,7 +154,6 @@ export function resolveOpenCodeModel(
 ): OpenCodeModelResolution {
   const env = options?.env ?? process.env
   const overrideModel = normalizeToken(options?.overrideModel)
-  const omAiModel = normalizeToken(env.OM_AI_MODEL)
   const opencodeModel = normalizeToken(env.OPENCODE_MODEL)
 
   let source: OpenCodeModelResolution['source'] = 'default'
@@ -195,11 +162,6 @@ export function resolveOpenCodeModel(
   if (opencodeModel) {
     selectedModel = opencodeModel
     source = 'opencode_model'
-  }
-
-  if (omAiModel) {
-    selectedModel = omAiModel
-    source = 'om_ai_model'
   }
 
   if (overrideModel) {

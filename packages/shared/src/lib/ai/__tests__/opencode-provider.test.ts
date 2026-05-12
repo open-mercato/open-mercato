@@ -1,5 +1,4 @@
 import {
-  resolveAiProviderIdFromEnv,
   resolveOpenCodeProviderId,
   resolveFirstConfiguredOpenCodeProvider,
   resolveOpenCodeModel,
@@ -48,8 +47,8 @@ describe('opencode provider helpers', () => {
   it('resolves default model when no overrides are set', () => {
     const model = resolveOpenCodeModel('openai', { env: {} })
     expect(model).toEqual({
-      modelId: 'gpt-5-mini',
-      modelWithProvider: 'openai/gpt-5-mini',
+      modelId: 'gpt-4o-mini',
+      modelWithProvider: 'openai/gpt-4o-mini',
       source: 'default',
     })
   })
@@ -65,74 +64,15 @@ describe('opencode provider helpers', () => {
     })
   })
 
-  it('prefers OM_AI_MODEL over the legacy OPENCODE_MODEL', () => {
-    const model = resolveOpenCodeModel('openai', {
-      env: {
-        OM_AI_MODEL: 'openai/gpt-5-mini',
-        OPENCODE_MODEL: 'openai/gpt-4.1-mini',
-      },
-    })
-    expect(model).toEqual({
-      modelId: 'gpt-5-mini',
-      modelWithProvider: 'openai/gpt-5-mini',
-      source: 'om_ai_model',
-    })
-  })
-
-  it('falls back to OPENCODE_MODEL when OM_AI_MODEL is unset', () => {
-    const model = resolveOpenCodeModel('openai', {
-      env: { OPENCODE_MODEL: 'openai/gpt-4.1-mini' },
-    })
-    expect(model.source).toBe('opencode_model')
-    expect(model.modelId).toBe('gpt-4.1-mini')
-  })
-
-  it('prefers explicit override model over OM_AI_MODEL and OPENCODE_MODEL', () => {
+  it('prefers explicit override model over OPENCODE_MODEL', () => {
     const model = resolveOpenCodeModel('openai', {
       overrideModel: 'gpt-4.1',
-      env: {
-        OM_AI_MODEL: 'openai/gpt-5-mini',
-        OPENCODE_MODEL: 'openai/gpt-4.1-mini',
-      },
+      env: { OPENCODE_MODEL: 'openai/gpt-4.1-mini' },
     })
     expect(model).toEqual({
       modelId: 'gpt-4.1',
       modelWithProvider: 'openai/gpt-4.1',
       source: 'override',
-    })
-  })
-
-  describe('resolveAiProviderIdFromEnv', () => {
-    it('returns OM_AI_PROVIDER when set', () => {
-      expect(resolveAiProviderIdFromEnv({ OM_AI_PROVIDER: 'anthropic' })).toBe('anthropic')
-    })
-
-    it('falls back to OPENCODE_PROVIDER when OM_AI_PROVIDER is unset', () => {
-      expect(
-        resolveAiProviderIdFromEnv({ OPENCODE_PROVIDER: 'google' }),
-      ).toBe('google')
-    })
-
-    it('prefers OM_AI_PROVIDER over OPENCODE_PROVIDER', () => {
-      expect(
-        resolveAiProviderIdFromEnv({
-          OM_AI_PROVIDER: 'openai',
-          OPENCODE_PROVIDER: 'anthropic',
-        }),
-      ).toBe('openai')
-    })
-
-    it('skips unknown values and falls through to the legacy var', () => {
-      expect(
-        resolveAiProviderIdFromEnv({
-          OM_AI_PROVIDER: 'pirate',
-          OPENCODE_PROVIDER: 'google',
-        }),
-      ).toBe('google')
-    })
-
-    it('defaults to openai when neither var is set', () => {
-      expect(resolveAiProviderIdFromEnv({})).toBe('openai')
     })
   })
 

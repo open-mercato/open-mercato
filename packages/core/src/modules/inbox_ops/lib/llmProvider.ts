@@ -2,7 +2,6 @@ import { generateObject } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import { createContainer } from 'awilix'
 import {
-  resolveAiProviderIdFromEnv,
   resolveFirstConfiguredOpenCodeProvider,
   resolveOpenCodeModel,
   requireOpenCodeProviderApiKey,
@@ -37,19 +36,15 @@ function asAiModel(model: unknown): AiModel {
  * `OPENCODE_MODEL` / `OPENCODE_PROVIDER` envs remain honored via
  * {@link resolveExtractionProviderId} and {@link resolveOpenCodeModel} so
  * inbox_ops deployments do not see a behavior change — the factory is
- * consulted first (honoring `OM_AI_INBOX_OPS_MODEL` — legacy `INBOX_OPS_AI_MODEL` — + `input.modelOverride`),
+ * consulted first (honoring `INBOX_OPS_AI_MODEL` + `input.modelOverride`),
  * with the legacy path as the fallback when no registry provider is
  * configured (preserving the historical error messages).
  */
 
 export function resolveExtractionProviderId(): OpenCodeProviderId {
-  // Honors OM_AI_PROVIDER first, then the legacy OPENCODE_PROVIDER, then the
-  // first configured provider from `OPEN_CODE_PROVIDER_IDS`, then the unified
-  // default (currently `openai`). Mirrors the precedence applied by the
-  // shared model factory so the BC fallback path stays consistent.
-  const explicit = (process.env.OM_AI_PROVIDER ?? process.env.OPENCODE_PROVIDER ?? '').trim()
-  if (explicit.length > 0) {
-    return resolveAiProviderIdFromEnv(process.env)
+  const configuredProvider = process.env.OPENCODE_PROVIDER
+  if (configuredProvider && configuredProvider.trim().length > 0) {
+    return resolveOpenCodeProviderId(configuredProvider)
   }
 
   const firstConfiguredProvider = resolveFirstConfiguredOpenCodeProvider()

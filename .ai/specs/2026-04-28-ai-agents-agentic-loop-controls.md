@@ -1063,7 +1063,7 @@ The unified AI framework is being built incrementally across multiple specs that
 
 | Wave | Spec(s)                                                | Effort | Why grouped                                                                                                          |
 |------|--------------------------------------------------------|--------|----------------------------------------------------------------------------------------------------------------------|
-| **W1** | Spec #4 Phases 0–2                                    | ~3 d   | Unblock everything else. Lands `OM_AI_PROVIDER` / `OM_AI_MODEL`, per-agent `defaultProvider`, `<provider>/<model>` shorthand, baseURL plumbing. No DB changes yet. |
+| **W1** | Spec #4 Phases 0–2                                    | ~3 d   | Unblock everything else. Lands `AI_DEFAULT_PROVIDER` / `AI_DEFAULT_MODEL`, per-agent `defaultProvider`, `<provider>/<model>` shorthand, baseURL plumbing. No DB changes yet. |
 | **W2** | Spec #4 Phase 4 (settings + DB)                       | ~3 d   | Lands the override table (with the Phase 6 reservation), settings UI, dispatcher query params, `allowRuntimeOverride` flag. Now this spec's Phase 3 is unblocked. |
 | **W3** | This spec — Phases 0, 1, 2                            | ~4.5 d | Land declarative `loop`, per-call overrides, callback dispatch + extended bag. Module authors can start expressing real loop policies. |
 | **W4** | This spec — Phase 6 (token usage)                     | ~3 d   | Highest-value operator surface ships. Phase 6 only needs Phase 4's `LoopTrace` collector wired (compose during W3 or fold the trace bits into W4 cheaply). |

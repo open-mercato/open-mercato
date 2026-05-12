@@ -1,21 +1,13 @@
 #!/bin/bash
 # OpenCode Dynamic Configuration Entrypoint
-# Generates opencode.jsonc based on environment variables.
-#
-# Resolution order (highest precedence first):
-#   1. OM_AI_PROVIDER / OM_AI_MODEL — new canonical variables for the unified
-#      AI module. New deployments should set only these.
-#   2. OPENCODE_PROVIDER / OPENCODE_MODEL — legacy aliases, kept as a
-#      backward-compatibility fallback.
-#   3. Built-in defaults: openai + openai/gpt-5-mini.
+# Generates opencode.jsonc based on environment variables
 
 CONFIG_DIR="/home/opencode/.config/opencode"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
 
-# Default values — OM_AI_* wins, OPENCODE_* is the BC fallback, defaults
-# target OpenAI + gpt-5-mini.
-PROVIDER="${OM_AI_PROVIDER:-${OPENCODE_PROVIDER:-openai}}"
-MODEL="${OM_AI_MODEL:-${OPENCODE_MODEL:-}}"
+# Default values
+PROVIDER="${OPENCODE_PROVIDER:-anthropic}"
+MODEL="${OPENCODE_MODEL:-}"
 MCP_URL="${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}"
 MCP_API_KEY="${MCP_SERVER_API_KEY:-}"
 
@@ -26,13 +18,13 @@ if [ -z "$MODEL" ]; then
       MODEL="anthropic/claude-haiku-4-5-20251001"
       ;;
     openai)
-      MODEL="openai/gpt-5-mini"
+      MODEL="openai/gpt-4o-mini"
       ;;
     google)
       MODEL="google/gemini-3-flash"
       ;;
     *)
-      MODEL="openai/gpt-5-mini"
+      MODEL="anthropic/claude-haiku-4-5-20251001"
       ;;
   esac
 fi

@@ -8,15 +8,7 @@ services:
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
-      # Unified AI provider/model selection. OM_AI_* wins; OPENCODE_* stays
-      # as a BC fallback resolved by the opencode entrypoint script.
-      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
-      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
-      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -58,13 +50,7 @@ services:
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
-      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
-      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
-      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}

@@ -55,7 +55,7 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | Field | Required | Notes |
 |-------|----------|-------|
 | `id` | yes | Must match `<moduleId>.<agent>` (lowercase, digits, underscores). |
-| `moduleId` | yes | Used for `OM_AI_<MODULE>_MODEL` resolution and generator grouping. |
+| `moduleId` | yes | Used for `<MODULE>_AI_MODEL` resolution and generator grouping. |
 | `label` / `description` | yes | Shown in the agent picker and playground. |
 | `systemPrompt` | yes | The composed system prompt the runtime feeds to the model. |
 | `allowedTools` | yes | Whitelist. Tools not listed here are never exposed — even when registered. |

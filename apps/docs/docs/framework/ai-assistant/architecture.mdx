@@ -30,7 +30,7 @@ POST /api/ai_assistant/ai/chat?agent=<module>.<agent>
         ├── getAuthFromRequest()  — shared cookie/JWT/API-key resolver
         ├── checkAgentPolicy()    — requiredFeatures, allowedTools whitelist,
         │                           readOnly + mutationPolicy, acceptedMediaTypes
-        ├── createModelFactory()  — caller override → OM_AI_<MODULE>_MODEL → agent default
+        ├── createModelFactory()  — caller override → <MODULE>_AI_MODEL → agent default
         ├── resolveAiAgentTools() — typed tool-pack filtering, system-prompt compose,
         │                           resolvePageContext hydration
         ├── resolveAttachmentPartsForAgent() — base64 inline / signed URL / extracted text

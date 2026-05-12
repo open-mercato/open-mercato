@@ -13,10 +13,10 @@ The new typed-agent framework currently picks a model the only way it knows how 
 
 The fix is incremental and additive — every existing call site keeps working with no env changes. We add:
 
-- **Phase 0** — a single `.env` knob (`OM_AI_PROVIDER` + `OM_AI_MODEL`) that selects the default provider/model used by `createModelFactory` when no caller / module / agent override is in play. Land this independently so ops can pin defaults today.
+- **Phase 0** — a single `.env` knob (`AI_DEFAULT_PROVIDER` + `AI_DEFAULT_MODEL`) that selects the default provider/model used by `createModelFactory` when no caller / module / agent override is in play. Land this independently so ops can pin defaults today.
 - **Phase 1** — `defaultProvider` on `AiAgentDefinition` plus a `<provider>/<model>` shorthand for `defaultModel`, threaded through `createModelFactory` via a new `agentDefaultProvider` resolution input. Per-module `<MODULE>_AI_PROVIDER` joins the existing `<MODULE>_AI_MODEL`.
 - **Phase 2** — generic `baseURLEnvKeys` on every OpenAI-compatible preset (close the OpenAI/DeepInfra/Groq/Together/Fireworks gap), new built-in OpenRouter and LM Studio presets, and per-agent `baseURL` override threaded through `LlmCreateModelOptions` (already present on the port). Anthropic adapter gets `baseURL` support; Google stays as-is until the SDK ships an option.
-- **Phase 3** — call-site cleanup: `agent-runtime.resolveAgentModel` migrates to `createModelFactory` (already flagged as a follow-up in the AI Assistant AGENTS.md), the routing route in `api/route/route.ts` honors `OM_AI_PROVIDER`, and the `inbox_ops` legacy path's order-of-preference lines up with the new factory.
+- **Phase 3** — call-site cleanup: `agent-runtime.resolveAgentModel` migrates to `createModelFactory` (already flagged as a follow-up in the AI Assistant AGENTS.md), the routing route in `api/route/route.ts` honors `AI_DEFAULT_PROVIDER`, and the `inbox_ops` legacy path's order-of-preference lines up with the new factory.
 - **Phase 4** — UX/docs: settings page becomes editable (per-tenant defaults stored in `ai_agent_runtime_overrides`), `<AiChat>` gains an inline provider/model picker, the agent dispatcher API accepts `provider` / `model` / `baseURL` query params, AGENTS.md and `.env.example` are updated, agent playground shows the resolved provider+model+baseURL per turn.
 
 OpenCode is not touched.
@@ -140,7 +140,7 @@ order. "None of the above" falls back to the provider's hardcoded default
 | 3 | Per-tenant settings override (DB) | `ai_agent_runtime_overrides.provider_id` (NEW Phase 4) | `ai_agent_runtime_overrides.model_id` (NEW Phase 4) | `ai_agent_runtime_overrides.base_url` (NEW Phase 4) |
 | 4 | `<MODULE>_AI_PROVIDER` env | NEW Phase 1   | `<MODULE>_AI_MODEL` (existing) | `<MODULE>_AI_BASE_URL` (NEW Phase 2) |
 | 5 | Agent definition           | `agent.defaultProvider` (NEW Phase 1) | `agent.defaultModel` (existing — also accepts `<provider>/<model>`) | `agent.defaultBaseUrl` (NEW Phase 2) |
-| 6 | Global `.env`              | `OM_AI_PROVIDER` (NEW Phase 0) | `OM_AI_MODEL` (NEW Phase 0) | per-preset `baseURLEnvKeys` (existing; expanded in Phase 2) |
+| 6 | Global `.env`              | `AI_DEFAULT_PROVIDER` (NEW Phase 0) | `AI_DEFAULT_MODEL` (NEW Phase 0) | per-preset `baseURLEnvKeys` (existing; expanded in Phase 2) |
 | 7 | Provider hardcoded default | first configured (existing) | `provider.defaultModel` (existing) | `preset.baseURL` (existing) |
 
 Steps 1 and 3 are gated by `AiAgentDefinition.allowRuntimeModelOverride` (default `true`). When the flag is `false`, steps 1 and 3 are skipped and the chain resumes at step 2 — agents that pin a specific model for correctness reasons (e.g., a structured-output agent whose JSON-mode schema only works with one model) opt out.
@@ -183,21 +183,21 @@ Files touched:
 
 | File | Change |
 |------|--------|
-| `packages/ai-assistant/src/modules/ai_assistant/lib/model-factory.ts` | (a) Read `OM_AI_PROVIDER` from env → if set, prepend it to the registry walk order. (b) Read `OM_AI_MODEL` → use as fallback model id (priority below `agentDefaultModel`, above `provider.defaultModel`). |
+| `packages/ai-assistant/src/modules/ai_assistant/lib/model-factory.ts` | (a) Read `AI_DEFAULT_PROVIDER` from env → if set, prepend it to the registry walk order. (b) Read `AI_DEFAULT_MODEL` → use as fallback model id (priority below `agentDefaultModel`, above `provider.defaultModel`). |
 | `packages/shared/src/lib/ai/llm-provider-registry.ts` | No code change. The existing `resolveFirstConfigured({ env, order })` already accepts an order argument; the factory just supplies it from env. |
-| `apps/mercato/.env.example` | Add commented `# OM_AI_PROVIDER=` and `# OM_AI_MODEL=` block with the same 8 examples already shown for `OPENCODE_MODEL`. |
+| `apps/mercato/.env.example` | Add commented `# AI_DEFAULT_PROVIDER=` and `# AI_DEFAULT_MODEL=` block with the same 8 examples already shown for `OPENCODE_MODEL`. |
 | `packages/create-app/template/.env.example` | Same addition. |
 | `packages/ai-assistant/src/modules/ai_assistant/api/route/route.ts` | Replace the hardcoded `order: ['anthropic', 'openai', 'google']` with the same env-aware resolver — single source of truth. |
 | `packages/ai-assistant/AGENTS.md` | "How to Configure AI Providers" table gains the two new env vars. |
 | `apps/docs/docs/framework/ai-assistant/overview.mdx` | Same. |
 
-`OM_AI_PROVIDER` semantics: when set and resolves to a registered provider id, the factory passes it as the first element of `resolveFirstConfigured`'s `order` array; if the named provider is registered but unconfigured, the factory falls through to the next-best as today. When unset, behavior is unchanged. We deliberately do NOT alias `OPENCODE_PROVIDER` to the new var — the legacy var stays bound to the OpenCode stack so the two systems remain decoupled (see "Coexistence with OpenCode Code Mode" in `packages/ai-assistant/AGENTS.md`).
+`AI_DEFAULT_PROVIDER` semantics: when set and resolves to a registered provider id, the factory passes it as the first element of `resolveFirstConfigured`'s `order` array; if the named provider is registered but unconfigured, the factory falls through to the next-best as today. When unset, behavior is unchanged. We deliberately do NOT alias `OPENCODE_PROVIDER` to the new var — the legacy var stays bound to the OpenCode stack so the two systems remain decoupled (see "Coexistence with OpenCode Code Mode" in `packages/ai-assistant/AGENTS.md`).
 
-`OM_AI_MODEL` semantics: a plain model id (`gpt-5-mini`) is interpreted under the resolved provider; a slash-qualified id (`openai/gpt-5-mini`) overrides the resolved provider for that resolution only, just like Phase 1's per-agent slash form.
+`AI_DEFAULT_MODEL` semantics: a plain model id (`gpt-5-mini`) is interpreted under the resolved provider; a slash-qualified id (`openai/gpt-5-mini`) overrides the resolved provider for that resolution only, just like Phase 1's per-agent slash form.
 
 Tests:
 
-- `model-factory.test.ts` (existing) — add cases for `OM_AI_PROVIDER` only, `OM_AI_MODEL` only, both, both with the named provider unconfigured (must fall through), and slash-qualified `OM_AI_MODEL` (must reset provider).
+- `model-factory.test.ts` (existing) — add cases for `AI_DEFAULT_PROVIDER` only, `AI_DEFAULT_MODEL` only, both, both with the named provider unconfigured (must fall through), and slash-qualified `AI_DEFAULT_MODEL` (must reset provider).
 - `model-factory.integration.test.ts` — extend the integration smoke to assert resolution source = `'env_default'` (new enum member) when only the global env is set.
 
 ### Phase 1 — per-agent provider + `<provider>/<model>` shorthand
@@ -256,8 +256,8 @@ Files touched:
 | File | Change |
 |------|--------|
 | `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts` | Replace inline `resolveAgentModel(...)` with `createModelFactory(container).resolveModel(...)`. The existing comment ("The agent-runtime.ts inline `resolveAgentModel` will migrate to `createModelFactory` in a follow-up Step (5.2+)") is removed because that follow-up is now done. |
-| `packages/ai-assistant/src/modules/ai_assistant/api/route/route.ts` | Replace `resolveFirstConfigured({ order: ['anthropic', 'openai', 'google'] })` with a `createModelFactory`-driven helper that respects `OM_AI_PROVIDER`. |
-| `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` | The `tryFactoryResolution` short-circuit becomes the primary path; the legacy `resolveExtractionProviderId`/`resolveOpenCodeModel` fallback is preserved for backward compatibility with `OPENCODE_PROVIDER` / `OPENCODE_MODEL` consumers but its preference order is unified with the factory's (caller → `INBOX_OPS_AI_PROVIDER`/`INBOX_OPS_AI_MODEL` → agent default → `OM_AI_PROVIDER`/`OM_AI_MODEL` → `OPENCODE_*` legacy → first configured). |
+| `packages/ai-assistant/src/modules/ai_assistant/api/route/route.ts` | Replace `resolveFirstConfigured({ order: ['anthropic', 'openai', 'google'] })` with a `createModelFactory`-driven helper that respects `AI_DEFAULT_PROVIDER`. |
+| `packages/core/src/modules/inbox_ops/lib/llmProvider.ts` | The `tryFactoryResolution` short-circuit becomes the primary path; the legacy `resolveExtractionProviderId`/`resolveOpenCodeModel` fallback is preserved for backward compatibility with `OPENCODE_PROVIDER` / `OPENCODE_MODEL` consumers but its preference order is unified with the factory's (caller → `INBOX_OPS_AI_PROVIDER`/`INBOX_OPS_AI_MODEL` → agent default → `AI_DEFAULT_PROVIDER`/`AI_DEFAULT_MODEL` → `OPENCODE_*` legacy → first configured). |
 | `packages/ai-assistant/AGENTS.md` | Remove the "will migrate in Step 5.2+" sentence; mark the migration as done in the changelog. |
 
 This is the riskiest phase from a regression perspective because it changes the model-instantiation path for every existing agent. Mitigations are listed in Risks & Impact Review.
@@ -472,9 +472,9 @@ a phase are mostly independent.
 
 ### Phase 0 — `.env`-driven defaults (1 PR)
 
-- [ ] `0.1` Add `OM_AI_PROVIDER` + `OM_AI_MODEL` resolution to `model-factory.ts`. Add `'env_default'` to `AiModelResolution['source']` enum.
+- [ ] `0.1` Add `AI_DEFAULT_PROVIDER` + `AI_DEFAULT_MODEL` resolution to `model-factory.ts`. Add `'env_default'` to `AiModelResolution['source']` enum.
 - [ ] `0.2` Update `model-factory.test.ts` with the 5 cases from "Phase 0 — Tests" above.
-- [ ] `0.3` Update `model-factory.integration.test.ts` with one end-to-end smoke that sets `OM_AI_PROVIDER=openai` + only `OPENAI_API_KEY` and asserts the resolved model id round-trips.
+- [ ] `0.3` Update `model-factory.integration.test.ts` with one end-to-end smoke that sets `AI_DEFAULT_PROVIDER=openai` + only `OPENAI_API_KEY` and asserts the resolved model id round-trips.
 - [ ] `0.4` Update `apps/mercato/.env.example` and `packages/create-app/template/.env.example`.
 - [ ] `0.5` Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table.
 - [ ] `0.6` Update `apps/docs/docs/framework/ai-assistant/overview.mdx`.
@@ -554,13 +554,13 @@ a phase are mostly independent.
 `OPENCODE_PROVIDER=openai` (because the operator set it years ago for
 inbox_ops) and `OPENAI_API_KEY` also set. Before Phase 3, the new framework
 ignores `OPENCODE_PROVIDER` and picks Anthropic; after Phase 3, the unified
-chain reads `OM_AI_PROVIDER` (unset) and continues to pick Anthropic —
-**but** if Phase 0 adds `OM_AI_PROVIDER` aliasing to `OPENCODE_PROVIDER`
+chain reads `AI_DEFAULT_PROVIDER` (unset) and continues to pick Anthropic —
+**but** if Phase 0 adds `AI_DEFAULT_PROVIDER` aliasing to `OPENCODE_PROVIDER`
 (it does not, per the explicit non-aliasing decision above), behavior would
 flip to OpenAI for every agent. We catch this by **not** aliasing — the spec
 is explicit on this point and Phase 0 keeps the legacy var bound to the
 OpenCode stack only. Residual risk: an operator who reads the new env doc
-and sets `OM_AI_PROVIDER=openai` deliberately gets the OpenAI default,
+and sets `AI_DEFAULT_PROVIDER=openai` deliberately gets the OpenAI default,
 which is the intended behavior.
 
 **Mitigation.** (a) Phase 4's settings page surfaces the resolved per-agent
@@ -613,7 +613,7 @@ var.
 **Mitigation.** The spec reserves `AI_DEFAULT_*` as a global namespace; the
 module-id-prefixed envs always include the moduleId verbatim, so a module
 named `ai_default` would resolve `AI_DEFAULT_AI_PROVIDER` (uppercased
-moduleId + `_AI_PROVIDER`), not `OM_AI_PROVIDER`. The collision is only
+moduleId + `_AI_PROVIDER`), not `AI_DEFAULT_PROVIDER`. The collision is only
 hypothetical until someone adds such a module; if they do, the global wins
 and we revisit.
 
@@ -695,4 +695,3 @@ keeps its name and input shape.
 
 - **2026-04-27** — Initial draft. Authored after a survey that found three independent gaps in the new typed-agent framework (no per-agent provider, no `.env`-driven default for the new framework, no consistent baseURL story). Phasing chosen so Phase 0 ships value in <30 lines and the riskier call-site unification is deferred to Phase 3 with mitigations.
 - **2026-04-27** — Phase 4 expanded into 4a (backend persistence + dispatcher API) and 4b (chat picker + editable settings + playground panel + docs) after feedback that runtime override surfaces (chat-UI picker, editable settings UI, API query params) were missing. Added `ai_agent_runtime_overrides` table, `allowRuntimeModelOverride` flag, `AI_RUNTIME_BASEURL_ALLOWLIST` env, and risks R6 (credential exfiltration via `baseUrl`) and R7 (cost burn via flagship model override). Resolution chain extended from 5 to 7 steps.
-- **2026-05-11** — Phase 0 env var names renamed during PR #1856 review. Process-wide knobs are now `OM_AI_PROVIDER` / `OM_AI_MODEL` (legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` honored as BC fallbacks) and per-module overrides are `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL` honored as BC fallback). Aligns Phase 0 with the existing `OM_*` env convention used by the rest of the runtime (`OM_SEARCH_*`, `OM_SECURITY_*`, `OM_ENABLE_*`). The PR also bumped scope to thread the new vars through `docker-compose.yml`, `docker-compose.fullapp*.yml`, `docker/opencode/entrypoint.sh`, `.devcontainer/devcontainer.json`, and the `create-mercato-app` standalone template so a deployment that only sets `OPENAI_API_KEY` resolves to OpenAI + `gpt-5-mini` out of the box.

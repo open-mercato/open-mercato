@@ -6,8 +6,8 @@ import {
   OPEN_CODE_PROVIDERS,
   getOpenCodeProviderConfiguredEnvKey,
   isOpenCodeProviderConfigured,
-  resolveAiProviderIdFromEnv,
   resolveOpenCodeModel,
+  resolveOpenCodeProviderId,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 
 export const openApi: OpenApiRouteDoc = {
@@ -34,11 +34,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Read provider config from environment. `OM_AI_PROVIDER` is the new
-    // canonical variable; `OPENCODE_PROVIDER` is kept as a BC fallback by
-    // `resolveAiProviderIdFromEnv`. Falls back to the unified default
-    // (`openai`) when neither is set.
-    const providerId = resolveAiProviderIdFromEnv(process.env)
+    // Read provider config from environment
+    const providerId = resolveOpenCodeProviderId(process.env.OPENCODE_PROVIDER)
     const providerInfo = OPEN_CODE_PROVIDERS[providerId]
 
     // Check if the provider's API key is configured (supports multiple fallback keys)

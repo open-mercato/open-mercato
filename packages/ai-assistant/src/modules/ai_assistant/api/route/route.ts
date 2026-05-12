@@ -5,10 +5,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import {
-  resolveAiProviderIdFromEnv,
-  resolveOpenCodeModel,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
+import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
   resolveChatConfig,
   isProviderConfigured,
@@ -104,18 +101,12 @@ export async function POST(req: NextRequest) {
     let config = await resolveChatConfig(container)
 
     // Fallback to first configured provider from the LLM provider registry.
-    // Honors the operator-selected provider via OM_AI_PROVIDER (with the
-    // legacy OPENCODE_PROVIDER as the BC fallback) and only then walks the
-    // native adapters before any OpenAI-compatible presets so a deployment
-    // that just sets OPENAI_API_KEY still resolves to OpenAI by default.
+    // Default walk order prioritizes the native adapters (backward compatible)
+    // before OpenAI-compatible presets.
     if (!config) {
-      const operatorPreferred = resolveAiProviderIdFromEnv(process.env)
-      const baseOrder: ChatProviderId[] = ['openai', 'anthropic', 'google']
-      const order = [
-        operatorPreferred,
-        ...baseOrder.filter((id) => id !== operatorPreferred),
-      ]
-      const picked = llmProviderRegistry.resolveFirstConfigured({ order })
+      const picked = llmProviderRegistry.resolveFirstConfigured({
+        order: ['anthropic', 'openai', 'google'],
+      })
       if (!picked) {
         return NextResponse.json(
           {
