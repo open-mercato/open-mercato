@@ -16,7 +16,7 @@ import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
-import { createModelFactory } from '../../lib/model-factory'
+import { createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
 import {
   agentOverrideModelAllowlistEnvVarName,
   agentOverrideProviderAllowlistEnvVarName,
@@ -181,6 +181,7 @@ export async function GET(req: NextRequest) {
     let agentResolutions: Array<{
       agentId: string
       moduleId: string
+      allowRuntimeOverride: boolean
       allowRuntimeModelOverride: boolean
       codeDefaultProviderId: string | null
       codeDefaultModelId: string | null
@@ -273,7 +274,7 @@ export async function GET(req: NextRequest) {
             agentDefaultModel: agent.defaultModel,
             agentDefaultProvider: agent.defaultProvider,
             agentDefaultBaseUrl: agent.defaultBaseUrl,
-            allowRuntimeModelOverride: agent.allowRuntimeModelOverride,
+            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
             tenantOverride: agentTenantOverride,
             tenantAllowlist: tenantAllowlistSnapshot,
           })
@@ -311,7 +312,8 @@ export async function GET(req: NextRequest) {
           return {
             agentId: agent.id,
             moduleId: agent.moduleId,
-            allowRuntimeModelOverride: agent.allowRuntimeModelOverride !== false,
+            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
+            allowRuntimeModelOverride: resolveAllowRuntimeOverride(agent),
             codeDefaultProviderId: agent.defaultProvider ?? null,
             codeDefaultModelId: agent.defaultModel ?? null,
             override: agentOverrideRow

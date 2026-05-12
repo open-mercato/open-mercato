@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primi
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { AiChat, createAiUiPartRegistry, useAiShortcuts } from '@open-mercato/ui/ai'
+import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, useAiShortcuts } from '@open-mercato/ui/ai'
 import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
 
 type PlaygroundAgentTool = {
@@ -193,6 +193,27 @@ async function fetchAgentResolutions(): Promise<SettingsAgentResolutionResponse>
   return { agents: result.result.agents ?? [] }
 }
 
+async function fetchLoopOverrideForAgent(
+  agentId: string,
+): Promise<{ agentId: string; override: { loopDisabled?: boolean | null } | null }> {
+  const result = await apiCall<{ agentId: string; override: { loopDisabled?: boolean | null } | null }>(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/loop-override`,
+    { method: 'GET', credentials: 'include' },
+  )
+  if (!result.ok || !result.result) return { agentId, override: null }
+  return result.result
+}
+
+function LoopDisabledPlaygroundBanner({ agentId }: { agentId: string }) {
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'loop_override', agentId],
+    queryFn: () => fetchLoopOverrideForAgent(agentId),
+    staleTime: 30000,
+  })
+  if (!data?.override?.loopDisabled) return null
+  return <LoopDisabledBanner agentId={agentId} />
+}
+
 function ModelResolutionPanel({ agentId }: { agentId: string }) {
   const t = useT()
   const { data } = useQuery({
@@ -313,7 +334,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
   }
 
   return (
-    <div data-ai-playground-chat={agent.id}>
+    <div className="flex flex-col gap-2" data-ai-playground-chat={agent.id}>
       <AiChat
         key={agent.id}
         agent={agent.id}
@@ -647,6 +668,7 @@ export function AiPlaygroundPageClient() {
         </div>
         {selectedAgent ? <AgentDetails agent={selectedAgent} /> : null}
         {selectedAgent ? <ModelResolutionPanel agentId={selectedAgent.id} /> : null}
+        {selectedAgent ? <LoopDisabledPlaygroundBanner agentId={selectedAgent.id} /> : null}
       </section>
 
       {selectedAgent ? (

@@ -8,7 +8,11 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
-import { runAiAgentText } from '../../../lib/agent-runtime'
+import {
+  runAiAgentText,
+  resolveLoopBudgetPreset,
+  type AiAgentLoopBudgetPreset,
+} from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
@@ -52,10 +56,13 @@ const chatRequestSchema = z.object({
   debug: z.boolean().optional(),
   pageContext: pageContextSchema.optional(),
   /**
-   * Optional stable conversation id forwarded from `<AiChat>`. Bridged into
-   * the Step 5.6 `prepareMutation` idempotency hash so repeated turns within
-   * the same chat collapse onto the same pending action. Additive; omitted
-   * bodies continue to work as before.
+   * Stable per-conversation id (Phase 6.2). Wins over `conversationId` when
+   * both are provided. The server echoes the resolved id on the SSE
+   * `loop-finish` event so clients can persist it for the next turn.
+   */
+  sessionId: z.string().uuid().optional(),
+  /**
+   * @deprecated Use `sessionId` instead.
    */
   conversationId: z.string().min(1).max(128).optional(),
 })
@@ -69,7 +76,7 @@ const agentQuerySchema = z.object({
   /**
    * Per-request provider override. Must match a registered + configured
    * provider id. Validated against `llmProviderRegistry` at dispatch time.
-   * Rejected when the agent has `allowRuntimeModelOverride: false`.
+   * Rejected when the agent has `allowRuntimeOverride: false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -89,6 +96,18 @@ const agentQuerySchema = z.object({
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   baseUrl: z.string().optional(),
+  /**
+   * Named loop-budget preset. Maps to a fixed `loop.budget` triple:
+   *   tight   → maxSteps: 3,  maxWallClockMs: 10_000,  maxTokens:  50_000
+   *   default → no override (agent default applies)
+   *   loose   → maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000
+   *
+   * Rejected when the agent has `allowRuntimeOverride: false` or
+   * `loop.allowRuntimeOverride: false`.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loopBudget: z.enum(['tight', 'default', 'loose']).optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -107,7 +126,7 @@ export const openApi: OpenApiRouteDoc = {
         'override the resolved provider/model/base-URL for this turn (Phase 4a). ' +
         'Provider must be registered and configured; baseUrl must match ' +
         '`AI_RUNTIME_BASEURL_ALLOWLIST` when set. Both are suppressed when the ' +
-        'agent declares `allowRuntimeModelOverride: false`.',
+        'agent declares `allowRuntimeOverride: false`.',
       query: agentQuerySchema,
       requestBody: {
         contentType: 'application/json',
@@ -122,7 +141,7 @@ export const openApi: OpenApiRouteDoc = {
           status: 400,
           description:
             'Invalid query param, malformed payload, or message count above the cap. ' +
-            'Typed codes: `runtime_override_disabled` (agent has allowRuntimeModelOverride:false), ' +
+            'Typed codes: `runtime_override_disabled` (agent has allowRuntimeOverride:false), ' +
             '`provider_unknown` (provider id not registered), ' +
             '`provider_not_configured` (provider registered but no API key in env), ' +
             '`baseurl_not_allowlisted` (baseUrl not in AI_RUNTIME_BASEURL_ALLOWLIST).',
@@ -182,6 +201,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     provider: requestUrl.searchParams.get('provider') ?? undefined,
     model: requestUrl.searchParams.get('model') ?? undefined,
     baseUrl: requestUrl.searchParams.get('baseUrl') ?? undefined,
+    loopBudget: requestUrl.searchParams.get('loopBudget') ?? undefined,
   })
   if (!queryResult.success) {
     return jsonError(400, 'Invalid or missing "agent" query parameter.', 'validation_error', {
@@ -192,6 +212,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const rawProvider = queryResult.data.provider
   const rawModel = queryResult.data.model
   const rawBaseUrl = queryResult.data.baseUrl
+  const rawLoopBudget = queryResult.data.loopBudget as AiAgentLoopBudgetPreset | undefined
 
   let parsedBody: unknown
   try {
@@ -241,16 +262,23 @@ export async function POST(req: NextRequest): Promise<Response> {
     const hasRuntimeOverride =
       (rawProvider && rawProvider.trim().length > 0) ||
       (rawModel && rawModel.trim().length > 0) ||
-      (rawBaseUrl && rawBaseUrl.trim().length > 0)
+      (rawBaseUrl && rawBaseUrl.trim().length > 0) ||
+      (rawLoopBudget !== undefined && rawLoopBudget !== 'default')
 
-    if (hasRuntimeOverride) {
-      if (agentDef.allowRuntimeModelOverride === false) {
-        return jsonError(
-          400,
-          `Agent "${agentId}" has runtime model override disabled (allowRuntimeModelOverride: false).`,
-          'runtime_override_disabled',
-        )
-      }
+    // `allowRuntimeOverride` is the canonical flag (renamed from
+    // `allowRuntimeModelOverride` in Phase 4 of this spec). Both are checked
+    // here to cover agents declared before the rename lands; the deprecated
+    // alias has lower priority.
+    const runtimeOverrideAllowed =
+      agentDef.allowRuntimeOverride !== false &&
+      agentDef.allowRuntimeModelOverride !== false
+
+    if (hasRuntimeOverride && !runtimeOverrideAllowed) {
+      return jsonError(
+        400,
+        `Agent "${agentId}" has runtime override disabled (allowRuntimeOverride: false).`,
+        'runtime_override_disabled',
+      )
     }
 
     let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
@@ -374,7 +402,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         )
       }
     }
-    // --- end Phase 4a validation ---
+    // --- end Phase 4a + Phase 4 validation ---
 
     const requestOverride =
       hasRuntimeOverride
@@ -385,12 +413,19 @@ export async function POST(req: NextRequest): Promise<Response> {
           }
         : undefined
 
+    // Resolve the loopBudget preset to a loop config override (Phase 4).
+    const loopFromPreset =
+      rawLoopBudget !== undefined && rawLoopBudget !== 'default'
+        ? resolveLoopBudgetPreset(rawLoopBudget)
+        : undefined
+
     return await runAiAgentText({
       agentId,
       messages: bodyResult.data.messages as unknown as UIMessage[],
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
       debug: bodyResult.data.debug,
+      sessionId: bodyResult.data.sessionId ?? null,
       conversationId: bodyResult.data.conversationId ?? null,
       authContext: {
         tenantId: auth.tenantId ?? null,
@@ -401,6 +436,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       },
       container,
       requestOverride,
+      loop: loopFromPreset,
+      emitLoopTrace: true,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {

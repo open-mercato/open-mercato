@@ -103,7 +103,7 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
-2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultProvider` (registered provider id the agent prefers — falls through transparently when unconfigured; Phase 1 of `2026-04-27-ai-agents-provider-model-baseurl-overrides`), `defaultModel` (plain model id or slash-qualified `<provider>/<model>` shorthand, e.g. `openai/gpt-5-mini`), `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
+2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `executionEngine` (`'stream-text'` — default — or `'tool-loop-agent'`; see §"Loop controls and execution engines" below), `defaultProvider` (registered provider id the agent prefers — falls through transparently when unconfigured; Phase 1 of `2026-04-27-ai-agents-provider-model-baseurl-overrides`), `defaultModel` (plain model id or slash-qualified `<provider>/<model>` shorthand, e.g. `openai/gpt-5-mini`), `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `loop` (Phase 0–5 of spec `2026-04-28-ai-agents-agentic-loop-controls`), `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
 3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
 4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
 5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
@@ -1405,7 +1405,33 @@ if (tool.requiredFeatures?.length) {
 
 ---
 
+## Loop controls and execution engines
+
+Agents that need multi-step tool loops configure the `loop` block on `AiAgentDefinition` (spec `2026-04-28-ai-agents-agentic-loop-controls`). The `executionEngine` field selects the underlying SDK dispatch strategy:
+
+| Engine | `executionEngine` value | When to use |
+|--------|------------------------|-------------|
+| `streamText` | `'stream-text'` (default) | Full primitive coverage: `repairToolCall`, all loop controls. Use for all agents unless you specifically need the ToolLoopAgent class. |
+| `ToolLoopAgent` | `'tool-loop-agent'` | Closer to a semantic agent abstraction; receives upcoming SDK features (multi-agent handoff) first. Opt-in per agent. |
+
+**`repairToolCall` engine note**: the current SDK version ships `experimental_repairToolCall` on `ToolLoopAgentSettings`, so the primitive is technically reachable via `'tool-loop-agent'`. However, behaviour parity across SDK versions is not guaranteed — prefer `'stream-text'` when repair logic correctness is critical. See `loop.repairToolCall` JSDoc in `ai-agent-definition.ts` for the engine-specific caveat.
+
+**Security guarantee**: the mutation-approval contract (`buildWrapperPrepareStep` → `prepareMutation`) is enforced identically regardless of `executionEngine`. For `'tool-loop-agent'`, the wrapper-owned `prepareStep` is wired at `ToolLoopAgent` construction (NOT via `prepareCall`, which does not include `prepareStep` in its `Pick` list).
+
+---
+
 ## Changelog
+
+### 2026-05-08 - Phase 5 opt-in ToolLoopAgent backend (spec 2026-04-28-ai-agents-agentic-loop-controls)
+
+**What changed**:
+- Added `AiAgentExecutionEngine = 'stream-text' | 'tool-loop-agent'` type alias to `ai-agent-definition.ts`.
+- Added `executionEngine?` field to `AiAgentDefinition` (default `'stream-text'` — zero churn to existing agents).
+- `agent-runtime.ts` gains an engine-dispatch branch: when `executionEngine === 'tool-loop-agent'`, a `ToolLoopAgent` (`Experimental_Agent`) is constructed once per turn with the wrapper-owned `prepareStep` and `stopWhen` wired at construction. The `ToolLoopAgent.stream()` path is used for dispatch; the default `streamText` path is unchanged.
+- `PreparedAiSdkOptions` gains `toolLoopAgent?` field for escape-hatch callers.
+- TC-AI-AGENT-LOOP-006 expanded with substantive mutation-gate proof tests using `page.route()` stubs.
+- `agents.mdx` gains "Choosing an execution engine" comparison table.
+- `loop.repairToolCall` JSDoc updated with engine-specific caveat.
 
 ### 2026-05-08 - Phase 3 call-site cleanup (spec 2026-04-27-ai-agents-provider-model-baseurl-overrides)
 

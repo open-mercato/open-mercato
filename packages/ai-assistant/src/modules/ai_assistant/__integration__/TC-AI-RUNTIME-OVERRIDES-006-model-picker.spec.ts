@@ -12,7 +12,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  * - /backend/config/ai-assistant/playground: ModelResolutionPanel renders
  * - ModelPicker renders in the playground's <AiChat> composer when the
  *   agent allows runtime model override
- * - ModelPicker is absent when allowRuntimeModelOverride === false
+ * - ModelPicker is absent when allowRuntimeOverride === false
  *
  * All API calls that would hit a real LLM or require a configured provider
  * are intercepted via page.route() stubs.
@@ -72,7 +72,7 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
       {
         agentId: 'catalog.merchandising_assistant',
         moduleId: 'catalog',
-        allowRuntimeModelOverride: true,
+        allowRuntimeOverride: true,
         providerId: 'anthropic',
         modelId: 'claude-haiku-4-5',
         baseURL: null,
@@ -81,7 +81,7 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
       {
         agentId: 'customers.account_assistant',
         moduleId: 'customers',
-        allowRuntimeModelOverride: false,
+        allowRuntimeOverride: false,
         providerId: 'anthropic',
         modelId: 'claude-sonnet-4-5',
         baseURL: null,
@@ -366,7 +366,7 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
       await expect(sourceField).toBeVisible();
     });
 
-    test('ModelPicker is present in AiChat composer when allowRuntimeModelOverride is true', async ({
+    test('ModelPicker is present in AiChat composer when allowRuntimeOverride is true', async ({
       page,
     }) => {
       test.setTimeout(120_000);
@@ -395,7 +395,7 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
           contentType: 'application/json',
           body: JSON.stringify({
             agentId: 'catalog.merchandising_assistant',
-            allowRuntimeModelOverride: true,
+            allowRuntimeOverride: true,
             defaultProviderId: 'anthropic',
             defaultModelId: 'claude-haiku-4-5',
             providers: [
@@ -469,7 +469,7 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
       if (response.status() === 200) {
         const body = await response.json();
         expect(body).toHaveProperty('agentId');
-        expect(body).toHaveProperty('allowRuntimeModelOverride');
+        expect(body).toHaveProperty('allowRuntimeOverride');
         expect(body).toHaveProperty('providers');
       }
     });

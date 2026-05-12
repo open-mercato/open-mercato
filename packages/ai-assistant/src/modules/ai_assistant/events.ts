@@ -39,6 +39,14 @@ const events = [
     entity: 'ai_pending_action',
     category: 'system' as const,
   },
+  {
+    id: 'ai.token_usage.recorded',
+    label: 'AI Token Usage Recorded',
+    entity: 'token_usage',
+    category: 'system' as const,
+    clientBroadcast: false,
+    portalBroadcast: false,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({

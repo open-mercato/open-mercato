@@ -36,6 +36,13 @@ type Row = {
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
+  loopDisabled: boolean | null
+  loopMaxSteps: number | null
+  loopMaxToolCalls: number | null
+  loopMaxWallClockMs: number | null
+  loopMaxTokens: number | null
+  loopStopWhenJson: unknown | null
+  loopActiveToolsJson: unknown | null
 }
 
 let idCounter = 0
@@ -93,6 +100,13 @@ function mockEm() {
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: data.deletedAt ?? null,
+        loopDisabled: data.loopDisabled ?? null,
+        loopMaxSteps: data.loopMaxSteps ?? null,
+        loopMaxToolCalls: data.loopMaxToolCalls ?? null,
+        loopMaxWallClockMs: data.loopMaxWallClockMs ?? null,
+        loopMaxTokens: data.loopMaxTokens ?? null,
+        loopStopWhenJson: data.loopStopWhenJson ?? null,
+        loopActiveToolsJson: data.loopActiveToolsJson ?? null,
       }
       store.push(row)
       return row
@@ -333,5 +347,214 @@ describe('AiAgentRuntimeOverrideRepository', () => {
     // Smoke test that the entity class is importable and the mock returns a
     // shaped object the repository trusts to be an entity instance.
     void AiAgentRuntimeOverride
+  })
+})
+
+describe('AiAgentRuntimeOverrideRepository — loop override validation (Phase 1782-3)', () => {
+  describe('loopStopWhenJson validation', () => {
+    it('accepts valid stepCount items', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'stepCount', count: 5 }],
+          },
+          ctx,
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('accepts valid hasToolCall items', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'hasToolCall', toolName: 'catalog.update_product' }],
+          },
+          ctx,
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('rejects kind "custom" with invalid_loop_override', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'custom', stop: () => false } as any],
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ name: 'AiAgentRuntimeOverrideValidationError', code: 'invalid_loop_override' })
+    })
+
+    it('rejects unknown kind with invalid_loop_override', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'unknownKind' } as any],
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ name: 'AiAgentRuntimeOverrideValidationError', code: 'invalid_loop_override' })
+    })
+
+    it('rejects stepCount without numeric count', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'stepCount' } as any],
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_loop_override' })
+    })
+
+    it('rejects hasToolCall without string toolName', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopStopWhenJson: [{ kind: 'hasToolCall' } as any],
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_loop_override' })
+    })
+  })
+
+  describe('loopActiveToolsJson validation', () => {
+    it('accepts valid tool names', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopActiveToolsJson: ['catalog.list_products', 'search.hybrid_search'],
+            agentAllowedTools: ['catalog.list_products', 'search.hybrid_search', 'meta.describe_agent'],
+          },
+          ctx,
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('rejects tools outside the agent allowlist when agentAllowedTools is provided', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopActiveToolsJson: ['catalog.list_products', 'admin.delete_all'],
+            agentAllowedTools: ['catalog.list_products'],
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_loop_override' })
+    })
+
+    it('accepts without agentAllowedTools (allowlist validation skipped)', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopActiveToolsJson: ['any.tool'],
+          },
+          ctx,
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('rejects non-array values', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await expect(
+        repo.upsertDefault(
+          {
+            agentId: 'catalog.assistant',
+            loopActiveToolsJson: 'not-an-array' as any,
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_loop_override' })
+    })
+  })
+
+  describe('loop columns persisted on upsert', () => {
+    it('stores all loop columns on insert', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      const row = await repo.upsertDefault(
+        {
+          agentId: 'catalog.assistant',
+          loopDisabled: true,
+          loopMaxSteps: 3,
+          loopMaxToolCalls: 10,
+          loopMaxWallClockMs: 30000,
+          loopMaxTokens: 50000,
+          loopStopWhenJson: [{ kind: 'stepCount', count: 3 }],
+          loopActiveToolsJson: ['catalog.list_products'],
+          agentAllowedTools: ['catalog.list_products'],
+        },
+        ctx,
+      )
+
+      expect(row.loopDisabled).toBe(true)
+      expect(row.loopMaxSteps).toBe(3)
+      expect(row.loopMaxToolCalls).toBe(10)
+      expect(row.loopMaxWallClockMs).toBe(30000)
+      expect(row.loopMaxTokens).toBe(50000)
+      expect(row.loopStopWhenJson).toEqual([{ kind: 'stepCount', count: 3 }])
+      expect(row.loopActiveToolsJson).toEqual(['catalog.list_products'])
+    })
+
+    it('updates existing loop columns on second upsert', async () => {
+      const em = mockEm()
+      const repo = new AiAgentRuntimeOverrideRepository(em)
+      const ctx = { tenantId: 't1', organizationId: null, userId: 'u1' }
+
+      await repo.upsertDefault({ agentId: 'catalog.assistant', loopDisabled: false }, ctx)
+      const updated = await repo.upsertDefault({ agentId: 'catalog.assistant', loopDisabled: true }, ctx)
+      expect(updated.loopDisabled).toBe(true)
+    })
   })
 })

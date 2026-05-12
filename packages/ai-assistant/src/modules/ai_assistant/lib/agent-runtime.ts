@@ -1,20 +1,38 @@
+import { randomUUID } from 'node:crypto'
 import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { LanguageModel, UIMessage } from 'ai'
+import type {
+  GenerateObjectResult,
+  GenerateTextResult,
+  LanguageModel,
+  PrepareStepFunction,
+  PrepareStepResult,
+  StreamObjectResult,
+  StreamTextResult,
+  ToolSet,
+  UIMessage,
+  ToolLoopAgentSettings,
+} from 'ai'
 import {
   convertToModelMessages,
   generateObject,
+  hasToolCall,
   stepCountIs,
   streamObject,
   streamText,
+  Experimental_Agent as ToolLoopAgent,
 } from 'ai'
+import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
-import { createModelFactory } from './model-factory'
+import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
 import type {
   AiAgentDefinition,
+  AiAgentLoopConfig,
   AiAgentPageContextInput,
   AiAgentStructuredOutput,
+  LoopStepRecord,
+  LoopTrace,
 } from './ai-agent-definition'
 import type {
   AiChatRequestContext,
@@ -36,6 +54,7 @@ import type { TenantAllowlistSnapshot } from './model-allowlist'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { recordTokenUsage } from './token-usage-recorder'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -89,7 +108,7 @@ export interface RunAiAgentTextInput {
    * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
    * `?baseUrl=`). Validated by the dispatcher route before being forwarded
    * here. Wins over tenantOverride and all lower-priority sources when
-   * `agent.allowRuntimeModelOverride !== false`.
+   * `agent.allowRuntimeOverride !== false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -105,13 +124,777 @@ export interface RunAiAgentTextInput {
    */
   container?: AwilixContainer
   /**
-   * Optional stable chat-turn conversation id forwarded from `<AiChat>`.
-   * Bridged into the Step 5.6 `prepareMutation` idempotency hash so repeated
-   * turns within the same chat collapse onto the same pending action. When
-   * omitted, the idempotency hash falls back to `null` which still preserves
-   * per-tenant/org uniqueness within the TTL window.
+   * Stable per-conversation id that ties every turn of a chat together for
+   * token-usage correlation and pending-action idempotency (Phase 6.2).
+   *
+   * When omitted the server generates one and echoes it on the SSE `done`
+   * event so the client can persist it for subsequent turns. Callers that
+   * supply a value from a previous turn will have their usage rows grouped
+   * under the same `session_id` in the token-usage tables.
+   *
+   * Phase 6.2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  sessionId?: string | null
+  /**
+   * @deprecated Use `sessionId` instead. This alias was the original name of
+   * the same field; both names are accepted for one minor release to let
+   * callers migrate without a hard cut. `sessionId` takes precedence when both
+   * are provided.
    */
   conversationId?: string | null
+  /**
+   * Optional per-call loop config override. Fields set here win over the
+   * agent's `loop` declaration and the tenant DB override. The override is
+   * gated by `agent.loop?.allowRuntimeOverride ?? true` — agents that pin
+   * a loop policy for correctness reasons can set `allowRuntimeOverride: false`
+   * to reject any per-call override with `AgentPolicyError` code
+   * `loop_runtime_override_disabled`.
+   *
+   * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loop?: Partial<AiAgentLoopConfig>
+  /**
+   * Optional escape-hatch callback that receives the fully prepared AI SDK
+   * options bag and must return the SDK result (either from `streamText` or
+   * `generateText`). When supplied, the wrapper still enforces every policy
+   * guardrail (features, tool allowlist, mutation approval, model factory,
+   * prompt composition, attachment bridging) and then hands control to this
+   * callback instead of calling `streamText` directly.
+   *
+   * The callback MUST pass `stopWhen` and `prepareStep` through to the AI SDK
+   * call — dropping either one disables the agent's loop policy or mutation
+   * approval guards respectively. See `agents.mdx` §"Option B" for the full
+   * contract and what you lose when fields are omitted.
+   *
+   * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  generateText?: (
+    options: PreparedAiSdkOptions,
+  ) => Promise<GenerateTextResult<ToolSet> | StreamTextResult<ToolSet>>
+  /**
+   * When `true`, the runtime appends a `loop-finish` SSE event to the
+   * response stream after the AI SDK stream closes. The event payload is the
+   * serialized `LoopTrace` for the turn (agent id, turn id, per-step records,
+   * stop reason, total duration, total usage).
+   *
+   * Consumed by `useAiChat` to populate `lastLoopTrace` and by the playground
+   * debug panel to render the per-turn trace via `LoopTracePanel`.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  emitLoopTrace?: boolean
+}
+
+/**
+ * The wrapper default loop config used when neither the caller, tenant, agent,
+ * nor legacy maxSteps supplies any config. Chat mode defaults to `{ maxSteps: 10 }`
+ * to ensure tool-using agents can loop; object mode defaults to an empty config
+ * (single structured-output call, no explicit step cap).
+ */
+const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
+const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+
+/**
+ * Named loop-budget preset values for `?loopBudget=<preset>` query param.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export type AiAgentLoopBudgetPreset = 'tight' | 'default' | 'loose'
+
+/**
+ * Maps a `loopBudget` preset name to the corresponding `AiAgentLoopBudget`
+ * triple. `'default'` returns `undefined` (no override — agent default applies).
+ * Values are pinned per spec §"loopBudget preset values (Phase 4)".
+ */
+export function resolveLoopBudgetPreset(
+  preset: AiAgentLoopBudgetPreset,
+): Partial<AiAgentLoopConfig> | undefined {
+  switch (preset) {
+    case 'tight':
+      return { budget: { maxSteps: 3, maxWallClockMs: 10_000, maxTokens: 50_000 } }
+    case 'loose':
+      return { budget: { maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000 } }
+    case 'default':
+      return undefined
+  }
+}
+
+const SSE_ENCODER = new TextEncoder()
+
+/**
+ * Wraps a streaming `Response` to append a typed `loop-finish` SSE event
+ * after the AI SDK stream closes. The event carries the serialized `LoopTrace`
+ * for the turn so the `useAiChat` hook can render it in the debug panel.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+function appendLoopFinishToStream(
+  baseResponse: Response,
+  finalizeLoopTrace: () => LoopTrace,
+): Response {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+
+  async function pump(): Promise<void> {
+    if (!baseResponse.body) {
+      await writer.close()
+      return
+    }
+    const reader = baseResponse.body.getReader()
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        await writer.write(value)
+      }
+      const trace = finalizeLoopTrace()
+      const eventLine = `data: ${JSON.stringify({ type: 'loop-finish', trace })}\n\n`
+      await writer.write(SSE_ENCODER.encode(eventLine))
+    } catch {
+      // Pass through — the reader abort is surfaced by the upstream consumer.
+    } finally {
+      reader.releaseLock()
+      await writer.close().catch(() => undefined)
+    }
+  }
+
+  void pump()
+  return new Response(readable, {
+    status: baseResponse.status,
+    headers: baseResponse.headers,
+  })
+}
+
+/**
+ * The fully prepared options bag handed to the `runAiAgentText({ generateText })`
+ * escape-hatch callback. Callers receive a complete set of wrapper-composed
+ * loop primitives so they can forward them to `streamText` / `generateText`.
+ *
+ * SECURITY CONTRACT: callers MUST forward `prepareStep` to the AI SDK call.
+ * Dropping it removes the per-step tool-allowlist re-check and the mutation-
+ * approval wrapping. Dropping `stopWhen` removes the agent's loop policy and
+ * the R3 step-count fallback.
+ *
+ * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface PreparedAiSdkOptions {
+  model: LanguageModel
+  tools: ToolSet
+  system: string
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>
+  /** Alias kept for SDK compat — equals `stopWhen` array's effective maxSteps. */
+  maxSteps: number
+  /**
+   * Wrapper-composed stop conditions (R3 mitigated: always ends with
+   * `stepCountIs(maxSteps)`). MUST be forwarded to the SDK call.
+   */
+  stopWhen: StopCondition<ToolSet>[]
+  /**
+   * Wrapper-owned `PrepareStepFunction` that re-asserts the tool allowlist and
+   * mutation-approval wrapping per step. SECURITY-CRITICAL: callers MUST
+   * forward this to the SDK call or they lose mutation-approval guarantees.
+   */
+  prepareStep: PrepareStepFunction<ToolSet>
+  /** Wrapper trace aggregator chained with the agent's `onStepFinish` hook. */
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  onStepStart: AiAgentLoopConfig['onStepStart']
+  onToolCallStart: AiAgentLoopConfig['onToolCallStart']
+  onToolCallFinish: AiAgentLoopConfig['onToolCallFinish']
+  experimental_repairToolCall: AiAgentLoopConfig['repairToolCall']
+  activeTools: AiAgentLoopConfig['activeTools']
+  toolChoice: AiAgentLoopConfig['toolChoice']
+  /**
+   * Pre-wired to the per-turn `AbortController` used by budget enforcement
+   * (Phase 3). Forward to the SDK call so budget limits can abort in-flight
+   * requests. May be `undefined` when budget enforcement is not yet active
+   * (Phases 0–2); the SDK treats `undefined` the same as no signal.
+   */
+  abortSignal: AbortSignal | undefined
+  /**
+   * Finalizes the per-turn `LoopTrace` and returns it. Callers that use the
+   * `generateText` escape-hatch SHOULD call this after the SDK call resolves so
+   * the trace is available for logging or SSE emission.
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  finalizeLoopTrace: () => LoopTrace
+  /**
+   * Present only when `agent.executionEngine === 'tool-loop-agent'`. Callers
+   * can invoke `agent.generate(...)` / `agent.stream(...)` directly with their
+   * own `providerOptions` as an escape-hatch — the `ToolLoopAgent` instance is
+   * already wired with the wrapper-owned `prepareStep`, `stopWhen`, and
+   * `onStepFinish` at construction.
+   *
+   * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  toolLoopAgent?: ToolLoopAgent<never, ToolSet>
+}
+
+/**
+ * The fully prepared options bag handed to the `runAiAgentObject({ generateObject })`
+ * escape-hatch callback. Object-mode subset — chat-only fields are absent.
+ *
+ * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export interface PreparedAiSdkObjectOptions {
+  model: LanguageModel
+  system: string
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>
+  schemaName: string
+  schema: unknown
+  maxSteps: number | undefined
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  onStepStart: AiAgentLoopConfig['onStepStart']
+  abortSignal: AbortSignal | undefined
+}
+
+/**
+ * Guards the per-call loop override against agents that have opted out of
+ * runtime overrides by setting `loop.allowRuntimeOverride: false`.
+ *
+ * Throws `AgentPolicyError` with code `loop_runtime_override_disabled` when
+ * the agent has opted out and a caller override was supplied.
+ *
+ * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+function assertLoopRuntimeOverrideAllowed(
+  agent: AiAgentDefinition,
+  callerLoop: Partial<AiAgentLoopConfig> | undefined,
+): void {
+  if (!callerLoop) return
+  const allowed = agent.loop?.allowRuntimeOverride ?? true
+  if (!allowed) {
+    throw new AgentPolicyError(
+      'loop_runtime_override_disabled',
+      `Agent "${agent.id}" has disabled per-call loop overrides (loop.allowRuntimeOverride: false). Remove the loop override to proceed.`,
+    )
+  }
+}
+
+/**
+ * Reads `<MODULE>_AI_LOOP_*` env shorthands for the given module id.
+ * Returns a partial `AiAgentLoopConfig` containing only the axes that are
+ * explicitly set in the environment. Missing or malformed values are silently
+ * ignored (fail-open — env vars are a best-effort static deployment mechanism).
+ *
+ * Supported variables (Phase 3 of spec
+ * `2026-04-28-ai-agents-agentic-loop-controls`):
+ *
+ * - `<MODULE>_AI_LOOP_MAX_STEPS`       — maps to `loop.maxSteps`
+ * - `<MODULE>_AI_LOOP_MAX_WALL_CLOCK_MS` — maps to `loop.budget.maxWallClockMs`
+ * - `<MODULE>_AI_LOOP_MAX_TOKENS`      — maps to `loop.budget.maxTokens`
+ */
+function readModuleLoopEnv(moduleId: string): Partial<AiAgentLoopConfig> {
+  const prefix = moduleId.toUpperCase()
+  const partial: Partial<AiAgentLoopConfig> = {}
+
+  const maxStepsRaw = process.env[`${prefix}_AI_LOOP_MAX_STEPS`]
+  if (maxStepsRaw) {
+    const parsed = parseInt(maxStepsRaw.trim(), 10)
+    if (!isNaN(parsed) && parsed > 0) partial.maxSteps = parsed
+  }
+
+  const maxWallClockRaw = process.env[`${prefix}_AI_LOOP_MAX_WALL_CLOCK_MS`]
+  const maxTokensRaw = process.env[`${prefix}_AI_LOOP_MAX_TOKENS`]
+
+  if (maxWallClockRaw || maxTokensRaw) {
+    const budgetPartial: AiAgentLoopConfig['budget'] = {}
+    if (maxWallClockRaw) {
+      const parsed = parseInt(maxWallClockRaw.trim(), 10)
+      if (!isNaN(parsed) && parsed > 0) budgetPartial.maxWallClockMs = parsed
+    }
+    if (maxTokensRaw) {
+      const parsed = parseInt(maxTokensRaw.trim(), 10)
+      if (!isNaN(parsed) && parsed > 0) budgetPartial.maxTokens = parsed
+    }
+    if (Object.keys(budgetPartial).length > 0) partial.budget = budgetPartial
+  }
+
+  return partial
+}
+
+/**
+ * Resolves the effective loop config for a turn by walking the precedence
+ * chain (highest first):
+ *
+ * 1. `callerLoop` — per-call `runAiAgentText({ loop })` override (Phase 1).
+ * 2. Tenant override row — NOT yet implemented in DB; always `undefined` here.
+ *    // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
+ * 3. `<MODULE>_AI_LOOP_*` env shorthands (Phase 3) — only MAX_STEPS,
+ *    MAX_WALL_CLOCK_MS, MAX_TOKENS. Lower precedence than DB override but higher
+ *    than the agent's code-declared defaults.
+ * 4. `agent.loop` — agent's declarative loop config.
+ * 5. `agent.maxSteps` (deprecated alias) — mapped to `{ maxSteps: agent.maxSteps }`.
+ * 6. `wrapperDefault` — the wrapper's hardcoded fallback.
+ *
+ * Each source contributes only the fields it sets explicitly; fields absent at
+ * a higher-priority source fall through to a lower-priority one. The merge is
+ * performed left-to-right with higher-priority sources winning field-by-field.
+ *
+ * Throws `AgentPolicyError` code `loop_runtime_override_disabled` when the
+ * agent opts out of per-call overrides and a caller loop was supplied.
+ *
+ * Phase 0 + Phase 1 + Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function resolveEffectiveLoopConfig(
+  agent: AiAgentDefinition,
+  callerLoop?: Partial<AiAgentLoopConfig> | undefined,
+  wrapperDefault?: AiAgentLoopConfig,
+): AiAgentLoopConfig {
+  assertLoopRuntimeOverrideAllowed(agent, callerLoop)
+
+  const effectiveDefault = wrapperDefault ?? WRAPPER_DEFAULT_LOOP_CHAT
+
+  // Build base from lowest-priority: wrapper default → legacy maxSteps → agent.loop
+  const legacyMaxSteps: AiAgentLoopConfig | undefined =
+    typeof agent.maxSteps === 'number' && agent.maxSteps > 0 && !agent.loop
+      ? { maxSteps: agent.maxSteps }
+      : undefined
+
+  const base: AiAgentLoopConfig = {
+    ...effectiveDefault,
+    ...(legacyMaxSteps ?? {}),
+    ...(agent.loop ?? {}),
+  }
+
+  // Phase 3 — env shorthands at priority 3 (above agent.loop, below DB override).
+  // TODO(Phase 1782-3): hydrate loop columns from ai_agent_runtime_overrides
+  // and merge tenantOverride here at priority #2 (above envOverride).
+  const envOverride = readModuleLoopEnv(agent.moduleId)
+  const withEnv: AiAgentLoopConfig = {
+    ...base,
+    ...envOverride,
+    ...(envOverride.budget != null
+      ? { budget: { ...(base.budget ?? {}), ...envOverride.budget } }
+      : {}),
+  }
+
+  const withCaller: AiAgentLoopConfig = callerLoop
+    ? { ...withEnv, ...callerLoop }
+    : withEnv
+
+  // Phase 3 — kill switch: when disabled is set to true, force maxSteps: 1 so the
+  // agent executes as a single model call with no tool looping. All other loop config
+  // is preserved (budget, etc.) but the step cap wins.
+  if (withCaller.disabled === true) {
+    return { ...withCaller, maxSteps: 1 }
+  }
+
+  return withCaller
+}
+
+/**
+ * The reason a budget limit was hit, exposed on `LoopAbortReason` (Phase 3).
+ */
+export type LoopBudgetAbortReason =
+  | 'budget-tool-calls'
+  | 'budget-wall-clock'
+  | 'budget-tokens'
+
+/**
+ * Tracks per-turn budget usage and aborts the run when any limit is exceeded.
+ *
+ * Usage:
+ * 1. Construct with the loop budget and the turn's `AbortController`.
+ * 2. Call `wire(onStepFinish)` to get a composed `onStepFinish` that feeds
+ *    usage data into the enforcer on every completed step.
+ * 3. The enforcer calls `abortController.abort()` with a typed
+ *    `LoopBudgetAbortReason` when a limit is hit.
+ *
+ * Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export class BudgetEnforcer {
+  private toolCallsUsed = 0
+  private tokensUsed = 0
+  readonly turnStartMs: number
+  abortReason: LoopBudgetAbortReason | null = null
+
+  constructor(
+    private readonly budget: AiAgentLoopConfig['budget'],
+    private readonly abortController: AbortController,
+  ) {
+    this.turnStartMs = Date.now()
+  }
+
+  get hasActiveBudget(): boolean {
+    const b = this.budget
+    return (
+      b !== undefined &&
+      (b.maxToolCalls !== undefined || b.maxWallClockMs !== undefined || b.maxTokens !== undefined)
+    )
+  }
+
+  recordStep(usage: { inputTokens?: number; outputTokens?: number; toolCalls?: number }): void {
+    if (!this.budget) return
+    this.toolCallsUsed += usage.toolCalls ?? 0
+    this.tokensUsed += (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+    this.checkLimits()
+  }
+
+  private checkLimits(): void {
+    const b = this.budget
+    if (!b) return
+
+    if (b.maxToolCalls !== undefined && this.toolCallsUsed >= b.maxToolCalls) {
+      this.abort('budget-tool-calls')
+      return
+    }
+
+    const elapsedMs = Date.now() - this.turnStartMs
+    if (b.maxWallClockMs !== undefined && elapsedMs >= b.maxWallClockMs) {
+      this.abort('budget-wall-clock')
+      return
+    }
+
+    if (b.maxTokens !== undefined && this.tokensUsed >= b.maxTokens) {
+      this.abort('budget-tokens')
+    }
+  }
+
+  private abort(reason: LoopBudgetAbortReason): void {
+    if (this.abortReason !== null) return
+    this.abortReason = reason
+    console.info(
+      `[AI Agents] Budget exceeded — aborting turn. Reason: ${reason}. ` +
+        `toolCalls=${this.toolCallsUsed}, tokens=${this.tokensUsed}, ` +
+        `elapsedMs=${Date.now() - this.turnStartMs}.`,
+    )
+    this.abortController.abort(reason)
+  }
+
+  wire(
+    userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+  ): AiAgentLoopConfig['onStepFinish'] {
+    if (!this.hasActiveBudget) return userOnStepFinish
+    return async (event) => {
+      this.recordStep({
+        inputTokens: event.usage?.inputTokens,
+        outputTokens: event.usage?.outputTokens,
+        toolCalls: event.toolCalls?.length,
+      })
+      if (userOnStepFinish) {
+        try {
+          await userOnStepFinish(event)
+        } catch (err) {
+          console.error('[AI Agents] User onStepFinish threw; ignoring:', err)
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Builds a wrapper-owned `onStepFinish` collector that aggregates per-step
+ * usage and tool-call data into a `LoopTrace` object. The collector chains
+ * the user's `onStepFinish` after it aggregates (exceptions from the user's
+ * hook are caught and logged but do not abort the turn).
+ *
+ * Returns both the wired `onStepFinish` hook and a `finalize()` function that
+ * resolves the `LoopTrace` once the turn is complete. The `budgetEnforcer`
+ * is already wired into `onStepFinish` at a lower layer — this collector sits
+ * above it.
+ *
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function buildLoopTraceCollector(
+  agentId: string,
+  sessionId: string,
+  turnId: string,
+  userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+): {
+  onStepFinish: AiAgentLoopConfig['onStepFinish']
+  finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
+} {
+  const turnStartMs = Date.now()
+  const steps: LoopStepRecord[] = []
+
+  const onStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
+    const stepIndex = steps.length
+    const toolCalls = (event.toolCalls ?? []).map((tc) => {
+      const raw = tc as unknown as {
+        toolName?: string
+        args?: unknown
+        result?: unknown
+        experimental_toToolResultError?: { code?: string; message?: string }
+        repairAttempted?: boolean
+        startTime?: number
+        endTime?: number
+      }
+      return {
+        toolName: raw.toolName ?? 'unknown',
+        args: raw.args ?? {},
+        result: raw.result,
+        error: raw.experimental_toToolResultError
+          ? {
+              code: String(raw.experimental_toToolResultError?.code ?? 'unknown'),
+              message: String(raw.experimental_toToolResultError?.message ?? ''),
+            }
+          : undefined,
+        repairAttempted: raw.repairAttempted === true,
+        durationMs:
+          typeof raw.startTime === 'number' && typeof raw.endTime === 'number'
+            ? raw.endTime - raw.startTime
+            : 0,
+      }
+    })
+
+    const textDelta =
+      (event as unknown as { text?: string }).text ?? ''
+
+    const finishReason = (
+      (event as unknown as { finishReason?: string }).finishReason ?? 'stop'
+    ) as LoopStepRecord['finishReason']
+
+    const modelId =
+      (event as unknown as { response?: { modelId?: string } }).response?.modelId ?? 'unknown'
+
+    steps.push({
+      stepIndex,
+      modelId,
+      toolCalls,
+      textDelta,
+      usage: {
+        inputTokens: event.usage?.inputTokens ?? 0,
+        outputTokens: event.usage?.outputTokens ?? 0,
+      },
+      finishReason,
+    })
+
+    if (userOnStepFinish) {
+      try {
+        await userOnStepFinish(event)
+      } catch (err) {
+        console.error('[AI Agents] User onStepFinish in LoopTrace collector threw; ignoring:', err)
+      }
+    }
+  }
+
+  function finalize(abortReason: LoopBudgetAbortReason | null): LoopTrace {
+    const totalDurationMs = Date.now() - turnStartMs
+    const totalUsage = steps.reduce(
+      (acc, step) => ({
+        inputTokens: acc.inputTokens + step.usage.inputTokens,
+        outputTokens: acc.outputTokens + step.usage.outputTokens,
+      }),
+      { inputTokens: 0, outputTokens: 0 },
+    )
+
+    let stopReason: LoopTrace['stopReason'] = 'finish-reason'
+    if (abortReason === 'budget-tool-calls') stopReason = 'budget-tool-calls'
+    else if (abortReason === 'budget-wall-clock') stopReason = 'budget-wall-clock'
+    else if (abortReason === 'budget-tokens') stopReason = 'budget-tokens'
+
+    return {
+      agentId,
+      sessionId,
+      turnId,
+      steps,
+      stopReason,
+      totalDurationMs,
+      totalUsage,
+    }
+  }
+
+  return { onStepFinish, finalize }
+}
+
+/**
+ * Translates serializable `AiAgentLoopStopCondition` items into the Vercel AI
+ * SDK `StopCondition` array ready to pass to `streamText` / `generateText`.
+ *
+ * The wrapper ALWAYS appends `stepCountIs(maxSteps ?? 10)` as the final item
+ * in the returned array (R3 mitigation). This guarantees that a misconfigured
+ * `hasToolCall` for a non-existent tool can never cause an infinite loop
+ * because the SDK treats `stopWhen` arrays with OR semantics — the step-count
+ * fallback will always trip eventually.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function translateStopConditions(
+  loopConfig: AiAgentLoopConfig,
+): StopCondition<Record<string, unknown>>[] {
+  const effectiveMaxSteps = loopConfig.maxSteps ?? 10
+  const userConditions: StopCondition<Record<string, unknown>>[] = []
+
+  const rawStopWhen = loopConfig.stopWhen
+  if (rawStopWhen) {
+    const items = Array.isArray(rawStopWhen) ? rawStopWhen : [rawStopWhen]
+    for (const item of items) {
+      if (item.kind === 'stepCount') {
+        userConditions.push(stepCountIs(item.count))
+      } else if (item.kind === 'hasToolCall') {
+        userConditions.push(hasToolCall(item.toolName))
+      } else if (item.kind === 'custom') {
+        userConditions.push(item.stop as StopCondition<Record<string, unknown>>)
+      }
+    }
+  }
+
+  // Always append the hard step-count fallback (R3 mitigation).
+  return [...userConditions, stepCountIs(effectiveMaxSteps)]
+}
+
+/**
+ * Security-critical merge of the wrapper-owned step override with the user's
+ * `prepareStep` return value.
+ *
+ * Guarantees (R1 mitigation — preserving the mutation-approval contract):
+ * 1. Any `tools` map returned by the user is intersected with `toolRegistry`
+ *    (the policy-gated, mutation-approval-wrapped map). If the user returned
+ *    a raw mutation handler, the merged map points at the wrapped one.
+ * 2. Any `activeTools` returned by the user is intersected with
+ *    `agent.allowedTools`. Out-of-set names are dropped with a single
+ *    `loop:active_tools_filtered` warning.
+ * 3. A user-returned `tools` map that contains a mutation tool pointing at the
+ *    raw handler (not the wrapped one) is rejected with
+ *    `AgentPolicyError` code `loop_violates_mutation_policy`.
+ * 4. Non-policy fields (`model`, `toolChoice`, `system`, `messages`) from the
+ *    user override are honored as-is.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function mergeStepOverrides(
+  wrapperOverride: PrepareStepResult<ToolSet>,
+  userOverride: PrepareStepResult<ToolSet> | undefined | null,
+  agent: AiAgentDefinition,
+  wrappedToolRegistry: Record<string, unknown>,
+): PrepareStepResult<ToolSet> {
+  if (!userOverride) return wrapperOverride
+
+  const merged: PrepareStepResult<ToolSet> = { ...wrapperOverride }
+
+  if (userOverride.model !== undefined) {
+    merged.model = userOverride.model
+  }
+  if (userOverride.toolChoice !== undefined) {
+    merged.toolChoice = userOverride.toolChoice
+  }
+
+  if (userOverride.activeTools !== undefined) {
+    const filtered = userOverride.activeTools.filter((name) => {
+      const allowed = agent.allowedTools.includes(name)
+      if (!allowed) {
+        console.warn(
+          `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
+        )
+      }
+      return allowed
+    })
+    merged.activeTools = filtered
+  }
+
+  if (userOverride.tools !== undefined) {
+    const userTools = userOverride.tools as Record<string, unknown>
+    const mergedTools: Record<string, unknown> = {}
+
+    for (const [toolKey, userHandler] of Object.entries(userTools)) {
+      const wrappedHandler = wrappedToolRegistry[toolKey]
+      if (!wrappedHandler) {
+        console.warn(
+          `[AI Agents] mergeStepOverrides — tool "${toolKey}" from user prepareStep is not in the wrapper tool registry; dropping.`,
+        )
+        continue
+      }
+      if (userHandler !== wrappedHandler) {
+        const toolDef = toolRegistry.getTool(
+          toolKey.replace(/__/g, '.'),
+        ) as { isMutation?: boolean } | undefined
+        if (toolDef?.isMutation === true) {
+          throw new AgentPolicyError(
+            'loop_violates_mutation_policy',
+            `User prepareStep returned a tools map with raw (unwrapped) mutation handler for "${toolKey}". This bypasses the mutation-approval gate and is rejected.`,
+          )
+        }
+      }
+      mergedTools[toolKey] = wrappedHandler
+    }
+    merged.tools = mergedTools as PrepareStepResult<ToolSet>['tools']
+  }
+
+  return merged
+}
+
+/**
+ * Builds the wrapper-owned `PrepareStepFunction` that enforces the tool
+ * allowlist and mutation-approval contract on every step, then composes
+ * the user's `prepareStep` on top via `mergeStepOverrides`.
+ *
+ * This is the SECURITY-CRITICAL function for Phase 0. The wrapper `prepareStep`
+ * ensures:
+ * - Tool active-set is always a subset of `effectiveLoop.activeTools ?? agent.allowedTools`.
+ * - Mutation tools always point at the prepareMutation-wrapped handlers.
+ * - User's `prepareStep` return value cannot smuggle raw mutation handlers.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function buildWrapperPrepareStep(
+  agent: AiAgentDefinition,
+  effectiveLoop: AiAgentLoopConfig,
+  wrappedTools: Record<string, unknown>,
+): PrepareStepFunction<ToolSet> {
+  return async (state) => {
+    const wrapperOverride: PrepareStepResult<ToolSet> = {}
+
+    if (effectiveLoop.activeTools && effectiveLoop.activeTools.length > 0) {
+      wrapperOverride.activeTools = effectiveLoop.activeTools.filter((name) => {
+        const allowed = agent.allowedTools.includes(name)
+        if (!allowed) {
+          console.warn(
+            `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
+          )
+        }
+        return allowed
+      })
+    }
+
+    if (effectiveLoop.prepareStep) {
+      let userOverride: PrepareStepResult<ToolSet> | undefined | null
+      try {
+        userOverride = await effectiveLoop.prepareStep(state)
+      } catch (error) {
+        console.error(
+          `[AI Agents] User prepareStep threw for agent "${agent.id}"; ignoring user override:`,
+          error,
+        )
+        return wrapperOverride
+      }
+      return mergeStepOverrides(wrapperOverride, userOverride, agent, wrappedTools)
+    }
+
+    return wrapperOverride
+  }
+}
+
+/**
+ * Validates that a loop config does not set any primitives that are
+ * unsupported by the object-mode SDK path (`generateObject` / `streamObject`).
+ *
+ * Object mode accepts ONLY: `maxSteps`, `budget`, `onStepFinish`,
+ * `onStepStart`, `allowRuntimeOverride`. The remaining fields
+ * (`prepareStep`, `repairToolCall`, `stopWhen`, `activeTools`,
+ * `toolChoice`) are chat-only and will never reach `generateObject`.
+ *
+ * Throws `AgentPolicyError` code `loop_unsupported_in_object_mode` if any
+ * unsupported field is set. This provides an explicit, actionable error
+ * rather than a silent no-op.
+ *
+ * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+export function assertLoopObjectModeCompatible(loopConfig: Partial<AiAgentLoopConfig>): void {
+  const unsupportedFields: string[] = []
+
+  if (loopConfig.prepareStep !== undefined) unsupportedFields.push('prepareStep')
+  if (loopConfig.repairToolCall !== undefined) unsupportedFields.push('repairToolCall')
+  if (loopConfig.stopWhen !== undefined) unsupportedFields.push('stopWhen')
+  if (loopConfig.activeTools !== undefined) unsupportedFields.push('activeTools')
+  if (loopConfig.toolChoice !== undefined) unsupportedFields.push('toolChoice')
+
+  if (unsupportedFields.length > 0) {
+    throw new AgentPolicyError(
+      'loop_unsupported_in_object_mode',
+      `Object-mode agents do not support these loop primitives: ${unsupportedFields.join(', ')}. Use runAiAgentText for agents that require these loop controls.`,
+    )
+  }
 }
 
 interface ResolvedAgentModel {
@@ -131,7 +914,6 @@ function resolveAgentModel(
   tenantAllowlist?: TenantAllowlistSnapshot | null,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
-  const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
   const resolution = createModelFactory(effectiveContainer).resolveModel({
     moduleId: agent.moduleId,
     agentDefaultModel: agent.defaultModel,
@@ -140,7 +922,7 @@ function resolveAgentModel(
     callerOverride: modelOverride,
     providerOverride,
     baseUrlOverride,
-    allowRuntimeModelOverride,
+    allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
     tenantAllowlist: tenantAllowlist ?? null,
@@ -603,6 +1385,12 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       input.authContext.organizationId,
     ),
   ])
+  // Phase 6.2 — resolve the effective session id. `sessionId` takes precedence
+  // over the deprecated `conversationId` alias. When neither is supplied, a
+  // fresh UUID is generated server-side so token-usage rows and pending-action
+  // idempotency hashes are always correlated within the same session.
+  const effectiveSessionId = (input.sessionId ?? input.conversationId) || randomUUID()
+
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -610,7 +1398,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     attachmentIds: input.attachmentIds,
     mutationPolicyOverride,
     container: input.container,
-    conversationId: input.conversationId ?? null,
+    conversationId: effectiveSessionId,
   })
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({
@@ -633,7 +1421,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -643,33 +1431,200 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const { model } = resolvedModel
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  // Default to 10 agentic steps when the agent does not declare maxSteps.
-  // Without stopWhen the AI SDK runs a single model call and never executes
-  // tool calls, which makes every tool-using query return an empty stream.
-  const effectiveMaxSteps = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
-    ? agent.maxSteps
-    : 10
-  const stopWhen = stepCountIs(effectiveMaxSteps)
 
-  const streamArgs: Parameters<typeof streamText>[0] = {
+  const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
+  const stopConditions = translateStopConditions(effectiveLoop)
+  const wrapperPrepareStep = buildWrapperPrepareStep(agent, effectiveLoop, tools)
+
+  // Phase 3 + Phase 4 — budget enforcement + LoopTrace collection.
+  // Layer order (outer → inner):
+  //   budgetEnforcer.wire(traceOnStepFinish) → traceOnStepFinish calls userOnStepFinish
+  // The trace collector builds the per-turn LoopTrace; the budget enforcer
+  // aborts via AbortController when any limit is exceeded.
+  // Phase 6.2 — generate a per-call turnId as a UUID.
+  const turnId = randomUUID()
+  const loopTraceCollector = buildLoopTraceCollector(agent.id, effectiveSessionId, turnId, effectiveLoop.onStepFinish)
+  const abortController = new AbortController()
+  const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
+  const tracedOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
+
+  // Phase 6.3 — wire the token-usage recorder into the wrapper-owned onStepFinish.
+  // The recorder fires AFTER the trace collector so modelId is already in the trace.
+  // It is invoked as void (detached) and MUST NEVER throw per R12.
+  // resolvedModel is already computed above (model, modelId, providerId).
+
+  let currentStepIndex = 0
+  const wiredOnStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
+    const capturedStepIndex = currentStepIndex
+    currentStepIndex += 1
+
+    if (tracedOnStepFinish) {
+      await tracedOnStepFinish(event)
+    }
+    if (input.container) {
+      const rawEvent = event as unknown as {
+        usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
+        finishReason?: string
+      }
+      void recordTokenUsage(
+        {
+          authContext: input.authContext,
+          agentId: agent.id,
+          moduleId: agent.moduleId,
+          sessionId: effectiveSessionId,
+          turnId,
+          stepIndex: capturedStepIndex,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          usage: {
+            inputTokens: rawEvent.usage?.inputTokens,
+            outputTokens: rawEvent.usage?.outputTokens,
+            cachedInputTokens: rawEvent.usage?.cachedInputTokens,
+            reasoningTokens: rawEvent.usage?.reasoningTokens,
+          },
+          finishReason: rawEvent.finishReason,
+          loopAbortReason: budgetEnforcer.abortReason ?? undefined,
+        },
+        input.container,
+      )
+    }
+  }
+
+  let wallClockTimer: ReturnType<typeof setTimeout> | undefined
+  if (effectiveLoop.budget?.maxWallClockMs) {
+    wallClockTimer = setTimeout(() => {
+      budgetEnforcer.recordStep({ toolCalls: 0 })
+    }, effectiveLoop.budget.maxWallClockMs)
+  }
+
+  // Phase 5 — construct ToolLoopAgent when executionEngine === 'tool-loop-agent'.
+  // The agent is built ONCE per turn (not pooled) with:
+  //   - model + tools from the wrapper-resolved registry
+  //   - stopWhen wired at construction (ToolLoopAgentSettings field)
+  //   - prepareStep wired at construction (NOT via prepareCall — it is not in
+  //     prepareCall's Pick list per spec §Phase 5 correction)
+  //   - onStepFinish wired at construction (budget + trace collector)
+  //   - prepareCall used only for per-turn narrowing of model/tools/stopWhen/
+  //     activeTools/providerOptions (per spec §Phase 5 correction)
+  let builtToolLoopAgent: ToolLoopAgent<never, ToolSet> | undefined
+  if (agent.executionEngine === 'tool-loop-agent') {
+    const agentSettings: ToolLoopAgentSettings<never, ToolSet> = {
+      model,
+      tools: tools as ToolSet,
+      stopWhen: stopConditions,
+      prepareStep: wrapperPrepareStep,
+      onStepFinish: wiredOnStepFinish,
+      ...(effectiveLoop.repairToolCall !== undefined
+        ? { experimental_repairToolCall: effectiveLoop.repairToolCall }
+        : {}),
+      ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
+      ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+    }
+    builtToolLoopAgent = new ToolLoopAgent(agentSettings)
+  }
+
+  const preparedOptions: PreparedAiSdkOptions = {
+    model,
+    tools,
+    system: systemPrompt,
+    messages: modelMessages,
+    maxSteps: effectiveLoop.maxSteps ?? 10,
+    stopWhen: stopConditions,
+    prepareStep: wrapperPrepareStep,
+    onStepFinish: wiredOnStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    onToolCallStart: effectiveLoop.onToolCallStart,
+    onToolCallFinish: effectiveLoop.onToolCallFinish,
+    experimental_repairToolCall: effectiveLoop.repairToolCall,
+    activeTools: effectiveLoop.activeTools,
+    toolChoice: effectiveLoop.toolChoice,
+    abortSignal: abortController.signal,
+    finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
+    ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
+  }
+
+  if (input.generateText) {
+    try {
+      const callbackResult = await input.generateText(preparedOptions)
+      const baseResponse = (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
+        sendReasoning: true,
+        headers: {
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+        },
+      })
+      if (input.emitLoopTrace) {
+        return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+      }
+      return baseResponse
+    } finally {
+      if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
+    }
+  }
+
+  // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
+  if (builtToolLoopAgent !== undefined) {
+    // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
+    // pipeline. prepareStep is already wired at construction (security-critical).
+    const agentStreamResult = await builtToolLoopAgent.stream({
+      messages: modelMessages,
+      abortSignal: abortController.signal,
+      onStepFinish: wiredOnStepFinish,
+    })
+    if (wallClockTimer !== undefined) {
+      agentStreamResult
+        .consumeStream()
+        .then(() => clearTimeout(wallClockTimer!))
+        .catch(() => clearTimeout(wallClockTimer!))
+    }
+    const baseResponse = agentStreamResult.toUIMessageStreamResponse({
+      sendReasoning: true,
+      headers: {
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    })
+    if (input.emitLoopTrace) {
+      return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+    }
+    return baseResponse
+  }
+
+  // Default stream-text path (executionEngine === 'stream-text' or unset).
+  const result = streamText({
     model,
     system: systemPrompt,
     messages: modelMessages,
     tools,
-    stopWhen,
+    stopWhen: stopConditions,
+    prepareStep: wrapperPrepareStep,
+    onStepFinish: wiredOnStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    experimental_onToolCallStart: effectiveLoop.onToolCallStart,
+    experimental_onToolCallFinish: effectiveLoop.onToolCallFinish,
+    experimental_repairToolCall: effectiveLoop.repairToolCall,
+    ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
+    ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+    abortSignal: abortController.signal,
+  })
+  if (wallClockTimer !== undefined) {
+    result.consumeStream().then(() => clearTimeout(wallClockTimer!)).catch(() => clearTimeout(wallClockTimer!))
   }
-
-  const result = streamText(streamArgs)
-  return result.toUIMessageStreamResponse({
+  const baseResponse = result.toUIMessageStreamResponse({
     sendReasoning: true,
     headers: {
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
     },
   })
+  if (input.emitLoopTrace) {
+    return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+  }
+  return baseResponse
 }
 
 /**
@@ -725,7 +1680,7 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
    * `?baseUrl=`). Validated by the dispatcher route before being forwarded
    * here. Wins over tenantOverride and all lower-priority sources when
-   * `agent.allowRuntimeModelOverride !== false`.
+   * `agent.allowRuntimeOverride !== false`.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -737,6 +1692,36 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
+  /**
+   * Optional stable per-run session id for token-usage correlation.
+   * Object-mode runs are single-turn by definition but the session id lets
+   * callers group multiple object runs together for reporting.
+   *
+   * Phase 6.2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  sessionId?: string | null
+  /**
+   * Optional per-call loop config override for object mode. Only the
+   * object-safe subset is accepted: `maxSteps`, `budget`, `onStepFinish`,
+   * `onStepStart`, and `allowRuntimeOverride`. Providing any chat-only
+   * field (`prepareStep`, `repairToolCall`, `stopWhen`, `activeTools`,
+   * `toolChoice`) throws `AgentPolicyError` code
+   * `loop_unsupported_in_object_mode`.
+   *
+   * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  loop?: Pick<AiAgentLoopConfig, 'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride'>
+  /**
+   * Optional escape-hatch callback receiving the fully prepared object-mode
+   * options bag. When supplied the wrapper still enforces all policy guardrails
+   * and then delegates the actual SDK call to this function. The callback MUST
+   * return a value compatible with `GenerateObjectResult` or `StreamObjectResult`.
+   *
+   * Phase 2 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  generateObject?: (
+    options: PreparedAiSdkObjectOptions,
+  ) => Promise<GenerateObjectResult<unknown> | StreamObjectResult<unknown, unknown, unknown>>
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
@@ -883,9 +1868,63 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  const stopWhen = typeof agent.maxSteps === 'number' && agent.maxSteps > 0
-    ? stepCountIs(agent.maxSteps)
-    : undefined
+  void tools
+
+  // Phase 6.2 — resolve session id and generate per-call turn id for
+  // token-usage correlation in object mode.
+  const effectiveObjectSessionId = input.sessionId ?? randomUUID()
+  const objectTurnId = randomUUID()
+  // Expose for token recorder via closure (used by token-usage-recorder in Phase 6.3).
+  void effectiveObjectSessionId
+  void objectTurnId
+
+  if (input.loop) {
+    assertLoopObjectModeCompatible(input.loop)
+  }
+  const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
+
+  const abortController = new AbortController()
+
+  const preparedObjectOptions: PreparedAiSdkObjectOptions = {
+    model,
+    system: systemPrompt,
+    messages: modelMessages,
+    schemaName: resolvedOutput.schemaName,
+    schema: resolvedOutput.schema,
+    maxSteps: effectiveLoop.maxSteps,
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    abortSignal: abortController.signal,
+  }
+
+  if (input.generateObject) {
+    const callbackResult = await input.generateObject(preparedObjectOptions)
+    const typedResult = callbackResult as Record<string, unknown>
+    if ('partialObjectStream' in typedResult) {
+      const streamResult = typedResult as {
+        object: Promise<TSchema>
+        partialObjectStream: AsyncIterable<Partial<TSchema>>
+        textStream: AsyncIterable<string>
+        finishReason?: Promise<string | undefined>
+        usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
+      }
+      return {
+        mode: 'stream',
+        object: streamResult.object,
+        partialObjectStream: streamResult.partialObjectStream,
+        textStream: streamResult.textStream,
+        finishReason: streamResult.finishReason,
+        usage: streamResult.usage,
+      }
+    }
+    const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+    return {
+      mode: 'generate',
+      object: genResult.object as TSchema,
+      finishReason: genResult.finishReason,
+      usage: genResult.usage,
+    }
+  }
 
   if (resolvedOutput.mode === 'stream') {
     const streamArgs: Parameters<typeof streamObject>[0] = {
@@ -894,6 +1933,10 @@ export async function runAiAgentObject<TSchema = unknown>(
       messages: modelMessages,
       schema: resolvedOutput.schema as never,
       schemaName: resolvedOutput.schemaName,
+      ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
+      onStepFinish: effectiveLoop.onStepFinish,
+      onStepStart: effectiveLoop.onStepStart,
+      abortSignal: abortController.signal,
     }
     const result = streamObject(streamArgs) as unknown as {
       object: Promise<TSchema>
@@ -918,16 +1961,11 @@ export async function runAiAgentObject<TSchema = unknown>(
     messages: modelMessages,
     schema: resolvedOutput.schema as never,
     schemaName: resolvedOutput.schemaName,
+    ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
+    onStepFinish: effectiveLoop.onStepFinish,
+    onStepStart: effectiveLoop.onStepStart,
+    abortSignal: abortController.signal,
   }
-  if (stopWhen) {
-    // generateObject shares `CallSettings` with generateText; stopWhen is ignored
-    // by the typed surface but harmless for providers that respect it. Tools
-    // flow through the system prompt only in object mode today — the whitelist
-    // has already been resolved via `resolveAiAgentTools` above, even if we
-    // don't hand it to generateObject.
-    ;(generateArgs as Record<string, unknown>).stopWhen = stopWhen
-  }
-  void tools
 
   const result = await generateObject(generateArgs)
   return {

@@ -124,3 +124,10 @@ export {
   type AiChatUploadFileState,
   type AiChatUploadFileStatus,
 } from './useAiChatUpload'
+export { LoopDisabledBanner } from './LoopDisabledBanner'
+export {
+  LoopTracePanel,
+  type LoopTracePanelProps,
+  type LoopTracePanelTrace,
+  type LoopTracePanelStepRecord,
+} from './LoopTracePanel'
