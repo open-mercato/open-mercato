@@ -28,12 +28,7 @@ export const openApi: OpenApiRouteDoc = {
         'Returns aggregated token-usage data from `ai_token_usage_daily` for the given ' +
         'date window. Tenant-scoped. Optionally filtered by `agentId` and/or `modelId`. ' +
         'Requires `ai_assistant.settings.manage`.',
-      parameters: [
-        { name: 'from', in: 'query', required: true, description: 'Start date (YYYY-MM-DD, inclusive).' },
-        { name: 'to', in: 'query', required: true, description: 'End date (YYYY-MM-DD, inclusive).' },
-        { name: 'agentId', in: 'query', required: false, description: 'Filter by agent id.' },
-        { name: 'modelId', in: 'query', required: false, description: 'Filter by model id.' },
-      ],
+      query: querySchema,
       responses: [
         {
           status: 200,

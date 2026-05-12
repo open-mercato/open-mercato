@@ -69,7 +69,8 @@ export class AiTokenUsageRepository {
       finishReason: input.finishReason ?? null,
       loopAbortReason: input.loopAbortReason ?? null,
     })
-    await this.em.persistAndFlush(event)
+    this.em.persist(event)
+    await this.em.flush()
     return event
   }
 

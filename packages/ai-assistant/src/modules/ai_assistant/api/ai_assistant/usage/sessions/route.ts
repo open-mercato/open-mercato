@@ -40,13 +40,7 @@ export const openApi: OpenApiRouteDoc = {
         'Returns aggregated token-usage data grouped by `session_id` from `ai_token_usage_events` ' +
         'for the given date window. Tenant-scoped. Optionally filtered by `agentId`. ' +
         'Paginated via `limit` / `offset`. Requires `ai_assistant.settings.manage`.',
-      parameters: [
-        { name: 'from', in: 'query', required: true, description: 'Start date (YYYY-MM-DD, inclusive).' },
-        { name: 'to', in: 'query', required: true, description: 'End date (YYYY-MM-DD, inclusive).' },
-        { name: 'agentId', in: 'query', required: false, description: 'Filter by agent id.' },
-        { name: 'limit', in: 'query', required: false, description: `Page size (max ${MAX_PAGE_SIZE}, default ${MAX_PAGE_SIZE}).` },
-        { name: 'offset', in: 'query', required: false, description: 'Pagination offset (default 0).' },
-      ],
+      query: querySchema,
       responses: [
         {
           status: 200,

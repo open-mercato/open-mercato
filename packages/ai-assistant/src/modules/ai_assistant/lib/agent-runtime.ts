@@ -170,7 +170,7 @@ export interface RunAiAgentTextInput {
    */
   generateText?: (
     options: PreparedAiSdkOptions,
-  ) => Promise<GenerateTextResult<ToolSet> | StreamTextResult<ToolSet>>
+  ) => Promise<GenerateTextResult<ToolSet, never> | StreamTextResult<ToolSet, never>>
   /**
    * When `true`, the runtime appends a `loop-finish` SSE event to the
    * response stream after the AI SDK stream closes. The event payload is the
@@ -211,9 +211,9 @@ export function resolveLoopBudgetPreset(
 ): Partial<AiAgentLoopConfig> | undefined {
   switch (preset) {
     case 'tight':
-      return { budget: { maxSteps: 3, maxWallClockMs: 10_000, maxTokens: 50_000 } }
+      return { maxSteps: 3, budget: { maxToolCalls: 3, maxWallClockMs: 10_000, maxTokens: 50_000 } }
     case 'loose':
-      return { budget: { maxSteps: 20, maxWallClockMs: 120_000, maxTokens: 500_000 } }
+      return { maxSteps: 20, budget: { maxToolCalls: 20, maxWallClockMs: 120_000, maxTokens: 500_000 } }
     case 'default':
       return undefined
   }
@@ -712,9 +712,9 @@ export function buildLoopTraceCollector(
  */
 export function translateStopConditions(
   loopConfig: AiAgentLoopConfig,
-): StopCondition<Record<string, unknown>>[] {
+): StopCondition<ToolSet>[] {
   const effectiveMaxSteps = loopConfig.maxSteps ?? 10
-  const userConditions: StopCondition<Record<string, unknown>>[] = []
+  const userConditions: StopCondition<ToolSet>[] = []
 
   const rawStopWhen = loopConfig.stopWhen
   if (rawStopWhen) {
@@ -725,7 +725,7 @@ export function translateStopConditions(
       } else if (item.kind === 'hasToolCall') {
         userConditions.push(hasToolCall(item.toolName))
       } else if (item.kind === 'custom') {
-        userConditions.push(item.stop as StopCondition<Record<string, unknown>>)
+        userConditions.push(item.stop as StopCondition<ToolSet>)
       }
     }
   }
@@ -1550,7 +1550,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (input.generateText) {
     try {
       const callbackResult = await input.generateText(preparedOptions)
-      const baseResponse = (callbackResult as StreamTextResult<ToolSet>).toUIMessageStreamResponse({
+      const baseResponse = (callbackResult as StreamTextResult<ToolSet, never>).toUIMessageStreamResponse({
         sendReasoning: true,
         headers: {
           'Cache-Control': 'no-cache, no-transform',
