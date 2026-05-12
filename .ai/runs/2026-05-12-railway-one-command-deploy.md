@@ -85,8 +85,8 @@ The bulk of the work. One large markdown file under `.ai/specs/` following `.ai/
 
 ### Phase 2: Repo wiring for the spec
 
-- [ ] 2.1 Add Task Router row in root AGENTS.md
-- [ ] 2.2 Annotate existing installation/railway.mdx with outdated banner
+- [x] 2.1 Add Task Router row in root AGENTS.md — e8f3b3d06
+- [x] 2.2 Annotate existing installation/railway.mdx with outdated banner — e8f3b3d06
 
 ### Phase 3: Validation & PR
 
