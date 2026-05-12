@@ -43,33 +43,53 @@ describe('RichEditor — variant presets', () => {
     expect(screen.queryByRole('button', { name: 'Link' })).toBeNull()
   })
 
-  it('basic adds list + link, omits heading + strikethrough + color', () => {
+  it('basic adds list + link, omits header + strikethrough + color', () => {
     render(<RichEditor value="" onChange={jest.fn()} variant="basic" />)
     expect(screen.getByRole('button', { name: 'Bullet list' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Heading' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Header' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Strikethrough' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Text color' })).toBeNull()
   })
 
-  it('standard adds heading dropdown but skips strikethrough/color/quote/code', () => {
+  it('standard adds Header dropdown but skips strikethrough/color/font-size/align', () => {
     render(<RichEditor value="" onChange={jest.fn()} variant="standard" />)
-    expect(screen.getByRole('button', { name: 'Heading' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Header' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Strikethrough' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Text color' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Quote' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Code' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Font size' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Align' })).toBeNull()
   })
 
-  it('full renders the complete toolbar (heading + strikethrough + color + ordered list + quote/code + link)', () => {
+  it('full renders the Figma 166331:4006 toolbar (header + font-size + color + B/I/U/S + lists + align + link)', () => {
     render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
-    expect(screen.getByRole('button', { name: 'Heading' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Strikethrough' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Header' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Font size' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Strikethrough' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Numbered list' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Quote' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Code' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Align' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument()
+    // Comment / Mention / More are opt-in via handler/menu props — not rendered by default.
+    expect(screen.queryByRole('button', { name: 'Add comment' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mention' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
+  })
+
+  it('full opts in Comment / Mention / More when handlers + menu are provided', () => {
+    render(
+      <RichEditor
+        value=""
+        onChange={jest.fn()}
+        variant="full"
+        onComment={() => {}}
+        onMention={() => {}}
+        moreMenu={<div>menu</div>}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Add comment' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mention' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
   })
 })
 
@@ -155,7 +175,9 @@ describe('RichEditorColorPalette + RichEditorColorButton', () => {
 
   it('uses the configured Figma palette values verbatim', () => {
     const { container } = render(<RichEditorColorPalette />)
-    const blue = container.querySelector('[data-color-key="blue"]') as HTMLElement
+    // After the Profile Dropdown Items layout switch the swatch lives in an
+    // inner <span> sibling of the label, so query the swatch span explicitly.
+    const blue = container.querySelector('[data-color-key="blue"] span[aria-hidden="true"]') as HTMLElement
     expect(blue.style.backgroundColor).toMatch(/rgb\(99,\s*102,\s*241\)|#6366f1/i)
     expect(RICH_EDITOR_COLOR_PALETTE.blue).toBe('#6366f1')
   })

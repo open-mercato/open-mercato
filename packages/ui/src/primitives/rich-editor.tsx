@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import {
+  AtSign,
   Bold,
   ChevronDown,
   Code,
@@ -9,10 +10,15 @@ import {
   Link2,
   List,
   ListOrdered,
-  Minus,
-  Quote,
+  MessageSquare,
+  MoreVertical,
   Strikethrough,
   Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Quote,
 } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
@@ -43,7 +49,32 @@ const COLOR_KEYS: RichEditorColorKey[] = [
   'gray', 'blue', 'orange', 'red', 'green', 'yellow', 'purple', 'sky', 'pink', 'teal',
 ]
 
+const COLOR_LABELS_EN: Record<RichEditorColorKey, string> = {
+  gray: 'Gray',
+  blue: 'Blue',
+  orange: 'Orange',
+  red: 'Red',
+  green: 'Green',
+  yellow: 'Yellow',
+  purple: 'Purple',
+  sky: 'Sky',
+  pink: 'Pink',
+  teal: 'Teal',
+}
+
 export type RichEditorVariant = 'full' | 'standard' | 'basic' | 'minimal' | 'custom'
+
+export type RichEditorAlign = 'left' | 'center' | 'right' | 'justify'
+export type RichEditorFontSize = '12px' | '14px' | '16px' | '18px' | '20px' | '24px'
+
+const ALIGN_ICONS: Record<RichEditorAlign, React.ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>> = {
+  left: AlignLeft,
+  center: AlignCenter,
+  right: AlignRight,
+  justify: AlignJustify,
+}
+
+const FONT_SIZE_OPTIONS: RichEditorFontSize[] = ['12px', '14px', '16px', '18px', '20px', '24px']
 
 type SelectionState = {
   bold: boolean
@@ -55,6 +86,7 @@ type SelectionState = {
   blockquote: boolean
   code: boolean
   heading: '' | 'h1' | 'h2' | 'h3'
+  align: RichEditorAlign
 }
 
 const EMPTY_SELECTION_STATE: SelectionState = {
@@ -67,6 +99,7 @@ const EMPTY_SELECTION_STATE: SelectionState = {
   blockquote: false,
   code: false,
   heading: '',
+  align: 'left',
 }
 
 type RichEditorContextValue = {
@@ -83,34 +116,6 @@ function useRichEditorContext(component: string): RichEditorContextValue {
     throw new Error(`${component} must be rendered inside <RichEditor>`)
   }
   return ctx
-}
-
-export type RichEditorProps = {
-  /** HTML string value (sanitized by `sanitizeHtmlRichText`). */
-  value?: string
-  /** Called with sanitized HTML on blur. */
-  onChange: (html: string) => void
-  /**
-   * Toolbar preset:
-   * - `'full'`     — heading dropdown, bold/italic/underline/strike, color, lists, quote/code, link
-   * - `'standard'` — heading, bold/italic/underline, list, link (default — matches the legacy `editor='html'` toolbar)
-   * - `'basic'`    — bold/italic/underline, list, link
-   * - `'minimal'`  — bold/italic/underline
-   * - `'custom'`   — render toolbar children passed via `children`
-   */
-  variant?: RichEditorVariant
-  placeholder?: string
-  minRows?: number
-  disabled?: boolean
-  className?: string
-  contentClassName?: string
-  /** Translation labels — pass through `useT()` for i18n. */
-  labels?: Partial<RichEditorLabels>
-  /** When `variant='custom'`, render `<RichEditorToolbar>{...}</RichEditorToolbar>` and `<RichEditorContent />`. */
-  children?: React.ReactNode
-  id?: string
-  name?: string
-  'aria-invalid'?: boolean | 'true' | 'false'
 }
 
 export type RichEditorLabels = {
@@ -131,8 +136,17 @@ export type RichEditorLabels = {
   linkUrlPrompt: string
   color: string
   textColor: string
+  fontSize: string
+  align: string
+  alignLeft: string
+  alignCenter: string
+  alignRight: string
+  alignJustify: string
+  comment: string
+  mention: string
   more: string
   placeholder: string
+  colors: Record<RichEditorColorKey, string>
 }
 
 const DEFAULT_LABELS: RichEditorLabels = {
@@ -144,7 +158,7 @@ const DEFAULT_LABELS: RichEditorLabels = {
   orderedList: 'Numbered list',
   blockquote: 'Quote',
   code: 'Code',
-  heading: 'Heading',
+  heading: 'Header',
   heading1: 'Heading 1',
   heading2: 'Heading 2',
   heading3: 'Heading 3',
@@ -153,8 +167,49 @@ const DEFAULT_LABELS: RichEditorLabels = {
   linkUrlPrompt: 'Enter URL',
   color: 'Text color',
   textColor: 'Color',
+  fontSize: 'Font size',
+  align: 'Align',
+  alignLeft: 'Align left',
+  alignCenter: 'Align center',
+  alignRight: 'Align right',
+  alignJustify: 'Justify',
+  comment: 'Add comment',
+  mention: 'Mention',
   more: 'More',
-  placeholder: 'Type here…',
+  placeholder: 'Placeholder text...',
+  colors: COLOR_LABELS_EN,
+}
+
+export type RichEditorProps = {
+  /** HTML string value (sanitized by `sanitizeHtmlRichText`). */
+  value?: string
+  /** Called with sanitized HTML on blur. */
+  onChange: (html: string) => void
+  /**
+   * Toolbar preset:
+   * - `'full'`     — Figma 166331:4006 reference: heading + font size + color + B/I/U/S + lists + align + comment + link + mention + more
+   * - `'standard'` — heading + bold/italic/underline + lists + link (CrudForm `editor='html'` default)
+   * - `'basic'`    — bold/italic/underline + bullet list + link
+   * - `'minimal'`  — bold/italic/underline
+   * - `'custom'`   — render `<RichEditorToolbar>{...}</RichEditorToolbar>` + `<RichEditorContent />` children manually
+   */
+  variant?: RichEditorVariant
+  placeholder?: string
+  minRows?: number
+  disabled?: boolean
+  className?: string
+  contentClassName?: string
+  labels?: Partial<RichEditorLabels>
+  /** Optional handler for the comment button (only rendered in `full` variant). */
+  onComment?: () => void
+  /** Optional handler for the mention `@` button. */
+  onMention?: () => void
+  /** Optional menu rendered inside the More `⋮` dropdown popover. */
+  moreMenu?: React.ReactNode
+  children?: React.ReactNode
+  id?: string
+  name?: string
+  'aria-invalid'?: boolean | 'true' | 'false'
 }
 
 function deriveSelectionState(): SelectionState {
@@ -166,6 +221,13 @@ function deriveSelectionState(): SelectionState {
     const lower = String(block).toLowerCase().replace(/[<>]/g, '')
     const heading: SelectionState['heading'] =
       lower === 'h1' || lower === 'h2' || lower === 'h3' ? lower : ''
+    const align: RichEditorAlign = document.queryCommandState('justifyCenter')
+      ? 'center'
+      : document.queryCommandState('justifyRight')
+        ? 'right'
+        : document.queryCommandState('justifyFull')
+          ? 'justify'
+          : 'left'
     return {
       bold: document.queryCommandState('bold'),
       italic: document.queryCommandState('italic'),
@@ -176,6 +238,7 @@ function deriveSelectionState(): SelectionState {
       blockquote: lower === 'blockquote',
       code: lower === 'pre',
       heading,
+      align,
     }
   } catch {
     return EMPTY_SELECTION_STATE
@@ -192,13 +255,20 @@ export const RichEditor = React.memo(function RichEditor({
   className,
   contentClassName,
   labels: labelsProp,
+  onComment,
+  onMention,
+  moreMenu,
   children,
   id,
   name,
   'aria-invalid': ariaInvalid,
 }: RichEditorProps) {
   const labels = React.useMemo<RichEditorLabels>(
-    () => ({ ...DEFAULT_LABELS, ...(labelsProp ?? {}) }),
+    () => ({
+      ...DEFAULT_LABELS,
+      ...(labelsProp ?? {}),
+      colors: { ...DEFAULT_LABELS.colors, ...(labelsProp?.colors ?? {}) },
+    }),
     [labelsProp],
   )
 
@@ -305,44 +375,40 @@ export const RichEditor = React.memo(function RichEditor({
     onChange(sanitized)
   }, [onChange])
 
-  const toolbar = variant === 'custom'
-    ? children
-    : <RichEditorToolbar><RichEditorPresetItems variant={variant} labels={labels} /></RichEditorToolbar>
-
-  // When variant='custom', children may include both Toolbar and Content overrides.
-  // Otherwise we render a default Content area below the preset toolbar.
-  const renderDefaultContent = variant !== 'custom'
+  const toolbarContent = variant === 'custom'
+    ? null
+    : <RichEditorPresetItems variant={variant} labels={labels} onComment={onComment} onMention={onMention} moreMenu={moreMenu} />
 
   return (
     <RichEditorContext.Provider value={ctx}>
       <div
-        className={cn(
-          'w-full overflow-hidden rounded-lg border border-border bg-card',
-          disabled && 'opacity-60',
-          className,
-        )}
+        className={cn('w-full space-y-2', disabled && 'opacity-60', className)}
         data-slot="rich-editor"
         data-disabled={disabled ? 'true' : 'false'}
         aria-invalid={ariaInvalid}
       >
-        {toolbar}
-        {renderDefaultContent ? (
-          <RichEditorContent
-            ref={editorRef}
-            placeholder={placeholder ?? labels.placeholder}
-            minRows={minRows}
-            disabled={disabled}
-            className={contentClassName}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            onBlur={onBlur}
-            onInput={() => {
-              if (!applyingExternal.current) typingRef.current = true
-            }}
-            id={id}
-            name={name}
-          />
-        ) : null}
+        {variant === 'custom'
+          ? children
+          : (
+            <>
+              <RichEditorToolbar>{toolbarContent}</RichEditorToolbar>
+              <RichEditorContent
+                ref={editorRef}
+                placeholder={placeholder ?? labels.placeholder}
+                minRows={minRows}
+                disabled={disabled}
+                className={contentClassName}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                onBlur={onBlur}
+                onInput={() => {
+                  if (!applyingExternal.current) typingRef.current = true
+                }}
+                id={id}
+                name={name}
+              />
+            </>
+          )}
       </div>
     </RichEditorContext.Provider>
   )
@@ -358,8 +424,9 @@ export const RichEditorToolbar = React.forwardRef<HTMLDivElement, RichEditorTool
       role="toolbar"
       aria-label="Rich text formatting"
       className={cn(
-        // Figma reference: 32px row, 2-4px gap between items, 1px bottom border to separate from content.
-        'flex h-8 items-center gap-0.5 border-b border-border bg-card px-2',
+        // Figma 166331:4006 reference: standalone card with rounded-8 + border + shadow-xs.
+        // 2px outer padding, 2px gap between items.
+        'flex w-fit max-w-full flex-wrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-0.5 shadow-xs',
         className,
       )}
       data-slot="rich-editor-toolbar"
@@ -372,10 +439,9 @@ export const RichEditorToolbar = React.forwardRef<HTMLDivElement, RichEditorTool
 RichEditorToolbar.displayName = 'RichEditorToolbar'
 
 const richEditorItemVariants = cva(
-  // All four Figma types share: rounded-6, 28px size baseline, white default bg,
-  // weak-50 on hover/active. `active=true` keeps the weak-50 fill so a pressed
-  // toggle (e.g. bold while inside bold selection) stays visually held.
-  'inline-flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-md text-sm font-medium leading-5 tracking-tight text-foreground/80 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground',
+  // Figma Rich Editor Items: 28×h, rounded-6, white default, weak-50 on hover/active.
+  // No border, no shadow per item — the surrounding toolbar card carries the chrome.
+  'inline-flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-md bg-transparent text-sm font-medium leading-5 tracking-tight text-foreground/80 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground',
   {
     variants: {
       type: {
@@ -396,7 +462,6 @@ const richEditorItemVariants = cva(
 type ToolbarButtonBaseProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'type' | 'children'> &
   VariantProps<typeof richEditorItemVariants> & {
     active?: boolean
-    /** Optional tooltip label (forwarded as `title` for now — swap to `<Tooltip>` per consumer). */
     tooltipLabel?: string
   }
 
@@ -405,8 +470,6 @@ const RichEditorButton = React.forwardRef<HTMLButtonElement, ToolbarButtonBasePr
     <button
       ref={ref}
       type="button"
-      // Prevent the toolbar button from stealing focus and collapsing the editor's
-      // text selection before exec() runs (matches the legacy editor behaviour).
       onMouseDown={(e) => {
         e.preventDefault()
         onMouseDown?.(e)
@@ -459,11 +522,8 @@ RichEditorIconButton.displayName = 'RichEditorIconButton'
 
 export type RichEditorTextDropdownProps = Omit<ToolbarButtonBaseProps, 'type' | 'children'> & {
   label: React.ReactNode
-  /** Translatable accessible name. */
   ariaLabel: string
-  /** Popover content rendered when the trigger opens. */
   menu?: React.ReactNode
-  /** Skip the popover and call this handler directly (when the dropdown is just a labelled caret button). */
   onActivate?: () => void
 }
 
@@ -533,15 +593,16 @@ RichEditorDropdownButton.displayName = 'RichEditorDropdownButton'
 export type RichEditorColorButtonProps = Omit<ToolbarButtonBaseProps, 'type' | 'children' | 'value'> & {
   colorValue?: RichEditorColorKey | null
   ariaLabel: string
-  /** Defaults to the standard `foreColor` command (text color). Pass `'hiliteColor'` for highlight. */
   command?: string
   onSelect?: (color: RichEditorColorKey | null) => void
+  /** Optional translated labels per palette key (defaults to English names). */
+  colorLabels?: Partial<Record<RichEditorColorKey, string>>
 }
 
 export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEditorColorButtonProps>(
-  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, ...props }, ref) => {
+  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, ...props }, ref) => {
     const { exec, disabled } = useRichEditorContext('RichEditorColorButton')
-    const swatchColor = colorValue ? RICH_EDITOR_COLOR_PALETTE[colorValue] : RICH_EDITOR_COLOR_PALETTE.gray
+    const swatchColor = colorValue ? RICH_EDITOR_COLOR_PALETTE[colorValue] : RICH_EDITOR_COLOR_PALETTE.blue
     return (
       <Popover>
         <PopoverTrigger asChild>
@@ -553,7 +614,7 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
             {...props}
           >
             <span
-              className="inline-block size-4 shrink-0 rounded-full border border-black/10"
+              className="inline-block size-4 shrink-0 rounded-full"
               style={{ backgroundColor: swatchColor }}
               data-slot="rich-editor-color-swatch"
               aria-hidden="true"
@@ -561,9 +622,10 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
             <ChevronDown className="opacity-60" aria-hidden="true" />
           </RichEditorButton>
         </PopoverTrigger>
-        <PopoverContent align="start" sideOffset={6} className="w-auto p-2">
+        <PopoverContent align="start" sideOffset={6} className="w-36 p-1">
           <RichEditorColorPalette
             value={colorValue}
+            labels={colorLabels}
             onChange={(key) => {
               if (key) exec(command, RICH_EDITOR_COLOR_PALETTE[key])
               onSelect?.(key)
@@ -579,13 +641,16 @@ RichEditorColorButton.displayName = 'RichEditorColorButton'
 export type RichEditorColorPaletteProps = {
   value?: RichEditorColorKey | null
   onChange?: (next: RichEditorColorKey | null) => void
+  /** Translatable labels per palette key (defaults to English). */
+  labels?: Partial<Record<RichEditorColorKey, string>>
   className?: string
 }
 
-export function RichEditorColorPalette({ value, onChange, className }: RichEditorColorPaletteProps) {
+export function RichEditorColorPalette({ value, onChange, labels, className }: RichEditorColorPaletteProps) {
+  const resolvedLabels = { ...COLOR_LABELS_EN, ...(labels ?? {}) }
   return (
     <div
-      className={cn('flex flex-wrap items-center gap-1.5', className)}
+      className={cn('flex flex-col gap-0.5', className)}
       data-slot="rich-editor-color-palette"
       role="listbox"
       aria-label="Color palette"
@@ -598,16 +663,22 @@ export function RichEditorColorPalette({ value, onChange, className }: RichEdito
             type="button"
             role="option"
             aria-selected={isActive}
-            aria-label={key}
+            aria-label={resolvedLabels[key]}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange?.(key)}
             className={cn(
-              'size-5 shrink-0 rounded-full border border-black/10 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-              isActive ? 'ring-2 ring-foreground ring-offset-1' : 'hover:scale-110',
+              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              isActive && 'font-medium text-foreground',
             )}
-            style={{ backgroundColor: RICH_EDITOR_COLOR_PALETTE[key] }}
             data-color-key={key}
-          />
+          >
+            <span
+              className="size-4 shrink-0 rounded-full"
+              style={{ backgroundColor: RICH_EDITOR_COLOR_PALETTE[key] }}
+              aria-hidden="true"
+            />
+            <span className="truncate">{resolvedLabels[key]}</span>
+          </button>
         )
       })}
     </div>
@@ -635,8 +706,6 @@ export type RichEditorContentProps = Omit<React.HTMLAttributes<HTMLDivElement>, 
 
 export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorContentProps>(
   ({ className, placeholder, minRows = 4, disabled, onBlur, onInput, onKeyDown, onPaste, id, name, ...props }, ref) => {
-    // Empty-content placeholder via CSS — content area inherits its sizing from
-    // the configured minRows (assumes the line-height token resolves to 20px).
     const minHeight = `${Math.max(1, minRows) * 1.5}rem`
     return (
       <div
@@ -651,7 +720,10 @@ export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorCont
         data-name={name}
         id={id}
         className={cn(
-          'prose prose-sm max-w-none w-full px-3 py-3 focus-visible:outline-none',
+          // Figma reference: content lives in its own bordered card with rounded-8 + shadow-xs,
+          // visually separated from the toolbar by the small vertical gap from the parent
+          // wrapper's `space-y-2`.
+          'prose prose-sm w-full max-w-none rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
           'data-[placeholder]:before:pointer-events-none data-[placeholder]:empty:before:content-[attr(data-placeholder)] data-[placeholder]:empty:before:text-muted-foreground',
           className,
         )}
@@ -669,7 +741,19 @@ RichEditorContent.displayName = 'RichEditorContent'
 
 // ── Preset toolbar ────────────────────────────────────────────────────────
 
-function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEditorVariant, 'custom'>; labels: RichEditorLabels }) {
+function RichEditorPresetItems({
+  variant,
+  labels,
+  onComment,
+  onMention,
+  moreMenu,
+}: {
+  variant: Exclude<RichEditorVariant, 'custom'>
+  labels: RichEditorLabels
+  onComment?: () => void
+  onMention?: () => void
+  moreMenu?: React.ReactNode
+}) {
   const { exec, selection } = useRichEditorContext('RichEditorPresetItems')
   const onLink = React.useCallback(() => {
     const url = sanitizeRichTextHref(typeof window !== 'undefined' ? window.prompt(labels.linkUrlPrompt) : null)
@@ -677,10 +761,15 @@ function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEdito
   }, [exec, labels.linkUrlPrompt])
 
   const showHeading = variant === 'full' || variant === 'standard'
-  const showStrike = variant === 'full'
+  const showFontSize = variant === 'full'
   const showColor = variant === 'full'
+  const showStrike = variant === 'full'
   const showOrdered = variant === 'full' || variant === 'standard' || variant === 'basic'
-  const showQuoteCode = variant === 'full'
+  const showAlign = variant === 'full'
+  const showComment = variant === 'full' && (onComment !== undefined)
+  const showMention = variant === 'full' && (onMention !== undefined)
+  const showMore = variant === 'full' && moreMenu !== undefined
+  const showQuoteCode = variant === 'full' && !showAlign
   const showLink = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showLists = variant !== 'minimal'
 
@@ -734,9 +823,65 @@ function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEdito
       case 'h3':
         return labels.heading3
       default:
-        return labels.paragraph
+        return labels.heading
     }
   })()
+
+  const fontSizeMenu = (
+    <div className="flex flex-col gap-0.5" role="menu">
+      {FONT_SIZE_OPTIONS.map((size) => (
+        <button
+          key={size}
+          type="button"
+          role="menuitem"
+          className="cursor-pointer rounded px-2 py-1 text-left text-sm hover:bg-muted"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            // execCommand('fontSize', …) requires 1–7 — translate the px label
+            // through a CSS-driven span instead.
+            exec('removeFormat')
+            const px = parseInt(size, 10)
+            if (px > 0) {
+              exec('insertHTML', `<span style="font-size:${px}px">${window.getSelection()?.toString() ?? ''}</span>`)
+            }
+          }}
+        >
+          {size}
+        </button>
+      ))}
+    </div>
+  )
+
+  const alignMenu = (
+    <div className="flex flex-col gap-0.5" role="menu">
+      {(['left', 'center', 'right', 'justify'] as RichEditorAlign[]).map((option) => {
+        const Icon = ALIGN_ICONS[option]
+        const command = option === 'justify' ? 'justifyFull' : `justify${option[0].toUpperCase()}${option.slice(1)}`
+        const label = option === 'left'
+          ? labels.alignLeft
+          : option === 'center'
+            ? labels.alignCenter
+            : option === 'right'
+              ? labels.alignRight
+              : labels.alignJustify
+        return (
+          <button
+            key={option}
+            type="button"
+            role="menuitem"
+            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => exec(command)}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const AlignActiveIcon = ALIGN_ICONS[selection.align]
 
   return (
     <>
@@ -746,17 +891,23 @@ function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEdito
           <RichEditorDivider />
         </>
       ) : null}
+      {showFontSize ? (
+        <>
+          <RichEditorTextDropdown ariaLabel={labels.fontSize} label="14px" menu={fontSizeMenu} />
+          <RichEditorDivider />
+        </>
+      ) : null}
+      {showColor ? (
+        <>
+          <RichEditorColorButton ariaLabel={labels.color} colorLabels={labels.colors} />
+          <RichEditorDivider />
+        </>
+      ) : null}
       <RichEditorIconButton icon={<Bold />} command="bold" ariaLabel={labels.bold} tooltipLabel={labels.bold} active={selection.bold} />
       <RichEditorIconButton icon={<Italic />} command="italic" ariaLabel={labels.italic} tooltipLabel={labels.italic} active={selection.italic} />
       <RichEditorIconButton icon={<Underline />} command="underline" ariaLabel={labels.underline} tooltipLabel={labels.underline} active={selection.underline} />
       {showStrike ? (
         <RichEditorIconButton icon={<Strikethrough />} command="strikeThrough" ariaLabel={labels.strikethrough} tooltipLabel={labels.strikethrough} active={selection.strikethrough} />
-      ) : null}
-      {showColor ? (
-        <>
-          <RichEditorDivider />
-          <RichEditorColorButton ariaLabel={labels.color} />
-        </>
       ) : null}
       {showLists ? (
         <>
@@ -765,6 +916,12 @@ function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEdito
           {showOrdered ? (
             <RichEditorIconButton icon={<ListOrdered />} command="insertOrderedList" ariaLabel={labels.orderedList} tooltipLabel={labels.orderedList} active={selection.orderedList} />
           ) : null}
+        </>
+      ) : null}
+      {showAlign ? (
+        <>
+          <RichEditorDivider />
+          <RichEditorDropdownButton icon={<AlignActiveIcon />} ariaLabel={labels.align} menu={alignMenu} />
         </>
       ) : null}
       {showQuoteCode ? (
@@ -786,18 +943,24 @@ function RichEditorPresetItems({ variant, labels }: { variant: Exclude<RichEdito
           />
         </>
       ) : null}
+      {(showLink || showComment || showMention) ? <RichEditorDivider /> : null}
+      {showComment ? (
+        <RichEditorIconButton icon={<MessageSquare />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={onComment} />
+      ) : null}
       {showLink ? (
+        <RichEditorIconButton icon={<Link2 />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
+      ) : null}
+      {showMention ? (
+        <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={onMention} />
+      ) : null}
+      {showMore ? (
         <>
           <RichEditorDivider />
-          <RichEditorIconButton icon={<Link2 />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
+          <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} menu={moreMenu} />
         </>
       ) : null}
     </>
   )
 }
-
-// Re-export the divider Minus icon symbol so consumers that want to render an
-// "em-dash" placeholder for empty selections have something to import.
-export { Minus as RichEditorEmDashIcon }
 
 export { richEditorItemVariants }
