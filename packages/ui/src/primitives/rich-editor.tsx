@@ -1158,10 +1158,13 @@ function RichEditorPresetItems({
   const showChecklist = variant === 'full'
   const showOrdered = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showAlign = variant === 'full'
-  const showComment = variant === 'full' && (onComment !== undefined)
-  // Mention is always available in the `full` variant — when the consumer
-  // doesn't wire a custom `@`-picker we fall back to inserting an `@` literal
-  // at the caret so the user can keep typing without a no-op button.
+  // Comment + Mention are always available in the `full` variant — when the
+  // consumer doesn't wire a custom popover we fall back to inserting a
+  // sensible plain-text marker at the caret so the buttons never feel dead.
+  // Consumers can still pass `onComment` / `onMention` to fully override and
+  // open their own popover / picker / inline UI.
+  const showComment = variant === 'full'
+  const commentHandler = onComment ?? (() => exec('insertText', '[comment: ]'))
   const showMention = variant === 'full'
   const mentionHandler = onMention ?? (() => exec('insertText', '@'))
   const showMore = variant === 'full' && moreMenu !== undefined
@@ -1403,7 +1406,7 @@ function RichEditorPresetItems({
       ) : null}
       {(showLink || showComment || showMention) ? <RichEditorDivider /> : null}
       {showComment ? (
-        <RichEditorIconButton icon={<MessageCircle />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={onComment} />
+        <RichEditorIconButton icon={<MessageCircle />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={commentHandler} />
       ) : null}
       {showLink ? (
         <RichEditorIconButton icon={<Link />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />

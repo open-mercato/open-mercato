@@ -79,28 +79,32 @@ describe('RichEditor — variant presets', () => {
     expect(screen.getByRole('button', { name: 'Align' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument()
-    // Mention is always rendered in `full` (default handler inserts an `@`
-    // literal). Comment / More / Fullscreen stay opt-in via handler/menu props.
+    // Mention + Comment are always rendered in `full` (default handlers
+    // insert `@` / `[comment: ]` literals). More / Fullscreen stay opt-in.
     expect(screen.getByRole('button', { name: 'Mention' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add comment' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add comment' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Toggle fullscreen' })).toBeNull()
   })
 
-  it('full opts in Comment / More / Fullscreen when handlers + menu are provided', () => {
+  it('full opts in More / Fullscreen when handlers + menu are provided', () => {
     render(
       <RichEditor
         value=""
         onChange={jest.fn()}
         variant="full"
-        onComment={() => {}}
         onFullscreen={() => {}}
         moreMenu={<div>menu</div>}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Add comment' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Toggle fullscreen' })).toBeInTheDocument()
+  })
+
+  it('clicking Add comment without a custom onComment handler inserts "[comment: ]" via execCommand', () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment' }))
+    expect(execMock).toHaveBeenCalledWith('insertText', false, '[comment: ]')
   })
 
   it('clicking Mention without a custom onMention handler inserts an "@" via execCommand', () => {
