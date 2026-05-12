@@ -1009,6 +1009,12 @@ const [tags, setTags] = React.useState<string[]>([])
 - Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
 - For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
 
+### Anti-patterns
+
+- `<Input value="tag1,tag2,tag3" onChange={...} />` + manual `.split(',')` → use `TagInput` (chips give visual feedback + Backspace edit).
+- Value-from-suggestions / autocomplete with descriptions or async loader → use [`TagsInput`](#taginput) backend shim, not `TagInput`.
+- Stuffing labelled options into `value` (`["seg_123:Beta"]`) → keep `value: string[]` flat; switch to `TagsInput` with `selectedOptions` for id-vs-label lookups.
+
 ---
 
 ## CounterInput
@@ -1353,6 +1359,13 @@ const [date, setDate] = React.useState<Date | null>(null)
 - Combine with `minDate` / `maxDate` for booking flows; don't post-validate after onChange.
 - Pass `aria-label` (or wrap in a `FormField` with a visible label) — the trigger has no built-in label.
 
+### Anti-patterns
+
+- `<input type="date" value={iso} onChange={...} />` → use `DatePicker` (popover, locale-aware, footer actions, `minDate` / `maxDate`).
+- Two separate `<DatePicker>` fields wired to a custom range validator → use [`DateRangePicker`](#daterangepicker) (one popover, shared `Calendar`, presets).
+- Two-step "pick date" then "pick time" UI → set `withTime` + `minuteStep` on a single `DatePicker`.
+- Importing from `@open-mercato/ui/backend/inputs/DatePicker` or `DateTimePicker` in new code → use `@open-mercato/ui/primitives/date-picker` directly (shims are `@deprecated`).
+
 ---
 
 ## DateRangePicker
@@ -1441,6 +1454,12 @@ Pass a custom array to override — each entry is `{ id, labelKey, range(refDate
 - When migrating an old `FilterOverlay` date-range field, use this primitive — there is no longer a separate range UI inside `FilterOverlay`.
 - The popover height is capped to `--radix-popover-content-available-height`; the calendar+sidebar area scrolls and the footer stays pinned, so do NOT wrap the trigger in additional `overflow-hidden` containers that fight the popover sizing.
 
+### Anti-patterns
+
+- Two separate `<DatePicker>` fields wired to a custom "from <= to" validator → use `DateRangePicker` (one popover, two-month view, shared calendar state).
+- Building your own preset list duplicating `DATE_RANGE_OPTIONS` → import `defaultDateRangePresets()` or pull `DATE_RANGE_OPTIONS` from `@open-mercato/ui/backend/date-range` and map to `DateRangePresetItem[]`.
+- Returning `{ from, to }` from `onChange` consumers → the contract is `{ start, end }`; convert at the API boundary, not in the trigger.
+
 ---
 
 ## TimePicker
@@ -1524,6 +1543,13 @@ Common options:
 - `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
 - Active state for slot / duration / status uses `bg-brand-violet/10 text-brand-violet`, NOT `bg-primary/10` — `--primary` in this codebase is near-black; `--brand-violet` is the actual violet.
 
+### Anti-patterns
+
+- `<input type="time" />` → use `TimePicker` (Figma-aligned scroll slots, locale-aware 12h/24h, Now / Clear actions).
+- `<DatePicker withTime>` for time-only entry → use `TimePicker` directly; `DatePicker withTime` is for date+time combined.
+- Three nested `<Select>`s for hours / minutes / period → use the compound `TimePickerSlot` sub-primitives if you need to render slots manually, or the full `TimePicker` for the popover composition.
+- Calling `formatDuration` in user-facing UI → English-only; build a `t()`-resolved lookup map per consumer.
+
 ---
 
 ## EmptyState
@@ -1589,6 +1615,13 @@ Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Descript
 - Use `actions` (not the deprecated `action` / `actionLabel` / `onAction` triple) for any new code. The deprecated props are routed to a built-in `<Button variant="outline" size="sm">` with a leading `<Plus />` icon — keep that only for legacy parity.
 - Pass all strings through `useT()` — the primitive has no built-in default copy.
 
+### Anti-patterns
+
+- `<div className="text-center text-muted-foreground py-12">Nothing yet</div>` → use `EmptyState` (dashed-border card + token-driven spacing + a11y heading slot).
+- Wrapping `title` in `<h1>` / `<h2>` inside `EmptyState` → renders a `<p>`; if the page needs a heading render it OUTSIDE the EmptyState.
+- Reaching for `action` / `actionLabel` / `onAction` / `actionLabelClassName` props in new code → those are `@deprecated`; use `actions={<Button>…</Button>}`.
+- Passing a custom `<Plus />` button as `children` instead of `actions` → `children` sits between description and actions; for the primary CTA use the typed slot.
+
 ---
 
 ## Skeleton
@@ -1652,6 +1685,13 @@ Composing many `Skeleton`s into a table row / card skeleton:
 - Use `shape='text'` with `lines` (don't stack three `shape='rect'` blocks by hand) — the primitive already handles the narrower final line.
 - DO NOT animate skeletons differently than the built-in `animate-pulse` (e.g. shimmer libraries) — keep the loading state consistent across the app.
 - Avoid sub-200ms skeleton flashes: if the underlying data resolves synchronously or from cache, render the actual content directly instead of flashing a placeholder.
+
+### Anti-patterns
+
+- `<div className="animate-pulse bg-muted rounded h-4 w-32" />` → use `Skeleton` (primitive owns `role` / `aria-busy` / `aria-live`).
+- Three stacked `<Skeleton shape='rect' />` for multi-line text → use `<Skeleton shape='text' lines={3} />` (the primitive narrows the last line).
+- Passing `role="status"` / `aria-busy` / `aria-live` overrides → the primitive owns these; do NOT override.
+- Custom shimmer animation library wrapped around Skeleton → keep `animate-pulse` for consistency.
 
 ---
 
@@ -2227,6 +2267,13 @@ Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDrop
 - Wrap any `RichEditorToolbar` / `RichEditorIconButton` / `RichEditorTextDropdown` / `RichEditorDropdownButton` / `RichEditorColorButton` inside `<RichEditor>` — they throw outside the editor context (the error message points to the offending component).
 - Keep the editor output trustworthy: do not bypass `onChange` (the sanitizer enforces the allowed tag/attr set). For custom commands, write through `useRichEditorContext().exec`.
 - For server-rendered content always feed the editor through `dangerouslySetInnerHTML` of `sanitizeHtmlRichText(value)` before passing to `value` — the primitive re-sanitizes but storing pre-sanitized HTML keeps the DB clean.
+
+### Anti-patterns
+
+- `<Textarea>` for content that needs bold / italic / lists / links → use `RichEditor` (sanitized HTML pipeline, Figma toolbar).
+- Custom toolbar built over a raw `contentEditable` `<div>` → use `RichEditor variant='custom'` and compose `<RichEditorToolbar>` + `<RichEditorIconButton>` atoms.
+- Storing raw HTML straight from a third-party editor → always round-trip through `sanitizeHtmlRichText(...)` before persisting; the primitive sanitizes on mount and blur but the DB shouldn't accumulate stale unsafe tags.
+- Switching between markdown and rich text via `SwitchableMarkdownInput` for *new* fields → `SwitchableMarkdownInput` is `@deprecated`; new rich-text fields MUST use `RichEditor`.
 
 ---
 
