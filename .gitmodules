@@ -1,0 +1,4 @@
+[submodule "external/official-modules"]
+	path = external/official-modules
+	url = https://github.com/open-mercato/official-modules.git
+	branch = main

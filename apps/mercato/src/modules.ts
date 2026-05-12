@@ -8,6 +8,7 @@
 //   `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
+import { officialModuleEntries } from './official-modules.generated'
 
 export type ModuleEntry = {
   id: string
@@ -62,6 +63,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'example', from: '@app' },
   { id: 'ratelimit_probe', from: '@app' },
 ]
+
+// Official modules activated via official-modules.json / official-modules.local.json
+// (managed by `yarn official-modules`; backed by the external/official-modules submodule).
+for (const entry of officialModuleEntries) {
+  if (!enabledModules.some((existing) => existing.id === entry.id)) enabledModules.push(entry)
+}
 
 if (enabledModules.some((entry) => entry.id === 'example')) {
   enabledModules.push({ id: 'example_customers_sync', from: '@app' })
