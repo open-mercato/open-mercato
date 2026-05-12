@@ -190,13 +190,17 @@ function buildBaseDocumentResult(params: {
     }
   }
 
-  // Line-scoped and any other return (credit) adjustments reduce grand total
+  // Line-scoped and any other return (credit) adjustments reduce grand total.
+  // Sign is normalized to negative regardless of the stored sign so a positive
+  // amountNet / amountGross can never inflate totals (issue #1705).
   for (const adj of resolvedAdjustments) {
     if (adj.kind !== 'return') continue
     const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
     const gross = toNumber(adj.amountGross, net)
-    subtotalNet = Math.max(subtotalNet + net, 0)
-    subtotalGross = Math.max(subtotalGross + gross, 0)
+    const netDelta = -Math.abs(net)
+    const grossDelta = -Math.abs(gross)
+    subtotalNet = Math.max(subtotalNet + netDelta, 0)
+    subtotalGross = Math.max(subtotalGross + grossDelta, 0)
   }
 
   const grandTotalNet = round(subtotalNet)

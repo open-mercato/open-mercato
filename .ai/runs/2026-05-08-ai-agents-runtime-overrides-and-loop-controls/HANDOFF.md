@@ -4,11 +4,11 @@
 **Branch:** `feat/ai-agents-runtime-overrides-and-loop-controls`
 **PR:** to be opened immediately after this handoff lands
 **Current phase/step:** Phase 1780-0 complete (Steps 0.1–0.7). Next: Phase 1780-1 Step 1.1.
-**Last commit:** 4d3b5bdc4 — feat(ai-assistant): honor AI_DEFAULT_PROVIDER in routing route
+**Last commit:** 4d3b5bdc4 — feat(ai-assistant): honor OM_AI_PROVIDER in routing route
 
 ## What just happened
 - Phase 1780-0 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides` landed end-to-end across 7 commits.
-- `AI_DEFAULT_PROVIDER` and `AI_DEFAULT_MODEL` are now honored by `createModelFactory` (with a registry-membership-guarded slash parser), surfaced as a new `'env_default'` resolution source, exercised by 11 new unit + integration test cases, documented in both `.env.example` files, AGENTS.md, and `overview.mdx`, and threaded through the routing fallback in `api/ai_assistant/route/route.ts`.
+- `OM_AI_PROVIDER` and `OM_AI_MODEL` are now honored by `createModelFactory` (with a registry-membership-guarded slash parser), surfaced as a new `'env_default'` resolution source, exercised by 11 new unit + integration test cases, documented in both `.env.example` files, AGENTS.md, and `overview.mdx`, and threaded through the routing fallback in `api/ai_assistant/route/route.ts`.
 - Checkpoint 1 written; Tasks-table SHAs reconciled.
 
 ## Next concrete action

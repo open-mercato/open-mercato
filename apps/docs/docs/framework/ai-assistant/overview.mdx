@@ -79,26 +79,33 @@ See [AI Agents](./agents) for the full declaration guide and the end-to-end exam
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | — | Standard provider keys; at least one MUST be set. The runtime picks the first configured provider via `llmProviderRegistry.resolveFirstConfigured()`. |
 | `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 min) | Expiry window for pending mutation approvals. The cleanup worker flips stale rows to `expired`. |
-| `<MODULE>_AI_MODEL` | unset | Per-module model override. Uppercased from the `moduleId`. Examples: `INBOX_OPS_AI_MODEL=claude-haiku-4-5`, `CATALOG_AI_MODEL=gpt-4o-mini`. |
-| `AI_DEFAULT_PROVIDER` | unset | Process-wide default provider id (Phase 0 of the per-axis overrides spec). Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. Falls through transparently when the named provider is registered-but-unconfigured. |
-| `AI_DEFAULT_MODEL` | unset | Process-wide default model id. Plain ids resolve under the chosen provider; slash-qualified ids (`openai/gpt-5-mini`) consume the provider axis at the same step. DeepInfra-style ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
+| `OM_AI_<MODULE>_MODEL` | unset | Per-module model override. Uppercased from the `moduleId`. Examples: `OM_AI_INBOX_OPS_MODEL=claude-haiku-4-5`, `OM_AI_CATALOG_MODEL=gpt-4o-mini`. The legacy `<MODULE>_AI_MODEL` form (`INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`) is read as a backward-compatibility fallback. |
+| `OM_AI_<MODULE>_PROVIDER` | unset | Per-module provider override (Phase 1). Uppercased from the `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form is read as a backward-compatibility fallback. Falls through transparently when the named provider is registered-but-unconfigured. |
+| `OM_AI_PROVIDER` | `openai` (when an `OPENAI_API_KEY` is set) | Process-wide default provider id. Built-in ids: `openai`, `anthropic`, `google`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. Falls through transparently when the named provider is registered-but-unconfigured. Legacy `OPENCODE_PROVIDER` is read as a backward-compatibility fallback. |
+| `OM_AI_MODEL` | `gpt-5-mini` (under the default `openai` provider) | Process-wide default model id. Plain ids resolve under the chosen provider; slash-qualified ids (`openai/gpt-5-mini`) consume the provider axis at the same step. DeepInfra-style ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. Legacy `OPENCODE_MODEL` is read as a backward-compatibility fallback. |
 
-`AI_DEFAULT_PROVIDER` and `AI_DEFAULT_MODEL` are deliberately decoupled from the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs (which stay bound to the OpenCode Code Mode stack). Operators who want both stacks pinned to the same provider must set the new vars explicitly.
+`OM_AI_PROVIDER` / `OM_AI_MODEL` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored as backward-compatibility fallbacks for the unified AI runtime.
 
 ### Model resolution order
 
 The shared `createModelFactory(container)` picks one model per agent run. Highest precedence first:
 
 1. `callerOverride` — `runAiAgentText({ modelOverride })`.
-2. `<MODULE>_AI_MODEL` env var.
+2. `OM_AI_<MODULE>_MODEL` env var.
 3. `agentDefaultModel` — usually `AiAgentDefinition.defaultModel`.
-4. `AI_DEFAULT_MODEL` env var.
+4. `OM_AI_MODEL` env var (legacy `OPENCODE_MODEL` as BC fallback).
 5. Provider default.
 
-The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
+The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. Phase 1 generalizes the seed walk so every model-axis source contributes a slash hint and plain-provider sources sit between them (highest priority first):
 
-1. The slash-prefix from `AI_DEFAULT_MODEL` (when present and matches a registered provider id).
-2. `AI_DEFAULT_PROVIDER`.
+1. Slash-prefix from `callerOverride` (Phase 1).
+2. `providerOverride` — request-time override on `runAiAgentText` / `runAiAgentObject` (Phase 1).
+3. Slash-prefix from `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL`) (Phase 1).
+4. `OM_AI_<MODULE>_PROVIDER` env (legacy `<MODULE>_AI_PROVIDER`) (Phase 1).
+5. Slash-prefix from `agentDefaultModel` (Phase 1).
+6. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider` (Phase 1).
+7. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL`) (Phase 0).
+8. `OM_AI_PROVIDER` (legacy `OPENCODE_PROVIDER`) env (Phase 0).
 
 The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
 

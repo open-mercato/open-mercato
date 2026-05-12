@@ -1226,6 +1226,25 @@ describe('bootstrap-modules.generated.ts', () => {
   })
 })
 
+describe('enabled-module-ids.generated.ts', () => {
+  it('exports a plain string array of every enabled module id without runtime imports', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('enabled-module-ids.generated.ts')
+
+    expect(content).toContain('export const enabledModuleIds: readonly string[]')
+    expect(content).toContain('"orders"')
+    expect(content).toContain('"products"')
+    expect(content).toContain('"custom_app"')
+
+    expect(content).not.toMatch(/^import\s+/m)
+    expect(content).not.toContain('@open-mercato/')
+    expect(content).not.toContain('createElement')
+    expect(content).not.toContain('createLazyModuleSubscriber')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // modules.cli.generated.ts
 // ---------------------------------------------------------------------------

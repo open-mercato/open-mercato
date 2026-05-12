@@ -101,6 +101,21 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```
    `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
+   To run multiple persistent local instances against the same PostgreSQL server (e.g. one per client repo), pass an optional `--database-name[=<name>]` flag. Without the flag, behavior is unchanged.
+
+   ```bash
+   # explicit name; .env update is offered with default-yes
+   yarn dev:greenfield --database-name=client_a
+
+   # bare flag derives the database name from the current directory
+   yarn dev --database-name
+
+   # one-off run that does not edit .env
+   yarn dev --database-name=client_a --no-update-env
+   ```
+
+   The override only rewrites the database segment of `DATABASE_URL`; credentials, host, port, and query parameters are preserved. CI/non-interactive runs default to updating `.env` — pass `--no-update-env` to opt out.
+
 ## Windows native local development
 
 This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.

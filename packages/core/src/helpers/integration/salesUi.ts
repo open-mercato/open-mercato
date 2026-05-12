@@ -349,6 +349,21 @@ async function waitForDialogFieldReady(
   await field.scrollIntoViewIfNeeded().catch(() => {});
 }
 
+async function fillControlledInput(input: Locator, value: string, timeout = 2_000): Promise<void> {
+  await waitForStableVisibility(input, TEST_WAIT_TIMEOUT_MS);
+  await input.fill(value);
+  await input.evaluate((element, nextValue) => {
+    const control = element as HTMLInputElement | HTMLTextAreaElement;
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    valueSetter?.call(control, nextValue);
+    control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+  await expect(input).toHaveValue(value, { timeout });
+  await input.press('Tab').catch(() => {});
+}
+
 async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
   const errorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first();
   if (!(await errorHeading.isVisible().catch(() => false))) return false;
@@ -1081,22 +1096,24 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    await labelInput.fill(options.label);
-    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
+    await fillControlledInput(labelInput, options.label);
 
     if ((await kindTrigger.count()) > 0) {
       const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
       const kindLabel = options.kindLabel ?? 'Surcharge';
-      // Open Radix Select via click; then drive selection via keyboard so the
-      // listbox keystroke matching jumps to the desired option (Discount /
-      // Surcharge / etc.). This sidesteps modal-backdrop click interception
-      // that occurs when a Radix Select is rendered inside a Radix Dialog.
       await kindTrigger.click();
-      await page.waitForTimeout(150);
-      // Type the first letter to jump to the matching option
-      await page.keyboard.type(kindLabel.charAt(0));
-      await page.waitForTimeout(150);
-      await page.keyboard.press('Enter');
+      const option = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+      const optionVisible = await option.waitFor({ state: 'visible', timeout: 2_000 }).then(
+        () => true,
+        () => false,
+      );
+      if (optionVisible) {
+        await option.click({ force: true });
+      } else {
+        await page.keyboard.type(kindLabel.charAt(0));
+        await page.waitForTimeout(150);
+        await page.keyboard.press('Enter');
+      }
       void expectedKindValue;
     }
 
@@ -1108,8 +1125,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
+      await fillControlledInput(enabledAmountInputs.first(), String(options.netAmount));
     }
   };
 
@@ -1134,7 +1150,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   }
   if (!(await adjustmentRow.isVisible().catch(() => false))) {
     await adjustmentsTab.click().catch(() => {});
-    await adjustmentRow.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+    await expect(adjustmentRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   }
 }
 

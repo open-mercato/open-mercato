@@ -320,14 +320,19 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `AI_DEFAULT_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. |
-| `AI_DEFAULT_MODEL` | Optional. Process-wide model id used when neither caller override, `<MODULE>_AI_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
-Both are deliberately decoupled from the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs (which stay bound to the OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" below.
+`OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
 
-Per-module model overrides use `<MODULE>_AI_MODEL` (uppercased from the agent's `moduleId`): for example, `CATALOG_AI_MODEL=claude-opus-4-20250514`, `INBOX_OPS_AI_MODEL=gpt-4o`.
+Per-module overrides (Phase 1 of the same spec — agent-default provider + per-call provider override are wired through `AiAgentDefinition.defaultProvider` and `runAiAgentText({ providerOverride })`):
 
-All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `<MODULE>_AI_MODEL` → `agentDefaultModel` → `AI_DEFAULT_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
+| Variable | Purpose |
+|----------|---------|
+| `OM_AI_<MODULE>_MODEL` | Optional. Per-module model override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`. The legacy `<MODULE>_AI_MODEL` form (e.g. `INBOX_OPS_AI_MODEL`) is read as a backward-compatibility fallback. Accepts a slash-qualified `<provider>/<model>` shorthand. |
+| `OM_AI_<MODULE>_PROVIDER` | Optional. Per-module provider override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form (e.g. `INBOX_OPS_AI_PROVIDER`) is read as a backward-compatibility fallback. Falls through transparently when the named provider is registered-but-unconfigured. |
+
+All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
 ## Architecture Constraints
 
@@ -512,20 +517,27 @@ modules — route them through the factory instead.
 Resolution order (highest precedence first):
 
 1. `callerOverride` (non-empty string) — typically `runAiAgentText({ modelOverride })`.
-2. `<MODULE>_AI_MODEL` env variable (uppercased from `moduleId`) —
-   e.g. `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention;
+2. `OM_AI_<MODULE>_MODEL` env variable (uppercased from `moduleId`) —
+   e.g. `OM_AI_INBOX_OPS_MODEL`, `OM_AI_CATALOG_MODEL`. Internal convention;
    no need to enumerate each one in `.env.example`.
 3. `agentDefaultModel` (typically `AiAgentDefinition.defaultModel`).
-4. `AI_DEFAULT_MODEL` env (Phase 0 of spec
+4. `OM_AI_MODEL` env (Phase 0 of spec
    `2026-04-27-ai-agents-provider-model-baseurl-overrides`). Plain id
    uses the resolved provider; slash-qualified id (`openai/gpt-5-mini`)
-   consumes the provider axis at the same step.
+   consumes the provider axis at the same step. Legacy `OPENCODE_MODEL` is
+   read as a backward-compatibility fallback.
 5. The configured provider's own default (`llmProvider.defaultModel`).
 
-The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
+The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. Phase 1 generalizes the seed walk so every model-axis source contributes a slash hint and plain-provider sources sit between them (highest priority first):
 
-1. Slash-prefix from `AI_DEFAULT_MODEL` (when present and matches a registered provider id).
-2. `AI_DEFAULT_PROVIDER` env.
+1. Slash-prefix from `callerOverride` (Phase 1).
+2. `providerOverride` — request-time provider override on `runAiAgentText` / `runAiAgentObject` (Phase 1).
+3. Slash-prefix from `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL`) (Phase 1).
+4. `OM_AI_<MODULE>_PROVIDER` env (legacy `<MODULE>_AI_PROVIDER`) (Phase 1).
+5. Slash-prefix from `agentDefaultModel` (Phase 1).
+6. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider` (Phase 1).
+7. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL`) (Phase 0).
+8. `OM_AI_PROVIDER` (legacy `OPENCODE_PROVIDER`) env (Phase 0).
 
 The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
 
@@ -1466,7 +1478,7 @@ This section captures what existing deployments need to know when picking up the
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 minutes) | Expiry window for pending mutation approvals. After this window the cleanup worker flips `status = 'pending'` rows whose `expires_at < now` to `expired` and emits `ai.action.expired`. |
-| `<MODULE>_AI_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
+| `OM_AI_<MODULE>_MODEL` | unset | Per-module model override, uppercased from the module id. Examples: `OM_AI_INBOX_OPS_MODEL`, `OM_AI_CATALOG_MODEL`. The legacy `<MODULE>_AI_MODEL` form (`INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`) is read as a backward-compatibility fallback. Internal convention — no need to enumerate each one in `.env.example`. Resolution order: caller override → this env var → `agentDefaultModel` → configured provider's default. |
 
 ### New database table
 
@@ -1529,7 +1541,7 @@ Tenants who want both keep OpenCode Code Mode for ad-hoc chat and Code-Mode-styl
 
 For a live end-to-end walkthrough against a real LLM:
 
-1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `CATALOG_AI_MODEL`.
+1. Set `AI_PENDING_ACTION_TTL_SECONDS=900`, your chosen provider env vars (e.g., `ANTHROPIC_API_KEY`), and optional `OM_AI_CATALOG_MODEL`.
 2. Run `yarn db:migrate` to pick up `Migration20260419134235_ai_assistant`.
 3. Run `yarn mercato configs cache structural --all-tenants` to register the cleanup worker on existing tenants.
 4. Open `/backend/catalog/catalog/products`, pick a handful of rows, open the `<AiChat>` sheet, and walk through each of the four named use cases (description drafting, attribute extraction, title variants, price adjustment suggestion).

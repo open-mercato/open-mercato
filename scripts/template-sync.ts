@@ -72,6 +72,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-orchestration-log-policy.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
+    rel: 'scripts/dev-database-url.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
     rel: 'scripts/dev-runtime.mjs',
