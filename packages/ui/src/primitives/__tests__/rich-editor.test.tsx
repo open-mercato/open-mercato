@@ -163,14 +163,42 @@ describe('RichEditor — content area + onChange', () => {
     const root = container.querySelector('[data-slot="rich-editor"]')!
     expect(root.getAttribute('aria-invalid')).toBe('true')
   })
+
+  it('renders the character counter when maxLength is set, omits it otherwise', () => {
+    const { container, rerender } = render(
+      <RichEditor value="<p>hello</p>" onChange={jest.fn()} variant="minimal" maxLength={200} />,
+    )
+    const counter = container.querySelector('[data-slot="rich-editor-counter"]')
+    expect(counter).not.toBeNull()
+    expect(counter?.textContent).toBe('5/200')
+
+    rerender(<RichEditor value="<p>hello</p>" onChange={jest.fn()} variant="minimal" />)
+    expect(container.querySelector('[data-slot="rich-editor-counter"]')).toBeNull()
+  })
+
+  it('flips the counter colour when the plaintext exceeds maxLength', () => {
+    const { container } = render(
+      <RichEditor value="<p>hello world</p>" onChange={jest.fn()} variant="minimal" maxLength={5} />,
+    )
+    const counter = container.querySelector('[data-slot="rich-editor-counter"]')!
+    expect(counter.className).toContain('text-destructive')
+    expect(counter.textContent).toBe('11/5')
+  })
 })
 
 describe('RichEditorColorPalette + RichEditorColorButton', () => {
-  it('renders all 10 palette swatches', () => {
+  it('renders all 10 palette swatches by default', () => {
     const onChange = jest.fn()
     const { container } = render(<RichEditorColorPalette onChange={onChange} />)
     const swatches = container.querySelectorAll('[data-color-key]')
     expect(swatches).toHaveLength(10)
+  })
+
+  it('honours the palette prop subset (Figma reference shows 5 colours)', () => {
+    const { container } = render(<RichEditorColorPalette palette={['gray', 'blue', 'orange', 'purple', 'sky']} />)
+    const swatches = container.querySelectorAll('[data-color-key]')
+    expect(swatches).toHaveLength(5)
+    expect(container.querySelector('[data-color-key="red"]')).toBeNull()
   })
 
   it('uses the configured Figma palette values verbatim', () => {

@@ -29,6 +29,12 @@ import {
   sanitizeRichTextPasteContent,
 } from '@open-mercato/ui/backend/utils/richTextSanitizer'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from './tooltip'
 
 // Figma `Rich Editor Colors` palette (164611:20259) — 10 tokens.
 export const RICH_EDITOR_COLOR_PALETTE = {
@@ -206,6 +212,13 @@ export type RichEditorProps = {
   onMention?: () => void
   /** Optional menu rendered inside the More `⋮` dropdown popover. */
   moreMenu?: React.ReactNode
+  /**
+   * Optional max length for the rich text content. When provided, renders a
+   * `<currentLength>/<maxLength>` counter in the bottom-right corner of the
+   * content card (Figma 166331:6589 reference). Counts the plaintext length
+   * of the sanitized HTML so users see a meaningful character budget.
+   */
+  maxLength?: number
   children?: React.ReactNode
   id?: string
   name?: string
@@ -258,6 +271,7 @@ export const RichEditor = React.memo(function RichEditor({
   onComment,
   onMention,
   moreMenu,
+  maxLength,
   children,
   id,
   name,
@@ -379,40 +393,69 @@ export const RichEditor = React.memo(function RichEditor({
     ? null
     : <RichEditorPresetItems variant={variant} labels={labels} onComment={onComment} onMention={onMention} moreMenu={moreMenu} />
 
+  const plaintextLength = React.useMemo(() => {
+    if (!maxLength) return 0
+    if (typeof document === 'undefined') return 0
+    const tmp = document.createElement('div')
+    tmp.innerHTML = sanitizeHtmlRichText(value)
+    return (tmp.textContent ?? '').length
+  }, [value, maxLength])
+
   return (
     <RichEditorContext.Provider value={ctx}>
-      <div
-        className={cn('w-full space-y-2', disabled && 'opacity-60', className)}
-        data-slot="rich-editor"
-        data-disabled={disabled ? 'true' : 'false'}
-        aria-invalid={ariaInvalid}
-      >
-        {variant === 'custom'
-          ? children
-          : (
-            <>
-              <RichEditorToolbar>{toolbarContent}</RichEditorToolbar>
-              <RichEditorContent
-                ref={editorRef}
-                placeholder={placeholder ?? labels.placeholder}
-                minRows={minRows}
-                disabled={disabled}
-                className={contentClassName}
-                onKeyDown={onKeyDown}
-                onPaste={onPaste}
-                onBlur={onBlur}
-                onInput={() => {
-                  if (!applyingExternal.current) typingRef.current = true
-                }}
-                id={id}
-                name={name}
-              />
-            </>
-          )}
-      </div>
+      <TooltipProvider delayDuration={400}>
+        <div
+          className={cn('w-full space-y-2', disabled && 'opacity-60', className)}
+          data-slot="rich-editor"
+          data-disabled={disabled ? 'true' : 'false'}
+          aria-invalid={ariaInvalid}
+        >
+          {variant === 'custom'
+            ? children
+            : (
+              <>
+                <RichEditorToolbar>{toolbarContent}</RichEditorToolbar>
+                <div className="relative">
+                  <RichEditorContent
+                    ref={editorRef}
+                    placeholder={placeholder ?? labels.placeholder}
+                    minRows={minRows}
+                    disabled={disabled}
+                    className={contentClassName}
+                    onKeyDown={onKeyDown}
+                    onPaste={onPaste}
+                    onBlur={onBlur}
+                    onInput={() => {
+                      if (!applyingExternal.current) typingRef.current = true
+                    }}
+                    id={id}
+                    name={name}
+                  />
+                  {maxLength ? (
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute bottom-2 right-3 select-none text-xs leading-4 text-muted-foreground',
+                        plaintextLength > maxLength && 'text-destructive',
+                      )}
+                      data-slot="rich-editor-counter"
+                      aria-live="polite"
+                    >
+                      {plaintextLength}/{maxLength}
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            )}
+        </div>
+      </TooltipProvider>
     </RichEditorContext.Provider>
   )
-}, (prev, next) => prev.value === next.value && prev.disabled === next.disabled && prev.variant === next.variant)
+}, (prev, next) =>
+  prev.value === next.value &&
+  prev.disabled === next.disabled &&
+  prev.variant === next.variant &&
+  prev.maxLength === next.maxLength,
+)
 RichEditor.displayName = 'RichEditor'
 
 export type RichEditorToolbarProps = React.HTMLAttributes<HTMLDivElement>
@@ -466,23 +509,33 @@ type ToolbarButtonBaseProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>
   }
 
 const RichEditorButton = React.forwardRef<HTMLButtonElement, ToolbarButtonBaseProps & { children?: React.ReactNode }>(
-  ({ className, type, active, tooltipLabel, children, onMouseDown, ...props }, ref) => (
-    <button
-      ref={ref}
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onMouseDown?.(e)
-      }}
-      data-active={active ? 'true' : 'false'}
-      title={tooltipLabel}
-      aria-pressed={active}
-      className={cn(richEditorItemVariants({ type }), className)}
-      {...props}
-    >
-      {children}
-    </button>
-  ),
+  ({ className, type, active, tooltipLabel, children, onMouseDown, ...props }, ref) => {
+    const button = (
+      <button
+        ref={ref}
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onMouseDown?.(e)
+        }}
+        data-active={active ? 'true' : 'false'}
+        aria-pressed={active}
+        className={cn(richEditorItemVariants({ type }), className)}
+        {...props}
+      >
+        {children}
+      </button>
+    )
+    // Wrap in DS Tooltip when tooltipLabel is provided — matches Figma
+    // 166331:4027 (dark rounded popover above the trigger).
+    if (!tooltipLabel) return button
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6}>{tooltipLabel}</TooltipContent>
+      </Tooltip>
+    )
+  },
 )
 RichEditorButton.displayName = 'RichEditorButton'
 
@@ -597,10 +650,18 @@ export type RichEditorColorButtonProps = Omit<ToolbarButtonBaseProps, 'type' | '
   onSelect?: (color: RichEditorColorKey | null) => void
   /** Optional translated labels per palette key (defaults to English names). */
   colorLabels?: Partial<Record<RichEditorColorKey, string>>
+  /**
+   * Restrict the popover palette to a subset of colour keys. Defaults to the
+   * 5-colour Figma reference set (`gray` / `blue` / `orange` / `purple` /
+   * `sky`); pass all 10 keys for the extended palette.
+   */
+  palette?: RichEditorColorKey[]
 }
 
+const DEFAULT_COLOR_POPOVER_PALETTE: RichEditorColorKey[] = ['gray', 'blue', 'orange', 'purple', 'sky']
+
 export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEditorColorButtonProps>(
-  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, ...props }, ref) => {
+  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, palette = DEFAULT_COLOR_POPOVER_PALETTE, ...props }, ref) => {
     const { exec, disabled } = useRichEditorContext('RichEditorColorButton')
     const swatchColor = colorValue ? RICH_EDITOR_COLOR_PALETTE[colorValue] : RICH_EDITOR_COLOR_PALETTE.blue
     return (
@@ -626,6 +687,7 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
           <RichEditorColorPalette
             value={colorValue}
             labels={colorLabels}
+            palette={palette}
             onChange={(key) => {
               if (key) exec(command, RICH_EDITOR_COLOR_PALETTE[key])
               onSelect?.(key)
@@ -643,11 +705,18 @@ export type RichEditorColorPaletteProps = {
   onChange?: (next: RichEditorColorKey | null) => void
   /** Translatable labels per palette key (defaults to English). */
   labels?: Partial<Record<RichEditorColorKey, string>>
+  /**
+   * Restrict the palette to a subset of colour keys (defaults to all 10). Use
+   * the same subset list on `RichEditorColorButton` and standalone palette
+   * popovers so the trigger swatch and the popover stay in sync.
+   */
+  palette?: RichEditorColorKey[]
   className?: string
 }
 
-export function RichEditorColorPalette({ value, onChange, labels, className }: RichEditorColorPaletteProps) {
+export function RichEditorColorPalette({ value, onChange, labels, palette, className }: RichEditorColorPaletteProps) {
   const resolvedLabels = { ...COLOR_LABELS_EN, ...(labels ?? {}) }
+  const keys = palette && palette.length > 0 ? palette : COLOR_KEYS
   return (
     <div
       className={cn('flex flex-col gap-0.5', className)}
@@ -655,7 +724,7 @@ export function RichEditorColorPalette({ value, onChange, labels, className }: R
       role="listbox"
       aria-label="Color palette"
     >
-      {COLOR_KEYS.map((key) => {
+      {keys.map((key) => {
         const isActive = value === key
         return (
           <button
