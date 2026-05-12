@@ -44,7 +44,7 @@ export function LastOperationBanner() {
         }
         completed.push(token)
       }
-      markUndoSuccess(tokens.length === 1 ? tokens[0] : tokens)
+      markUndoSuccess(tokens)
       flash(t('audit_logs.banner.undo_success'), 'success')
       router.refresh()
       if (typeof window !== 'undefined') {

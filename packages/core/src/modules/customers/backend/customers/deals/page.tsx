@@ -825,6 +825,7 @@ export default function CustomersDealsPage() {
       const succeededIds = new Set(succeeded.map((r) => r.id))
       setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
       setTotal((prev) => Math.max(0, prev - succeeded.length))
+      setReloadToken((prev) => prev + 1)
       if (succeeded.length > 1) {
         coalesceLastOperations(succeeded.length, {
           commandId: 'customers.deals.delete',
