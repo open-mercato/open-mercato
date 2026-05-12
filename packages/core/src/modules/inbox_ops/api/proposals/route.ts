@@ -7,7 +7,6 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
-import { serializeInboxProposal } from '../serialization'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -86,7 +85,7 @@ export async function GET(req: Request) {
       const proposalDiscrepancies = allDiscrepancies.filter((d) => d.proposalId === proposal.id)
 
       return {
-        ...serializeInboxProposal(proposal),
+        ...proposal,
         actionCount: proposalActions.length,
         pendingActionCount: proposalActions.filter((a) => a.status === 'pending').length,
         discrepancyCount: proposalDiscrepancies.length,

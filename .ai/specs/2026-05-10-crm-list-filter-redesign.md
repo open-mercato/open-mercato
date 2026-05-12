@@ -353,6 +353,88 @@ The change is additive for shared/DataTable contracts:
 
 The CRM list UI behavior changes intentionally: People, Companies, and Deals use the new filter UI directly. There is no runtime feature flag for this branch.
 
+## Migration & Backward Compatibility
+
+### `DataTable.advancedFilter.value` / `.onChange` — bridged
+
+The previous public type of `DataTable.advancedFilter.value` (and the matching `onChange` callback) was the flat `AdvancedFilterState` (`{ logic, conditions[] }`). This PR adds the v2 tree shape as the preferred input. To avoid breaking third-party module developers who imported and wired DataTable against the legacy flat shape, the prop accepts **both** types via a discriminated union:
+
+```ts
+advancedFilter?:
+  | { value: AdvancedFilterTree; onChange: (state: AdvancedFilterTree) => void; /* tree-only props */ }
+  | { value: AdvancedFilterState; onChange: (state: AdvancedFilterState) => void; /* legacy, deprecated */ }
+```
+
+**Runtime bridge**: DataTable uses the new `isAdvancedFilterState` discriminator (exported from `@open-mercato/shared/lib/query/advanced-filter`) to detect the legacy flat shape, converts it to a tree via `flatToTree` for internal rendering, and converts user edits back via `treeToFlat` before calling the caller's `onChange`. Tree-only props (`triggerRef`, `externalPopover`, `onTriggerClick`, `onApplyTree`) are unavailable on the legacy branch — they were added in this PR and never existed in the legacy contract.
+
+**Lossy back-conversion**: `treeToFlat` flattens nested groups into the top level by walking all leaf rules. The first rule's `join` is always `'and'`; subsequent rules inherit their parent group's combinator. Nested-group structure is not preserved. Legacy callers SHOULD migrate to the tree shape if they want full tree semantics.
+
+**Deprecation timeline (per `BACKWARD_COMPATIBILITY.md`)**:
+
+| Step | Status | Detail |
+|------|--------|--------|
+| 1. `@deprecated` JSDoc | Done | The legacy union branch carries `@deprecated`; a `console.warn` fires once in development when the flat shape is detected. |
+| 2. Bridge present | Done | One-version compatibility bridge in DataTable. |
+| 3. Release notes | Done | See `CHANGELOG.md` Unreleased → Behavior changes. |
+| 4. Spec reference | Done | This section. |
+| 5. Removal | Next minor | The legacy union branch and the bridge will be removed; only the tree shape will remain. |
+
+**Migration path**:
+
+1. Replace `useState<AdvancedFilterState>` with `useState<AdvancedFilterTree>(() => createEmptyTree())` (helper from `@open-mercato/shared/lib/query/advanced-filter-tree`).
+2. Replace any `convertAdvancedFilterToWhere` call with `mergeAdvancedFilterTree(routeFilters, tree)` on the server side (`@open-mercato/shared/lib/crud/advanced-filter-integration`).
+3. If you want the new builder UX, also adopt `useAdvancedFilterTree` (`@open-mercato/ui/backend/hooks/useAdvancedFilter`) and `AdvancedFilterPanel`.
+
+### `consumeAdvancedFilterState` — hoisted to shared
+
+Previously this helper lived inside `packages/core/src/modules/customers/api/utils.ts` and was implicitly customers-only. It is now exported from `@open-mercato/shared/lib/crud/advanced-filter-integration` so catalog, sales, and any other module can adopt the same URL-parsing path without reaching into customers internals. The customers export remains as a thin re-export shim marked `@deprecated`; existing callers continue to compile unchanged.
+
+### Saved filter localStorage — versioned envelope
+
+Saved-filter records (`open-mercato:advanced-filters:{storageKey}`) now use a versioned envelope:
+
+```ts
+{ v: 1, filters: SavedAdvancedFilter[] }
+```
+
+The reader still accepts the pre-envelope bare-array shape and migrates forward on the next write, so existing users do not lose saved filters. Schema additions in a future release (sharing flags, retention policy) will bump `v` and add a read-old migration branch.
+
+### DNF complexity cap
+
+`compileToDnf` in `@open-mercato/shared/lib/query/join-utils` now throws `AdvancedFilterComplexityError` when expansion would exceed `MAX_DNF_DISJUNCTS = 1000`. The editor's `validateTreeLimits` already caps input at 50 rules / 15 children per group / 3 nesting levels, but a hand-crafted URL or buggy preset could bypass that. The cap is fail-loud (refuse to compile) rather than truncate-with-warning, mirroring the editor's posture.
+
+### Hook state ownership — single source of truth
+
+The `useAdvancedFilterTree` hook is now the single source of truth for the filter tree. Each CRM page no longer keeps a parallel `useState<AdvancedFilterTree>` synced via `onApply` callbacks. Two-state-and-sync was fragile: every code path that mutated the tree (`onApply`, `onApplyTree`, `handleAdvancedFilterClear`, URL hydration, perspective restoration) had to update both copies, and a missed call silently desynced the URL from the rendered chips.
+
+**New hook surface** (`@open-mercato/ui/backend/hooks/useAdvancedFilter`):
+
+```ts
+type UseAdvancedFilterTreeResult = {
+  tree: AdvancedFilterTree         // in-progress editor — bound to AdvancedFilterPanel's value/onChange
+  appliedTree: AdvancedFilterTree  // last validated/applied — bound to URL serialization, query, chips, empty-state
+  setTree(t)
+  dispatch(action)
+  pendingErrors
+  flush()                          // applies immediately if valid; advances appliedTree
+  clear()                          // empties BOTH trees immediately
+  replaceTree(t)                   // jumps BOTH trees immediately (perspective restore, saved-filter apply)
+  hasActiveRules
+}
+```
+
+**Page contract**:
+
+- The page MUST hydrate the URL into `initialFilterTree` exactly once via `useMemo([])` and pass it as `initial`.
+- The page MUST NOT keep a parallel `useState<AdvancedFilterTree>` for the filter.
+- The page reads `filterPanel.appliedTree` for URL serialization, the data fetch request, `ActiveFilterChips` invariants, and `filterAwareEmptyState.active`.
+- The page reads `filterPanel.tree` only inside the editor (`AdvancedFilterPanel.value` and the inline chip rule-removal handler).
+- `onApply` is now an optional side-effect (e.g. `() => setPage(1)`) — state propagation flows through `appliedTree` directly.
+- Perspective restoration and saved-filter apply go through `replaceTree(t)`, not separate page+hook updates.
+- `handleAdvancedFilterClear` collapses to `filterPanel.clear(); setPage(1)` — no more parallel reset.
+
+**Adoption pattern for other modules (catalog, sales, etc.)**: hoist the `panelFields` late-binding shim and the URL-hydration `useMemo` into a future `usePageAdvancedFilter` wrapper hook (out of scope for this PR; see code review M1 follow-up). The wrapper would internalize the URL hydration, the panel-fields sync, and the trigger/popover state, and expose pre-shaped prop bundles for `DataTable` / `AdvancedFilterPanel` / `ActiveFilterChips`.
+
 ## Implementation Delta From Earlier Drafts
 
 The implemented approach differs from the original drafts in these important ways:
@@ -439,3 +521,4 @@ Integration suite results are tracked per branch tip via `yarn test:integration`
 - 2026-05-10: Removed the per-row connector flip affordance and the `splitConnectorAt` reducer action. Row connectors (`and`/`or`) became display-only labels driven by the parent group's combinator; combinator edits flowed exclusively through the natural-language group header. This eliminated the SQL-precedence auto-restructure that visibly "mangled" filters when users tried to flip a single connector.
 - 2026-05-10: Replaced the natural-language group header (`All of the following must be true:` / `Any of the following are true:`) with a Kendo-style `[And] [Or]` segmented toggle, dropped the `Where:` row prefix, and dropped the now-redundant `and`/`or` row labels entirely. The "+ Add condition" / "+ Add subgroup" buttons and the group `x` were moved into the same toolbar as the toggle so each group has ONE place to manage everything. Reason: after the previous iteration, non-technical users still treated the static row labels as clickable and reported the feature as broken when nothing happened on click. Eliminating the misleading affordance and matching the Kendo React Filter pattern 1:1 makes the combinator control unmistakable. New i18n keys: `ui.advancedFilter.combinator.and` / `combinator.or` / `combinator.label`. Removed: `ui.advancedFilter.where`, `allMatch`, `anyMatch`. Lower-case `connector.and` / `connector.or` are kept for the drag ghost preview.
 - 2026-05-11: Renamed from `2026-05-10-crm-filter-approach.md` to `2026-05-10-crm-list-filter-redesign.md` to match the naming pattern used by sibling CRM specs (e.g. `2026-04-06-crm-detail-pages-ux-enhancements.md`). Removed the three superseded draft files (`2026-05-07-advanced-filter-tree-design.md`, `2026-05-08-crm-filter-figma-redesign.md`, `analysis/ANALYSIS-2026-05-08-crm-filter-figma-redesign.md`) — their content is captured in the consolidated spec and in git history. Documented additional BC bullets (`Dialog.elevated`, `DataTable` new optional props, `Tag` `pink` variant, AI trigger feature-gate narrowing) and removed the pinned integration test count claim.
+- 2026-05-12: PR code-review pass. Added a one-version BC bridge that lets `DataTable.advancedFilter.value/.onChange` keep accepting the legacy `AdvancedFilterState` shape via runtime discriminator (`isAdvancedFilterState`), with `flatToTree`/`treeToFlat` shuttles and a one-shot dev `console.warn`. Hoisted `consumeAdvancedFilterState` from customers into `@open-mercato/shared/lib/crud/advanced-filter-integration` so catalog/sales can adopt the same URL-parsing without duplicating it. Wrapped saved-filter localStorage records in a versioned `{ v: 1, filters: [...] }` envelope (reader still accepts the bare-array legacy shape and migrates forward on next write). Added `AdvancedFilterComplexityError` + `MAX_DNF_DISJUNCTS = 1000` in `join-utils` to fail loud on adversarial URLs. Made `addedAt` a pure monotonic counter (no `Date.now()` mixing) so fixture ordering is deterministic. Replaced hard-coded `zIndex: 60` on `DragOverlay` with the `--z-index-modal-elevated` token. Added TC-CRM-046 association × advanced-tree AND-intersection coverage. Reverted unrelated `inbox_ops` JSON-decryption serializer (moved to a follow-up plan note at `.ai/plans/inbox_ops-decryption-serializer-followup.md`). **State ownership refactor**: removed the parallel `useState<AdvancedFilterTree>` from People / Companies / Deals; the hook now owns both editor (`tree`) and applied (`appliedTree`) state with a `replaceTree()` for perspective restore — see the "Hook state ownership — single source of truth" section above.

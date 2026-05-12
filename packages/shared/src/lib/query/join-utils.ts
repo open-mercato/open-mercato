@@ -14,12 +14,36 @@ const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice
 type LeafClause = { field: string; op: FilterOp; value?: unknown }
 
 /**
+ * Cap on DNF disjunct count to prevent adversarial / pathological filters from
+ * exploding the in-memory normalization. `validateTreeLimits` already caps
+ * editor input at 50 rules / 15 children per group / 3 levels of nesting, but
+ * a hand-crafted URL or buggy preset could still bypass that. The cap mirrors
+ * the editor's posture: fail loud, refuse to compile.
+ */
+export const MAX_DNF_DISJUNCTS = 1000
+
+export class AdvancedFilterComplexityError extends Error {
+  readonly code = 'ADVANCED_FILTER_TOO_COMPLEX'
+  readonly disjunctCount: number
+  constructor(disjunctCount: number) {
+    super(
+      `Advanced filter expanded to ${disjunctCount} disjuncts, exceeding the limit of ${MAX_DNF_DISJUNCTS}. ` +
+      `Reduce the number of OR branches or simplify nested groups.`,
+    )
+    this.name = 'AdvancedFilterComplexityError'
+    this.disjunctCount = disjunctCount
+  }
+}
+
+/**
  * Expand a Mongo-style filter object (with arbitrary nesting of `$and`/`$or` and
  * implicit AND between sibling keys) into Disjunctive Normal Form: `Clause[][]`,
  * where the outer array is OR'd alternatives and each inner array is the AND'd
  * leaves of one alternative.
  *
  * Empty filter -> `[[]]` (one empty disjunct, treated as "no constraint").
+ * Throws `AdvancedFilterComplexityError` if any intermediate cartesian product
+ * exceeds `MAX_DNF_DISJUNCTS`.
  */
 function compileToDnf(filter: unknown): LeafClause[][] {
   if (filter === null || filter === undefined) return [[]]
@@ -33,7 +57,11 @@ function compileToDnf(filter: unknown): LeafClause[][] {
       continue
     }
     if (rawKey === '$or' && Array.isArray(rawVal)) {
-      partialDnfs.push((rawVal as unknown[]).flatMap(compileToDnf))
+      const expanded = (rawVal as unknown[]).flatMap(compileToDnf)
+      if (expanded.length > MAX_DNF_DISJUNCTS) {
+        throw new AdvancedFilterComplexityError(expanded.length)
+      }
+      partialDnfs.push(expanded)
       continue
     }
     const field = normalizeField(rawKey)
@@ -62,6 +90,11 @@ function cartesianAnd(dnfs: LeafClause[][][]): LeafClause[][] {
       // An empty DNF means an unsatisfiable subexpression; the AND becomes unsatisfiable
       // too. Represent that as an empty outer array (no disjuncts).
       return []
+    }
+    // Predict the next size to fail loud before allocating millions of arrays.
+    const projected = result.length * dnf.length
+    if (projected > MAX_DNF_DISJUNCTS) {
+      throw new AdvancedFilterComplexityError(projected)
     }
     const next: LeafClause[][] = []
     for (const left of result) {

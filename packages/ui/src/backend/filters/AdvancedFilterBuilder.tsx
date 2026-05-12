@@ -204,7 +204,9 @@ export function AdvancedFilterBuilder({
           restores viewport-relative coordinates. */}
       {typeof document !== 'undefined'
         ? createPortal(
-            <DragOverlay dropAnimation={null} style={{ zIndex: 60 }}>
+            // dnd-kit's DragOverlay sets its own inline z-index, so a Tailwind
+            // utility class would be overridden — read the DS token via CSS var.
+            <DragOverlay dropAnimation={null} style={{ zIndex: 'var(--z-index-modal-elevated, 55)' }}>
               {activeDrag ? (
                 <DragGhost node={activeDrag.node} parent={activeDrag.parent} fields={fields} t={t} />
               ) : null}

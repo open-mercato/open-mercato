@@ -57,12 +57,36 @@ type SavedAdvancedFilter = {
   updatedAt: string
 }
 
+/**
+ * Versioned envelope for saved-filter records in localStorage. The `v` discriminator
+ * lets future schema changes (rename fields, retention policy, sharing flags) migrate
+ * existing records instead of silently dropping them. Bump `v` when adding a breaking
+ * change and add a read-old migration branch in `readSavedFilters`.
+ */
+type SavedFiltersEnvelopeV1 = {
+  v: 1
+  filters: SavedAdvancedFilter[]
+}
+
 const SAVED_FILTER_STORAGE_PREFIX = 'open-mercato:advanced-filters:'
 const MAX_SAVED_FILTERS = 20
+const CURRENT_SAVED_FILTERS_VERSION = 1 as const
 
 function makeSavedFilterStorageKey(key?: string): string | null {
   const trimmed = key?.trim()
   return trimmed ? `${SAVED_FILTER_STORAGE_PREFIX}${trimmed}` : null
+}
+
+function isSavedAdvancedFilter(value: unknown): value is SavedAdvancedFilter {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.id === 'string'
+    && typeof record.name === 'string'
+    && typeof record.createdAt === 'string'
+    && typeof record.updatedAt === 'string'
+    && isPersistedFilterTree(record.tree)
+  )
 }
 
 function readSavedFilters(storageKey: string): SavedAdvancedFilter[] {
@@ -71,18 +95,18 @@ function readSavedFilters(storageKey: string): SavedAdvancedFilter[] {
     const raw = window.localStorage.getItem(storageKey)
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((item): item is SavedAdvancedFilter => {
-      if (!item || typeof item !== 'object') return false
-      const record = item as Record<string, unknown>
-      return (
-        typeof record.id === 'string'
-        && typeof record.name === 'string'
-        && typeof record.createdAt === 'string'
-        && typeof record.updatedAt === 'string'
-        && isPersistedFilterTree(record.tree)
-      )
-    })
+    // v1 envelope (current shape).
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const envelope = parsed as { v?: unknown; filters?: unknown }
+      if (envelope.v === 1 && Array.isArray(envelope.filters)) {
+        return envelope.filters.filter(isSavedAdvancedFilter)
+      }
+    }
+    // Pre-envelope shape (bare array) — migrate forward on next write.
+    if (Array.isArray(parsed)) {
+      return parsed.filter(isSavedAdvancedFilter)
+    }
+    return []
   } catch {
     return []
   }
@@ -90,7 +114,8 @@ function readSavedFilters(storageKey: string): SavedAdvancedFilter[] {
 
 function writeSavedFilters(storageKey: string, filters: SavedAdvancedFilter[]) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(storageKey, JSON.stringify(filters))
+  const envelope: SavedFiltersEnvelopeV1 = { v: CURRENT_SAVED_FILTERS_VERSION, filters }
+  window.localStorage.setItem(storageKey, JSON.stringify(envelope))
 }
 
 function SaveFilterDialog({

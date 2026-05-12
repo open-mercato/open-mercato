@@ -18,12 +18,14 @@ export type TreeAction =
   | { type: 'removeLast' }
   | { type: 'replaceRoot'; root: FilterGroup }
 
-// Monotonically increasing within a session so that sibling inserts do not
-// collide on `Date.now()` resolution. Runtime-only — never serialized.
+// Pure monotonic counter for tracking insert order within a session.
+// MUST NOT be mixed with wall-clock time — that leaks load timing into tests
+// (fixture ordering depended on `Date.now()` resolution across runs).
+// Runtime-only — never serialized.
 let addedAtCounter = 0
 function nextAddedAt(): number {
   addedAtCounter += 1
-  return Date.now() + addedAtCounter
+  return addedAtCounter
 }
 
 function emptyRule(defaultField?: string, defaultOperator?: FilterOperator): FilterRule {

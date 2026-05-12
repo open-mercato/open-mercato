@@ -6,7 +6,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { deserializeAdvancedFilter, deserializeTree, flatToTree } from '@open-mercato/shared/lib/query/advanced-filter'
+import { consumeAdvancedFilterState as sharedConsumeAdvancedFilterState } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
@@ -280,36 +280,13 @@ export function applyEntityIdExclusion(
 }
 
 /**
- * Returns the user's advanced filter as a tree.
- * - Detects v2 tree URL params first.
- * - Falls back to legacy v1 flat params, upgraded via flatToTree under standard
- *   SQL precedence (AND binds tighter than OR).
- * - Mutates `query` to remove all `filter[...]` keys after parsing.
+ * @deprecated Use `consumeAdvancedFilterState` from
+ * `@open-mercato/shared/lib/crud/advanced-filter-integration` instead. This
+ * customers-module-local re-export is kept as a thin shim so existing imports
+ * keep working while callers migrate.
  */
 export function consumeAdvancedFilterState(query: Record<string, unknown>): AdvancedFilterTree | null {
-  let tree: AdvancedFilterTree | null = deserializeTree(query)
-  if (!tree) {
-    const flat = deserializeAdvancedFilter(query)
-    if (flat) {
-      tree = flatToTree(flat)
-      if (process.env.NODE_ENV !== 'production') {
-        const sentinel = '__OM_FILTER_V1_WARNED'
-        const g = globalThis as Record<string, unknown>
-        if (!g[sentinel]) {
-          g[sentinel] = true
-          console.warn('[advanced-filter] legacy v1 URL detected; auto-upgraded to v2 tree')
-        }
-      }
-    }
-  }
-
-  for (const key of Object.keys(query)) {
-    if (key.startsWith('filter[')) {
-      delete query[key]
-    }
-  }
-
-  return tree
+  return sharedConsumeAdvancedFilterState(query)
 }
 
 export async function findMatchingEntityIdsWithQueryEngine({

@@ -391,6 +391,22 @@ function readTreeGroup(prefix: string, query: Record<string, unknown>): TreeFilt
 }
 
 /**
+ * Runtime discriminator: is this value an `AdvancedFilterState` (legacy flat
+ * shape with `logic` + `conditions`) rather than an `AdvancedFilterTree`
+ * (`{root: FilterGroup}`)?
+ *
+ * Used at the DataTable boundary to bridge legacy callers onto the new tree
+ * model without forcing third-party module developers to migrate immediately.
+ * See `BACKWARD_COMPATIBILITY.md` §3 and the spec's "Migration & Backward
+ * Compatibility" section.
+ */
+export function isAdvancedFilterState(value: unknown): value is AdvancedFilterState {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return Array.isArray(record.conditions) && (record.logic === 'and' || record.logic === 'or')
+}
+
+/**
  * Convert legacy flat AdvancedFilterState into a tree under standard SQL precedence
  * (AND binds tighter than OR). Runs of consecutive AND-joined conditions become
  * AND-subgroups, and the OR connectors join those subgroups in a root OR-group.

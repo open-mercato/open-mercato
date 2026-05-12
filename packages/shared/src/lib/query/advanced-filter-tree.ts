@@ -249,6 +249,57 @@ export function deserializeTreeFromPersist(value: unknown): AdvancedFilterTree |
 }
 
 /**
+ * Best-effort back-conversion of a tree to the legacy flat `AdvancedFilterState`
+ * shape (`{logic, conditions[]}`). The flat shape only supports a single level
+ * of AND/OR joining between sibling conditions; nested groups are flattened by
+ * walking all leaf rules into the top level. Use this only for the legacy
+ * `DataTable.advancedFilter` BC bridge — new code should keep the tree shape.
+ *
+ * The function picks `logic` from the root group's combinator and uses each
+ * rule's parent-group combinator as its `join`. The first rule's `join` is
+ * always `'and'` (it has no left neighbor).
+ */
+export function treeToFlat(tree: AdvancedFilterTree): {
+  logic: 'and' | 'or'
+  conditions: Array<{
+    id: string
+    field: string
+    operator: import('./advanced-filter').FilterOperator
+    value: unknown
+    join: 'and' | 'or'
+  }>
+} {
+  const conditions: Array<{
+    id: string
+    field: string
+    operator: import('./advanced-filter').FilterOperator
+    value: unknown
+    join: 'and' | 'or'
+  }> = []
+
+  function walk(group: FilterGroup, parentJoin: 'and' | 'or') {
+    for (const child of group.children) {
+      if (child.type === 'rule') {
+        conditions.push({
+          id: child.id,
+          field: child.field,
+          operator: child.operator,
+          value: child.value,
+          // First rule overall gets 'and' (it has no left neighbor); the rest
+          // inherit the parent group's combinator.
+          join: conditions.length === 0 ? 'and' : parentJoin,
+        })
+      } else {
+        walk(child, child.combinator)
+      }
+    }
+  }
+  walk(tree.root, tree.root.combinator)
+
+  return { logic: tree.root.combinator, conditions }
+}
+
+/**
  * Build a multi-rule tree wrapped in a root group with the given combinator.
  * Useful for quick-filter presets that combine multiple rules (e.g.
  * `status is win AND close_date is_after start_of_quarter`).

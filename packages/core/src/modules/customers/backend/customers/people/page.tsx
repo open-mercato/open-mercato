@@ -16,7 +16,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
-import type { FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -202,15 +202,14 @@ export default function CustomersPeoplePage() {
   const [search, setSearch] = React.useState('')
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterTree>(() => {
-    // Hydrate from the URL on mount so refresh preserves the full filter tree
-    // (top-level rules AND nested subgroups). v2 (`filter[v]=2`) is the
-    // canonical shape; v1 flat (`filter[conditions][...]`) is accepted as a
-    // legacy compatibility path and converted via flatToTree.
-    const params = searchParams
-    if (!params) return createEmptyTree()
+  // One-shot URL hydration used as the hook's initial value. The hook is the
+  // single source of truth from this point on — the page MUST NOT keep a
+  // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
+  // Compatibility" → state ownership).
+  const initialFilterTree = React.useMemo<AdvancedFilterTree>(() => {
+    if (!searchParams) return createEmptyTree()
     const record: Record<string, string> = {}
-    params.forEach((value, key) => {
+    searchParams.forEach((value, key) => {
       if (key.startsWith('filter[')) record[key] = value
     })
     const v2 = deserializeTree(record)
@@ -218,7 +217,30 @@ export default function CustomersPeoplePage() {
     const flat = deserializeAdvancedFilter(record)
     if (flat) return flatToTree(flat)
     return createEmptyTree()
+    // searchParams is intentionally evaluated once on mount — subsequent URL
+    // changes flow through the hook, not back through hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // `filterPanel` lives at the top of the component so derived state below
+  // (URL params, data fetch, export config) can read `filterPanel.appliedTree`
+  // directly. Real `FilterFieldDef[]` arrives later from `useAutoDiscoveredFields`
+  // (it depends on columns) and is synced into the hook via a small effect at
+  // the bottom of the component. The hook reads fields through a ref at
+  // validation time only — first validation cannot fire before user input, by
+  // which point fields have settled, so the empty initial value is safe.
+  const [panelFields, setPanelFields] = React.useState<FilterFieldDef[]>([])
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const filtersTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const filterPanel = useAdvancedFilterTree({
+    initial: initialFilterTree,
+    fields: panelFields,
+    onApply: () => setPage(1),
   })
+  const advancedFilterState = filterPanel.appliedTree
+  const handleAdvancedFilterClear = React.useCallback(() => {
+    filterPanel.clear()
+    setPage(1)
+  }, [filterPanel])
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
@@ -770,24 +792,27 @@ export default function CustomersPeoplePage() {
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
+  // Sync auto-discovered fields into the `filterPanel` declared at the top of
+  // the component. See the comment on the `panelFields` state for why this
+  // late-binding is safe. Bail out by content (field-key list) — every render
+  // of `useAutoDiscoveredFields` produces fresh `FilterFieldDef` object refs
+  // even when the set of fields hasn't actually changed, so a naive reference
+  // setState would loop ("Maximum update depth exceeded").
+  React.useEffect(() => {
+    setPanelFields((prev) => {
+      if (prev === advancedFilterFields) return prev
+      if (prev.length === advancedFilterFields.length) {
+        let same = true
+        for (let i = 0; i < prev.length; i++) {
+          if (prev[i].key !== advancedFilterFields[i].key) { same = false; break }
+        }
+        if (same) return prev
+      }
+      return advancedFilterFields
+    })
+  }, [advancedFilterFields])
+
   const peoplePresets = React.useMemo<FilterPreset[]>(() => makePeoplePresets(), [])
-  const filtersTriggerRef = React.useRef<HTMLButtonElement | null>(null)
-  const [filtersOpen, setFiltersOpen] = React.useState(false)
-
-  const filterPanel = useAdvancedFilterTree({
-    initial: advancedFilterState,
-    fields: advancedFilterFields,
-    onApply: (tree) => {
-      setAdvancedFilterState(tree)
-      setPage(1)
-    },
-  })
-
-  const handleAdvancedFilterClear = React.useCallback(() => {
-    filterPanel.clear()
-    setAdvancedFilterState(createEmptyTree())
-    setPage(1)
-  }, [filterPanel, setAdvancedFilterState, setPage])
 
   return (
     <Page>
@@ -860,8 +885,7 @@ export default function CustomersPeoplePage() {
             externalPopover: true,
             onTriggerClick: () => setFiltersOpen((prev) => !prev),
             onApplyTree: (tree) => {
-              setAdvancedFilterState(tree)
-              filterPanel.setTree(tree)
+              filterPanel.replaceTree(tree)
               setPage(1)
             },
           }}

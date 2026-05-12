@@ -115,3 +115,44 @@ export function mergeAdvancedFiltersFromQuery(
   if (!flat) return routeFilters
   return mergeAdvancedFilterTree(routeFilters, flatToTree(flat))
 }
+
+/**
+ * Returns the request's advanced filter as a tree, after stripping the
+ * `filter[...]` keys from the query map. Mirrors `mergeAdvancedFiltersFromQuery`
+ * but exposes the tree so callers can apply additional shaping (e.g. mapping to
+ * `query.ids`, narrowing by feature flags, or surfacing the tree to enrichers)
+ * before merging into the route filter.
+ *
+ * - Detects v2 tree URL params first.
+ * - Falls back to legacy v1 flat params, upgraded via `flatToTree` under
+ *   standard SQL precedence (AND binds tighter than OR).
+ * - Mutates `query` in place: every `filter[...]` key is removed after parsing.
+ *
+ * Returns `null` when no advanced-filter query params are present.
+ */
+export function consumeAdvancedFilterState(query: Record<string, unknown>): AdvancedFilterTree | null {
+  let tree: AdvancedFilterTree | null = deserializeTree(query)
+  if (!tree) {
+    const flat = deserializeAdvancedFilter(query)
+    if (flat) {
+      tree = flatToTree(flat)
+      if (process.env.NODE_ENV !== 'production') {
+        const sentinel = '__OM_FILTER_V1_WARNED'
+        const g = globalThis as Record<string, unknown>
+        if (!g[sentinel]) {
+          g[sentinel] = true
+          // eslint-disable-next-line no-console
+          console.warn('[advanced-filter] legacy v1 URL detected; auto-upgraded to v2 tree')
+        }
+      }
+    }
+  }
+
+  for (const key of Object.keys(query)) {
+    if (key.startsWith('filter[')) {
+      delete query[key]
+    }
+  }
+
+  return tree
+}

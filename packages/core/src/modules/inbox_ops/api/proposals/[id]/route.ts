@@ -8,11 +8,6 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../routeHelpers'
-import {
-  serializeInboxEmail,
-  serializeInboxProposal,
-  serializeInboxProposalAction,
-} from '../../serialization'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -53,16 +48,14 @@ export async function GET(req: Request) {
       ),
     ])
 
-    const serializedActions = actions.map(serializeInboxProposalAction)
-
     return NextResponse.json({
       proposal: {
-        ...serializeInboxProposal(proposal),
-        actions: serializedActions,
+        ...proposal,
+        actions,
       },
-      actions: serializedActions,
+      actions,
       discrepancies,
-      email: serializeInboxEmail(email),
+      email,
     })
   } catch (err) {
     return handleRouteError(err, 'load proposal')

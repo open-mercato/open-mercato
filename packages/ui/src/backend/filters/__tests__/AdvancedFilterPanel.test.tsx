@@ -142,12 +142,15 @@ describe('AdvancedFilterPanel', () => {
       const raw = window.localStorage.getItem('open-mercato:advanced-filters:customers.people.list')
       expect(raw).toBeTruthy()
       const saved = JSON.parse(String(raw))
-      expect(saved).toEqual([
-        expect.objectContaining({
-          name: 'Owned leads',
-          tree: expect.objectContaining({ v: 2 }),
-        }),
-      ])
+      expect(saved).toEqual({
+        v: 1,
+        filters: [
+          expect.objectContaining({
+            name: 'Owned leads',
+            tree: expect.objectContaining({ v: 2 }),
+          }),
+        ],
+      })
     } finally {
       if (originalFetch) {
         globalThis.fetch = originalFetch

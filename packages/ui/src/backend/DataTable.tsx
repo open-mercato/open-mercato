@@ -52,14 +52,18 @@ import type {
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { FilterFieldDef as AdvancedFilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
-import { getDefaultOperator } from '@open-mercato/shared/lib/query/advanced-filter'
+import type {
+  FilterFieldDef as AdvancedFilterFieldDef,
+  AdvancedFilterState,
+} from '@open-mercato/shared/lib/query/advanced-filter'
+import { getDefaultOperator, isAdvancedFilterState, flatToTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import {
   createEmptyTree,
   serializeTreeForPersist,
   deserializeTreeFromPersist,
   isPersistedFilterTree,
+  treeToFlat,
 } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { treeReducer } from './filters/treeReducer'
 import { AdvancedFilterBuilder } from './filters/AdvancedFilterBuilder'
@@ -246,37 +250,65 @@ export type DataTableProps<T> = {
   virtualized?: boolean
   virtualizedMaxHeight?: number | string
   virtualizedOverscan?: number
-  advancedFilter?: {
-    fields?: AdvancedFilterFieldDef[]
-    auto?: boolean
-    value: AdvancedFilterTree
-    onChange: (state: AdvancedFilterTree) => void
-    onApply: () => void
-    onClear: () => void
-    /**
-     * Optional ref forwarded to the internal Filters trigger button. When set,
-     * external popovers (e.g. AdvancedFilterPanel) can anchor to this trigger.
-     * The internal popover is suppressed when externalPopover is true.
-     */
-    triggerRef?: React.RefObject<HTMLButtonElement | null>
-    /**
-     * When true, DataTable suppresses its internal advanced filter popover/builder
-     * and only renders the trigger button. The host page is responsible for
-     * rendering an external popover (e.g. AdvancedFilterPanel) and toggling
-     * its open state via onTriggerClick.
-     */
-    externalPopover?: boolean
-    onTriggerClick?: () => void
-    /**
-     * Optional callback invoked when a saved perspective contains a persisted
-     * advanced-filter tree (`{v:2, root:...}`). The host page receives the
-     * restored tree and is responsible for replacing both its local state and
-     * the `useAdvancedFilterTree` hook's tree. When omitted, perspectives that
-     * carry a tree-shape `filters` payload are ignored on load (and the legacy
-     * `onFiltersApply` callback is called with an empty record).
-     */
-    onApplyTree?: (tree: AdvancedFilterTree) => void
-  }
+  /**
+   * Advanced filter configuration. Accepts either the v2 tree shape (preferred)
+   * or the legacy flat `AdvancedFilterState` shape as a backward-compatibility
+   * bridge. The bridge is provided for one minor version; legacy callers SHOULD
+   * migrate to the tree shape — see the spec
+   * `.ai/specs/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
+   * Compatibility" section and `RELEASE_NOTES.md`.
+   *
+   * When the legacy flat shape is detected, DataTable converts it to a tree via
+   * `flatToTree` for internal rendering and converts any user edits back via
+   * `treeToFlat` before calling `onChange`. The back-conversion flattens nested
+   * groups into the top level (lossy for sub-group structure), so consumers
+   * that need full tree semantics MUST migrate.
+   */
+  advancedFilter?:
+    | {
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterTree
+        onChange: (state: AdvancedFilterTree) => void
+        onApply: () => void
+        onClear: () => void
+        /**
+         * Optional ref forwarded to the internal Filters trigger button. When set,
+         * external popovers (e.g. AdvancedFilterPanel) can anchor to this trigger.
+         * The internal popover is suppressed when externalPopover is true.
+         */
+        triggerRef?: React.RefObject<HTMLButtonElement | null>
+        /**
+         * When true, DataTable suppresses its internal advanced filter popover/builder
+         * and only renders the trigger button. The host page is responsible for
+         * rendering an external popover (e.g. AdvancedFilterPanel) and toggling
+         * its open state via onTriggerClick.
+         */
+        externalPopover?: boolean
+        onTriggerClick?: () => void
+        /**
+         * Optional callback invoked when a saved perspective contains a persisted
+         * advanced-filter tree (`{v:2, root:...}`). The host page receives the
+         * restored tree and is responsible for replacing both its local state and
+         * the `useAdvancedFilterTree` hook's tree. When omitted, perspectives that
+         * carry a tree-shape `filters` payload are ignored on load (and the legacy
+         * `onFiltersApply` callback is called with an empty record).
+         */
+        onApplyTree?: (tree: AdvancedFilterTree) => void
+      }
+    | {
+        /**
+         * @deprecated Legacy flat `AdvancedFilterState` shape. Convert to the
+         * v2 tree shape above before the next minor version. The bridge will be
+         * removed per the deprecation protocol in `BACKWARD_COMPATIBILITY.md`.
+         */
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterState
+        onChange: (state: AdvancedFilterState) => void
+        onApply: () => void
+        onClear: () => void
+      }
   columnChooser?: {
     availableColumns?: ColumnChooserField[]
     auto?: boolean
@@ -941,7 +973,7 @@ export function DataTable<T>({
   virtualized = false,
   virtualizedMaxHeight,
   virtualizedOverscan = 10,
-  advancedFilter,
+  advancedFilter: advancedFilterInput,
   columnChooser,
   activeFilterChips,
   filterAwareEmptyState,
@@ -953,6 +985,53 @@ export function DataTable<T>({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
+
+  // BC bridge: legacy callers may pass the flat `AdvancedFilterState` shape on
+  // `advancedFilter.value`. Normalize to the tree shape that the rest of
+  // DataTable expects, and back-convert on `onChange` so the caller's typed
+  // callback still receives the shape it declared. Tree-only fields
+  // (`triggerRef`, `externalPopover`, `onApplyTree`, `onTriggerClick`) are
+  // undefined for legacy callers — they were added in this PR and didn't exist
+  // in the legacy contract.
+  // See spec `.ai/specs/2026-05-10-crm-list-filter-redesign.md` ("Migration &
+  // Backward Compatibility") and BACKWARD_COMPATIBILITY.md §3.
+  type AdvancedFilterNormalized = {
+    fields?: AdvancedFilterFieldDef[]
+    auto?: boolean
+    value: AdvancedFilterTree
+    onChange: (state: AdvancedFilterTree) => void
+    onApply: () => void
+    onClear: () => void
+    triggerRef?: React.RefObject<HTMLButtonElement | null>
+    externalPopover?: boolean
+    onTriggerClick?: () => void
+    onApplyTree?: (tree: AdvancedFilterTree) => void
+  }
+  const legacyAdvancedFilterWarnedRef = React.useRef(false)
+  const advancedFilter: AdvancedFilterNormalized | undefined = React.useMemo(() => {
+    if (!advancedFilterInput) return undefined
+    if (!isAdvancedFilterState(advancedFilterInput.value)) {
+      return advancedFilterInput as AdvancedFilterNormalized
+    }
+    if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
+      legacyAdvancedFilterWarnedRef.current = true
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[DataTable] `advancedFilter.value` was passed as the legacy `AdvancedFilterState` shape. ' +
+        'This bridge will be removed in the next minor version — migrate to the tree shape ' +
+        '(`AdvancedFilterTree`, see `@open-mercato/shared/lib/query/advanced-filter-tree`).',
+      )
+    }
+    const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
+    return {
+      fields: legacy.fields,
+      auto: legacy.auto,
+      value: flatToTree(legacy.value),
+      onChange: (next: AdvancedFilterTree) => legacy.onChange(treeToFlat(next)),
+      onApply: legacy.onApply,
+      onClear: legacy.onClear,
+    }
+  }, [advancedFilterInput])
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged((detail) => {
       const prev = lastScopeRef.current
