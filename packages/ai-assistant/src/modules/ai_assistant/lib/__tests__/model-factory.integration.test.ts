@@ -12,7 +12,7 @@
  *
  * Scenarios (per Step 5.16 spec):
  *   - callerOverride non-empty  → wins over env + agent default + provider
- *   - env `<MODULE>_AI_MODEL`   → wins over agent default + provider default
+ *   - env `OM_AI_<MODULE>_MODEL`   → wins over agent default + provider default
  *   - agentDefaultModel         → wins over provider default
  *   - provider default          → chosen last
  *   - no provider registered    → throws `AiModelFactoryError`
@@ -72,7 +72,7 @@ const fakeContainer = {} as unknown as AwilixContainer
 describe('Step 5.16 — model factory fallback chain (integration)', () => {
   it('callerOverride wins over env + agentDefaultModel + provider default', () => {
     const provider = makeProvider({ defaultModel: 'provider-default' })
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned' }
     const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -89,9 +89,9 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
     })
   })
 
-  it('env <MODULE>_AI_MODEL wins over agentDefaultModel + provider default when moduleId is set', () => {
+  it('env OM_AI_<MODULE>_MODEL wins over agentDefaultModel + provider default when moduleId is set', () => {
     const provider = makeProvider({ defaultModel: 'provider-default' })
-    const env = { CATALOG_AI_MODEL: 'catalog-env-model' }
+    const env = { OM_AI_CATALOG_MODEL: 'catalog-env-model' }
     const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'catalog',
@@ -135,15 +135,15 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
   })
 
   it('moduleId: undefined skips the env-override lookup (regression)', () => {
-    // Even if a `<MODULE>_AI_MODEL` env var exists in the environment, the
+    // Even if a `OM_AI_<MODULE>_MODEL` env var exists in the environment, the
     // factory does NOT construct a module-scoped env var name when moduleId
     // is undefined — it falls straight through to agentDefaultModel /
     // provider default. This guards against a past bug where `String(undefined)`
-    // yielded the literal env name `"UNDEFINED_AI_MODEL"`.
+    // yielded the literal env name `"OM_AI_UNDEFINED_MODEL"`.
     const provider = makeProvider({ defaultModel: 'provider-default' })
     const env = {
-      INBOX_OPS_AI_MODEL: 'should-be-ignored',
-      UNDEFINED_AI_MODEL: 'also-ignored',
+      OM_AI_INBOX_OPS_MODEL: 'should-be-ignored',
+      OM_AI_UNDEFINED_MODEL: 'also-ignored',
     }
     const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
     const resolution = factory.resolveModel({
@@ -155,7 +155,7 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
 
   it('empty-string callerOverride falls through to env, not treated as override', () => {
     const provider = makeProvider({ defaultModel: 'provider-default' })
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned' }
     const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -170,7 +170,7 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
     // Defense-in-depth: a caller passing `"   "` (e.g. from a UI text input)
     // should not bypass lower-priority layers.
     const provider = makeProvider({ defaultModel: 'provider-default' })
-    const env = { INBOX_OPS_AI_MODEL: 'env-pinned' }
+    const env = { OM_AI_INBOX_OPS_MODEL: 'env-pinned' }
     const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
     const resolution = factory.resolveModel({
       moduleId: 'inbox_ops',
@@ -179,5 +179,27 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
     })
     expect(resolution.source).toBe('module_env')
     expect(resolution.modelId).toBe('env-pinned')
+  })
+
+  it('OM_AI_PROVIDER + OM_AI_MODEL surfaces the env_default source end-to-end', () => {
+    // Phase 0 of spec 2026-04-27-ai-agents-provider-model-baseurl-overrides.
+    // Driving only env knobs (no agent default, no caller override, no
+    // module env) — the resolution must round-trip an `env_default` source
+    // and the modelId should be the `OM_AI_MODEL` value forwarded
+    // verbatim to `provider.createModel`.
+    const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+    const env = {
+      OM_AI_PROVIDER: 'openai',
+      OM_AI_MODEL: 'gpt-5-mini',
+    }
+    const factory = createModelFactory(fakeContainer, makeDeps(provider, env))
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('openai')
+    expect(resolution.modelId).toBe('gpt-5-mini')
+    expect(resolution.source).toBe('env_default')
+    expect(resolution.model).toMatchObject({
+      kind: 'fake-model',
+      modelId: 'gpt-5-mini',
+    })
   })
 })

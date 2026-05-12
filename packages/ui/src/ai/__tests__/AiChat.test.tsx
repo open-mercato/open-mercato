@@ -107,6 +107,7 @@ function createErrorResponse(status: number, payload: Record<string, unknown>): 
 describe('<AiChat>', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    window.localStorage.clear()
   })
 
   it('renders the composer with the i18n placeholder and region labels', () => {
@@ -151,6 +152,32 @@ describe('<AiChat>', () => {
       expect(screen.getByText('Hello, world!')).toBeInTheDocument()
     })
     expect(screen.getByText('Hi there')).toBeInTheDocument()
+  })
+
+  it('submits suggested prompts visibly after React StrictMode mount replay', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(createStreamingResponse(['Suggested answer']))
+
+    renderWithProviders(
+      <React.StrictMode>
+        <AiChat
+          agent="customers.account_assistant"
+          suggestions={[{ label: 'Summarize customers', prompt: 'Summarize customers' }]}
+        />
+      </React.StrictMode>,
+      { dict },
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Summarize customers' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.getByText('Summarize customers')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByText('Suggested answer')).toBeInTheDocument()
+    })
   })
 
   it('surfaces dispatcher error envelopes via Alert and onError callback', async () => {

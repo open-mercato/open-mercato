@@ -5,6 +5,8 @@ export {
   getCoreInjectionWidgets,
   registerCoreInjectionTables,
   getCoreInjectionTables,
+  registerEnabledModuleIds,
+  getEnabledModuleIds,
   invalidateInjectionWidgetCache,
   loadAllInjectionWidgets,
   loadInjectionDataWidgetById,

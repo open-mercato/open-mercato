@@ -27,6 +27,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
     description:
       'Renders an "Ask AI" button in the people list header that opens a sheet embedding the customers account assistant.',
     features: ['customers.people.view', 'ai_assistant.view'],
+    requiredModules: ['ai_assistant'],
     priority: 100,
     enabled: true,
   },

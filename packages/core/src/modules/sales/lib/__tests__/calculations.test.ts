@@ -208,6 +208,38 @@ describe('calculateDocumentTotals', () => {
     }
   })
 
+  it('treats positive return amounts as negative so they never inflate the grand total (issue #1705)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 1,
+        taxRate: 0,
+      },
+    ]
+    const adjustments: SalesAdjustmentDraft[] = [
+      {
+        scope: 'order',
+        kind: 'return',
+        amountNet: 1,
+        amountGross: 1,
+        currencyCode: 'USD',
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments,
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.grandTotalGrossAmount).toBeLessThanOrEqual(1)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(0, 4)
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(0, 4)
+  })
+
   it('reduces grand total for line-scoped return (credit) adjustments', async () => {
     const lines: SalesLineSnapshot[] = [
       {

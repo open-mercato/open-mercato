@@ -131,19 +131,20 @@ Develop snapshots MUST be unique per run.
 Recommended format:
 
 ```text
-<next-stable-version>-develop.<github_run_number>.<short_sha>
+<next-stable-version>-develop.<github_run_number>.<github_run_attempt>.<short_sha>
 ```
 
 Example:
 
 ```text
-0.4.9-develop.1523.a1b2c3d4
+0.4.9-develop.1523.1.a1b2c3d4
 ```
 
 Rules:
 
 - the base version SHOULD be derived from the current stable package version and incremented to the next patch line
 - the version MUST include enough build identity to remain unique
+- GitHub reruns MUST include the workflow attempt so a rerun never republishes an immutable npm version
 - the version string MUST remain valid semver
 
 ### 3. Dist-tag Behavior
