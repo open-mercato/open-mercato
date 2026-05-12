@@ -7,6 +7,7 @@ import {
   getMondayUtc,
   toDateOnlyString,
 } from './dateBuckets'
+import { deltaPct, minutesToHours } from './kpiMath'
 
 type WeekRow = { bucket: 'current' | 'previous'; total_minutes: string | number }
 
@@ -37,15 +38,6 @@ export type ProjectKpisCollabResult = {
   myProjects: { total: number; active: number }
   myHoursWeek: KpiDelta
   myHoursMonth: KpiDelta
-}
-
-function deltaPct(current: number, previous: number): number | null {
-  if (previous <= 0) return null
-  return Math.round(((current - previous) / previous) * 100 * 10) / 10
-}
-
-function minutesToHours(minutes: number): number {
-  return Math.round((minutes / 60) * 10) / 10
 }
 
 export async function computePmProjectsKpis(
@@ -317,5 +309,3 @@ export async function computeCollabProjectsKpis(
     },
   }
 }
-
-export { deltaPct as __testDeltaPct, minutesToHours as __testMinutesToHours }

@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { StaffTeamMember, StaffTimeProjectMember } from '../../data/entities'
+import { computeInitials } from './initials'
+
+export { computeInitials }
 
 export type MembersPreviewScope = {
   em: EntityManager
@@ -23,13 +26,6 @@ export type ProjectMembersPreview = {
 }
 
 const DEFAULT_MAX = 4
-
-export function computeInitials(displayName: string): string {
-  const parts = displayName.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-}
 
 export async function listProjectMembersPreview(
   scope: MembersPreviewScope & { callerStaffMemberId?: string | null },

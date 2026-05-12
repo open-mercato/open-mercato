@@ -1,4 +1,4 @@
-import { computeInitials } from '../listProjectMembersPreview'
+import { computeInitials } from '../initials'
 
 describe('computeInitials', () => {
   it('returns two-letter initials from first and last name', () => {
