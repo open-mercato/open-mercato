@@ -1,7 +1,11 @@
 import {
+  intersectAllowlists,
   isModelAllowedForProvider,
+  isModelAllowedForProviderInEffective,
   isProviderAllowed,
+  isProviderAllowedInEffective,
   isProviderModelAllowed,
+  isProviderModelAllowedInEffective,
   modelAllowlistEnvVarName,
   providerAllowlistEnvVarName,
   readAllowedModels,
@@ -116,6 +120,96 @@ describe('model-allowlist', () => {
     it('exposes the canonical env var names for docs/UI hints', () => {
       expect(providerAllowlistEnvVarName()).toBe('OM_AI_AVAILABLE_PROVIDERS')
       expect(modelAllowlistEnvVarName('openai')).toBe('OM_AI_AVAILABLE_MODELS_OPENAI')
+    })
+  })
+
+  describe('Phase 1780-6 — intersectAllowlists / effective allowlist', () => {
+    it('returns env-only when no tenant snapshot is supplied', () => {
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'openai,anthropic',
+        OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini,gpt-5',
+      }
+      const effective = intersectAllowlists(env, ['openai', 'anthropic', 'google'], null)
+      expect(effective.providers).toEqual(['openai', 'anthropic'])
+      expect(effective.modelsByProvider).toEqual({ openai: ['gpt-5-mini', 'gpt-5'] })
+      expect(effective.hasRestrictions).toBe(true)
+      expect(effective.tenantOverridesActive).toBe(false)
+    })
+
+    it('clips tenant providers to the env allowlist (tenant cannot widen env)', () => {
+      const env = { OM_AI_AVAILABLE_PROVIDERS: 'openai,anthropic' }
+      const tenant = {
+        allowedProviders: ['openai', 'google'],
+        allowedModelsByProvider: {},
+      }
+      const effective = intersectAllowlists(env, ['openai', 'anthropic', 'google'], tenant)
+      expect(effective.providers).toEqual(['openai'])
+      expect(effective.tenantOverridesActive).toBe(true)
+    })
+
+    it('clips tenant models to the env per-provider allowlist (tenant cannot widen env)', () => {
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'openai',
+        OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini,gpt-5',
+      }
+      const tenant = {
+        allowedProviders: null,
+        allowedModelsByProvider: { openai: ['gpt-5-mini', 'gpt-4o'] },
+      }
+      const effective = intersectAllowlists(env, ['openai'], tenant)
+      expect(effective.providers).toEqual(['openai'])
+      expect(effective.modelsByProvider.openai).toEqual(['gpt-5-mini'])
+      expect(effective.tenantOverridesActive).toBe(true)
+    })
+
+    it('passes through tenant providers when env imposes no provider restriction', () => {
+      const env: Record<string, string | undefined> = {}
+      const tenant = {
+        allowedProviders: ['openai'],
+        allowedModelsByProvider: {},
+      }
+      const effective = intersectAllowlists(env, ['openai', 'anthropic'], tenant)
+      expect(effective.providers).toEqual(['openai'])
+    })
+
+    it('returns no restriction when both env and tenant are empty', () => {
+      const env: Record<string, string | undefined> = {}
+      const effective = intersectAllowlists(env, ['openai'], null)
+      expect(effective.providers).toBeNull()
+      expect(effective.modelsByProvider).toEqual({})
+      expect(effective.hasRestrictions).toBe(false)
+      expect(effective.tenantOverridesActive).toBe(false)
+    })
+
+    it('isProviderAllowedInEffective is case-insensitive', () => {
+      const env = { OM_AI_AVAILABLE_PROVIDERS: 'OpenAI' }
+      const effective = intersectAllowlists(env, ['openai'], null)
+      expect(isProviderAllowedInEffective(effective, 'openai')).toBe(true)
+      expect(isProviderAllowedInEffective(effective, 'OPENAI')).toBe(true)
+      expect(isProviderAllowedInEffective(effective, 'anthropic')).toBe(false)
+    })
+
+    it('isModelAllowedForProviderInEffective returns true when no per-provider list applies', () => {
+      const effective = intersectAllowlists({}, ['openai'], null)
+      expect(isModelAllowedForProviderInEffective(effective, 'openai', 'any-model')).toBe(true)
+    })
+
+    it('isModelAllowedForProviderInEffective is case-sensitive on model id', () => {
+      const env = { OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini' }
+      const effective = intersectAllowlists(env, ['openai'], null)
+      expect(isModelAllowedForProviderInEffective(effective, 'openai', 'gpt-5-mini')).toBe(true)
+      expect(isModelAllowedForProviderInEffective(effective, 'openai', 'GPT-5-MINI')).toBe(false)
+    })
+
+    it('isProviderModelAllowedInEffective enforces both provider and model allowlists', () => {
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'openai',
+        OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini',
+      }
+      const effective = intersectAllowlists(env, ['openai'], null)
+      expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-5-mini')).toBe(true)
+      expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-4o')).toBe(false)
+      expect(isProviderModelAllowedInEffective(effective, 'anthropic', 'claude-haiku-4-5')).toBe(false)
     })
   })
 })

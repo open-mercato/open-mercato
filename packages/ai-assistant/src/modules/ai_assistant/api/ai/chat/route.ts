@@ -11,7 +11,14 @@ import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-p
 import { runAiAgentText } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
-import { isProviderAllowed, isProviderModelAllowed } from '../../../lib/model-allowlist'
+import {
+  intersectAllowlists,
+  isModelAllowedForProviderInEffective,
+  isProviderAllowedInEffective,
+  type TenantAllowlistSnapshot,
+} from '../../../lib/model-allowlist'
+import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const MAX_MESSAGES = 100
 
@@ -240,6 +247,26 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
+    let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
+    if (auth.tenantId) {
+      try {
+        const em = container.resolve<EntityManager>('em')
+        const allowlistRepo = new AiTenantModelAllowlistRepository(em)
+        tenantAllowlistSnapshot = await allowlistRepo.getSnapshot({
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+        })
+      } catch (snapshotError) {
+        console.warn('[AI Chat Agent] Tenant allowlist lookup failed; falling back to env-only:', snapshotError)
+      }
+    }
+    const knownProviderIds = llmProviderRegistry.list().map((p) => p.id)
+    const effectiveAllowlist = intersectAllowlists(
+      process.env as Record<string, string | undefined>,
+      knownProviderIds,
+      tenantAllowlistSnapshot,
+    )
+
     if (rawProvider && rawProvider.trim().length > 0) {
       const providerEntry = llmProviderRegistry.get(rawProvider.trim())
       if (!providerEntry) {
@@ -256,21 +283,31 @@ export async function POST(req: NextRequest): Promise<Response> {
           'provider_not_configured',
         )
       }
-      if (!isProviderAllowed(process.env, rawProvider.trim())) {
+      if (!isProviderAllowedInEffective(effectiveAllowlist, rawProvider.trim())) {
+        const source = effectiveAllowlist.tenantOverridesActive
+          ? 'the effective allowlist (env ∩ tenant)'
+          : 'OM_AI_AVAILABLE_PROVIDERS'
         return jsonError(
           400,
-          `Provider "${rawProvider}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
+          `Provider "${rawProvider}" is not in ${source}.`,
           'provider_not_allowlisted',
         )
       }
       if (
         rawModel
         && rawModel.trim().length > 0
-        && !isProviderModelAllowed(process.env, rawProvider.trim(), rawModel.trim())
+        && !isModelAllowedForProviderInEffective(
+          effectiveAllowlist,
+          rawProvider.trim(),
+          rawModel.trim(),
+        )
       ) {
+        const source = effectiveAllowlist.tenantOverridesActive
+          ? `the effective allowlist (env ∩ tenant) for "${rawProvider.trim()}"`
+          : `OM_AI_AVAILABLE_MODELS_${rawProvider.trim().toUpperCase()}`
         return jsonError(
           400,
-          `Model "${rawModel}" is not in OM_AI_AVAILABLE_MODELS_${rawProvider.trim().toUpperCase()}.`,
+          `Model "${rawModel}" is not in ${source}.`,
           'model_not_allowlisted',
         )
       }

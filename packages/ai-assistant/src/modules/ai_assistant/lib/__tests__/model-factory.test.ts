@@ -1010,4 +1010,74 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
       expect(warnSpy).not.toHaveBeenCalled()
     })
   })
+
+  describe('Phase 1780-6 — tenantAllowlist clipping', () => {
+    let warnSpy: jest.SpyInstance
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    })
+    afterEach(() => {
+      warnSpy.mockRestore()
+    })
+
+    it('clips a tenant-blocked model down to the agent default', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({
+        callerOverride: 'gpt-4o',
+        agentDefaultModel: 'gpt-5-mini',
+        tenantAllowlist: {
+          allowedProviders: null,
+          allowedModelsByProvider: { openai: ['gpt-5-mini'] },
+        },
+      })
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('allowlist_fallback')
+      expect(resolution.allowlistFallback?.originalModelId).toBe('gpt-4o')
+      expect(resolution.allowlistFallback?.reason).toContain('effective allowlist (env ∩ tenant)')
+    })
+
+    it('passes through when the resolved pair satisfies env and tenant', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({
+        callerOverride: 'gpt-5-mini',
+        tenantAllowlist: {
+          allowedProviders: ['openai'],
+          allowedModelsByProvider: { openai: ['gpt-5-mini'] },
+        },
+      })
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.allowlistFallback).toBeUndefined()
+    })
+
+    it('treats an empty tenant model list as "no models permitted" and falls back to provider default', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({
+        callerOverride: 'gpt-4o',
+        tenantAllowlist: {
+          allowedProviders: null,
+          allowedModelsByProvider: { openai: [] },
+        },
+      })
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.allowlistFallback).toBeDefined()
+    })
+
+    it('clipping is the intersection of env and tenant — env stays the outer constraint', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const env = { OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        callerOverride: 'gpt-4o',
+        tenantAllowlist: {
+          allowedProviders: null,
+          allowedModelsByProvider: { openai: ['gpt-4o', 'gpt-5-mini'] },
+        },
+      })
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.allowlistFallback).toBeDefined()
+    })
+  })
 })

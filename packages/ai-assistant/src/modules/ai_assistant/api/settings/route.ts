@@ -15,15 +15,20 @@ import {
   resolveOpenCodeModel,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
+import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory } from '../../lib/model-factory'
 import {
+  intersectAllowlists,
   isProviderAllowed,
+  isProviderAllowedInEffective,
   isProviderModelAllowed,
+  isProviderModelAllowedInEffective,
   readAllowedModels,
   readAllowedProviders,
   readAllowlistConfig,
+  type TenantAllowlistSnapshot,
 } from '../../lib/model-allowlist'
 
 const runtimeOverrideUpsertSchema = z.object({
@@ -153,6 +158,8 @@ export async function GET(req: NextRequest) {
       source: string
     } | null = null
 
+    let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
+
     try {
       const container = await createRequestContainer()
       const tenantId = auth.tenantId ?? null
@@ -172,8 +179,15 @@ export async function GET(req: NextRequest) {
           }
         }
 
+        const allowlistRepo = new AiTenantModelAllowlistRepository(em)
+        tenantAllowlistSnapshot = await allowlistRepo.getSnapshot({
+          tenantId,
+          organizationId,
+        })
+
         const factory = createModelFactory(container)
         const defaultResolution = factory.resolveModel({
+          tenantAllowlist: tenantAllowlistSnapshot,
           tenantOverride: tenantOverride
             ? { providerId: tenantOverride.providerId, modelId: tenantOverride.modelId, baseURL: tenantOverride.baseURL }
             : undefined,
@@ -207,6 +221,7 @@ export async function GET(req: NextRequest) {
             agentDefaultBaseUrl: agent.defaultBaseUrl,
             allowRuntimeModelOverride: agent.allowRuntimeModelOverride,
             tenantOverride: agentTenantOverride,
+            tenantAllowlist: tenantAllowlistSnapshot,
           })
           return {
             agentId: agent.id,
@@ -226,10 +241,10 @@ export async function GET(req: NextRequest) {
     }
 
     // Build availableProviders with Phase 4a defaultModels, then clip to the
-    // operator-approved set (OM_AI_AVAILABLE_PROVIDERS /
-    // OM_AI_AVAILABLE_MODELS_<PROVIDER>). The env allowlist is the ULTIMATE
-    // constraint — the settings UI must never offer a value the runtime would
-    // refuse to honor.
+    // EFFECTIVE allowlist — env intersected with the per-tenant snapshot.
+    // The env allowlist is the OUTER constraint; the tenant allowlist (Phase
+    // 1780-6) narrows it further. The settings UI must never offer a value
+    // the runtime would refuse to honor.
     const env = process.env as Record<string, string | undefined>
     const knownProviderIdsForAllowlist: string[] = [
       ...OPEN_CODE_PROVIDER_IDS,
@@ -239,6 +254,11 @@ export async function GET(req: NextRequest) {
         .filter((id) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(id)),
     ]
     const allowlistConfig = readAllowlistConfig(env, knownProviderIdsForAllowlist)
+    const effectiveAllowlist = intersectAllowlists(
+      env,
+      knownProviderIdsForAllowlist,
+      tenantAllowlistSnapshot,
+    )
 
     const allRawProviders = [
       ...OPEN_CODE_PROVIDER_IDS.map((id) => {
@@ -267,16 +287,16 @@ export async function GET(req: NextRequest) {
     ]
 
     const availableProviders = allRawProviders
-      .filter((p) => isProviderAllowed(env, p.id))
+      .filter((p) => isProviderAllowedInEffective(effectiveAllowlist, p.id))
       .map((p) => {
-        const allowedModels = readAllowedModels(env, p.id)
-        const clippedDefaults = allowedModels
-          ? p.defaultModels.filter((m) => allowedModels.includes(m.id))
+        const effectiveModelsList = effectiveAllowlist.modelsByProvider[p.id]
+        const clippedDefaults = effectiveModelsList !== undefined
+          ? p.defaultModels.filter((m) => effectiveModelsList.includes(m.id))
           : p.defaultModels
         return {
           ...p,
-          defaultModel: allowedModels && !allowedModels.includes(p.defaultModel)
-            ? (allowedModels[0] ?? p.defaultModel)
+          defaultModel: effectiveModelsList && !effectiveModelsList.includes(p.defaultModel)
+            ? (effectiveModelsList[0] ?? p.defaultModel)
             : p.defaultModel,
           defaultModels: clippedDefaults,
         }
@@ -295,6 +315,14 @@ export async function GET(req: NextRequest) {
       // Snapshot of the env-driven allowlist so the UI can render hints like
       // "limited to: openai, anthropic" without re-implementing the parser.
       allowlist: allowlistConfig,
+      // Per-tenant allowlist snapshot (Phase 1780-6). `null` when no row has
+      // been persisted yet — the runtime then falls back to env-only
+      // enforcement. The UI uses this to drive the editable MultiSelect.
+      tenantAllowlist: tenantAllowlistSnapshot,
+      // Effective allowlist after intersecting env with tenant. The UI uses
+      // this to render the "what the runtime will actually accept" summary
+      // and to clip pickers without re-implementing the intersection.
+      effectiveAllowlist,
       mcpKeyConfigured,
       resolvedDefault,
       tenantOverride,
@@ -349,29 +377,93 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  // Env-driven provider/model allowlist (Phase 1780-5): operators can restrict
-  // the (provider, model) pairs accepted by the runtime via
-  // OM_AI_AVAILABLE_PROVIDERS and OM_AI_AVAILABLE_MODELS_<PROVIDER>. Reject
-  // settings PUT requests for pairs outside that allowlist so the settings UI
-  // never persists a value the runtime would later refuse.
+  // Env-driven provider/model allowlist (Phase 1780-5) intersected with the
+  // per-tenant allowlist (Phase 1780-6): the EFFECTIVE allowlist clips which
+  // (provider, model) pairs the runtime accepts. Reject settings PUT requests
+  // for pairs outside that effective set so the settings UI never persists a
+  // value the runtime would later refuse. Tenant-allowlist enforcement is
+  // best-effort here: if the snapshot lookup fails we fall back to env-only
+  // checks (the runtime still re-clips at resolution time).
+  let putEffectiveAllowlist: ReturnType<typeof intersectAllowlists> | null = null
   if (providerId) {
-    if (!isProviderAllowed(process.env, providerId)) {
-      return NextResponse.json(
-        {
-          error: `Provider "${providerId}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
-          code: 'provider_not_allowlisted',
-        },
-        { status: 400 },
+    try {
+      const previewContainer = await createRequestContainer()
+      const knownIdsForCheck = [
+        ...OPEN_CODE_PROVIDER_IDS,
+        ...llmProviderRegistry
+          .list()
+          .map((p) => p.id)
+          .filter((id) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(id)),
+      ]
+      let snapshot: TenantAllowlistSnapshot | null = null
+      if (auth.tenantId) {
+        try {
+          const em = previewContainer.resolve<EntityManager>('em')
+          const allowlistRepo = new AiTenantModelAllowlistRepository(em)
+          snapshot = await allowlistRepo.getSnapshot({
+            tenantId: auth.tenantId,
+            organizationId: auth.orgId ?? null,
+          })
+        } catch {
+          snapshot = null
+        }
+      }
+      putEffectiveAllowlist = intersectAllowlists(
+        process.env as Record<string, string | undefined>,
+        knownIdsForCheck,
+        snapshot,
       )
+    } catch {
+      putEffectiveAllowlist = null
     }
-    if (modelId && !isProviderModelAllowed(process.env, providerId, modelId)) {
-      return NextResponse.json(
-        {
-          error: `Model "${modelId}" is not in OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}.`,
-          code: 'model_not_allowlisted',
-        },
-        { status: 400 },
-      )
+
+    if (putEffectiveAllowlist) {
+      if (!isProviderAllowedInEffective(putEffectiveAllowlist, providerId)) {
+        const source = putEffectiveAllowlist.tenantOverridesActive
+          ? 'the effective allowlist (env ∩ tenant)'
+          : 'OM_AI_AVAILABLE_PROVIDERS'
+        return NextResponse.json(
+          {
+            error: `Provider "${providerId}" is not in ${source}.`,
+            code: 'provider_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
+      if (
+        modelId
+        && !isProviderModelAllowedInEffective(putEffectiveAllowlist, providerId, modelId)
+      ) {
+        const source = putEffectiveAllowlist.tenantOverridesActive
+          ? `the effective allowlist (env ∩ tenant) for "${providerId}"`
+          : `OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}`
+        return NextResponse.json(
+          {
+            error: `Model "${modelId}" is not in ${source}.`,
+            code: 'model_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
+    } else {
+      if (!isProviderAllowed(process.env, providerId)) {
+        return NextResponse.json(
+          {
+            error: `Provider "${providerId}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
+            code: 'provider_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
+      if (modelId && !isProviderModelAllowed(process.env, providerId, modelId)) {
+        return NextResponse.json(
+          {
+            error: `Model "${modelId}" is not in OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}.`,
+            code: 'model_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
     }
   }
 
