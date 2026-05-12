@@ -9,7 +9,7 @@ The [Official Modules](/framework/modules/official-modules) repository (`open-me
 
 In this setup:
 
-- The submodule is **optional**. Without it, the repo behaves exactly as before — vanilla clones and CI are unaffected.
+- The submodule is **optional and not committed to open-mercato** — `.gitmodules` and the `external/official-modules` checkout are *not* part of the repo. They're created locally the first time you activate an official module (`yarn official-modules add …`). Without that, the repo behaves exactly as before — vanilla clones and CI are unaffected, and `yarn.lock` is unchanged.
 - Files under `external/official-modules/` are real working code: searchable, refactorable, importable. Edits there commit to the **submodule's** git (`open-mercato/official-modules`), not to open-mercato's.
 - Which official modules are active in your local dev app is driven by a small config file, not by editing `apps/mercato/src/modules.ts` by hand.
 
@@ -25,16 +25,16 @@ open-mercato/                       ← open-mercato git repo
 ├── apps/mercato/                   ← the dev app
 ├── official-modules.json           ← committed: submodule metadata + default activation set
 ├── official-modules.local.json     ← gitignored: your personal activation override
-├── .gitmodules                     ← registers the submodule
+├── .gitmodules                     ← created locally on first activation (NOT committed)
 └── external/
-    └── official-modules/           ← submodule — its own git repo (open-mercato/official-modules)
+    └── official-modules/           ← submodule — its own git repo (open-mercato/official-modules); NOT committed
         ├── packages/
         │   ├── test-package/       ← template you copy when creating a new module
         │   └── <your-module>/
         └── .changeset/
 ```
 
-`apps/mercato/src/modules.ts` imports `apps/mercato/src/official-modules.generated.ts` and spreads its entries into `enabledModules`. That generated file is rewritten from `official-modules.json` (+ `official-modules.local.json`) by `scripts/official-modules-setup.mjs`, which runs automatically on `yarn install` (postinstall) and on every `yarn official-modules` command.
+`apps/mercato/src/modules.ts` imports `apps/mercato/src/official-modules.generated.ts` and spreads its entries into `enabledModules`. That generated file is rewritten from `official-modules.json` (+ `official-modules.local.json`) by `scripts/official-modules-setup.mjs`, which runs automatically on `yarn install` (postinstall — a no-op until the submodule is registered) and on every `yarn official-modules` command.
 
 ### Module-id ↔ package-name convention
 
@@ -42,18 +42,15 @@ A package named `@open-mercato/<suffix>` provides a module whose id is `<suffix>
 
 ## Getting started
 
-```bash
-# Clone with the submodule (recommended)
-git clone --recurse-submodules https://github.com/open-mercato/open-mercato.git
-cd open-mercato
-yarn install
+Clone open-mercato normally — there's no submodule to fetch yet:
 
-# If you already cloned without --recurse-submodules:
-git submodule update --init --recursive
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
 yarn install
 ```
 
-`yarn install` runs the postinstall worker, which — if `.gitmodules` registers the submodule — checks it out at the pinned commit and refreshes `official-modules.json`'s `available` list. If the submodule has never been registered in this repo yet, activating your first module (below) registers it.
+The first `yarn official-modules add …` (next section) registers the submodule (`git submodule add`) and checks it out. After that, `yarn install`'s postinstall worker keeps it initialized and refreshes `official-modules.json`'s `available` list on every run. (If `.gitmodules` already exists locally — e.g. someone shared it — `git submodule update --init --recursive` restores the checkout.)
 
 ### Activating a module
 
