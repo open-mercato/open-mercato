@@ -12,6 +12,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
 import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -163,6 +164,26 @@ export default function CustomersCompaniesPage() {
     setPageSize(newSize)
     setPage(1)
   }, [])
+
+  const bulkMutationContextId = 'customers-companies-list:bulk-delete'
+  const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: bulkMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const singleMutationContextId = 'customers-companies-list:single-delete'
+  const { runMutation: runSingleMutation, retryLastMutation: retrySingleMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: singleMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
       const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
@@ -462,14 +483,24 @@ export default function CustomersCompaniesPage() {
     })
     if (!confirmed) return
     try {
-      await apiCallOrThrow(
-        `/api/customers/companies?id=${encodeURIComponent(company.id)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
+      await runSingleMutation({
+        operation: async () => {
+          await apiCallOrThrow(
+            `/api/customers/companies?id=${encodeURIComponent(company.id)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.companies.list.deleteError') },
+          )
         },
-        { errorMessage: t('customers.companies.list.deleteError') },
-      )
+        context: {
+          formId: singleMutationContextId,
+          resourceKind: 'customers.company',
+          resourceId: company.id,
+          retryLastMutation: retrySingleMutation,
+        },
+      })
       setRows((prev) => prev.filter((row) => row.id !== company.id))
       setTotal((prev) => Math.max(prev - 1, 0))
       handleRefresh()
@@ -478,7 +509,7 @@ export default function CustomersCompaniesPage() {
       const message = err instanceof Error ? err.message : t('customers.companies.list.deleteError')
       flash(message, 'error')
     }
-  }, [confirm, handleRefresh, t])
+  }, [confirm, handleRefresh, retrySingleMutation, runSingleMutation, singleMutationContextId, t])
 
   const handleBulkDelete = React.useCallback(async (selectedRows: CompanyRow[]) => {
     const confirmed = await confirm({
@@ -488,16 +519,27 @@ export default function CustomersCompaniesPage() {
     })
     if (!confirmed) return false
 
-    const { succeeded, failures } = await runBulkDelete(
-      selectedRows,
-      async (row) => {
-        await apiCallOrThrow(`/api/customers/companies?id=${encodeURIComponent(row.id)}`, {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        })
+    const { succeeded, failures } = await runBulkMutation({
+      operation: async () =>
+        runBulkDelete(
+          selectedRows,
+          async (row) => {
+            await apiCallOrThrow(`/api/customers/companies?id=${encodeURIComponent(row.id)}`, {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            })
+          },
+          {
+            fallbackErrorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.'),
+            logTag: 'customers.companies.list',
+          },
+        ),
+      context: {
+        formId: bulkMutationContextId,
+        resourceKind: 'customers.company',
+        retryLastMutation: retryBulkMutation,
       },
-      { fallbackErrorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
-    )
+    })
 
     if (succeeded.length > 0) {
       const succeededIds = new Set(succeeded.map((r) => r.id))
@@ -540,7 +582,7 @@ export default function CustomersCompaniesPage() {
     }
 
     return succeeded.length > 0
-  }, [confirm, t])
+  }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}

@@ -13,6 +13,7 @@ import { deserializeAdvancedFilter, serializeAdvancedFilter } from '@open-mercat
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -721,6 +722,26 @@ export default function CustomersDealsPage() {
     setReloadToken((token) => token + 1)
   }, [queryClient])
 
+  const bulkMutationContextId = 'customers-deals-list:bulk-delete'
+  const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: bulkMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const singleMutationContextId = 'customers-deals-list:single-delete'
+  const { runMutation: runSingleMutation, retryLastMutation: retrySingleMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: singleMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const handleDeleteDeal = React.useCallback(
     async (dealId: string) => {
       if (pendingDeleteId) return
@@ -734,9 +755,19 @@ export default function CustomersDealsPage() {
       if (!confirmed) return
       setPendingDeleteId(dealId)
       try {
-        await deleteCrud('customers/deals', {
-          body: { id: dealId },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+        await runSingleMutation({
+          operation: async () => {
+            await deleteCrud('customers/deals', {
+              body: { id: dealId },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          context: {
+            formId: singleMutationContextId,
+            resourceKind: 'customers.deal',
+            resourceId: dealId,
+            retryLastMutation: retrySingleMutation,
+          },
         })
         flash(t('customers.deals.list.deleteSuccess', 'Deal deleted.'), 'success')
         setRows((prev) => prev.filter((row) => row.id !== dealId))
@@ -752,7 +783,7 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [confirm, handleRefresh, pendingDeleteId, t],
+    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, runSingleMutation, singleMutationContextId, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -768,16 +799,27 @@ export default function CustomersDealsPage() {
     })
     if (!confirmed) return false
 
-    const { succeeded, failures } = await runBulkDelete(
-      selectedRows,
-      async (row) => {
-        await deleteCrud('customers/deals', {
-          body: { id: row.id },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
-        })
+    const { succeeded, failures } = await runBulkMutation({
+      operation: async () =>
+        runBulkDelete(
+          selectedRows,
+          async (row) => {
+            await deleteCrud('customers/deals', {
+              body: { id: row.id },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          {
+            fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            logTag: 'customers.deals.list',
+          },
+        ),
+      context: {
+        formId: bulkMutationContextId,
+        resourceKind: 'customers.deal',
+        retryLastMutation: retryBulkMutation,
       },
-      { fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.') },
-    )
+    })
 
     if (succeeded.length > 0) {
       const succeededIds = new Set(succeeded.map((r) => r.id))
@@ -819,7 +861,7 @@ export default function CustomersDealsPage() {
     }
 
     return succeeded.length > 0
-  }, [confirm, t])
+  }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
   const personOptions = peopleState.options
   const companyOptions = companiesState.options

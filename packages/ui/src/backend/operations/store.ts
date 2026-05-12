@@ -170,21 +170,33 @@ export function markUndoSuccess(undoTokens: string | string[]) {
   if (tokenSet.size === 0) return
   const removed: OperationEntry[] = []
   updateState((prev) => {
-    const stack = prev.stack.filter((entry) => {
-      const tokens = entry.bulkUndoTokens && entry.bulkUndoTokens.length > 0
-        ? entry.bulkUndoTokens
-        : [entry.undoToken]
-      const isMatch = tokens.some((t) => tokenSet.has(t))
-      if (isMatch) {
-        removed.push(entry)
-        return false
+    const nextStack: OperationEntry[] = []
+    for (const entry of prev.stack) {
+      const bulk = entry.bulkUndoTokens && entry.bulkUndoTokens.length > 0 ? entry.bulkUndoTokens : null
+      if (!bulk) {
+        if (tokenSet.has(entry.undoToken)) removed.push(entry)
+        else nextStack.push(entry)
+        continue
       }
-      return true
-    })
+      const consumed: string[] = []
+      const remaining: string[] = []
+      for (const token of bulk) {
+        if (tokenSet.has(token)) consumed.push(token)
+        else remaining.push(token)
+      }
+      if (consumed.length === 0) {
+        nextStack.push(entry)
+      } else if (remaining.length === 0) {
+        removed.push(entry)
+      } else {
+        removed.push({ ...entry, bulkUndoTokens: consumed, bulkCount: consumed.length })
+        nextStack.push({ ...entry, bulkUndoTokens: remaining, bulkCount: remaining.length })
+      }
+    }
     const undone = removed.length
       ? [...prev.undone, ...removed.map((entry) => ({ ...entry, undoneAt: now() }))]
       : prev.undone
-    return { stack, undone }
+    return { stack: nextStack, undone }
   })
 }
 
@@ -192,6 +204,14 @@ export type CoalesceOptions = {
   commandId?: string
   actionLabel?: string | null
   resourceKind?: string | null
+}
+
+function generateBulkId(seed: string): string {
+  const cryptoRef = typeof globalThis !== 'undefined' ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto : undefined
+  if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
+    return `bulk:${cryptoRef.randomUUID()}`
+  }
+  return `bulk:${seed}:${now()}`
 }
 
 export function coalesceLastOperations(count: number, options: CoalesceOptions = {}): void {
@@ -205,8 +225,11 @@ export function coalesceLastOperations(count: number, options: CoalesceOptions =
     const head = prev.stack.slice(0, prev.stack.length - count)
     const last = tail[tail.length - 1]
     const tokens = tail.map((entry) => entry.undoToken)
+    const bulkId = generateBulkId(last.id)
     const synthetic: OperationEntry = {
       ...last,
+      id: bulkId,
+      undoToken: bulkId,
       actionLabel: options.actionLabel ?? last.actionLabel,
       resourceKind: options.resourceKind ?? last.resourceKind,
       resourceId: null,
@@ -214,7 +237,7 @@ export function coalesceLastOperations(count: number, options: CoalesceOptions =
       bulkCount: tail.length,
       receivedAt: now(),
     }
-    return { stack: [...head, synthetic], undone: [] }
+    return { stack: [...head, synthetic], undone: prev.undone }
   })
 }
 

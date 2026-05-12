@@ -38,6 +38,34 @@ describe('runBulkDelete', () => {
 
     expect(failures[0].code).toBeNull()
   })
+
+  it('logs failures via console.warn when logTag is provided', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const err = Object.assign(new Error('linked deals (2).'), { code: 'COMPANY_HAS_DEPENDENTS' })
+      const deleteOne = jest.fn().mockRejectedValue(err)
+
+      await runBulkDelete([{ id: 'x' }], deleteOne, { logTag: 'customers.companies.list' })
+
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      const [tag, payload] = warnSpy.mock.calls[0]
+      expect(tag).toBe('[customers.companies.list] bulk delete failed')
+      expect(payload).toMatchObject({ id: 'x', code: 'COMPANY_HAS_DEPENDENTS' })
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('does not log when logTag is omitted', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const deleteOne = jest.fn().mockRejectedValue(new Error('boom'))
+      await runBulkDelete([{ id: 'x' }], deleteOne)
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
 })
 
 describe('groupBulkDeleteFailures', () => {

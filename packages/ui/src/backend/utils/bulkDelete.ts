@@ -13,6 +13,7 @@ export type BulkDeleteOutcome<T extends { id: string }> = {
 
 export type BulkDeleteOptions = {
   fallbackErrorMessage?: string
+  logTag?: string
 }
 
 export async function runBulkDelete<T extends { id: string }>(
@@ -21,6 +22,7 @@ export async function runBulkDelete<T extends { id: string }>(
   options?: BulkDeleteOptions,
 ): Promise<BulkDeleteOutcome<T>> {
   const fallback = options?.fallbackErrorMessage ?? 'Delete failed'
+  const logTag = options?.logTag
   const succeeded: T[] = []
   const failures: BulkDeleteFailure[] = []
   for (const row of rows) {
@@ -34,6 +36,9 @@ export async function runBulkDelete<T extends { id: string }>(
         err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
       const code = typeof rawCode === 'string' && rawCode.length > 0 ? rawCode : null
       failures.push({ id: row.id, code, message })
+      if (logTag && typeof console !== 'undefined' && typeof console.warn === 'function') {
+        console.warn(`[${logTag}] bulk delete failed`, { id: row.id, code, message, err })
+      }
     }
   }
   return { succeeded, failures }
@@ -46,6 +51,9 @@ export type BulkDeleteFailureGroup = {
   ids: string[]
 }
 
+// Keyed by `code` when present so semantically identical failures collapse into
+// one toast even if their message text varies (e.g. row-specific dependency
+// counts). Falls back to the raw message when the server did not surface a code.
 export function groupBulkDeleteFailures(
   failures: BulkDeleteFailure[],
 ): BulkDeleteFailureGroup[] {
