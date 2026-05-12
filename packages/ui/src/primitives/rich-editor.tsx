@@ -42,6 +42,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from './tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './dialog'
+import { Input } from './input'
+import { Button } from './button'
 
 // Figma `Rich Editor Colors [1.1]` palette (166331:4100) — 12 tokens.
 // Order matches the Figma frame: gray / black / white / blue / orange / red /
@@ -125,6 +134,17 @@ type RichEditorContextValue = {
   exec: (command: string, arg?: string) => void
   selection: SelectionState
   disabled: boolean
+  /**
+   * Open a DS-styled URL prompt (replaces the native `window.prompt`
+   * popup). Pre-saves the current selection so the caller's `onConfirm`
+   * handler can re-target the same range when running `execCommand`.
+   */
+  requestUrlPrompt: (request: {
+    kind: 'link' | 'image'
+    title: string
+    placeholder?: string
+    onConfirm: (url: string) => void
+  }) => void
 }
 
 const RichEditorContext = React.createContext<RichEditorContextValue | null>(null)
@@ -335,7 +355,15 @@ export const RichEditor = React.memo(function RichEditor({
   const editorRef = React.useRef<HTMLDivElement | null>(null)
   const applyingExternal = React.useRef(false)
   const typingRef = React.useRef(false)
+  const savedSelectionRef = React.useRef<Range | null>(null)
   const [selection, setSelection] = React.useState<SelectionState>(EMPTY_SELECTION_STATE)
+  const [promptDialog, setPromptDialog] = React.useState<{
+    kind: 'link' | 'image'
+    title: string
+    placeholder?: string
+    value: string
+    onConfirm: (url: string) => void
+  } | null>(null)
 
   React.useEffect(() => {
     const el = editorRef.current
@@ -369,9 +397,26 @@ export const RichEditor = React.memo(function RichEditor({
     [disabled, refreshSelectionState],
   )
 
+  const requestUrlPrompt = React.useCallback<RichEditorContextValue['requestUrlPrompt']>(
+    (request) => {
+      // Snapshot the current selection so we can restore the same range
+      // after the Dialog steals focus.
+      if (typeof window !== 'undefined') {
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+          savedSelectionRef.current = sel.getRangeAt(0).cloneRange()
+        } else {
+          savedSelectionRef.current = null
+        }
+      }
+      setPromptDialog({ ...request, value: '' })
+    },
+    [],
+  )
+
   const ctx = React.useMemo<RichEditorContextValue>(
-    () => ({ exec, selection, disabled }),
-    [exec, selection, disabled],
+    () => ({ exec, selection, disabled, requestUrlPrompt }),
+    [exec, selection, disabled, requestUrlPrompt],
   )
 
   React.useEffect(() => {
@@ -501,6 +546,84 @@ export const RichEditor = React.memo(function RichEditor({
               </>
             )}
         </div>
+        {promptDialog !== null ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPromptDialog(null)
+          }}
+        >
+          <DialogContent
+            className="sm:max-w-md"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && promptDialog) {
+                e.preventDefault()
+                const url = sanitizeRichTextHref(promptDialog.value)
+                const onConfirm = promptDialog.onConfirm
+                setPromptDialog(null)
+                if (!url) return
+                const el = editorRef.current
+                const range = savedSelectionRef.current
+                if (el) {
+                  el.focus()
+                  if (range) {
+                    const sel = window.getSelection()
+                    sel?.removeAllRanges()
+                    sel?.addRange(range)
+                  }
+                }
+                onConfirm(url)
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{promptDialog?.title ?? ''}</DialogTitle>
+            </DialogHeader>
+            <Input
+              autoFocus
+              type="url"
+              value={promptDialog?.value ?? ''}
+              placeholder={promptDialog?.placeholder ?? 'https://…'}
+              onChange={(e) => {
+                const next = e.target.value
+                setPromptDialog((prev) => (prev ? { ...prev, value: next } : prev))
+              }}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPromptDialog(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (!promptDialog) return
+                  const url = sanitizeRichTextHref(promptDialog.value)
+                  const onConfirm = promptDialog.onConfirm
+                  setPromptDialog(null)
+                  if (!url) return
+                  const el = editorRef.current
+                  const range = savedSelectionRef.current
+                  if (el) {
+                    el.focus()
+                    if (range) {
+                      const sel = window.getSelection()
+                      sel?.removeAllRanges()
+                      sel?.addRange(range)
+                    }
+                  }
+                  onConfirm(url)
+                }}
+              >
+                OK
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        ) : null}
       </TooltipProvider>
     </RichEditorContext.Provider>
   )
@@ -937,20 +1060,28 @@ function RichEditorPresetItems({
   onFullscreen?: () => void
   onImageInsert?: () => void
 }) {
-  const { exec, selection } = useRichEditorContext('RichEditorPresetItems')
+  const { exec, selection, requestUrlPrompt } = useRichEditorContext('RichEditorPresetItems')
   const onLink = React.useCallback(() => {
-    const url = sanitizeRichTextHref(typeof window !== 'undefined' ? window.prompt(labels.linkUrlPrompt) : null)
-    if (url) exec('createLink', url)
-  }, [exec, labels.linkUrlPrompt])
+    requestUrlPrompt({
+      kind: 'link',
+      title: labels.linkUrlPrompt,
+      placeholder: 'https://example.com',
+      onConfirm: (url) => exec('createLink', url),
+    })
+  }, [requestUrlPrompt, exec, labels.linkUrlPrompt])
 
   const onImage = React.useCallback(() => {
     if (onImageInsert) {
       onImageInsert()
       return
     }
-    const url = sanitizeRichTextHref(typeof window !== 'undefined' ? window.prompt(labels.imageUrlPrompt) : null)
-    if (url) exec('insertImage', url)
-  }, [exec, labels.imageUrlPrompt, onImageInsert])
+    requestUrlPrompt({
+      kind: 'image',
+      title: labels.imageUrlPrompt,
+      placeholder: 'https://example.com/image.png',
+      onConfirm: (url) => exec('insertImage', url),
+    })
+  }, [requestUrlPrompt, exec, labels.imageUrlPrompt, onImageInsert])
 
   const onInsertTable = React.useCallback(() => {
     const html = '<table style="border-collapse:collapse;width:100%"><tbody>'

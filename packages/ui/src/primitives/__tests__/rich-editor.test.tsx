@@ -104,6 +104,24 @@ describe('RichEditor — variant presets', () => {
     expect(screen.getByRole('button', { name: 'Toggle fullscreen' })).toBeInTheDocument()
   })
 
+  it("clicking Link does NOT call window.prompt (DS Dialog handles it instead)", () => {
+    // The DS Dialog uses useT() which requires I18nProvider — we just verify
+    // the toolbar button doesn't fall back to the native window.prompt, then
+    // catch the Dialog render error from useT (mocked at the source).
+    const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue(null)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    render(<RichEditor value="" onChange={jest.fn()} variant="basic" />)
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Link' }))
+    } catch {
+      // Dialog mount throws because useT() requires I18nProvider in jsdom;
+      // the contract under test is that window.prompt was NOT used.
+    }
+    expect(promptSpy).not.toHaveBeenCalled()
+    promptSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
   it('clicking Horizontal rule calls execCommand("insertHorizontalRule")', () => {
     render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
     fireEvent.click(screen.getByRole('button', { name: 'Horizontal rule' }))
