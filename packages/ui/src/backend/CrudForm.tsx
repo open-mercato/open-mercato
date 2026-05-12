@@ -101,7 +101,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteContent } from './utils/richTextSanitizer'
+import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -3613,106 +3613,30 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
   )
 }, (prev, next) => prev.value === next.value)
 
-// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
-type HtmlRTProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+// HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
+// Maps the existing `ui.forms.richtext.*` i18n keys onto the `RichEditor`
+// `labels` contract and pins the `standard` toolbar variant — heading
+// dropdown + B/I/U + lists + link, matching the legacy behaviour plus
+// the Figma `164611:20259` heading selector.
+type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
   const t = useT()
-  const boldLabel = t('ui.forms.richtext.bold')
-  const italicLabel = t('ui.forms.richtext.italic')
-  const underlineLabel = t('ui.forms.richtext.underline')
-  const listLabel = t('ui.forms.richtext.list')
-  const heading3Label = t('ui.forms.richtext.heading3')
-  const linkLabel = t('ui.forms.richtext.link')
-  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
-  const ref = React.useRef<HTMLDivElement | null>(null)
-  const applyingExternal = React.useRef(false)
-  const typingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const current = el.innerHTML
-    const sanitizedValue = sanitizeHtmlRichText(value)
-    if (!typingRef.current && current !== sanitizedValue) {
-      applyingExternal.current = true
-      el.innerHTML = sanitizedValue
-      requestAnimationFrame(() => { applyingExternal.current = false })
-    }
-  }, [value])
-
-  const exec = (cmd: string, arg?: string) => {
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    try {
-      document.execCommand(cmd, false, arg)
-    } catch {
-      // ignore execCommand failures
-    }
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const isMod = e.metaKey || e.ctrlKey
-    if (!isMod) return
-    const k = e.key.toLowerCase()
-    if (k === 'b') { e.preventDefault(); exec('bold') }
-    if (k === 'i') { e.preventDefault(); exec('italic') }
-    if (k === 'u') { e.preventDefault(); exec('underline') }
-  }
-
-  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const html = e.clipboardData.getData('text/html')
-    const text = e.clipboardData.getData('text/plain')
-    const sanitizedPaste = sanitizeRichTextPasteContent(html, text)
-    if (!sanitizedPaste) return
-
-    e.preventDefault()
-    exec(sanitizedPaste.command, sanitizedPaste.value)
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</Button>
-        <span className="mx-2 text-muted-foreground">|</span>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto px-2 py-0.5 text-xs"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            const url = sanitizeRichTextHref(window.prompt(linkUrlPrompt))
-            if (url) exec('createLink', url)
-          }}
-        >{linkLabel}</Button>
-      </div>
-      <div
-        ref={ref}
-        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus-visible:outline-none prose prose-sm max-w-none"
-        contentEditable
-        suppressContentEditableWarning
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
-        onBlur={() => {
-          const el = ref.current
-          if (!el) return
-          typingRef.current = false
-          const sanitizedValue = sanitizeHtmlRichText(el.innerHTML)
-          if (el.innerHTML !== sanitizedValue) {
-            applyingExternal.current = true
-            el.innerHTML = sanitizedValue
-            requestAnimationFrame(() => { applyingExternal.current = false })
-          }
-          onChange(sanitizedValue)
-        }}
-      />
-    </div>
-  )
+  const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
+    bold: t('ui.forms.richtext.bold'),
+    italic: t('ui.forms.richtext.italic'),
+    underline: t('ui.forms.richtext.underline'),
+    unorderedList: t('ui.forms.richtext.list'),
+    orderedList: t('ui.forms.richtext.orderedList', 'Numbered list'),
+    heading: t('ui.forms.richtext.heading', 'Heading'),
+    heading1: t('ui.forms.richtext.heading1', 'Heading 1'),
+    heading2: t('ui.forms.richtext.heading2', 'Heading 2'),
+    heading3: t('ui.forms.richtext.heading3'),
+    paragraph: t('ui.forms.richtext.paragraph', 'Paragraph'),
+    link: t('ui.forms.richtext.link'),
+    linkUrlPrompt: t('ui.forms.richtext.linkUrlPrompt'),
+    placeholder: t('ui.forms.richtext.placeholder'),
+  }), [t])
+  return <RichEditor value={value} onChange={onChange} variant="standard" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
@@ -4044,7 +3968,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
