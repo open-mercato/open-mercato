@@ -885,6 +885,8 @@
   "ui.perspectives.untitled": "Perspektywa bez tytułu",
   "ui.perspectives.updated": "Zaktualizowano {date}",
   "ui.rowActions.openActions": "Otwórz akcje",
+  "ui.sidebar.chevron.scrollBottom": "Przewiń do dołu",
+  "ui.sidebar.chevron.scrollTop": "Przewiń do góry",
   "ui.spinner.ariaLabel": "Ładowanie",
   "ui.spinner.srOnly": "Ładowanie...",
   "ui.timePicker.clearButton": "Wyczyść",

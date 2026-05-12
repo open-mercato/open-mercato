@@ -22,7 +22,11 @@ type ActivityLogTabProps = {
   onEditActivity: (activity: InteractionSummary) => void
   /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
   onCancelActivity?: (id: string) => void
-  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
+  /**
+   * Guarded-mutation runner from the parent page. When provided, per-row mutations
+   * (e.g. ActivityCard "Mark done") route through `useGuardedMutation` so the global
+   * injection contract and retry-last-mutation context apply.
+   */
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   useCanonicalInteractions?: boolean
@@ -36,6 +40,7 @@ export function ActivityLogTab({
   onScheduleRequested,
   onAddActivity,
   onEditActivity,
+  runGuardedMutation,
   refreshKey = 0,
   useCanonicalInteractions = false,
   entityCompanyName,
@@ -61,6 +66,7 @@ export function ActivityLogTab({
         useCanonicalInteractions={useCanonicalInteractions}
         refreshKey={refreshKey}
         onEditActivity={onEditActivity}
+        runMutation={runGuardedMutation}
       />
     </div>
   )

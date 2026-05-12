@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -9,6 +10,7 @@ import {
   isTerminalMessageAction,
   resolveActionCommandInput,
   resolveActionHref,
+  resolveMessageActionData,
 } from '../lib/actions'
 import { getMessageType } from '../lib/message-types-registry'
 import { assertOrganizationAccess, type MessageScopeInput } from './shared'
@@ -52,11 +54,17 @@ function toDate(value: string | null | undefined): Date | null {
 }
 
 async function requireActionTarget(em: EntityManager, input: RecordTerminalActionInput) {
-  const message = await em.findOne(Message, {
-    id: input.messageId,
-    tenantId: input.tenantId,
-    deletedAt: null,
-  })
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: input.messageId,
+      tenantId: input.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: input.tenantId, organizationId: input.organizationId },
+  )
   if (!message) throw new Error('Message not found')
   assertOrganizationAccess(input as MessageScopeInput, message)
 
@@ -70,11 +78,17 @@ async function requireActionTarget(em: EntityManager, input: RecordTerminalActio
 }
 
 async function requireActionMessage(em: EntityManager, input: ExecuteActionInput) {
-  const message = await em.findOne(Message, {
-    id: input.messageId,
-    tenantId: input.tenantId,
-    deletedAt: null,
-  })
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: input.messageId,
+      tenantId: input.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: input.tenantId, organizationId: input.organizationId },
+  )
   if (!message) throw new Error('Message not found')
   assertOrganizationAccess(input as MessageScopeInput, message)
   const recipient = await em.findOne(MessageRecipient, {
@@ -148,7 +162,7 @@ const recordTerminalActionCommand: CommandHandler<unknown, { ok: true }> = {
     const messageId = logEntry?.resourceId as string | null
     if (!messageId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await em.findOne(Message, { id: messageId })
+    const message = await findOneWithDecryption(em, Message, { id: messageId })
     if (!message) return
     message.actionTaken = before.actionTaken
     message.actionTakenByUserId = before.actionTakenByUserId
@@ -180,8 +194,9 @@ const executeActionCommand: CommandHandler<
 
     const shouldRecordActionTaken = isTerminalMessageAction(action)
 
-    if (message.actionData?.expiresAt) {
-      if (new Date(message.actionData.expiresAt) < new Date()) {
+    const actionData = resolveMessageActionData(message)
+    if (actionData?.expiresAt) {
+      if (new Date(actionData.expiresAt) < new Date()) {
         throw new Error('Actions have expired')
       }
     } else {

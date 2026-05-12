@@ -406,6 +406,32 @@ export async function loadCustomFieldDefinitionIndex(opts: {
   return index
 }
 
+export type ApplyCustomFieldsNormalizationOptions = {
+  /**
+   * When true, removes raw `cf_*` and `cf:*` keys from the record once they
+   * have been extracted into `customValues` / `customFields`. Produces a single
+   * canonical response shape (issue #1769). Defaults to `false` to preserve the
+   * existing wire format for callers that read `cf_*` from the top level.
+   */
+  stripPrefixedKeys?: boolean
+}
+
+export function applyCustomFieldsNormalization(
+  record: Record<string, unknown>,
+  decorated: CustomFieldDisplayPayload,
+  options: ApplyCustomFieldsNormalizationOptions = {},
+): Record<string, unknown> {
+  const stripPrefixedKeys = options.stripPrefixedKeys === true
+  const base: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (stripPrefixedKeys && (key.startsWith('cf_') || key.startsWith('cf:'))) continue
+    base[key] = value
+  }
+  base.customValues = decorated.customValues
+  base.customFields = decorated.customFields
+  return base
+}
+
 export function decorateRecordWithCustomFields(
   record: Record<string, unknown>,
   definitions: CustomFieldDefinitionIndex,

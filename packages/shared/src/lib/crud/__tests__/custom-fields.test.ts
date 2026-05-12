@@ -1,4 +1,5 @@
 import {
+  applyCustomFieldsNormalization,
   buildCustomFieldFiltersFromQuery,
   decorateRecordWithCustomFields,
   extractAllCustomFieldEntries,
@@ -295,6 +296,62 @@ describe('decorateRecordWithCustomFields', () => {
     expect(result.customValues).toEqual({ priority: 5, severity: 'high' })
     expect(result.customFields.map((entry) => entry.key)).toEqual(['priority', 'severity'])
     expect(result.customFields.find((entry) => entry.key === 'my_test_key')).toBeUndefined()
+  })
+})
+
+describe('applyCustomFieldsNormalization', () => {
+  const definitionIndex: CustomFieldDefinitionIndex = new Map([
+    [
+      'priority',
+      [
+        {
+          key: 'priority',
+          label: 'Priority',
+          kind: 'integer',
+          multi: false,
+          organizationId: null,
+          tenantId: null,
+          priority: 0,
+          updatedAt: 1,
+        },
+      ],
+    ],
+  ])
+
+  it('preserves cf_* keys by default for backward compatibility', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated)
+
+    expect(result.id).toBe('r-1')
+    expect(result.cf_priority).toBe(5)
+    expect(result['cf:priority']).toBe(5)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+    expect((result.customFields as any[])[0]).toMatchObject({ key: 'priority', value: 5 })
+  })
+
+  it('strips cf_* and cf:* keys when stripPrefixedKeys is enabled (issue #1769)', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.id).toBe('r-1')
+    expect(result.name).toBe('Item')
+    expect('cf_priority' in result).toBe(false)
+    expect('cf:priority' in result).toBe(false)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+  })
+
+  it('emits null customValues when no active definitions match', () => {
+    const record = { id: 'r-1', cf_unknown: 'leftover' }
+    const decorated = decorateRecordWithCustomFields(record, new Map(), {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+    expect('cf_unknown' in result).toBe(false)
   })
 })
 

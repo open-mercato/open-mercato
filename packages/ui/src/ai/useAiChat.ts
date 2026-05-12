@@ -119,6 +119,9 @@ function makeConversationId(): string {
 
 const SESSION_STORAGE_PREFIX = 'om-ai-chat:'
 const SESSION_STORAGE_VERSION = 1
+const SESSION_UPDATED_EVENT = 'om-ai-chat-session-updated'
+const SESSION_STREAM_STATE_EVENT = 'om-ai-chat-session-stream-state'
+const activeSessionStreams = new Set<string>()
 
 interface PersistedAiChatSession {
   v: number
@@ -136,6 +139,28 @@ function getSessionStorageKey(agent: string, conversationId?: string | null): st
     return `${SESSION_STORAGE_PREFIX}${agent}:${conversationId}`
   }
   return `${SESSION_STORAGE_PREFIX}${agent}`
+}
+
+function writeSessionStreamState(storageKey: string, active: boolean): void {
+  if (active) {
+    activeSessionStreams.add(storageKey)
+  } else {
+    activeSessionStreams.delete(storageKey)
+  }
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(
+      new CustomEvent(SESSION_STREAM_STATE_EVENT, {
+        detail: { key: storageKey, active },
+      }),
+    )
+  } catch {
+    // ignore event dispatch failures in non-browser test environments
+  }
+}
+
+function isSessionStreamActive(storageKey: string): boolean {
+  return activeSessionStreams.has(storageKey)
 }
 
 function readPersistedSession(
@@ -169,6 +194,7 @@ function writePersistedSession(
   agent: string,
   session: PersistedAiChatSession,
   conversationId?: string | null,
+  options?: { notify?: boolean },
 ): void {
   if (typeof window === 'undefined') return
   try {
@@ -189,10 +215,15 @@ function writePersistedSession(
       })
       return { ...message, files: safeFiles }
     })
-    window.localStorage.setItem(
-      getSessionStorageKey(agent, conversationId),
-      JSON.stringify({ ...session, messages }),
-    )
+    const storageKey = getSessionStorageKey(agent, conversationId)
+    window.localStorage.setItem(storageKey, JSON.stringify({ ...session, messages }))
+    if (options?.notify) {
+      window.dispatchEvent(
+        new CustomEvent(SESSION_UPDATED_EVENT, {
+          detail: { key: storageKey, agent, conversationId: session.conversationId },
+        }),
+      )
+    }
   } catch {
     // Quota exceeded / privacy mode — silently drop persistence.
   }
@@ -550,6 +581,11 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     typeof conversationIdInput === 'string' && conversationIdInput.length > 0
       ? conversationIdInput
       : mintedConversationIdRef.current
+  const persistKey =
+    typeof conversationIdInput === 'string' && conversationIdInput.length > 0
+      ? conversationIdInput
+      : null
+  const sessionStorageKey = getSessionStorageKey(agent, persistKey)
 
   const [messages, setMessages] = React.useState<AiChatMessage[]>(() => {
     if (persisted && persisted.messages.length > 0) {
@@ -565,13 +601,40 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // Persist messages + conversationId on every change. Skip during in-flight
   // streaming so we do not write the same growing string on every chunk —
   // the next idle tick captures the final assistant content.
-  const [status, setStatusInternal] = React.useState<'idle' | 'submitting' | 'streaming'>('idle')
+  const [status, setStatusInternal] = React.useState<'idle' | 'submitting' | 'streaming'>(() =>
+    isSessionStreamActive(sessionStorageKey) ? 'streaming' : 'idle',
+  )
+  // Refs mirror the latest persist state so the unmount cleanup can flush
+  // an in-flight assistant message to localStorage even though the streaming
+  // skip above (and React's stale-closure semantics) would otherwise lose it.
+  // Without this, closing the dock or switching agents while the assistant
+  // is "Thinking" abandons the partial reply (issue #1816).
+  const latestMessagesRef = React.useRef<AiChatMessage[]>(messages)
+  const persistKeyRef = React.useRef<string | null>(null)
+  const agentRef = React.useRef<string>(agent)
+  const effectiveConversationIdRef = React.useRef<string>(effectiveConversationId)
+  const sessionStorageKeyRef = React.useRef<string>(sessionStorageKey)
+  const mountedRef = React.useRef(true)
   React.useEffect(() => {
-    if (status !== 'idle') return
-    const persistKey =
+    latestMessagesRef.current = messages
+  }, [messages])
+  React.useEffect(() => {
+    persistKeyRef.current =
       typeof conversationIdInput === 'string' && conversationIdInput.length > 0
         ? conversationIdInput
         : null
+  }, [conversationIdInput])
+  React.useEffect(() => {
+    agentRef.current = agent
+  }, [agent])
+  React.useEffect(() => {
+    effectiveConversationIdRef.current = effectiveConversationId
+  }, [effectiveConversationId])
+  React.useEffect(() => {
+    sessionStorageKeyRef.current = sessionStorageKey
+  }, [sessionStorageKey])
+  React.useEffect(() => {
+    if (status !== 'idle') return
     if (messages.length === 0) {
       clearPersistedSession(agent, persistKey)
       return
@@ -585,8 +648,45 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       },
       persistKey,
     )
-  }, [agent, conversationIdInput, effectiveConversationId, messages, status])
-  const setStatus = setStatusInternal
+  }, [agent, effectiveConversationId, messages, persistKey, status])
+  const persistSnapshot = React.useCallback((snapshot: AiChatMessage[], notify = false) => {
+    if (snapshot.length === 0) return
+    writePersistedSession(
+      agentRef.current,
+      {
+        v: SESSION_STORAGE_VERSION,
+        conversationId: effectiveConversationIdRef.current,
+        messages: snapshot,
+      },
+      persistKeyRef.current,
+      { notify },
+    )
+  }, [])
+
+  const updateMessages = React.useCallback(
+    (
+      updater:
+        | AiChatMessage[]
+        | ((current: AiChatMessage[]) => AiChatMessage[]),
+      options?: { persistWhenUnmounted?: boolean },
+    ) => {
+      const current = latestMessagesRef.current
+      const next = typeof updater === 'function' ? updater(current) : updater
+      latestMessagesRef.current = next
+      if (mountedRef.current) {
+        setMessages(next)
+      } else if (options?.persistWhenUnmounted) {
+        persistSnapshot(next, true)
+      }
+    },
+    [persistSnapshot],
+  )
+
+  const setStatus = React.useCallback((next: 'idle' | 'submitting' | 'streaming') => {
+    if (mountedRef.current) {
+      setStatusInternal(next)
+    }
+  }, [])
   const [error, setError] = React.useState<AiChatErrorEnvelope | null>(null)
   const [lastRequestDebug, setLastRequestDebug] = React.useState<
     { url: string; body: unknown } | null
@@ -602,12 +702,14 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   }, [onError])
 
   const emitError = React.useCallback((envelope: AiChatErrorEnvelope) => {
-    setError(envelope)
-    try {
-      onErrorRef.current?.(envelope)
-    } catch {
-      // UI layer must never throw because a caller-supplied error handler
-      // misbehaved.
+    if (mountedRef.current) {
+      setError(envelope)
+      try {
+        onErrorRef.current?.(envelope)
+      } catch {
+        // UI layer must never throw because a caller-supplied error handler
+        // misbehaved.
+      }
     }
   }, [])
 
@@ -616,18 +718,19 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       abortRef.current.abort()
       abortRef.current = null
     }
+    writeSessionStreamState(sessionStorageKeyRef.current, false)
     setStatus('idle')
-  }, [])
+  }, [setStatus])
 
   const reset = React.useCallback(() => {
     cancel()
-    setMessages([])
+    updateMessages([])
     setError(null)
     setLastRequestDebug(null)
     setLastResponseDebug(null)
-    clearPersistedSession(agent)
+    clearPersistedSession(agent, persistKey)
     mintedConversationIdRef.current = makeConversationId()
-  }, [agent, cancel])
+  }, [agent, cancel, persistKey, updateMessages])
 
   const sendMessage = React.useCallback(
     async (textInput: string, files?: AiChatMessageFile[]) => {
@@ -652,9 +755,10 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const assistantId = assistantMessage.id
       // Snapshot prior messages for request payload so the dispatcher sees the
       // full turn history including the just-added user message.
-      const outgoingHistory = [...messages, userMessage]
-      setMessages([...outgoingHistory, assistantMessage])
+      const outgoingHistory = [...latestMessagesRef.current, userMessage]
+      updateMessages([...outgoingHistory, assistantMessage], { persistWhenUnmounted: true })
       setStatus('submitting')
+      writeSessionStreamState(sessionStorageKey, true)
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -670,7 +774,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         debug,
         conversationId: effectiveConversationId,
       }
-      setLastRequestDebug({ url, body })
+      if (mountedRef.current) {
+        setLastRequestDebug({ url, body })
+      }
 
       let response: Response
       try {
@@ -685,6 +791,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         })
       } catch (requestError) {
         if ((requestError as { name?: string })?.name === 'AbortError') {
+          writeSessionStreamState(sessionStorageKey, false)
           setStatus('idle')
           abortRef.current = null
           return
@@ -694,6 +801,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
             ? requestError.message
             : 'Network request failed.'
         emitError({ message })
+        writeSessionStreamState(sessionStorageKey, false)
         setStatus('idle')
         abortRef.current = null
         return
@@ -701,17 +809,25 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
 
       if (!response.ok) {
         const envelope = await readErrorEnvelope(response)
-        setLastResponseDebug({ status: response.status, text: envelope.message })
+        if (mountedRef.current) {
+          setLastResponseDebug({ status: response.status, text: envelope.message })
+        }
         emitError(envelope)
+        writeSessionStreamState(sessionStorageKey, false)
         setStatus('idle')
-        setMessages((current) => current.filter((entry) => entry.id !== assistantId))
+        updateMessages((current) => current.filter((entry) => entry.id !== assistantId), {
+          persistWhenUnmounted: true,
+        })
         abortRef.current = null
         return
       }
 
       const bodyStream = response.body
       if (!bodyStream) {
-        setLastResponseDebug({ status: response.status, text: '' })
+        if (mountedRef.current) {
+          setLastResponseDebug({ status: response.status, text: '' })
+        }
+        writeSessionStreamState(sessionStorageKey, false)
         setStatus('idle')
         abortRef.current = null
         return
@@ -771,12 +887,14 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
             builder = { ...builder, text: streamedRaw }
           }
           const snapshotBuilder = builder
-          setMessages((current) =>
-            current.map((entry) =>
-              entry.id === assistantId
-                ? mergeAssistantMessage(entry, snapshotBuilder)
-                : entry,
-            ),
+          updateMessages(
+            (current) =>
+              current.map((entry) =>
+                entry.id === assistantId
+                  ? mergeAssistantMessage(entry, snapshotBuilder)
+                  : entry,
+              ),
+            { persistWhenUnmounted: true },
           )
         }
         const tail = decoder.decode()
@@ -793,14 +911,18 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         }
         builder = { ...builder, reasoningStreaming: false }
         const finalSnapshot = builder
-        setMessages((current) =>
-          current.map((entry) =>
-            entry.id === assistantId
-              ? mergeAssistantMessage(entry, finalSnapshot)
-              : entry,
-          ),
+        updateMessages(
+          (current) =>
+            current.map((entry) =>
+              entry.id === assistantId
+                ? mergeAssistantMessage(entry, finalSnapshot)
+                : entry,
+            ),
+          { persistWhenUnmounted: true },
         )
-        setLastResponseDebug({ status: response.status, text: streamedRaw })
+        if (mountedRef.current) {
+          setLastResponseDebug({ status: response.status, text: streamedRaw })
+        }
         const isEmpty =
           !builder.text.trim() && builder.toolCalls.length === 0 && !builder.reasoning
         if (isEmpty) {
@@ -809,7 +931,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
             message:
               'The AI agent returned an empty response. This usually means the LLM provider rejected the request (invalid API key, rate limit, or model error). Check your server logs for details.',
           })
-          setMessages((current) => current.filter((entry) => entry.id !== assistantId))
+          updateMessages((current) => current.filter((entry) => entry.id !== assistantId), {
+            persistWhenUnmounted: true,
+          })
         }
       } catch (streamError) {
         if ((streamError as { name?: string })?.name === 'AbortError') {
@@ -829,27 +953,79 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
           emitError({ code: 'stream_error', message })
           // Remove the empty assistant placeholder so the error alert is
           // the only visible feedback.
-          setMessages((current) => current.filter((entry) => entry.id !== assistantId))
+          updateMessages((current) => current.filter((entry) => entry.id !== assistantId), {
+            persistWhenUnmounted: true,
+          })
         }
       } finally {
         reader.releaseLock()
         if (abortRef.current === controller) {
           abortRef.current = null
         }
+        writeSessionStreamState(sessionStorageKey, false)
         setStatus('idle')
       }
     },
-    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, pageContext],
+    [
+      agent,
+      apiPath,
+      attachmentIds,
+      debug,
+      effectiveConversationId,
+      emitError,
+      pageContext,
+      sessionStorageKey,
+      setStatus,
+      updateMessages,
+    ],
   )
 
   React.useEffect(() => {
-    return () => {
-      if (abortRef.current) {
-        abortRef.current.abort()
-        abortRef.current = null
-      }
+    if (typeof window === 'undefined') return
+    const handleSessionUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }>).detail
+      if (!detail || detail.key !== sessionStorageKey) return
+      const next = readPersistedSession(agent, persistKey)
+      if (!next) return
+      if (next.conversationId !== effectiveConversationId) return
+      updateMessages(next.messages)
     }
-  }, [])
+    window.addEventListener(SESSION_UPDATED_EVENT, handleSessionUpdate)
+    return () => {
+      window.removeEventListener(SESSION_UPDATED_EVENT, handleSessionUpdate)
+    }
+  }, [agent, effectiveConversationId, persistKey, sessionStorageKey, updateMessages])
+
+  React.useEffect(() => {
+    if (isSessionStreamActive(sessionStorageKey)) {
+      setStatusInternal('streaming')
+    }
+    if (typeof window === 'undefined') return
+    const handleStreamState = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string; active?: boolean }>).detail
+      if (!detail || detail.key !== sessionStorageKey) return
+      setStatusInternal(detail.active ? 'streaming' : 'idle')
+    }
+    window.addEventListener(SESSION_STREAM_STATE_EVENT, handleStreamState)
+    return () => {
+      window.removeEventListener(SESSION_STREAM_STATE_EVENT, handleStreamState)
+    }
+  }, [sessionStorageKey])
+
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      // Flush the latest snapshot — including any in-flight assistant
+      // content — and let the request keep running in the background.
+      // Background stream updates continue writing to this same storage slot
+      // and notify any reopened chat for the conversation (issue #1816).
+      const finalMessages = latestMessagesRef.current
+      if (finalMessages.length > 0) {
+        persistSnapshot(finalMessages, true)
+      }
+      mountedRef.current = false
+    }
+  }, [persistSnapshot])
 
   return {
     messages,

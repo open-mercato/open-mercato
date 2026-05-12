@@ -1,6 +1,6 @@
 ---
 name: migrate-mikro-orm
-description: Migrate custom module code from MikroORM v6 to v7 in the Open Mercato codebase. Use when upgrading user modules, fixing MikroORM deprecation warnings, resolving v7 type errors (FilterQuery, RequiredEntityData), replacing Knex raw queries with Kysely, migrating persistAndFlush/removeAndFlush calls, or updating entity decorator imports. Triggers on "mikro-orm upgrade", "v7 migration", "persistAndFlush deprecated", "knex to kysely", "FilterQuery error", "decorator import error".
+description: Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely".
 ---
 
 # MikroORM v6 → v7 Migration

@@ -281,6 +281,12 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
   initialValues?: Partial<TValues>
+  /**
+   * When true, suppresses the form's mount-time autofocus entirely.
+   * Hosts can keep this enabled while async record data is still loading, then
+   * flip it off once the initial values are ready to let the first field gain focus.
+   */
+  disableInitialFocus?: boolean
   submitLabel?: string
   submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
@@ -541,6 +547,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
+  disableInitialFocus = false,
   submitLabel,
   submitIcon,
   formId: providedFormId,
@@ -1909,7 +1916,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    if (isLoading || isLoadingCustomFields || formReadOnly) {
+    if (disableInitialFocus || isLoading || isLoadingCustomFields || formReadOnly) {
       lastFocusedFieldRef.current = null
       return
     }
@@ -1956,7 +1963,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         window.clearTimeout(frame as number)
       }
     }
-  }, [firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
+  }, [disableInitialFocus, firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -2696,7 +2703,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               onBlurRequest={onBlurRequest}
               values={values}
               loadFieldOptions={loadFieldOptions}
-              autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
@@ -3258,7 +3265,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     onBlurRequest={onBlurRequest}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
-                    autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                    autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
@@ -4075,6 +4082,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
+          suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'

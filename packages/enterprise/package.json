@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -70,7 +70,7 @@
     "@simplewebauthn/server": "^13.3.0",
     "@simplewebauthn/types": "^12.0.0",
     "@types/qrcode": "^1.5.5",
-    "openid-client": "^6.8.3",
+    "openid-client": "^6.8.4",
     "otpauth": "9.5.1",
     "qrcode": "^1.5.4"
   },
@@ -80,7 +80,7 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

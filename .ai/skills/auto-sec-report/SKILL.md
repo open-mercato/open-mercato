@@ -1,6 +1,6 @@
 ---
 name: auto-sec-report
-description: Run `auto-sec-report-pr` across a date window, PR-number floor, branch diff, or single spec, then aggregate the results into one docs-only security report PR. Writes combined markdown and HTML under `.ai/analysis/`, carries forward deeper follow-up scopes, uses the `auto-create-pr` workflow for branch and label discipline, and hands off to `auto-continue-pr` if the run cannot finish in one pass.
+description: "Driver that loops `auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level \"Next steps — go deeper\" list."
 ---
 
 # Auto Security Report — Driver

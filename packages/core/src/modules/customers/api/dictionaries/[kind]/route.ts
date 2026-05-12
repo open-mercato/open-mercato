@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
@@ -190,7 +190,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
 
     return NextResponse.json(responseBody)
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
@@ -289,7 +289,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()

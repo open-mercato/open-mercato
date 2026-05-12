@@ -1,6 +1,6 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Users, StickyNote, SlidersHorizontal } from 'lucide-react'
+import { Phone, Mail, Users, StickyNote, ListTodo, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +13,7 @@ const FILTER_TYPES = [
   { type: 'call', icon: Phone },
   { type: 'meeting', icon: Users },
   { type: 'email', icon: Mail },
+  { type: 'task', icon: ListTodo },
 ] as const
 
 type InteractionCounts = {
@@ -20,8 +21,14 @@ type InteractionCounts = {
   email: number
   meeting: number
   note: number
+  task: number
   total: number
 }
+
+type InteractionCountsResponse = {
+  ok?: boolean
+  result?: InteractionCounts
+} & Partial<InteractionCounts>
 
 interface ActivityTimelineFiltersProps {
   entityId: string | null
@@ -58,11 +65,22 @@ export function ActivityTimelineFilters({
     const controller = new AbortController()
     void (async () => {
       try {
-        const nextCounts = await readApiResultOrThrow<InteractionCounts>(
+        const payload = await readApiResultOrThrow<InteractionCountsResponse>(
           `/api/customers/interactions/counts?entityId=${encodeURIComponent(entityId)}`,
           { signal: controller.signal },
         )
-        setCounts(nextCounts)
+        // Endpoint envelope is `{ ok, result: {...counts} }`. Some legacy fixtures
+        // return the counts at the top level — fall back to that shape so the chip
+        // badges keep working in either case.
+        const source = (payload.result ?? payload) as Partial<InteractionCounts>
+        setCounts({
+          call: source.call ?? 0,
+          email: source.email ?? 0,
+          meeting: source.meeting ?? 0,
+          note: source.note ?? 0,
+          task: source.task ?? 0,
+          total: source.total ?? 0,
+        })
       } catch {
         setCounts(null)
       }
@@ -85,23 +103,27 @@ export function ActivityTimelineFilters({
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex flex-wrap items-center gap-2.5">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={handleSelectAll}
           aria-pressed={allActive}
           className={cn(CHIP_BASE, allActive ? CHIP_ACTIVE : CHIP_INACTIVE)}
         >
           <span>{t('customers.timeline.filter.all', 'All Activities')}</span>
-        </button>
+        </Button>
 
         {FILTER_TYPES.map(({ type, icon: Icon }) => {
           const isActive = activeTypes.includes(type)
           const count = counts?.[type as keyof InteractionCounts]
           const hasCount = typeof count === 'number' && count > 0
           return (
-            <button
+            <Button
               key={type}
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => handleTypeToggle(type)}
               aria-pressed={isActive}
               className={cn(CHIP_BASE, isActive ? CHIP_ACTIVE : CHIP_INACTIVE)}
@@ -111,7 +133,7 @@ export function ActivityTimelineFilters({
                 {t(`customers.timeline.filter.${type}`, type)}
                 {hasCount ? ` ${count}` : ''}
               </span>
-            </button>
+            </Button>
           )
         })}
       </div>

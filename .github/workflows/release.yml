@@ -84,6 +84,11 @@ jobs:
 
       - name: Commit version changes
         run: |
+          if [ "${{ inputs.bump }}" = "existing" ]; then
+            echo "Existing release mode uses committed versions as-is; skipping version commit"
+            exit 0
+          fi
+
           git add -A
           if git diff --cached --quiet; then
             echo "No release changes to commit"

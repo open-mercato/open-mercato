@@ -6,7 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { customerSettingsUpsertSchema, type CustomerSettingsUpsertInput } from '../../../data/validators'
 import { loadCustomerSettings } from '../../../commands/settings'
 import type { CustomerAddressFormat } from '../../../data/entities'
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
       addressFormat: record?.addressFormat ?? 'line_first',
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
@@ -93,7 +93,7 @@ export async function PUT(req: Request) {
       addressFormat: result?.addressFormat ?? input.addressFormat,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
