@@ -1297,6 +1297,8 @@
   "sales.returns.notes": "Notas",
   "sales.returns.notes.placeholder": "Opcional",
   "sales.returns.orderMissing": "Pedido no encontrado.",
+  "sales.returns.qty.decrease": "Disminuir cantidad",
+  "sales.returns.qty.increase": "Aumentar cantidad",
   "sales.returns.quantity": "Cantidad",
   "sales.returns.quantityExceeded": "No se puede devolver más que la cantidad restante.",
   "sales.returns.reason": "Motivo",
