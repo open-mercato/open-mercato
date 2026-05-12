@@ -1842,14 +1842,26 @@ const [value, setValue] = React.useState('<p>Hello</p>')
 | `'minimal'` | Bold / Italic / Underline |
 | `'basic'` | Bold / Italic / Underline / Bullet list / Link |
 | `'standard'` (default) | Heading dropdown / Bold / Italic / Underline / Bullet list / Numbered list / Link |
-| `'full'` | Heading / Bold / Italic / Underline / Strikethrough / Color / Bullet list / Numbered list / Quote / Code / Link |
+| `'full'` | Heading / Font size / Color / Bold / Italic / Underline / Strikethrough / Bullet list / Numbered list / HR / Quote / Inline code / Code block / Image / Table / Checklist / Align / Link / Comment / Mention / Help (Figma `166331:4006`) |
 | `'custom'` | Render `<RichEditorToolbar>...</RichEditorToolbar>` + `<RichEditorContent />` children manually |
 
 The `'standard'` variant is what `CrudForm` `editor: 'html'` consumers get — it matches the legacy six-button toolbar plus the new heading dropdown.
 
+The `'full'` variant is what `CrudForm` `editor: 'html'` ships today (the standalone preset is the same compound API, just opted into via the variant prop on a one-off `<RichEditor />`).
+
+### Auto-overflow toolbar (`'full'` / `'standard'` / `'basic'` / `'minimal'`)
+
+The preset toolbar measures its container via `ResizeObserver` and renders all items in a single row. Items that don't fit spill into the existing `⋮ More` popover button (rendered as a second row of icon buttons inside the popover — same toolbar style, not a text menu). The `⋮` button auto-appears only when items overflow OR when the consumer passes a `moreMenu` prop; consumer-supplied items render at the top of the popover with a separator above auto-spilled items.
+
+Implementation notes for consumers:
+
+- No prop to disable — overflow is the toolbar contract; if you need a frozen layout use `variant="custom"` and supply the toolbar yourself.
+- The measure pass is SSR / jsdom-safe (`typeof ResizeObserver === 'undefined'` short-circuit), so unit tests see every item under the `getByRole('button', { name })` query as if the toolbar were full-width.
+- The `⋮` button omits its trailing chevron (`showChevron={false}` on `RichEditorDropdownButton`) — the three-dot glyph already signals "more actions". The `Help (?)` button does the same.
+
 ### i18n
 
-Pass `labels` to override the English defaults. The `CrudForm` `editor: 'html'` integration maps the existing `ui.forms.richtext.*` keys (`bold`, `italic`, `underline`, `list`, `orderedList`, `heading`, `heading1`, `heading2`, `heading3`, `paragraph`, `link`, `linkUrlPrompt`, `placeholder`) onto this contract.
+Pass `labels` to override the English defaults. The `CrudForm` `editor: 'html'` integration maps the existing `ui.forms.richtext.*` keys (`bold`, `italic`, `underline`, `list`, `orderedList`, `heading`, `heading1`, `heading2`, `heading3`, `paragraph`, `link`, `linkUrlPrompt`, `placeholder`, `comment`, `mention`, `more`) onto this contract. Keys not yet mapped through `CrudForm` (strikethrough, checklist, color, fontSize, align*, horizontalRule, blockquote, inlineCode, codeBlock, image, imageUrlPrompt, table, help, fullscreen) fall back to the English `DEFAULT_LABELS` baked into the primitive — file an issue when you migrate a consumer that needs them.
 
 ```tsx
 const t = useT()
@@ -1881,11 +1893,13 @@ When `variant="custom"` the primitive renders no preset items — you supply the
 </RichEditor>
 ```
 
-### Color palette (Figma `Rich Editor Colors`)
+### Color palette (Figma `Rich Editor Colors [1.1]`, node `166331:4100`)
 
 ```ts
 RICH_EDITOR_COLOR_PALETTE = {
   gray:   '#7b7b7b',
+  black:  '#171717',
+  white:  '#ffffff',
   blue:   '#6366f1',
   orange: '#f59e0b',
   red:    '#ef4444',
@@ -1915,8 +1929,14 @@ RICH_EDITOR_COLOR_PALETTE = {
 | `labels` | `Partial<RichEditorLabels>` | English defaults | Translation overrides — see i18n example above. |
 | `className` / `contentClassName` | `string` | — | Compose extra utilities on the wrapper / content. |
 | `aria-invalid` | `boolean` | — | Forwarded to the root for form validation styling hooks. |
+| `maxLength` | `number` | — | When set, renders a character counter in the bottom-right of the content area (counts plaintext length of the sanitized HTML). |
+| `onComment` | `() => void` | inserts `[comment: ]` at caret | Override the `'full'` variant Comment button (open your own popover / inline UI). |
+| `onMention` | `() => void` | inserts `@` at caret | Override the `'full'` variant Mention button. |
+| `moreMenu` | `React.ReactNode` | — | Custom items rendered on top of the `⋮` overflow popover (consumer-defined; auto-spilled items render below a separator). |
+| `onFullscreen` | `() => void` | — | When set, the `'full'` variant renders the trailing fullscreen icon (consumer wires the actual modal/portal layout). |
+| `onImageInsert` | `() => void` | DS Dialog URL prompt | Bypass the built-in URL prompt and open your own image picker. |
 
-Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDropdownButton`, `RichEditorColorButton`) expose `active`, `tooltipLabel`, `ariaLabel`, `command`, and `onActivate` props for full customization. All four follow the Figma `Rich Editor Items` spec (28×h, `rounded-md`, `bg-card` default, `bg-muted` hover/active).
+Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDropdownButton`, `RichEditorColorButton`) expose `active`, `tooltipLabel`, `ariaLabel`, `command`, and `onActivate` props for full customization. All four follow the Figma `Rich Editor Items` spec (28×h, `rounded-md`, `bg-card` default, `bg-muted` hover/active). `RichEditorDropdownButton` additionally accepts an optional `showChevron` prop (default `true`) — set to `false` when the icon itself signals "opens a menu" (e.g. `⋮ More`, `? Help`).
 
 ### MUST rules
 
