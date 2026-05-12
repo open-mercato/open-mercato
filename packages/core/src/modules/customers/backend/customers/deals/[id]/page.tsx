@@ -338,7 +338,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showVersionHistory={false}
         showCancelAction={false}
         onDirtyChange={setIsDirty}
-        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'left' }}
+        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{
           ...data.deal,
