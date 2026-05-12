@@ -36,6 +36,26 @@ jest.mock('../../backend/utils/api', () => ({
   apiFetch: jest.fn(),
 }))
 
+// <AiChat> mounts `useAgentModels` (Phase 4b) which calls apiCall against
+// /api/ai_assistant/ai/agents/<id>/models on first render. The chat-flow
+// tests in this file don't exercise the picker, so stub apiCall with a
+// no-providers response — keeps `apiFetch.mock.calls` scoped to the
+// dispatcher and lets the existing `mockResolvedValueOnce` setup drive the
+// assertion path without having to special-case the models endpoint.
+jest.mock('../../backend/utils/apiCall', () => ({
+  apiCall: jest.fn(async () => ({
+    ok: true,
+    status: 200,
+    result: {
+      agentId: 'customers.account_assistant',
+      allowRuntimeModelOverride: false,
+      defaultProviderId: 'openai',
+      defaultModelId: 'gpt-5-mini',
+      providers: [],
+    },
+  })),
+}))
+
 import { apiFetch } from '../../backend/utils/api'
 import { AiChat } from '../AiChat'
 

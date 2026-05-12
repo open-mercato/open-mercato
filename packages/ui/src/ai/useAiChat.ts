@@ -990,21 +990,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         setStatus('idle')
       }
     },
-    [
-      agent,
-      apiPath,
-      attachmentIds,
-      debug,
-      effectiveConversationId,
-      emitError,
-      messages,
-      modelOverride,
-      pageContext,
-      providerOverride,
-      sessionStorageKey,
-      setStatus,
-      updateMessages,
-    ],
+    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, modelOverride, pageContext, providerOverride],
   )
 
   React.useEffect(() => {
