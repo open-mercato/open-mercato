@@ -494,13 +494,13 @@ const richEditorItemVariants = cva(
     variants: {
       type: {
         // Figma 166251:2698 — pl-[10px] pr-[4px] py-[4px], gap-[2px].
-        text: 'min-w-0 gap-0.5 pl-2.5 pr-1 py-1 tracking-[-0.084px] [&>svg]:size-5',
+        text: 'min-w-0 gap-0.5 pl-2.5 pr-1 py-1 tracking-[-0.084px] [&_svg]:size-4',
         // Figma 166251:2700 — square icon button p-[4px].
-        icon: 'aspect-square p-1 [&>svg]:size-5',
+        icon: 'aspect-square p-1 [&_svg]:size-4',
         // Figma 166251:3337 — icon + caret p-[4px] gap-[2px].
-        dropdown: 'gap-0.5 p-1 [&>svg]:size-5',
+        dropdown: 'gap-0.5 p-1 [&_svg]:size-4',
         // Figma 166331:4437 — color swatch + caret pl-[8px] pr-[4px] py-[4px].
-        color: 'gap-0.5 pl-2 pr-1 py-1 [&>svg]:size-5',
+        color: 'gap-0.5 pl-2 pr-1 py-1 [&_svg]:size-4',
       },
     },
     defaultVariants: { type: 'icon' },
