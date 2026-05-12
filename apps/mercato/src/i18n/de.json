@@ -864,6 +864,7 @@
   "ui.inputs.comboboxInput.loading": "Vorschläge werden geladen…",
   "ui.inputs.comboboxInput.placeholder": "Zum Suchen tippen...",
   "ui.inputs.emailInput.placeholder": "name@beispiel.de",
+  "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",
   "ui.inputs.eventSelect.empty": "Keine Ereignisse verfügbar",
   "ui.inputs.eventSelect.loading": "Lädt...",
   "ui.inputs.eventSelect.placeholder": "Ereignis wählen...",

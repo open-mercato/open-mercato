@@ -864,6 +864,7 @@
   "ui.inputs.comboboxInput.loading": "Loading suggestions…",
   "ui.inputs.comboboxInput.placeholder": "Type to search...",
   "ui.inputs.emailInput.placeholder": "name@example.com",
+  "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",
   "ui.inputs.eventSelect.empty": "No events available",
   "ui.inputs.eventSelect.loading": "Loading...",
   "ui.inputs.eventSelect.placeholder": "Select an event...",

@@ -864,6 +864,7 @@
   "ui.inputs.comboboxInput.loading": "Ładowanie podpowiedzi…",
   "ui.inputs.comboboxInput.placeholder": "Wpisz, aby wyszukać...",
   "ui.inputs.emailInput.placeholder": "imie@przyklad.pl",
+  "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",
   "ui.inputs.eventSelect.empty": "Brak dostępnych zdarzeń",
   "ui.inputs.eventSelect.loading": "Ładowanie...",
   "ui.inputs.eventSelect.placeholder": "Wybierz zdarzenie...",
