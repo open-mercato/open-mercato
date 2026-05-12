@@ -72,16 +72,16 @@ The bulk of the work. One large markdown file under `.ai/specs/` following `.ai/
 
 ### Phase 1: Spec authoring
 
-- [ ] 1.1 Draft TLDR, Overview, Problem Statement, Non-goals
-- [ ] 1.2 Draft CLI command design section
-- [ ] 1.3 Draft Railway integration approach section
-- [ ] 1.4 Draft Railway template & project structure section
-- [ ] 1.5 Draft end-to-end flow section
-- [ ] 1.6 Draft failure handling section
-- [ ] 1.7 Draft security & secrets section
-- [ ] 1.8 Draft testing strategy section
-- [ ] 1.9 Draft documentation deliverables section
-- [ ] 1.10 Draft Risks, Migration/BC, Integration Coverage, Compliance, Changelog
+- [x] 1.1 Draft TLDR, Overview, Problem Statement, Non-goals — f2cb7a94c
+- [x] 1.2 Draft CLI command design section — f2cb7a94c
+- [x] 1.3 Draft Railway integration approach section — f2cb7a94c
+- [x] 1.4 Draft Railway template & project structure section — f2cb7a94c
+- [x] 1.5 Draft end-to-end flow section — f2cb7a94c
+- [x] 1.6 Draft failure handling section — f2cb7a94c
+- [x] 1.7 Draft security & secrets section — f2cb7a94c
+- [x] 1.8 Draft testing strategy section — f2cb7a94c
+- [x] 1.9 Draft documentation deliverables section — f2cb7a94c
+- [x] 1.10 Draft Risks, Migration/BC, Integration Coverage, Compliance, Changelog — f2cb7a94c
 
 ### Phase 2: Repo wiring for the spec
 
