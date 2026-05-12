@@ -446,24 +446,6 @@ const setupApp: ModuleCli = {
     const jsonMode = typeof jsonModeRaw === 'boolean'
       ? jsonModeRaw
       : parseBooleanToken(typeof jsonModeRaw === 'string' ? jsonModeRaw : null) ?? false
-    let restoreConsole: (() => void) | null = null
-    if (jsonMode) {
-      // Force quiet mode so module bootstrap / lifecycle hooks cannot pollute
-      // stdout. The JSON contract relies on a single line, so any console.log
-      // from setupInitialTenant or seedExamples would otherwise break the
-      // consumer's `jq` pipe. We additionally rebind console.log/info to a
-      // no-op for the duration of the call because OM_CLI_QUIET is honored
-      // unevenly across module setup hooks.
-      process.env.OM_CLI_QUIET = process.env.OM_CLI_QUIET ?? '1'
-      const originalLog = console.log
-      const originalInfo = console.info
-      console.log = () => undefined
-      console.info = () => undefined
-      restoreConsole = () => {
-        console.log = originalLog
-        console.info = originalInfo
-      }
-    }
     if (!orgName || !email || !password) {
       process.stderr.write(`${SETUP_USAGE}\n`)
       process.exitCode = 2
@@ -475,6 +457,26 @@ const setupApp: ModuleCli = {
     }
     if (skipPasswordPolicy && !jsonMode) {
       console.warn('⚠️  Password policy validation skipped for setup.')
+    }
+    let restoreConsole: (() => void) | null = null
+    if (jsonMode) {
+      // Force quiet mode so module bootstrap / lifecycle hooks cannot pollute
+      // stdout. The JSON contract relies on a single line, so any console.log
+      // from setupInitialTenant or seedExamples would otherwise break the
+      // consumer's `jq` pipe. We additionally rebind console.log/info to a
+      // no-op for the duration of the call because OM_CLI_QUIET is honored
+      // unevenly across module setup hooks. Rebind AFTER early-return
+      // validation so the missing-args and password-policy paths can't
+      // leak the rebinding into a long-lived process (e.g. test runner).
+      process.env.OM_CLI_QUIET = process.env.OM_CLI_QUIET ?? '1'
+      const originalLog = console.log
+      const originalInfo = console.info
+      console.log = () => undefined
+      console.info = () => undefined
+      restoreConsole = () => {
+        console.log = originalLog
+        console.info = originalInfo
+      }
     }
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')

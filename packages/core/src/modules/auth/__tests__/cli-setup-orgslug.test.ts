@@ -1,4 +1,9 @@
 /** @jest-environment node */
+jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
+  isTenantDataEncryptionEnabled: () => false,
+  isEncryptionDebugEnabled: () => false,
+}))
+
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
