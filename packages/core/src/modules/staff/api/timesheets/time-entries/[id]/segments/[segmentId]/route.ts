@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -35,7 +36,7 @@ function extractIdsFromUrl(request?: Request): { entryId: string; segmentId: str
 
 export async function PATCH(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.orgId) {
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -55,15 +56,22 @@ export async function PATCH(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = (container.resolve('em') as EntityManager).fork()
-  const scopeCtx = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const tenantId = scope?.tenantId ?? auth.tenantId ?? null
+  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  if (!tenantId || !organizationId) {
+    return NextResponse.json({ error: 'Missing tenant or organization scope.' }, { status: 400 })
+  }
 
-  const entry = await findOneWithDecryption(em, StaffTimeEntry, { id: ids.entryId, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null }, {}, scopeCtx)
+  const em = (container.resolve('em') as EntityManager).fork()
+  const scopeCtx = { tenantId, organizationId }
+
+  const entry = await findOneWithDecryption(em, StaffTimeEntry, { id: ids.entryId, tenantId, organizationId, deletedAt: null }, {}, scopeCtx)
   if (!entry) {
     return NextResponse.json({ error: 'Time entry not found' }, { status: 404 })
   }
 
-  const staffMember = await getStaffMemberByUserId(em, auth.sub, auth.tenantId, auth.orgId)
+  const staffMember = await getStaffMemberByUserId(em, auth.sub, tenantId, organizationId)
   if (!staffMember || entry.staffMemberId !== staffMember.id) {
     return NextResponse.json({ error: 'You can only manage your own time entries.' }, { status: 403 })
   }
@@ -71,8 +79,8 @@ export async function PATCH(req: Request) {
   const segment = await findOneWithDecryption(em, StaffTimeEntrySegment, {
     id: ids.segmentId,
     timeEntryId: ids.entryId,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId,
+    organizationId,
     deletedAt: null,
   }, {}, scopeCtx)
 
@@ -83,8 +91,8 @@ export async function PATCH(req: Request) {
   const guardResult = await runStaffMutationGuards(
     container,
     {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'staff.timesheets.time_entry_segment',
       resourceId: segment.id,
@@ -116,8 +124,8 @@ export async function PATCH(req: Request) {
 
   if (guardResult.afterSuccessCallbacks.length) {
     await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'staff.timesheets.time_entry_segment',
       resourceId: segment.id,
