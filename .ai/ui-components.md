@@ -27,6 +27,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [InlineSelect](#inlineselect)
 - [TimePicker](#timepicker)
 - [Alert](#alert)
+- [Notification](#notification)
 - [Common patterns](#common-patterns)
 
 ---
@@ -1463,6 +1464,140 @@ const t = useT()
 - Pass `dismissAriaLabel` translated via `useT()` — the primitive default `'Dismiss'` is English-only.
 - For ephemeral "save on action" feedback, prefer the global `flash()` helper from `@open-mercato/ui/backend/FlashMessages` (it wraps `Alert` internally) over building your own toast queue.
 - The legacy `variant` prop is **deprecated** but still honored — new code should use the explicit `status` + `style` props. Existing call sites continue to work; their look softens slightly (bg `/50`, no border) because the default style is now `lighter` instead of `light`.
+
+---
+
+## Notification
+
+```typescript
+import {
+  Notification,
+  NotificationProvider,
+  NotificationStack,
+  useNotification,
+  type NotifyOptions,
+  type NotificationEntry,
+  type NotificationStackPlacement,
+} from '@open-mercato/ui/primitives/notification'
+// (NotificationProvider / NotificationStack / useNotification live in `notification-stack`)
+import {
+  NotificationProvider,
+  NotificationStack,
+  useNotification,
+} from '@open-mercato/ui/primitives/notification-stack'
+```
+
+Card composition over `Alert` for corner-floating manual-dismiss UX — the "Notification" surface in the Figma `169:2358` Alert / Notification / Toast guidelines. Matches Figma cell `170:1839` (Error/Light/Large): status icon (or custom `avatar`), title + timestamp row, `opacity-72` description, optional row of action links, trailing dismiss X.
+
+### When to use
+
+| Surface | Component |
+|---|---|
+| Inline contextual message inside a form / page | `Alert` |
+| Ephemeral "saved" / "failed" feedback (auto-dismiss) | `flash()` from `FlashMessages` (renders `Alert` under the hood) |
+| Corner-floating manual-dismiss notifications (multiple stackable) | `Notification` inside `NotificationStack` (this section) |
+| Persistent in-app notification panel (bell icon + popover) | `NotificationItem` / `NotificationPanel` from `@open-mercato/ui/backend/notifications` |
+
+`Notification` is the **DS primitive** for the corner-floating case. `NotificationItem` is a richer panel-list item and stays separate by design (different layout, includes read-state indicator and module-specific renderer dispatch).
+
+### Notification card
+
+```tsx
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
+
+<Notification
+  status="information"
+  avatar={<Avatar name="John Smith" size="md" />}
+  title="John commented on Acme renewal"
+  description="Looped in legal for the new clause. Will follow up by EOD."
+  timestamp="2 min ago"
+  actions={
+    <>
+      <LinkButton variant="primary" onClick={openDeal}>View deal</LinkButton>
+      <span className="opacity-40">·</span>
+      <LinkButton variant="gray" onClick={mute}>Mute thread</LinkButton>
+    </>
+  }
+  onDismiss={() => dismiss(id)}
+/>
+```
+
+The primitive forwards every `status` / `style` value from `Alert`, defaults to `style='light'`, and always renders the dismiss X (`dismissible` defaults to `true`). Pass `avatar` to replace the default per-status Lucide icon — typical for user-driven notifications.
+
+### Programmatic queue (`NotificationProvider` + `useNotification()`)
+
+Mount once near the app root next to `FlashMessages`:
+
+```tsx
+// app shell (already client component)
+<NotificationProvider maxVisible={5}>
+  <AppContent />
+  <NotificationStack placement="top-right" />
+  <FlashMessages />
+</NotificationProvider>
+```
+
+Then from any client component:
+
+```tsx
+function DealActions({ dealId }: { dealId: string }) {
+  const { notify, dismiss } = useNotification()
+  const onSave = async () => {
+    const id = notify({
+      status: 'success',
+      title: 'Deal saved',
+      description: 'Customers will be notified within 5 minutes.',
+      autoDismissMs: 5000,
+      actions: <LinkButton onClick={() => dismiss(id)}>Got it</LinkButton>,
+    })
+  }
+  return <Button onClick={onSave}>Save deal</Button>
+}
+```
+
+`notify()` returns the entry id; `dismiss(id)` removes it (also cancels its auto-dismiss timer). `dismissAll()` clears the queue. The provider FIFO-trims entries beyond `maxVisible` (default 5).
+
+### `NotificationStack` placement
+
+| `placement` | Position |
+|---|---|
+| `'top-right'` (default) | Top-right corner |
+| `'top-left'` | Top-left corner |
+| `'bottom-right'` | Bottom-right corner |
+| `'bottom-left'` | Bottom-left corner |
+| `'top-center'` | Top center (translated -50% via Tailwind) |
+| `'bottom-center'` | Bottom center |
+
+The wrapper has `pointer-events-none` so it does not block clicks on the page underneath; each notification card has `pointer-events-auto` so its X / action buttons stay interactive.
+
+### Props
+
+`Notification` accepts:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `status` | `AlertStatus` | `'information'` | Forwarded to `Alert`. |
+| `style` | `AlertStyle` | `'light'` | Forwarded to `Alert`. |
+| `avatar` | `ReactNode` | — | Replaces the default per-status icon. Pair with `Avatar` primitive for user-driven feeds. |
+| `title` | `ReactNode` | — | `AlertTitle` (Label/Small `font-medium 14/20`). |
+| `description` | `ReactNode` | — | `AlertDescription` at `opacity-72` (Paragraph/Small `14/20`). |
+| `timestamp` | `ReactNode` | — | Right-aligned next to the title, `text-xs opacity-60`. Pre-format via `formatRelativeTime()` from shared. |
+| `actions` | `ReactNode` | — | Row of action links rendered below the description. Wrap multiple in a fragment with manual `·` separators per Figma. |
+| `dismissible` | `boolean` | `true` | Default opposite of `Alert` — notifications always need a way out. |
+| `onDismiss` | `() => void` | — | Click handler for the X. When used inside `NotificationStack`, the stack provides the handler automatically. |
+| `dismissAriaLabel` | `string` | `'Dismiss'` | Pass through `useT()` for i18n. |
+| `id` | `string` | — | Forwarded as `data-notification-id` for external tracking. |
+
+`NotifyOptions` (passed to `notify()`) = `Omit<NotificationProps, 'id' \| 'onDismiss'> & { autoDismissMs?: number }`.
+
+### MUST rules
+
+- Use `Notification` for corner-floating / stackable manual-dismiss UX. For inline alerts use `Alert` directly; for ephemeral save-feedback toasts use `flash()`; for persistent notification panel rows use `NotificationItem`.
+- Always wrap the app in `NotificationProvider` if any consumer uses `useNotification()`. The hook throws when no provider is mounted — this is intentional.
+- Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
+- For user-driven notifications, pass `avatar={<Avatar name="..." />}` so the leading visual matches the rest of the product's identity treatment.
+- Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
 
 ---
 
