@@ -809,9 +809,69 @@ default `light` style.
 - Legacy `variant` BC: `destructive` → `status='error'`, `info` → `status='information'`, etc., with implicit `style='light'`.
 - Explicit `status` overrides any legacy `variant` prop.
 
----
+### 13. `Notification` (+ `NotificationProvider` / `NotificationStack` / `useNotification`, Figma `170:1839`)
 
-## Migration & Backward Compatibility
+**Figma:** [`170:1839`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=170-1839) — Error / Light / Large cell (390 × 124).
+
+Phase 3 of the unified Alert / Notification / Toast composition.
+`Notification` is a card composition over the `Alert` primitive that
+matches the Figma Large-size layout: status icon (or custom avatar
+slot), a title + timestamp row, an `opacity-72` description, and an
+optional row of action links. Targets corner-floating manual-dismiss
+UX (multiple stackable, no auto-dismiss by default) — distinct from
+`Alert` (inline contextual) and `flash()` (ephemeral toast).
+
+**API:**
+
+```ts
+// packages/ui/src/primitives/notification.tsx
+type NotificationProps = {
+  status?: AlertStatus
+  style?: AlertStyle
+  avatar?: React.ReactNode                              // overrides default per-status icon
+  title?: React.ReactNode
+  description?: React.ReactNode
+  timestamp?: React.ReactNode                           // right-aligned "2 min ago"
+  actions?: React.ReactNode                             // row of link buttons
+  dismissible?: boolean                                 // default true (opposite of Alert)
+  onDismiss?: () => void
+  dismissAriaLabel?: string
+  className?: string
+  id?: string                                           // forwarded as data-notification-id
+}
+
+// packages/ui/src/primitives/notification-stack.tsx
+type NotifyOptions = Omit<NotificationProps, 'id' | 'onDismiss'> & {
+  autoDismissMs?: number                                // optional auto-dismiss
+}
+type NotificationContextValue = {
+  notifications: NotificationEntry[]
+  notify: (options: NotifyOptions) => string            // returns id
+  dismiss: (id: string) => void
+  dismissAll: () => void
+}
+
+function NotificationProvider({ children, maxVisible = 5 }): JSX.Element
+function NotificationStack({
+  placement?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center'
+  maxWidth?: number
+  className?: string
+}): JSX.Element
+function useNotification(): NotificationContextValue   // throws outside provider
+```
+
+Existing infrastructure stays separate: `packages/core/src/modules/notifications/*` (persistent notifications module),
+`packages/ui/src/backend/notifications/{NotificationBell,NotificationPanel,NotificationItem}` (panel-list item with read-state indicator and module-renderer dispatch). Those serve a different surface (bell + popover panel) and are not migrated by Phase 3.
+
+**Behaviour:**
+- FIFO trim past `maxVisible` (default 5).
+- `dismiss(id)` removes from queue and cancels any `autoDismissMs` timer.
+- `dismissAll()` clears the queue and cancels all pending timers.
+- Stack wrapper has `pointer-events-none`; each card has `pointer-events-auto` so cards block clicks without the wrapper covering page content.
+
+**Tests (in unit suite):**
+- Notification primitive (16 tests): size/style/status forwarding to Alert, title + description + timestamp + actions slots, opacity-72 on description, avatar replaces icon, dismiss + custom aria, ref forwarding, data-notification-id forwarding.
+- NotificationStack + provider (9 tests): empty-state renders nothing, queue rendering, placement classes/data-attr, manual dismiss via X, autoDismissMs auto-dismiss, manual dismiss cancels pending timer, maxVisible FIFO trim, useNotification throws outside provider, dismissAll clears queue.
 
 Per [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md), v3 is reviewed against the 13 contract surfaces. **All changes are additive — no deprecation protocol triggered.**
 
@@ -956,3 +1016,4 @@ To be filled in after all 14 commits land and before opening the PR. Sections:
 | 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `DigitInput` (OTP) primitive (§7) landed. `length`-cell composition (`<input maxLength={1}>` per cell, default `length=6`) with auto-focus on type, focus-previous on Backspace from empty cell, ArrowLeft/Right navigation, paste distribution across cells, and `onComplete` callback when the assembled value reaches `length`. `inputMode='numeric'` (default) filters out non-digit characters both on typing and on paste; `inputMode='text'` accepts any character. `mask=true` swaps `type='text'` for `type='password'` so digits display as bullets, paired with `autoComplete='one-time-code'` so native OTP autofill flows still work. `aria-invalid` propagates to the group wrapper and every cell. `id` / `name` forwarded to the first cell only so consumers can label the entire group via `<label htmlFor>`. 18 unit tests. No real consumer migration in this PR — no native OTP/2FA flow exists in the current codebase (the customer-portal `/verify` route is token-from-URL based, not user-entered code). Primitive is available in the library for future 2FA / SMS verification / PIN entry flows. |
 | 2026-05-12 | DESIGN-TOKEN REFRESH (COMMITTED) | Pixel-perfect alignment of the semantic status tokens with the Figma `169:2358` color palette. `globals.css` light-mode `--status-{error,warning,success,info,neutral}-{bg,border,icon,text}` values now match the Tailwind v4 palette OKLCH (which Figma uses verbatim) — `error` is Tailwind red, `warning` is amber, `success` is green, `info` is indigo, `neutral` is achromatic. Dark-mode counterparts updated to the matching Tailwind `*-950 / *-300 / *-800 / *-500` rungs. The Alert primitive renders pixel-perfect against Figma `state/{x}/*` variables (`#dc2626` / `#fecaca` / `#fef2f2` for error, `#d97706` / `#fde68a` / `#fffbeb` for warning, `#16a34a` / `#bbf7d0` / `#f0fdf4` for success, `#4f46e5` / `#c7d2fe` / `#eef2ff` for information, `#7b7b7b` / `#ebebeb` / `#f5f5f5` for feature → neutral). Downstream consumers of `status-*` tokens (Tag success/error/warning variants, StatusBadge, EmptyState, alert-shaped FlashMessages, etc.) inherit the same Figma palette automatically — visual shift is subtle (more saturated tints, slightly different hue) and aligns the whole DS with the Figma reference. 722/722 ui unit tests pass after the swap (assertions reference Tailwind class names, not the underlying CSS variable values). |
 | 2026-05-12 | SCOPE EXTENSION (COMMITTED) | `Alert` primitive (§12) extended per Figma `169:2358` — Phase 1 of the unified Alert / Notification / Toast composition. The pre-Figma-169:2358 API had a single `variant` prop with 5 values (default / destructive / success / warning / info) and one fixed style. The new API replaces it with a **pixel-perfect Figma 5 × 4 × 3 matrix**: `status` ∈ {error, warning, success, information, **feature** (NEW — maps to neutral gray `state/faded/*`, NOT brand-violet)} × `style` ∈ {`filled`, `light` (default — Figma `state/{x}/light` saturated tint), `lighter` (very light Figma `state/{x}/lighter` tint), `stroke` (white bg + soft border + `shadow-lg` drop shadow)} × `size` ∈ {`xs` (`min-h-8`), `sm` (default, `min-h-9` — grows for multi-line), `default` (`rounded-xl`)}. Non-filled styles render a **rounded icon badge** (`bg-status-{x}-icon` + white icon) per Figma reference; `filled` style uses a plain white icon over the saturated bg. `min-h-{x}` instead of fixed `h-{x}` on `xs`/`sm` so multi-line content still grows the container. Plus `showIcon` toggle, `icon` override, `dismissible` + `onDismiss` + `dismissAriaLabel`, and an inline `action` slot. The legacy `variant` prop is **deprecated** but preserved — it maps to `status` and picks up the new `light` + `sm` defaults; the ~20 existing Alert consumers (`PerspectiveSidebar`, `VersionHistoryPanel`, portal pages, AiChat parts, etc.) keep working unchanged with the Figma-faithful look. 26 unit tests cover default props, the status × style matrix corners (filled / light / lighter / stroke per status), feature → neutral-token mapping, size variants asserting `min-h-{x}` + `rounded-{md,md,xl}`, icon badge rendering on non-filled styles, plain icon on filled, action slot, dismiss button + custom aria label, AlertTitle / AlertDescription composition, and the legacy `variant` BC mapping. Phase 2 (FlashMessages internals → `Alert size='sm'` + DS-wide defaults, preserves the global `flash()` API for ~220 consumers untouched) and Phase 3 (Notification card composition for the persistent in-app panel) follow as separate commits / scope-progress entries below. |
+| 2026-05-12 | SCOPE EXTENSION (COMMITTED) | `Notification` primitive (§13) + `NotificationProvider` / `NotificationStack` / `useNotification()` — Phase 3 of the unified Alert / Notification / Toast composition. `Notification` is a thin card composition over `Alert` (size `default`, Figma Large `170:1839`): forwards `status` / `style` / dismissible behavior, adds an `avatar` slot that replaces the default status icon, a `title` + `timestamp` row (`AlertTitle` + right-aligned `text-xs opacity-60`), an `opacity-72` description (`AlertDescription`), and an optional row of action links rendered under the body. `dismissible` defaults to `true` (opposite of Alert) because Figma Notifications always ship with a way out. `NotificationProvider` mounts near the app root and exposes `useNotification()` → `{ notifications, notify, dismiss, dismissAll }`; `notify(options)` returns a stable id, FIFO-trims past `maxVisible` (default 5), and supports optional `autoDismissMs` per-entry. `NotificationStack` renders the queue in one of six fixed-position placements (`top-right` default, plus `top-left` / `bottom-right` / `bottom-left` / `top-center` / `bottom-center`). The wrapper has `pointer-events-none` so it does not block the page; cards have `pointer-events-auto` so X / actions stay interactive. The existing `NotificationItem` / `NotificationPanel` from `@open-mercato/ui/backend/notifications` (bell-popover panel with read-state and module renderer dispatch) and the persistent `notifications` core module stay **separate by design** — they serve a different surface and are not migrated by Phase 3. 25 unit tests: 16 cover the Notification card (size / status / style forwarding, title / description / timestamp / actions slots, opacity-72 on description, avatar replaces icon, dismiss UX, ref + id forwarding) and 9 cover the provider + stack (empty queue, placement classes, manual dismiss, autoDismissMs, manual-dismiss-cancels-timer, FIFO trim, useNotification-throws-outside-provider, dismissAll). Consumer adoption is opt-in: mount `<NotificationProvider><NotificationStack/></NotificationProvider>` near `AppShell` next to `FlashMessages` to enable `useNotification()` everywhere; nothing in the existing tree breaks if you don't. |
