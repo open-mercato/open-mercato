@@ -54,6 +54,19 @@ jest.mock('@open-mercato/ui/backend/utils/api', () => ({
   apiFetch: jest.fn(),
 }))
 
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(async () => ({
+    ok: true,
+    status: 200,
+    result: {
+      allowRuntimeModelOverride: false,
+      defaultProviderId: 'openai',
+      defaultModelId: 'gpt-5-mini',
+      providers: [],
+    },
+  })),
+}))
+
 import {
   AiChat,
   createAiUiPartRegistry,
