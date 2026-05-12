@@ -3635,6 +3635,9 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     link: t('ui.forms.richtext.link'),
     linkUrlPrompt: t('ui.forms.richtext.linkUrlPrompt'),
     placeholder: t('ui.forms.richtext.placeholder'),
+    comment: t('ui.forms.richtext.comment', 'Add comment'),
+    mention: t('ui.forms.richtext.mention', 'Mention'),
+    more: t('ui.forms.richtext.more', 'More'),
   }), [t])
   return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
