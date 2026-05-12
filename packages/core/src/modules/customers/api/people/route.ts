@@ -559,5 +559,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a person by id. Request body or query may provide the identifier.',
+    errors: [
+      {
+        status: 422,
+        description: 'Person has dependent records (e.g. linked deals); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('PERSON_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

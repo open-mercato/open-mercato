@@ -10,6 +10,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -167,6 +170,27 @@ export default function CustomersPeoplePage() {
     setPageSize(newSize)
     setPage(1)
   }, [])
+
+  const bulkMutationContextId = 'customers-people-list:bulk-delete'
+  const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: bulkMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const singleMutationContextId = 'customers-people-list:single-delete'
+  const { runMutation: runSingleMutation, retryLastMutation: retrySingleMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: singleMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
       const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
@@ -467,14 +491,24 @@ export default function CustomersPeoplePage() {
     })
     if (!confirmed) return
     try {
-      await apiCallOrThrow(
-        `/api/customers/people?id=${encodeURIComponent(person.id)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
+      await runSingleMutation({
+        operation: async () => {
+          await apiCallOrThrow(
+            `/api/customers/people?id=${encodeURIComponent(person.id)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.people.list.deleteError') },
+          )
         },
-        { errorMessage: t('customers.people.list.deleteError') },
-      )
+        context: {
+          formId: singleMutationContextId,
+          resourceKind: 'customers.person',
+          resourceId: person.id,
+          retryLastMutation: retrySingleMutation,
+        },
+      })
       setRows((prev) => prev.filter((row) => row.id !== person.id))
       setTotal((prev) => Math.max(prev - 1, 0))
       handleRefresh()
@@ -483,7 +517,7 @@ export default function CustomersPeoplePage() {
       const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
       flash(message, 'error')
     }
-  }, [confirm, handleRefresh, t])
+  }, [confirm, handleRefresh, retrySingleMutation, runSingleMutation, singleMutationContextId, t])
 
   const handleBulkDelete = React.useCallback(async (selectedRows: PersonRow[]) => {
     const confirmed = await confirm({
@@ -492,44 +526,71 @@ export default function CustomersPeoplePage() {
       variant: 'destructive',
     })
     if (!confirmed) return false
-    let deletedCount = 0
-    const failedIds: string[] = []
-    for (const row of selectedRows) {
-      try {
-        await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
+
+    const { succeeded, failures } = await runBulkMutation({
+      operation: async () =>
+        runBulkDelete(
+          selectedRows,
+          async (row) => {
+            await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            })
+          },
+          {
+            fallbackErrorMessage: t('customers.people.list.deleteError', 'Failed to delete person.'),
+            logTag: 'customers.people.list',
+          },
+        ),
+      context: {
+        formId: bulkMutationContextId,
+        resourceKind: 'customers.person',
+        retryLastMutation: retryBulkMutation,
+      },
+    })
+
+    if (succeeded.length > 0) {
+      const succeededIds = new Set(succeeded.map((r) => r.id))
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
+      setTotal((prev) => Math.max(0, prev - succeeded.length))
+      setReloadToken((prev) => prev + 1)
+      if (succeeded.length > 1) {
+        coalesceLastOperations(succeeded.length, {
+          commandId: 'customers.people.delete',
+          actionLabel: t('customers.people.list.bulkDelete.operationLabel', 'Delete {count} people', { count: succeeded.length }),
+          resourceKind: 'customers.person',
         })
-        deletedCount++
-      } catch (err) {
-        failedIds.push(row.id)
-        console.warn('[customers.people.list] bulk delete failed', row.id, err)
       }
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
-        return prev.filter((r) => !succeeded.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      if (failedIds.length === 0) {
-        flash(t('customers.people.list.bulkDelete.success', '{count} people deleted', { count: deletedCount }), 'success')
+      if (failures.length === 0) {
+        flash(
+          t('customers.people.list.bulkDelete.success', '{count} people deleted', { count: succeeded.length }),
+          'success',
+        )
       } else {
         flash(
           t('customers.people.list.bulkDelete.partial', '{deleted} of {total} people deleted; {failed} failed', {
-            deleted: deletedCount,
+            deleted: succeeded.length,
             total: selectedRows.length,
-            failed: failedIds.length,
+            failed: failures.length,
           }),
           'warning',
         )
       }
-      setReloadToken((prev) => prev + 1)
-    } else if (failedIds.length > 0) {
-      flash(t('customers.people.list.bulkDelete.failed', 'Failed to delete {count} people', { count: failedIds.length }), 'error')
     }
-    return deletedCount > 0
-  }, [confirm, t])
+
+    for (const group of groupBulkDeleteFailures(failures)) {
+      const message = group.count === 1
+        ? group.sampleMessage
+        : t(
+            'customers.people.list.bulkDelete.failedGroup',
+            '{count} people could not be deleted: {message}',
+            { count: group.count, message: group.sampleMessage },
+          )
+      flash(message, 'error')
+    }
+
+    return succeeded.length > 0
+  }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
