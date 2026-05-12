@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
@@ -422,9 +422,9 @@ export default function MyTimesheetsPage() {
       if (bulkEntries.length === 0) return
 
       const payload = { entries: bulkEntries }
-      const res = await runMutation({
+      await runMutation({
         operation: () =>
-          apiCall('/api/staff/timesheets/time-entries/bulk', {
+          apiCallOrThrow('/api/staff/timesheets/time-entries/bulk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -438,7 +438,6 @@ export default function MyTimesheetsPage() {
         },
         mutationPayload: payload as unknown as Record<string, unknown>,
       })
-      if (!res.ok) throw new Error(await res.response.text())
 
       flash(t('staff.timesheets.my.saved', 'Timesheet saved.'), 'success')
       await loadData()
@@ -534,9 +533,9 @@ export default function MyTimesheetsPage() {
   const handleAddProject = React.useCallback(async (project: ProjectRow) => {
     try {
       const payload = { showInGrid: true }
-      const res = await runMutation({
+      await runMutation({
         operation: () =>
-          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+          apiCallOrThrow(`/api/staff/timesheets/my-projects/${project.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -550,7 +549,6 @@ export default function MyTimesheetsPage() {
         },
         mutationPayload: payload,
       })
-      if (!res.ok) throw new Error(await res.response.text())
       setProjects((prev) => {
         if (prev.some((p) => p.id === project.id)) return prev
         return [...prev, project]
@@ -573,9 +571,9 @@ export default function MyTimesheetsPage() {
 
     try {
       const payload = { showInGrid: false }
-      const res = await runMutation({
+      await runMutation({
         operation: () =>
-          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+          apiCallOrThrow(`/api/staff/timesheets/my-projects/${project.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -589,7 +587,6 @@ export default function MyTimesheetsPage() {
         },
         mutationPayload: payload,
       })
-      if (!res.ok) throw new Error(await res.response.text())
       setProjects((prev) => prev.filter((p) => p.id !== project.id))
       setDirty((prev) => {
         if (!prev[project.id]) return prev
@@ -616,7 +613,7 @@ export default function MyTimesheetsPage() {
       const payload = { showInGrid: true }
       await runMutation({
         operation: () =>
-          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+          apiCallOrThrow(`/api/staff/timesheets/my-projects/${project.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),

@@ -5,7 +5,7 @@ import { Play, Square } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ProjectColorDot } from './ProjectColorDot'
 
@@ -140,7 +140,7 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     setIsStarting(true)
     try {
       const today = getToday()
-      const createResponse = await apiCall(
+      const createResponse = await apiCallOrThrow(
         '/api/staff/timesheets/time-entries',
         {
           method: 'POST',
@@ -156,33 +156,22 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         },
       )
 
-      if (!createResponse.ok) {
-        flash(
-          t('staff.timesheets.my.timer.startError', 'Failed to start timer'),
-          'error',
-        )
-        return
-      }
-
       const created = createResponse.result as Record<string, unknown> | null
       const entryId = created?.id as string | undefined
 
-      const startResponse = await apiCall(
+      await apiCallOrThrow(
         `/api/staff/timesheets/time-entries/${entryId}/timer-start`,
         { method: 'POST' },
       )
 
-      if (!startResponse.ok) {
-        flash(
-          t('staff.timesheets.my.timer.startError', 'Failed to start timer'),
-          'error',
-        )
-        return
-      }
-
       setActiveEntryId(entryId ?? null)
       setActiveProjectId(selectedProjectId)
       startElapsedCounter(new Date().toISOString())
+    } catch {
+      flash(
+        t('staff.timesheets.my.timer.startError', 'Failed to start timer'),
+        'error',
+      )
     } finally {
       setIsStarting(false)
     }
@@ -193,24 +182,21 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
     setIsStopping(true)
     try {
-      const stopResponse = await apiCall(
+      await apiCallOrThrow(
         `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
         { method: 'POST' },
       )
-
-      if (!stopResponse.ok) {
-        flash(
-          t('staff.timesheets.my.timer.stopError', 'Failed to stop timer'),
-          'error',
-        )
-        return
-      }
 
       setActiveEntryId(null)
       setActiveProjectId(null)
       setDescription('')
       stopElapsedCounter()
       onTimerStopped()
+    } catch {
+      flash(
+        t('staff.timesheets.my.timer.stopError', 'Failed to stop timer'),
+        'error',
+      )
     } finally {
       setIsStopping(false)
     }
