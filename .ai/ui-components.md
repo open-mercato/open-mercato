@@ -26,6 +26,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [InlineInput](#inlineinput)
 - [InlineSelect](#inlineselect)
 - [TimePicker](#timepicker)
+- [Alert](#alert)
 - [Common patterns](#common-patterns)
 
 ---
@@ -1362,6 +1363,106 @@ Common options:
 - When passing custom `cancelLabel` / `applyLabel` / `statusLabel` / `headerPlaceholder`, route them through `useT()` — primitive defaults are English.
 - `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
 - Active state for slot / duration / status uses `bg-brand-violet/10 text-brand-violet`, NOT `bg-primary/10` — `--primary` in this codebase is near-black; `--brand-violet` is the actual violet.
+
+---
+
+## Alert
+
+```typescript
+import { Alert, AlertTitle, AlertDescription } from '@open-mercato/ui/primitives/alert'
+```
+
+Unified component for inline contextual messages, floating notifications, and toast feedback. Per the Figma `169:2358` guidelines, **Alert / Notification / Toast share the same primitive** — only their layout, lifetime, and consumer wrapper differ. Use the props matrix below to dial in the right look for the surface.
+
+### Status (5)
+
+| Status | Default icon | Token family (Figma `state/{x}/*`) | Use case |
+|---|---|---|---|
+| `information` (default) | `Info` | `status-info-*` (Figma `state/information/*`) | Neutral / informational state |
+| `success` | `CheckCircle2` | `status-success-*` (Figma `state/success/*`) | Completed action, saved state |
+| `warning` | `AlertTriangle` | `status-warning-*` (Figma `state/warning/*`) | Heads-up that needs attention |
+| `error` | `AlertCircle` | `status-error-*` (Figma `state/error/*`) | Failed action, blocking validation |
+| `feature` | `Rocket` | `status-neutral-*` (Figma `state/faded/*` — **neutral gray, not brand-violet**) | New release / changelog teaser |
+
+### Style (4)
+
+Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ Figma `state/{x}/base` (saturated, e.g. `#dc2626`), `status-{x}-border` ↔ Figma `state/{x}/light` (medium tint, e.g. `#fecaca`), `status-{x}-bg` ↔ Figma `state/{x}/lighter` (very light tint, e.g. `#fef2f2`). The `feature` status uses the `status-neutral-*` family because Figma maps it to `state/faded/*` gray, **not** brand-violet.
+
+| Style | Description | Outer wrapper | Icon |
+|---|---|---|---|
+| `light` (default) | Saturated tinted bg, status-colored text, no border | `bg-status-{x}-border text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `lighter` | Very light tinted bg, status-colored text, no border | `bg-status-{x}-bg text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground border-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `filled` | Saturated bg, white text | `bg-status-{x}-icon text-white border-transparent` | Plain white icon (no badge wrap) |
+
+`feature` status maps to `--brand-violet` tokens instead of `--status-*` because there is no dedicated `feature` token set in `globals.css`.
+
+### Size (3)
+
+| Size | Layout | Use case |
+|---|---|---|
+| `sm` (default) | `min-h-9 rounded-md px-3 py-2 text-xs` + `size-4` icon | Toast / inline strip. Grows vertically when content wraps (`min-h-*`). |
+| `xs` | `min-h-8 rounded-md px-3 py-1 text-xs` + `size-4` icon | Dense table inline notice. |
+| `default` | `rounded-lg px-4 py-3 text-sm` + `size-5` icon | Full inline alert with `AlertTitle` + `AlertDescription` paragraphs. No min height — content drives layout. |
+
+### Usage
+
+```tsx
+const t = useT()
+
+// Default inline alert (info, light, default size)
+<Alert>
+  <AlertTitle>{t('signup.almostThere', 'Almost there')}</AlertTitle>
+  <AlertDescription>{t('signup.verifyEmail', 'Check your inbox for the verification link.')}</AlertDescription>
+</Alert>
+
+// Saturated success toast with explicit dismiss + action
+<Alert
+  status="success"
+  style="filled"
+  size="sm"
+  dismissible
+  onDismiss={() => closeToast(id)}
+  dismissAriaLabel={t('common.dismiss', 'Dismiss')}
+  action={<LinkButton onClick={undo}>{t('common.undo', 'Undo')}</LinkButton>}
+>
+  {t('sales.order.created', 'Order created')}
+</Alert>
+
+// Feature announcement with custom icon override
+<Alert status="feature" icon={<Sparkles aria-hidden="true" />}>
+  <AlertTitle>{t('release.newCheckout', 'New checkout experience')}</AlertTitle>
+  <AlertDescription>{t('release.newCheckoutBody', '…')}</AlertDescription>
+</Alert>
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `status` | `'information' \| 'success' \| 'warning' \| 'error' \| 'feature'` | `'information'` | One of the 5 statuses. |
+| `style` | `'light' \| 'lighter' \| 'stroke' \| 'filled'` | `'light'` | Visual emphasis. `'light'` is the safe default (saturated tinted bg using the Figma `state/{x}/light` family — `#fecaca` for error etc.). `'lighter'` uses the very light `state/{x}/lighter` tint. `'stroke'` is the white-bg + drop-shadow variant. `'filled'` is the saturated-bg + white-text variant. |
+| `size` | `'sm' \| 'xs' \| 'default'` | `'sm'` | Layout density. `'sm'` uses `min-h-9` so multi-line content still grows the alert vertically. |
+| `showIcon` | `boolean` | `true` | Toggle the leading icon. |
+| `icon` | `ReactNode` | status default | Override the leading icon (`feature` is the typical case — pass a custom Lucide icon). |
+| `dismissible` | `boolean` | `false` | Render a trailing `X` close button. |
+| `onDismiss` | `() => void` | — | Fired when the close button is clicked. |
+| `dismissAriaLabel` | `string` | `'Dismiss'` | i18n hook for the close button. |
+| `action` | `ReactNode` | — | Inline action slot rendered to the right of the body (link buttons typical). |
+| `variant` | `'default' \| 'destructive' \| 'success' \| 'warning' \| 'info'` | — | **Deprecated.** BC alias for the pre-Figma-169:2358 API. Maps to `status` and picks up the new `light` + `sm` defaults — visually matches the pre-Figma `light` look (tinted bg with border) at the new `min-h-9` density (which still grows for multi-line content). Prefer `status` in new code. |
+
+### MUST rules
+
+- NEVER hand-roll a tinted `<div role="alert">` — use `Alert`. The five status × four style matrix covers every contextual-message look in the Figma guidelines.
+- Use the `light` + `sm` defaults for inline alerts, toasts (FlashMessages already wires them via `flash()`), and notifications — `light` maps to the Figma `state/{x}/light` tokens (`#fecaca` saturated pink for error etc.) and the rounded icon badge gives every status a recognizable badge mark.
+- Step up to `size="default"` whenever the message wraps to multiple lines or carries an `AlertTitle` + `AlertDescription` paragraph — `default` has no min-height, larger padding, and uses `rounded-xl` per the Figma Large size.
+- Drop to `style="lighter"` for the lowest-emphasis tint (`state/{x}/lighter` — `#fef2f2` for error) when the surface is already crowded.
+- Use `style="stroke"` (white bg + soft border + drop shadow + neutral text + icon badge) for floating cards where the alert should sit visually on top of arbitrary page content without taking on a tint.
+- Reserve `style="filled"` for explicit high-contrast call-outs where the message must dominate the surrounding chrome — `filled` drops the icon badge in favor of a plain icon over the saturated background.
+- The `feature` status renders with the `state/faded/*` gray (Figma palette name) → `status-neutral-*` tokens in code. Do **not** map it to `brand-violet`; that mismatch happened during early iteration and Figma keeps `feature` neutral on purpose so it does not collide with the product's brand color elsewhere.
+- Pass `dismissAriaLabel` translated via `useT()` — the primitive default `'Dismiss'` is English-only.
+- For ephemeral "save on action" feedback, prefer the global `flash()` helper from `@open-mercato/ui/backend/FlashMessages` (it wraps `Alert` internally) over building your own toast queue.
+- The legacy `variant` prop is **deprecated** but still honored — new code should use the explicit `status` + `style` props. Existing call sites continue to work; their look softens slightly (bg `/50`, no border) because the default style is now `lighter` instead of `light`.
 
 ---
 
