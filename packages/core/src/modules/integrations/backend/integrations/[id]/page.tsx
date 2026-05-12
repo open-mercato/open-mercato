@@ -35,7 +35,8 @@ import {
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, ChevronDown, ChevronRight, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
+import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { IntegrationScheduleTab } from '../../../../data_sync/components/IntegrationScheduleTab'
 import {
@@ -128,12 +129,6 @@ type HealthCheckResponse = {
   details: Record<string, unknown> | null
   checkedAt: string
   latencyMs: number | null
-}
-
-const LOG_LEVEL_STYLES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-800',
-  warn: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
 }
 
 const HEALTH_STATUS_STYLES: Record<string, string> = {
@@ -338,7 +333,6 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [logLevel, setLogLevel] = React.useState<string>('')
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
-  const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
 
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
@@ -523,9 +517,6 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   React.useEffect(() => { void loadDetail() }, [loadDetail])
   React.useEffect(() => { void loadCredentials() }, [loadCredentials])
   React.useEffect(() => { void loadLogs() }, [loadLogs])
-  React.useEffect(() => {
-    setExpandedLogId((current) => (current && logs.some((log) => log.id === current) ? current : null))
-  }, [logs])
 
   const handleToggleState = React.useCallback(async (enabled: boolean) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -1211,146 +1202,107 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </div>
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>
-            ) : logs.length === 0 ? (
-              <p className="py-4 text-sm text-muted-foreground">{t('integrations.detail.logs.empty')}</p>
             ) : (
-              <div className="rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.time')}</th>
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.level')}</th>
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.message')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log) => {
-                      const isExpanded = expandedLogId === log.id
-                      const metadataEntries = [
-                        ['Time', new Date(log.createdAt).toLocaleString()],
-                        ['Level', log.level],
-                        ['Code', log.code ?? null],
-                        ['Run ID', log.runId ?? null],
-                        ['Entity Type', log.scopeEntityType ?? null],
-                        ['Entity ID', log.scopeEntityId ?? null],
-                      ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
-                      const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
+              <LogList
+                entries={logs.map<LogListEntry>((log) => {
+                  const metadataEntries = [
+                    ['Time', new Date(log.createdAt).toLocaleString()],
+                    ['Level', log.level],
+                    ['Code', log.code ?? null],
+                    ['Run ID', log.runId ?? null],
+                    ['Entity Type', log.scopeEntityType ?? null],
+                    ['Entity ID', log.scopeEntityId ?? null],
+                  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
+                  const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
 
-                      return (
-                        <React.Fragment key={log.id}>
-                          <tr className="border-b last:border-0">
-                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                              {new Date(log.createdAt).toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2">
-                              <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                                {log.level}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-2">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-auto w-full justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
-                                onClick={() => setExpandedLogId((current) => (current === log.id ? null : log.id))}
-                              >
-                                {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                <span className="truncate">{log.message}</span>
-                              </Button>
-                            </td>
-                          </tr>
-                          {isExpanded ? (
-                            <tr className="border-b bg-muted/30 last:border-0">
-                              <td colSpan={3} className="px-4 py-4">
-                                <div className="space-y-4 rounded-lg border bg-card p-4">
-                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-                                    <div className="space-y-4">
-                                      <section className="space-y-3">
-                                        <div>
-                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                            {t('integrations.detail.logs.details.summary', 'Summary')}
-                                          </p>
-                                          <p className="mt-1 text-sm font-medium">{log.message}</p>
-                                        </div>
-                                        {metadataEntries.length > 0 ? (
-                                          <dl className="grid gap-3 sm:grid-cols-2">
-                                            {metadataEntries.map(([label, value]) => (
-                                              <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
-                                                  {label}
-                                                </dt>
-                                                <dd className="mt-1 break-all text-sm">{value}</dd>
-                                              </div>
-                                            ))}
-                                          </dl>
-                                        ) : null}
-                                      </section>
-
-                                      {inlineEntries.length > 0 ? (
-                                        <section className="space-y-3">
-                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                            {t('integrations.detail.logs.details.fields', 'Fields')}
-                                          </p>
-                                          <dl className="grid gap-3 sm:grid-cols-2">
-                                            {inlineEntries.map(([key, value]) => (
-                                              <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
-                                                  {formatLogDetailLabel(key)}
-                                                </dt>
-                                                <dd className="mt-1 break-words text-sm">
-                                                  {formatLogPrimitiveValue(value)}
-                                                </dd>
-                                              </div>
-                                            ))}
-                                          </dl>
-                                        </section>
-                                      ) : null}
-                                    </div>
-
-                                    <div className="space-y-3">
-                                      {nestedEntries.map(([key, value]) => (
-                                        <JsonDisplay
-                                          key={key}
-                                          data={value}
-                                          title={formatLogDetailLabel(key)}
-                                          defaultExpanded
-                                          maxInitialDepth={1}
-                                          theme="dark"
-                                          maxHeight="16rem"
-                                          className="p-4"
-                                        />
-                                      ))}
-                                      {log.payload && nestedEntries.length === 0 ? (
-                                        <JsonDisplay
-                                          data={log.payload}
-                                          title={t('integrations.detail.logs.details.payload', 'Payload')}
-                                          defaultExpanded
-                                          maxInitialDepth={1}
-                                          theme="dark"
-                                          maxHeight="16rem"
-                                          className="p-4"
-                                        />
-                                      ) : null}
-                                      {!log.payload ? (
-                                        <EmptyState
-                                          size="sm"
-                                          icon={<FileX className="h-8 w-8" aria-hidden="true" />}
-                                          title={t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
-                                        />
-                                      ) : null}
-                                    </div>
+                  return {
+                    id: log.id,
+                    time: new Date(log.createdAt).toLocaleString(),
+                    level: log.level,
+                    message: log.message,
+                    body: (
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                        <div className="space-y-4">
+                          <section className="space-y-3">
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('integrations.detail.logs.details.summary', 'Summary')}
+                              </p>
+                              <p className="mt-1 text-sm font-medium">{log.message}</p>
+                            </div>
+                            {metadataEntries.length > 0 ? (
+                              <dl className="grid gap-3 sm:grid-cols-2">
+                                {metadataEntries.map(([label, value]) => (
+                                  <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                                    <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
+                                      {label}
+                                    </dt>
+                                    <dd className="mt-1 break-all text-sm">{value}</dd>
                                   </div>
-                                </div>
-                              </td>
-                            </tr>
+                                ))}
+                              </dl>
+                            ) : null}
+                          </section>
+
+                          {inlineEntries.length > 0 ? (
+                            <section className="space-y-3">
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('integrations.detail.logs.details.fields', 'Fields')}
+                              </p>
+                              <dl className="grid gap-3 sm:grid-cols-2">
+                                {inlineEntries.map(([key, value]) => (
+                                  <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
+                                    <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
+                                      {formatLogDetailLabel(key)}
+                                    </dt>
+                                    <dd className="mt-1 break-words text-sm">
+                                      {formatLogPrimitiveValue(value)}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </section>
                           ) : null}
-                        </React.Fragment>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {nestedEntries.map(([key, value]) => (
+                            <JsonDisplay
+                              key={key}
+                              data={value}
+                              title={formatLogDetailLabel(key)}
+                              defaultExpanded
+                              maxInitialDepth={1}
+                              theme="dark"
+                              maxHeight="16rem"
+                              className="p-4"
+                            />
+                          ))}
+                          {log.payload && nestedEntries.length === 0 ? (
+                            <JsonDisplay
+                              data={log.payload}
+                              title={t('integrations.detail.logs.details.payload', 'Payload')}
+                              defaultExpanded
+                              maxInitialDepth={1}
+                              theme="dark"
+                              maxHeight="16rem"
+                              className="p-4"
+                            />
+                          ) : null}
+                          {!log.payload ? (
+                            <EmptyState
+                              size="sm"
+                              icon={<FileX className="h-8 w-8" aria-hidden="true" />}
+                              title={t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    ),
+                  }
+                })}
+                emptyMessage={t('integrations.detail.logs.empty')}
+              />
             )}
             </TabsContent>
           ) : null}
