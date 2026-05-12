@@ -160,6 +160,6 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 
 ### Phase 3: Open PR and close originals
 
-- [ ] 3.1 Push branch
-- [ ] 3.2 Open consolidated PR against develop
-- [ ] 3.3 Close PRs #1888, #1889, #1890, #1891, #1892 with a pointer comment
+- [x] 3.1 Push branch — 994968f04
+- [x] 3.2 Open consolidated PR against develop — PR #1893
+- [x] 3.3 Close PRs #1888, #1889, #1890, #1891, #1892 with a pointer comment — all five closed with pointer to #1893
