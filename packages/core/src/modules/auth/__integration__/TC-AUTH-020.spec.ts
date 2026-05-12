@@ -48,7 +48,7 @@ test.describe('TC-AUTH-020: Filter Users by Role', () => {
       // Select the role from suggestions inside the filter panel
       const suggestion = filterPanel.getByRole('button', { name: roleName });
       await expect(suggestion).toBeVisible();
-      await suggestion.click();
+      await suggestion.click({ force: true });
 
       // Apply the filter
       await filterPanel.getByRole('button', { name: /Apply/i }).first().click();
