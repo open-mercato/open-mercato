@@ -13,6 +13,7 @@ import {
   RichEditorDivider,
   RichEditorDropdownButton,
   RichEditorIconButton,
+  RichEditorMenuItem,
   RichEditorTextDropdown,
   RichEditorToolbar,
 } from '../rich-editor'
@@ -306,6 +307,27 @@ describe('RichEditorDropdownButton + RichEditorTextDropdown', () => {
     )
     const trigger = screen.getByRole('button', { name: 'Heading' })
     expect(trigger.textContent).toContain('H1')
+  })
+
+  it('RichEditorMenuItem renders icon + label as a menuitem button', () => {
+    const onClick = jest.fn()
+    const { container } = render(
+      <RichEditorMenuItem icon={<span data-testid="menu-icon" />} onClick={onClick}>Copy</RichEditorMenuItem>,
+    )
+    const item = container.querySelector('[data-slot="rich-editor-menu-item"]')!
+    expect(item.getAttribute('role')).toBe('menuitem')
+    expect(screen.getByTestId('menu-icon')).toBeInTheDocument()
+    expect(screen.getByText('Copy')).toBeInTheDocument()
+    fireEvent.click(item)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('RichEditorMenuItem destructive flips the label colour to text-destructive', () => {
+    const { container } = render(
+      <RichEditorMenuItem destructive>Delete</RichEditorMenuItem>,
+    )
+    const item = container.querySelector('[data-slot="rich-editor-menu-item"]')!
+    expect(item.className).toContain('text-destructive')
   })
 
   it("RichEditorColorButton renders inside <RichEditor variant='custom'>", () => {

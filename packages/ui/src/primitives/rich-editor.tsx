@@ -758,6 +758,55 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
   )
 }
 
+export type RichEditorMenuItemProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
+  /** Optional 16×16 leading icon (typically a Lucide glyph). */
+  icon?: React.ReactNode
+  /** Item label (also forwarded as the accessible name). */
+  children: React.ReactNode
+  /** Destructive variant — flips the label colour to `text-destructive`. */
+  destructive?: boolean
+}
+
+/**
+ * Menu item helper for `RichEditor` popovers (More `⋮` kebab, custom heading
+ * menus, etc.). Renders a Figma `Profile Dropdown Items`-style row: a 16×16
+ * icon slot, gap-2, full-width hover background. Use inside the `moreMenu`
+ * prop of `<RichEditor>` or the `menu` prop of a compound `RichEditorTextDropdown`
+ * / `RichEditorDropdownButton`.
+ */
+export const RichEditorMenuItem = React.forwardRef<HTMLButtonElement, RichEditorMenuItemProps>(
+  ({ className, icon, children, destructive, onMouseDown, ...props }, ref) => (
+    <button
+      ref={ref}
+      type="button"
+      role="menuitem"
+      onMouseDown={(e) => {
+        e.preventDefault()
+        onMouseDown?.(e)
+      }}
+      className={cn(
+        'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+        destructive && 'text-destructive hover:bg-destructive/10',
+        className,
+      )}
+      data-slot="rich-editor-menu-item"
+      {...props}
+    >
+      {icon ? (
+        <span
+          className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4"
+          data-slot="rich-editor-menu-item-icon"
+          aria-hidden="true"
+        >
+          {icon}
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+    </button>
+  ),
+)
+RichEditorMenuItem.displayName = 'RichEditorMenuItem'
+
 export function RichEditorDivider({ className }: { className?: string }) {
   return (
     <span
