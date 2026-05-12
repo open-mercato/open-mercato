@@ -83,7 +83,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await selectByFieldId('valueCurrency', /USD/i, false)
       await page.getByRole('spinbutton').nth(1).fill('50');
       await page.locator('input[type="date"]').fill('2026-12-31');
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
+      await page.getByRole('searchbox', { name: /Search companies/i }).fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
       // Final guard: re-assert title before submit. If a late dictionary load
