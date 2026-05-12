@@ -77,6 +77,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
+| **Deployment** | |
+| Adding or modifying a one-command Railway.com deploy flow from the Open Mercato CLI (`mercato deploy railway`) — CLI design, Railway GraphQL API usage, scaffolded template (Dockerfile, `railway.toml`, healthcheck, start scripts), idempotency, secrets, log streaming | `.ai/specs/2026-05-12-railway-one-command-deploy.md` |
 | **Spec Lifecycle** | |
 | Analyzing a spec before implementation: BC impact, risk assessment, gap analysis, readiness report | `.ai/skills/pre-implement-spec/SKILL.md` |
 | Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
