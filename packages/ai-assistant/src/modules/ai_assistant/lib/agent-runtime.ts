@@ -752,7 +752,17 @@ export function translateStopConditions(
  *    user override are honored as-is.
  *
  * Phase 0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ *
+ * ai-sdk 6.0.177 dropped the `tools` field from `PrepareStepResult`, so the
+ * map is no longer consumed by `streamText` / `generateText`. We still inspect
+ * any `tools` map that a caller passes via a type-asserted result — even
+ * though the SDK ignores it — to keep the defense-in-depth guard and the
+ * existing test contract (R1 mitigation #3) intact.
  */
+type StepOverrideWithTools = NonNullable<PrepareStepResult<ToolSet>> & {
+  tools?: Record<string, unknown>
+}
+
 export function mergeStepOverrides(
   wrapperOverride: PrepareStepResult<ToolSet>,
   userOverride: PrepareStepResult<ToolSet> | undefined | null,
@@ -761,7 +771,8 @@ export function mergeStepOverrides(
 ): PrepareStepResult<ToolSet> {
   if (!userOverride) return wrapperOverride
 
-  const merged: PrepareStepResult<ToolSet> = { ...wrapperOverride }
+  const merged: StepOverrideWithTools = { ...(wrapperOverride as StepOverrideWithTools) }
+  const userWithTools = userOverride as StepOverrideWithTools
 
   if (userOverride.model !== undefined) {
     merged.model = userOverride.model
@@ -783,8 +794,8 @@ export function mergeStepOverrides(
     merged.activeTools = filtered
   }
 
-  if (userOverride.tools !== undefined) {
-    const userTools = userOverride.tools as Record<string, unknown>
+  if (userWithTools.tools !== undefined) {
+    const userTools = userWithTools.tools
     const mergedTools: Record<string, unknown> = {}
 
     for (const [toolKey, userHandler] of Object.entries(userTools)) {
@@ -808,7 +819,7 @@ export function mergeStepOverrides(
       }
       mergedTools[toolKey] = wrappedHandler
     }
-    merged.tools = mergedTools as PrepareStepResult<ToolSet>['tools']
+    merged.tools = mergedTools
   }
 
   return merged
@@ -1576,10 +1587,8 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       onStepFinish: wiredOnStepFinish,
     })
     if (wallClockTimer !== undefined) {
-      agentStreamResult
-        .consumeStream()
-        .then(() => clearTimeout(wallClockTimer!))
-        .catch(() => clearTimeout(wallClockTimer!))
+      const clearTimer = () => clearTimeout(wallClockTimer!)
+      Promise.resolve(agentStreamResult.consumeStream()).then(clearTimer, clearTimer)
     }
     const baseResponse = agentStreamResult.toUIMessageStreamResponse({
       sendReasoning: true,
@@ -1600,19 +1609,20 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     system: systemPrompt,
     messages: modelMessages,
     tools,
-    stopWhen: stopConditions,
-    prepareStep: wrapperPrepareStep,
-    onStepFinish: wiredOnStepFinish,
-    onStepStart: effectiveLoop.onStepStart,
-    experimental_onToolCallStart: effectiveLoop.onToolCallStart,
-    experimental_onToolCallFinish: effectiveLoop.onToolCallFinish,
-    experimental_repairToolCall: effectiveLoop.repairToolCall,
+    stopWhen: stopConditions as never,
+    prepareStep: wrapperPrepareStep as never,
+    onStepFinish: wiredOnStepFinish as never,
+    experimental_onStepStart: effectiveLoop.onStepStart as never,
+    experimental_onToolCallStart: effectiveLoop.onToolCallStart as never,
+    experimental_onToolCallFinish: effectiveLoop.onToolCallFinish as never,
+    experimental_repairToolCall: effectiveLoop.repairToolCall as never,
     ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
     ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {
-    result.consumeStream().then(() => clearTimeout(wallClockTimer!)).catch(() => clearTimeout(wallClockTimer!))
+    const clearTimer = () => clearTimeout(wallClockTimer!)
+    Promise.resolve(result.consumeStream()).then(clearTimer, clearTimer)
   }
   const baseResponse = result.toUIMessageStreamResponse({
     sendReasoning: true,
@@ -1899,7 +1909,7 @@ export async function runAiAgentObject<TSchema = unknown>(
 
   if (input.generateObject) {
     const callbackResult = await input.generateObject(preparedObjectOptions)
-    const typedResult = callbackResult as Record<string, unknown>
+    const typedResult = callbackResult as unknown as Record<string, unknown>
     if ('partialObjectStream' in typedResult) {
       const streamResult = typedResult as {
         object: Promise<TSchema>
@@ -1927,7 +1937,7 @@ export async function runAiAgentObject<TSchema = unknown>(
   }
 
   if (resolvedOutput.mode === 'stream') {
-    const streamArgs: Parameters<typeof streamObject>[0] = {
+    const streamArgs = {
       model,
       system: systemPrompt,
       messages: modelMessages,
@@ -1937,7 +1947,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       onStepFinish: effectiveLoop.onStepFinish,
       onStepStart: effectiveLoop.onStepStart,
       abortSignal: abortController.signal,
-    }
+    } as Parameters<typeof streamObject>[0]
     const result = streamObject(streamArgs) as unknown as {
       object: Promise<TSchema>
       partialObjectStream: AsyncIterable<Partial<TSchema>>
@@ -1955,7 +1965,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     }
   }
 
-  const generateArgs: Parameters<typeof generateObject>[0] = {
+  const generateArgs = {
     model,
     system: systemPrompt,
     messages: modelMessages,
@@ -1965,7 +1975,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     onStepFinish: effectiveLoop.onStepFinish,
     onStepStart: effectiveLoop.onStepStart,
     abortSignal: abortController.signal,
-  }
+  } as Parameters<typeof generateObject>[0]
 
   const result = await generateObject(generateArgs)
   return {

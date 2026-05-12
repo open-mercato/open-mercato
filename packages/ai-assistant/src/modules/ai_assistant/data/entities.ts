@@ -502,7 +502,7 @@ export class AiTokenUsageDaily {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
-  @Property({ name: 'day', columnType: 'date' })
+  @Property({ name: 'day', type: 'string', columnType: 'date' })
   day!: string
 
   @Property({ name: 'agent_id', type: 'text' })
@@ -514,25 +514,25 @@ export class AiTokenUsageDaily {
   @Property({ name: 'provider_id', type: 'text' })
   providerId!: string
 
-  @Property({ name: 'input_tokens', columnType: 'bigint' })
+  @Property({ name: 'input_tokens', type: 'string', columnType: 'bigint' })
   inputTokens!: string
 
-  @Property({ name: 'output_tokens', columnType: 'bigint' })
+  @Property({ name: 'output_tokens', type: 'string', columnType: 'bigint' })
   outputTokens!: string
 
-  @Property({ name: 'cached_input_tokens', columnType: 'bigint' })
+  @Property({ name: 'cached_input_tokens', type: 'string', columnType: 'bigint' })
   cachedInputTokens!: string
 
-  @Property({ name: 'reasoning_tokens', columnType: 'bigint' })
+  @Property({ name: 'reasoning_tokens', type: 'string', columnType: 'bigint' })
   reasoningTokens!: string
 
-  @Property({ name: 'step_count', columnType: 'bigint' })
+  @Property({ name: 'step_count', type: 'string', columnType: 'bigint' })
   stepCount!: string
 
-  @Property({ name: 'turn_count', columnType: 'bigint' })
+  @Property({ name: 'turn_count', type: 'string', columnType: 'bigint' })
   turnCount!: string
 
-  @Property({ name: 'session_count', columnType: 'bigint' })
+  @Property({ name: 'session_count', type: 'string', columnType: 'bigint' })
   sessionCount!: string
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
