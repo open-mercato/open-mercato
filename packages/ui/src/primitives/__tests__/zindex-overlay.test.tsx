@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback,
+}))
+
 import * as React from 'react'
 import * as fs from 'fs'
 import * as path from 'path'
