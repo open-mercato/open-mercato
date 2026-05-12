@@ -1,3 +1,31 @@
+/**
+ * @deprecated Prefer the DS `RichEditor` primitive from
+ * `@open-mercato/ui/primitives/rich-editor` for any new rich-text input.
+ *
+ * `RichEditor` produces sanitized HTML (with the DS toolbar, color palette,
+ * Figma-aligned styling, and auto-overflow toolbar variants). The DS direction
+ * is to consolidate on a single rich-text format (HTML) so that user-authored
+ * content renders consistently across email, exports, and the customer portal.
+ *
+ * `SwitchableMarkdownInput` is kept as a backward-compatibility shim for
+ * existing Markdown-backed surfaces (notably `customers` Notes). It will be
+ * removed once those surfaces migrate their storage format from Markdown to
+ * sanitized HTML — track the migration in the spec referenced from
+ * `customers/AGENTS.md`.
+ *
+ * Migration:
+ *
+ * ```diff
+ * - import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs/SwitchableMarkdownInput'
+ * - <SwitchableMarkdownInput value={md} onChange={setMd} isMarkdownEnabled={enabled} />
+ * + import { RichEditor } from '@open-mercato/ui/primitives/rich-editor'
+ * + <RichEditor value={html} onChange={setHtml} variant="basic" />
+ * ```
+ *
+ * For surfaces that genuinely need plain Markdown storage (e.g. agent prompts,
+ * code-adjacent docs), keep using `SwitchableMarkdownInput` until a Markdown
+ * mode lands on `RichEditor` — but do NOT introduce new Markdown surfaces.
+ */
 "use client"
 
 import * as React from 'react'
@@ -7,6 +35,7 @@ import { LoadingMessage } from '../detail/LoadingMessage'
 import { useMarkdownRemarkPlugins } from '../markdown/useMarkdownRemarkPlugins'
 import { useTheme } from '../../theme'
 
+/** @deprecated See module-level JSDoc. */
 export type SwitchableMarkdownInputProps = {
   value: string
   onChange: (value: string) => void
@@ -55,6 +84,7 @@ const UiMarkdownEditor = isTestEnv
       ),
     }) as unknown as React.ComponentType<UiMarkdownEditorProps>)
 
+/** @deprecated Use `RichEditor` from `@open-mercato/ui/primitives/rich-editor` for new code. See module JSDoc. */
 export function SwitchableMarkdownInput({
   value,
   onChange,

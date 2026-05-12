@@ -11,6 +11,13 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [FancyButton](#fancybutton)
 - [Checkbox / CheckboxField](#checkbox--checkboxfield)
 - [Input](#input)
+- [EmailInput](#emailinput)
+- [SearchInput](#searchinput)
+- [PasswordInput](#passwordinput)
+- [WebsiteInput](#websiteinput)
+- [AmountInput](#amountinput)
+- [ButtonInput](#buttoninput)
+- [CardInput](#cardinput)
 - [Textarea](#textarea)
 - [Select](#select)
 - [Switch / SwitchField](#switch--switchfield)
@@ -35,6 +42,16 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Accordion](#accordion)
 - [LogList](#loglist)
 - [RichEditor](#richeditor)
+- [Specialized Inputs (overview)](#specialized-inputs-overview)
+- [ComboboxInput](#comboboxinput)
+- [TagsInput (backend)](#tagsinput-backend)
+- [LookupSelect](#lookupselect)
+- [EventSelect](#eventselect)
+- [EventPatternInput](#eventpatterninput)
+- [PhoneNumberField](#phonenumberfield)
+- [SwitchableMarkdownInput](#switchablemarkdowninput)
+- [TimeInput](#timeinput)
+- [Backend shims (DatePicker / DateTimePicker / TimePicker)](#backend-shims-datepicker--datetimepicker--timepicker)
 - [Common patterns](#common-patterns)
 
 ---
@@ -358,8 +375,421 @@ import { Input } from '@open-mercato/ui/primitives/input'
 | Counter (number with +/- buttons) | `CounterInput` | Available — see [CounterInput](#counterinput) section below |
 | Digit / OTP code | `DigitInput` | Available — see [DigitInput](#digitinput) section below |
 | Inline edit (no border, click-to-edit) | `InlineInput` | Available — see [InlineInput](#inlineinput) section below |
-| Date picker | (existing date input components) | Already in `inputs/` folder |
-| Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
+| Date picker | `DatePicker` (primitive) | Available — see [DatePicker](#datepicker) section. Legacy `backend/inputs/DatePicker` is a `@deprecated` shim — see [Backend shims](#backend-shims-datepicker--datetimepicker--timepicker). |
+| Combobox / autocomplete | `ComboboxInput` | Available — see [ComboboxInput](#comboboxinput) section. |
+| Email (Figma Email variant) | `EmailInput` | Available — see [EmailInput](#emailinput) section below. |
+| Search (Figma Search variant) | `SearchInput` | Available — see [SearchInput](#searchinput) section below. |
+| Password (Figma Password variant) | `PasswordInput` | Available — see [PasswordInput](#passwordinput) section below. |
+| Phone (Figma Phone variant) | `PhoneNumberField` | Available — see [PhoneNumberField](#phonenumberfield) section. |
+| Website / URL (Figma Website variant) | `WebsiteInput` | Available — see [WebsiteInput](#websiteinput) section below. |
+| Amount with currency picker (Figma Amount variant) | `AmountInput` | Available — see [AmountInput](#amountinput) section below. |
+| Input with trailing icon-button (Figma Button variant) | `ButtonInput` | Available — see [ButtonInput](#buttoninput) section below. |
+| Card number with brand auto-detect (Figma Card variant) | `CardInput` | Available — see [CardInput](#cardinput) section below. |
+
+---
+
+## EmailInput
+
+```typescript
+import { EmailInput, type EmailInputProps } from '@open-mercato/ui/primitives/email-input'
+```
+
+Thin wrapper over `Input` that matches Figma `Text Input [1.1]` (node `266:5251`) **Email** variant. Hardcodes `type="email"`, `inputMode="email"`, `autoComplete="email"`, and renders a leading `Mail` icon by default (toggle with `showIcon={false}`). Placeholder defaults to `t('ui.inputs.emailInput.placeholder', 'name@example.com')`.
+
+### Quick usage
+
+```tsx
+const [email, setEmail] = React.useState('')
+
+<EmailInput
+  value={email}
+  onChange={(e) => setEmail(e.target.value)}
+  size="default"
+/>
+```
+
+### Props
+
+Forwards all `Input` props except `type` (locked to `email`) and `leftIcon` (managed via `showIcon`). Adds:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `showIcon` | `boolean` | `true` | Render the leading `Mail` icon. |
+
+### MUST rules
+
+- Use `EmailInput` (not `<Input type="email">`) for any explicit email entry — the Figma Email variant ships a mail-icon prefix, and consistency matters.
+- For login flows that pair `EmailInput` with `PasswordInput`, keep `size` identical between the two rows (DS same-row sizing rule applies).
+- Pass server-side validation errors via the inherited `aria-invalid` attribute — the wrapper switches to the destructive border automatically (inherited from `Input`).
+
+---
+
+## SearchInput
+
+```typescript
+import { SearchInput, type SearchInputProps } from '@open-mercato/ui/primitives/search-input'
+```
+
+Search input matching Figma `Text Input [1.1]` (node `266:5251`) **Search** variant — leading `Search` icon, the text input, and an optional trailing `X` button that clears the value. Built on the shared `inputWrapperVariants` / `inputElementVariants` CVA so the visual contract matches the foundation `Input` primitive.
+
+Use for any search affordance: DataTable global filter, command-palette inputs, lookup picker chrome, list-view live filter.
+
+### Quick usage
+
+```tsx
+const [query, setQuery] = React.useState('')
+
+<SearchInput
+  value={query}
+  onChange={setQuery}
+  size="default"
+  placeholder={t('customers.list.search', 'Search people by name or email')}
+/>
+```
+
+### Behaviors
+
+- **Leading**: non-interactive `Search` icon (`size-4`, `text-muted-foreground`).
+- **Trailing**: `X` button — renders only when `value.length > 0 && !disabled && clearable`. Real `<button>` (focusable, screen-reader-labelled via `clearLabel`).
+- **`onClear`**: if not provided, the clear button calls `onChange('')`. Pass an explicit handler to also reset adjacent state (cancel in-flight request, reset paging).
+- **Native search clear button**: suppressed via `appearance: none` on `::-webkit-search-cancel-button` / `::-webkit-search-decoration` so the only clear affordance is our DS button.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Controlled. |
+| `onChange` | `(next: string) => void` | — | Called on every keystroke with the new string. |
+| `onClear` | `() => void` | `() => onChange('')` | Custom clear handler. |
+| `clearable` | `boolean` | `true` | Show the trailing × when value is non-empty. |
+| `clearLabel` | `string` | `t('ui.inputs.searchInput.clear', 'Clear search')` | Auto-translated aria-label for the clear button. |
+| `placeholder` | `string` | `t('ui.inputs.searchInput.placeholder', 'Search…')` | Auto-translated. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Forwarded to `inputWrapperVariants`. |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props (e.g. `name`, `id`, `aria-label`, `disabled`, `autoFocus`).
+
+### MUST rules
+
+- Always use `SearchInput` for search affordances — do NOT roll your own `<Input leftIcon={<Search />}>` plus a hand-rolled clear button. The DS variant handles a11y for both leading icon (decorative `aria-hidden`) and trailing clear (real button) consistently.
+- Forward i18n-resolved `placeholder` for surface-specific copy; the default is generic.
+- For DataTable global filter, pass `searchValue` / `onSearchChange` from `DataTable` directly into `SearchInput`'s `value` / `onChange`.
+
+---
+
+## PasswordInput
+
+```typescript
+import { PasswordInput, type PasswordInputProps } from '@open-mercato/ui/primitives/password-input'
+```
+
+Password input matching Figma `Text Input [1.1]` (node `266:5251`) **Password** variant — a trailing `Eye` / `EyeOff` toggle that switches the inner `<input>`'s `type` between `"password"` (default) and `"text"`. The toggle is a proper `<button>` with `aria-pressed` and a translated `aria-label`.
+
+### Quick usage
+
+```tsx
+const [password, setPassword] = React.useState('')
+
+<PasswordInput
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+  autoComplete="current-password"
+/>
+```
+
+### Controlled reveal state
+
+```tsx
+const [revealed, setRevealed] = React.useState(false)
+
+<PasswordInput
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+  revealed={revealed}
+  onRevealedChange={setRevealed}
+/>
+```
+
+Useful for "show password" master toggle on login screens where both password fields share the same reveal state.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `revealable` | `boolean` | `true` | Render the trailing eye toggle. Set `false` for pure password fields (e.g. read-only secrets). |
+| `revealed` | `boolean` | uncontrolled | Optional controlled state. Pair with `onRevealedChange`. |
+| `onRevealedChange` | `(next: boolean) => void` | — | Called on toggle. |
+| `showLockIcon` | `boolean` | `true` | Render the leading `Lock` icon per Figma Password variant. Set `false` to opt out when the surface has its own labeled context. |
+| `showLabel` / `hideLabel` | `string` | `t('ui.inputs.passwordInput.show'/'hide', ...)` | Auto-translated aria-labels for the toggle button. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Forwarded to `inputWrapperVariants`. |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props (e.g. `name`, `id`, `autoComplete`, `aria-label`, `disabled`).
+
+### MUST rules
+
+- Always use `PasswordInput` for password entry — do NOT roll your own `<Input type="password">` plus a hand-rolled eye toggle. The DS variant handles `aria-pressed`, focus visibility, and i18n consistently.
+- For "new password" flows, pass `autoComplete="new-password"`. For login, `autoComplete="current-password"` (the default).
+- Do NOT disable `revealable` to "force" hidden input — modern UX expects a reveal toggle, and screen-reader users rely on it.
+- For pairs of password fields (e.g. "password" + "confirm password"), share the `revealed` state via the controlled props so both reveal together.
+
+---
+
+## WebsiteInput
+
+```typescript
+import { WebsiteInput, type WebsiteInputProps } from '@open-mercato/ui/primitives/website-input'
+```
+
+URL input matching Figma `Text Input [1.1]` (node `266:5251`) **Website** variant — a left prefix box showing the protocol text (default `'https://'`), a vertical divider, then the host/path text input. Built on the shared `inputWrapperVariants` / `inputElementVariants` CVA. `type="url"`, `inputMode="url"`, `autoComplete="url"`.
+
+### Quick usage
+
+```tsx
+const [website, setWebsite] = React.useState('www.example.com')
+
+<WebsiteInput
+  value={website}
+  onChange={(e) => setWebsite(e.target.value)}
+/>
+```
+
+### Notes
+
+- The prefix is **display-only** — the inner `<input>` value contains only the host/path portion (e.g. `'www.example.com/path'`). Compose the full URL at the consumer boundary (`` `${prefix}${value}` ``) if needed.
+- Override `prefix` for non-https protocols (e.g. `prefix="http://"` for legacy, or `prefix="ftp://"`).
+- `showPrefix={false}` hides the prefix box entirely for surfaces that want a bare URL input.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `prefix` | `string` | `'https://'` | Protocol shown in the left prefix box. |
+| `showPrefix` | `boolean` | `true` | Hide the prefix box for a bare URL input. |
+| `placeholder` | `string` | `t('ui.inputs.websiteInput.placeholder', 'www.example.com')` | Auto-translated. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | — |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props.
+
+### MUST rules
+
+- Do NOT pre-pend the `prefix` value when emitting to the consumer — the prefix box is purely visual, the value is the host portion only. Consumers that need a full URL compose at the boundary.
+- For freeform URL entry (where the user types the full URL including protocol), use the foundation `Input` primitive with `type="url"` and skip `WebsiteInput`.
+
+---
+
+## AmountInput
+
+```typescript
+import {
+  AmountInput,
+  AMOUNT_CURRENCIES,
+  type AmountInputProps,
+  type AmountValue,
+  type AmountCurrency,
+} from '@open-mercato/ui/primitives/amount-input'
+```
+
+Amount input matching Figma `Text Input [1.1]` (node `266:5251`) **Amount** variant — leading currency symbol inside the input, then a vertical divider, then a `Select`-driven currency picker (flag + ISO 4217 code + chevron). Numeric `inputMode="decimal"`.
+
+Static currency list ships with 10 markets (EUR, USD, GBP, PLN, CHF, SEK, CZK, JPY, AUD, CAD). Override with the `currencies` prop, or hide the picker entirely (`showCurrency={false}`) for single-currency surfaces.
+
+### Value shape
+
+```ts
+type AmountValue = {
+  amount: string    // raw user input — preserves leading zeros, in-progress decimals like '12.'
+  currency: string  // ISO 4217 code from the picker
+}
+```
+
+Amount is stored as a **string** to preserve raw user input. Parse to `Number` at the API/persistence boundary (`Number.parseFloat(amount.replace(',', '.'))` for locale-friendly parsing).
+
+### Quick usage
+
+```tsx
+const [value, setValue] = React.useState<AmountValue>({ amount: '', currency: 'EUR' })
+
+<AmountInput
+  value={value}
+  onChange={setValue}
+/>
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `AmountValue` | — | Controlled. |
+| `onChange` | `(next: AmountValue) => void` | — | Called on amount keystroke and currency switch. |
+| `currencies` | `AmountCurrency[]` | `AMOUNT_CURRENCIES` | Override the static list. |
+| `showCurrency` | `boolean` | `true` | Hide the currency picker for single-currency surfaces. |
+| `placeholder` | `string` | `t('ui.inputs.amountInput.placeholder', '0.00')` | Auto-translated. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | — |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props.
+
+### MUST rules
+
+- Always pass the controlled value as `AmountValue` (both fields). Empty initial state should still include a `currency` (e.g. `{ amount: '', currency: 'EUR' }`).
+- For tenant-scoped currency configuration, build a `currencies` array from the tenant's enabled currencies (likely via `currencies` module) and pass it down — do NOT show currencies the tenant cannot transact in.
+- Parse `amount` to `Number` at the API boundary, not inside the form — the string-shape preserves the user's raw input including in-progress decimals.
+
+---
+
+## ButtonInput
+
+```typescript
+import { ButtonInput, type ButtonInputProps } from '@open-mercato/ui/primitives/button-input'
+```
+
+Input with a trailing **interactive** button slot, matching Figma `Text Input [1.1]` (node `266:5251`) **Button** variant. A text input on the left, a vertical divider, then a slot for any `<IconButton>` / `<Button>` element. Built on the shared `inputWrapperVariants` / `inputElementVariants` CVA.
+
+Common pairings: share-link + copy button, subscribe-email + send button, API key + regenerate button, search query + clear-and-submit button.
+
+### Quick usage
+
+```tsx
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Copy, Link } from 'lucide-react'
+
+const [link, setLink] = React.useState('https://app.example.com/share/abc123')
+
+<ButtonInput
+  value={link}
+  onChange={(e) => setLink(e.target.value)}
+  leftIcon={<Link />}
+  trailingAction={
+    <IconButton
+      type="button"
+      variant="ghost"
+      size="default"
+      aria-label="Copy link"
+      onClick={() => navigator.clipboard.writeText(link)}
+    >
+      <Copy />
+    </IconButton>
+  }
+/>
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `leftIcon` | `React.ReactNode` | — | Optional decorative leading icon (wrapped in `aria-hidden` span). |
+| `trailingAction` | `React.ReactNode` | — | **Required.** Interactive trailing element (typically `<IconButton>`). Rendered as-is — consumer controls type/variant/aria-label. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | — |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props.
+
+### MUST rules
+
+- `trailingAction` MUST be an interactive element (real `<button>` or `<IconButton>`), NOT a decorative icon — use `Input` with `rightIcon` for decorative icons.
+- Always pass `aria-label` on the trailing button — the visual icon alone is not accessible.
+- Keep `size` consistent between the wrapper and the trailing button (`size="default"` wrapper + `IconButton size="default"`).
+- For trailing text buttons (e.g. "Send", "Apply"), use `<Button variant="ghost" size="sm" className="rounded-l-none h-full">` to match the wrapper height.
+
+---
+
+## CardInput
+
+```typescript
+import {
+  CardInput,
+  CARD_BRANDS,
+  type CardInputProps,
+  type CardBrand,
+} from '@open-mercato/ui/primitives/card-input'
+```
+
+Card-number input matching Figma `Text Input [1.1]` (node `266:5251`) **Card** variant — leading `CreditCard` icon, the formatted card-number input, and a trailing brand badge that auto-detects the issuer (Visa, Mastercard, Amex, Discover, Diners, JCB, UnionPay) from the typed digits. Built on the shared `inputWrapperVariants` / `inputElementVariants` CVA.
+
+Brand detection is **regex-based** — no external library dependency. Format per brand: `[4,4,4,4]` default, `[4,6,5]` for Amex (15 digits), `[4,6,4]` for Diners (14 digits). Trailing badge renders a 32×24 rounded rect with the brand short-label centered.
+
+### Quick usage
+
+```tsx
+const [card, setCard] = React.useState('')
+
+<CardInput
+  value={card}
+  onChange={setCard}
+  onBrandChange={(brand) => console.log('Detected:', brand?.id)}
+/>
+```
+
+### Value contract
+
+- `value: string` — digits-only (no spaces). The component formats per detected brand on display.
+- `onChange: (digits: string) => void` — emits digits-only (no spaces) on every keystroke. Use the digits for validation / submission.
+- Non-digit characters pasted into the input are stripped silently.
+- Length is truncated to the brand's `maxLength` (16 for most, 15 for Amex, 14 for Diners).
+
+### Brand detection
+
+```ts
+type CardBrand = {
+  id: string           // 'visa', 'mastercard', 'amex', etc.
+  label: string        // 'VISA', 'MC', 'AMEX'
+  regex: RegExp        // matched against digits-only number
+  format: number[]     // grouping for display ([4,4,4,4] or [4,6,5])
+  maxLength: number    // total digit cap
+  bg: string           // badge background color
+  fg?: string          // badge foreground (default '#fff')
+}
+```
+
+Built-in list (in `CARD_BRANDS`):
+
+| Brand | Prefix | Length | Format |
+|---|---|---|---|
+| Amex | 34, 37 | 15 | 4-6-5 |
+| Visa | 4 | 16 | 4-4-4-4 |
+| Mastercard | 51-55, 2221-2720 | 16 | 4-4-4-4 |
+| Discover | 6011, 64[4-9], 65, 622 | 16 | 4-4-4-4 |
+| Diners | 36, 30[0-5], 309 | 14 | 4-6-4 |
+| JCB | 35[28-89] | 16 | 4-4-4-4 |
+| UnionPay | 62 | 16 | 4-4-4-4 |
+
+Order matters: narrower prefixes MUST come before broader ones (e.g. Discover `622` before UnionPay `62`).
+
+Override with `brands={[...]}` for region-specific surfaces (e.g. only Visa/MC in a tenant-restricted checkout).
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Digits-only (no spaces). |
+| `onChange` | `(digits: string) => void` | — | Called on every keystroke with digits-only string. |
+| `onBrandChange` | `(brand: CardBrand \| null) => void` | — | Fired when the detected brand changes (or clears). |
+| `brands` | `CardBrand[]` | `CARD_BRANDS` | Override the brand list. |
+| `showLeadingIcon` | `boolean` | `true` | Render the leading `CreditCard` icon. |
+| `showBrandBadge` | `boolean` | `true` | Render the trailing brand badge when a brand is detected. |
+| `placeholder` | `string` | `t('ui.inputs.cardInput.placeholder', '0000 0000 0000 0000')` | Auto-translated. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | — |
+| `className` / `inputClassName` | `string` | — | Wrapper / inner-`<input>` overrides. |
+
+Forwards all other `<input>` props. Sets `autoComplete="cc-number"` and `inputMode="numeric"`.
+
+### Data attributes
+
+The wrapper exposes `data-card-brand="<brand-id>"` (or `"unknown"`) so consumers can target the detected brand from CSS or tests.
+
+### MUST rules
+
+- Treat the card number as PCI-scoped data — do NOT log `value` or emit it via analytics. The DS primitive does not enforce this; it's a consumer responsibility.
+- For payment forms, pair `CardInput` with separate inputs for expiry (`MM/YY`) and CVV — `CardInput` covers ONLY the card number.
+- Server-side validation MUST run Luhn check + brand+length verification — the regex detection in this primitive is a UX hint, not authoritative.
+- When constraining brands to a tenant's accepted networks, pass `brands={tenantAcceptedBrands}` — do NOT rely on hiding the badge after detection.
+
+### Anti-patterns
+
+- `<Input type="text" pattern="[0-9]{13,16}">` + manual space-insertion → use `CardInput`. The DS variant handles brand-specific lengths and format groups consistently.
+- Storing the value with spaces in the database → consumer-side strip-spaces before persistence; the primitive already emits digits-only.
 
 ---
 
@@ -547,6 +977,80 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 
 Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
 
+### Type variants (leading slot)
+
+Per Figma `Select [1.1]` (node `270:1085`) the Select component ships **6 Type variants** that differ only in what renders BEFORE the value text in the trigger and item row — `Basic` / `Country` / `Avatar` / `Provider` / `Brand` / `Company`. The DS exposes two compound helpers to express these:
+
+```tsx
+import {
+  Select, SelectTrigger, SelectTriggerLeading,
+  SelectContent, SelectItem, SelectItemLeading, SelectValue,
+} from '@open-mercato/ui/primitives/select'
+```
+
+| Helper | Slot | When to use |
+|---|---|---|
+| `SelectTriggerLeading` | Fixed visual on the trigger (renders regardless of selected value) | Category indicator, brand mark, fixed search icon. Place **before** `SelectValue`. |
+| `SelectItemLeading` | Per-row leading visual; Radix `ItemText` mirrors it into the trigger when that row is selected | Country flag, avatar, provider logo — anything that varies by selected value. |
+
+Default sizing is forgiving: child SVG icons render `size-4` (16px), child `<img>` render `size-5` (20px). Override with a class on the inner element when a Type needs a different size (e.g. country flags `h-3 w-4`).
+
+#### Per-row leading (`SelectItemLeading`)
+
+For Country / Avatar / Provider / Company — where each option has its own visual that should mirror into the trigger when chosen:
+
+```tsx
+// Country
+<Select value={country} onValueChange={setCountry}>
+  <SelectTrigger>
+    <SelectValue placeholder="Select country" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="us">
+      <SelectItemLeading><span className="text-base leading-none">🇺🇸</span></SelectItemLeading>
+      United States
+    </SelectItem>
+    <SelectItem value="pl">
+      <SelectItemLeading><span className="text-base leading-none">🇵🇱</span></SelectItemLeading>
+      Poland
+    </SelectItem>
+  </SelectContent>
+</Select>
+
+// Avatar
+<SelectItem value="jan">
+  <SelectItemLeading><Avatar size="sm" label="Jan Kowalski" /></SelectItemLeading>
+  Jan Kowalski
+</SelectItem>
+
+// Provider (lucide icon)
+<SelectItem value="visa">
+  <SelectItemLeading><CreditCard /></SelectItemLeading>
+  Visa •••• 4242
+</SelectItem>
+```
+
+The leading slot is wrapped inside `<SelectPrimitive.ItemText>`, so when the row is selected the same node appears in the trigger's `<SelectValue>` — you do NOT need to also set a `SelectTriggerLeading`.
+
+#### Fixed trigger leading (`SelectTriggerLeading`)
+
+For Brand or any case where the trigger always shows the SAME leading visual regardless of value:
+
+```tsx
+<Select value={brand} onValueChange={setBrand}>
+  <SelectTrigger>
+    <SelectTriggerLeading><Sparkles className="text-brand-violet" /></SelectTriggerLeading>
+    <SelectValue placeholder="Select brand" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="om">Open Mercato</SelectItem>
+    <SelectItem value="acme">Acme Corp</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+`SelectTriggerLeading` is **independent of selection** — choose it when the leading is a fixed semantic indicator, not a property of the value.
+
 ### Props
 
 | Prop | On | Notes |
@@ -556,8 +1060,8 @@ Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
 | `disabled` | `Select` or `SelectTrigger` | Whole-select or per-trigger disable |
 | `name` | `Select` | Hidden form input name (Radix renders for native form submit) |
 | `required` | `Select` | Adds aria-required + form validation |
-| `size` | `SelectTrigger` | `sm` / `default` / `lg` |
-| `className` | `SelectTrigger` / `SelectContent` / `SelectItem` | Standard Tailwind override |
+| `size` | `SelectTrigger` | `sm` (h-8) / `default` (h-9) / `lg` (h-10) — matches Figma X-Small / Small / Medium |
+| `className` | `SelectTrigger` / `SelectTriggerLeading` / `SelectContent` / `SelectItem` / `SelectItemLeading` | Standard Tailwind override |
 | `position` | `SelectContent` | `popper` (default — anchored) or `item-aligned` |
 
 ### MUST rules
@@ -565,8 +1069,9 @@ Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
 - **NEVER use raw `<select>`** anywhere — always use `Select` primitive. Native dropdowns render with the OS-default styling (no Figma alignment).
 - For form fields with label / error, wrap with `FormField` — handles label binding, error display, ARIA wiring.
 - Same-row sizing rule applies — Select next to Input/Button MUST share `size`.
-- Icons inside `SelectItem`: place before text, let primitive handle spacing.
-- For LARGE option lists with search, do NOT cram into `Select` — use `ComboboxInput` from `@open-mercato/ui/backend/inputs/ComboboxInput` instead.
+- Icons / leading visuals inside `SelectItem`: wrap in [`SelectItemLeading`](#type-variants-leading-slot) so the leading mirrors into the trigger on selection. Do not hand-roll `<span className="flex">` rows next to the label.
+- For a fixed leading on the trigger (renders regardless of value), wrap in [`SelectTriggerLeading`](#type-variants-leading-slot) and place it BEFORE `<SelectValue>` — see Type variants section.
+- For LARGE option lists with search, do NOT cram into `Select` — use [`ComboboxInput`](#comboboxinput) (single value) or [`LookupSelect`](#lookupselect) (rich card list) from `@open-mercato/ui/backend/inputs/*` instead.
 
 ### Specialized variants (NOT this primitive)
 
@@ -575,8 +1080,10 @@ Icons render at `size-4` (16px) by default — matches `text-sm` baseline.
 | Icon-only / compact trigger | `CompactSelect` | TODO — Figma node `377:5083` |
 | Inline borderless trigger | `InlineSelect` | TODO — Figma node `332:4537` |
 | Compact for input prefix (e.g. country code in phone) | `CompactSelectForInput` | TODO — Figma node `307:16883` |
-| Multi-select with search / combobox | `ComboboxInput` | Already in `backend/inputs/ComboboxInput` |
-| Date picker | (existing date input components) | Already in `inputs/` folder |
+| Single-value typeahead with suggestions | `ComboboxInput` | Available — see [ComboboxInput](#comboboxinput) section. |
+| Multi-value tags with rich labels | `TagsInput` (backend) | Available — see [TagsInput (backend)](#tagsinput-backend) section. |
+| Rich card-list lookup (entity picker) | `LookupSelect` | Available — see [LookupSelect](#lookupselect) section. |
+| Date picker | `DatePicker` (primitive) | Available — see [DatePicker](#datepicker) section. |
 
 ---
 
@@ -836,20 +1343,21 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 
 | Size | px | Use case |
 |---|---|---|
-| `sm` | 24px | Table rows, AvatarStack, inline lists |
-| `default` | 32px | Sidebar, comments, activity feed |
-| `md` | 40px | Section headers, assignee cards |
-| `lg` | 80px | Profile / detail page header |
+| `xs` | 20px | Inline mentions, very compact lists |
+| `sm` | 28px | Table rows, AvatarStack, inline lists |
+| `md` (default) | 36px | Sidebar, comments, activity feed, assignee cards |
+| `lg` | 48px | Section headers, profile cards |
+| `xl` | 64px | Profile / detail page header |
 
 ```tsx
-<Avatar name="Jan Kowalski" />        // → "JK"
-<Avatar name="Copperleaf Design" />   // → "CD"
+<Avatar label="Jan Kowalski" />        // → "JK"
+<Avatar label="Copperleaf Design" />   // → "CD"
 
 <AvatarStack max={3}>
-  <Avatar name="Jan Kowalski" size="sm" />
-  <Avatar name="Oliwia Z." size="sm" />
-  <Avatar name="Anna Nowak" size="sm" />
-  <Avatar name="Sarah Mitchell" size="sm" />
+  <Avatar label="Jan Kowalski" size="sm" />
+  <Avatar label="Oliwia Z." size="sm" />
+  <Avatar label="Anna Nowak" size="sm" />
+  <Avatar label="Sarah Mitchell" size="sm" />
 </AvatarStack>
 // renders: JK · OZ · AN · +1
 ```
@@ -967,7 +1475,7 @@ const t = useT()
 import { TagInput } from '@open-mercato/ui/primitives/tag-input'
 ```
 
-Two-row primitive (input on top, chips below) for collecting a flat list of free-form tags. Built on `Input` + `Tag shape="square"`. Use when the user types comma/separator-delimited values and the result is `string[]`. For value-from-suggestions (autocomplete with descriptions, async loaders), use `TagsInput` from `@open-mercato/ui/backend/inputs/TagsInput` instead.
+Two-row primitive (input on top, chips below) for collecting a flat list of free-form tags. Built on `Input` + `Tag shape="square"`. Use when the user types comma/separator-delimited values and the result is `string[]`. For value-from-suggestions (autocomplete with descriptions, async loaders), use [`TagsInput`](#tagsinput-backend) from `@open-mercato/ui/backend/inputs/TagsInput` instead.
 
 ### Sizes
 
@@ -1005,9 +1513,9 @@ const [tags, setTags] = React.useState<string[]>([])
 
 ### MUST rules
 
-- NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or `TagsInput` (with suggestions/labels).
+- NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or [`TagsInput`](#tagsinput-backend) (with suggestions/labels).
 - Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
-- For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
+- For value+label+description triples (where `value !== label`), use [`TagsInput`](#tagsinput-backend), not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
 
 ---
 
@@ -1348,7 +1856,7 @@ const [date, setDate] = React.useState<Date | null>(null)
 
 - Locale-aware labels: pass `locale` from the user's resolved date-fns locale; do NOT hand-craft `displayFormat` strings unless the design genuinely diverges from the default day-first / month-first heuristic.
 - `value` must be `Date | null` (not `string`). Convert ISO strings on the API boundary, not inside the trigger.
-- Do NOT import from `@open-mercato/ui/backend/inputs/DatePicker` or `…/DateTimePicker` in new code — those are `@deprecated` shims that re-export this primitive (`<DateTimePicker>` is a thin wrapper that always sets `withTime`). New consumers import from `@open-mercato/ui/primitives/date-picker` directly.
+- Do NOT import from `@open-mercato/ui/backend/inputs/DatePicker` or `…/DateTimePicker` in new code — those are `@deprecated` shims that re-export this primitive (`<DateTimePicker>` is a thin wrapper that always sets `withTime`). New consumers import from `@open-mercato/ui/primitives/date-picker` directly. See [Backend shims](#backend-shims-datepicker--datetimepicker--timepicker) below for the full migration table.
 - When `withTime`, hand `minuteStep` (typical 5/10/15) — minute-by-minute scrolling is rarely the right UX.
 - Combine with `minDate` / `maxDate` for booking flows; don't post-validate after onChange.
 - Pass `aria-label` (or wrap in a `FormField` with a visible label) — the trigger has no built-in label.
@@ -1518,7 +2026,7 @@ Common options:
 
 ### MUST rules
 
-- NEVER hand-roll a time-of-day input — use `TimePicker` (slots/duration/status workflow) or the legacy `backend/inputs/TimePicker` shim (free-form HH:MM trigger).
+- NEVER hand-roll a time-of-day input — use `TimePicker` (slots/duration/status workflow) or the legacy `backend/inputs/TimePicker` shim (free-form HH:MM trigger). See [Backend shims](#backend-shims-datepicker--datetimepicker--timepicker) for the migration table, or [TimeInput](#timeinput) when you need a bare-bones two-`<input>` hour/minute editor without any popover.
 - For a row of duration chips in a custom form layout, use `<HorizontalScrollRow>` to get the same scrollbar-less + fade-gradient + chevron UX as the composition.
 - When passing custom `cancelLabel` / `applyLabel` / `statusLabel` / `headerPlaceholder`, route them through `useT()` — primitive defaults are English.
 - `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
@@ -1796,7 +2304,7 @@ import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 
 <Notification
   status="information"
-  avatar={<Avatar name="John Smith" size="md" />}
+  avatar={<Avatar label="John Smith" size="md" />}
   title="John commented on Acme renewal"
   description="Looped in legal for the new clause. Will follow up by EOD."
   timestamp="2 min ago"
@@ -1884,7 +2392,7 @@ The wrapper has `pointer-events-none` so it does not block clicks on the page un
 - Use `Notification` for corner-floating / stackable manual-dismiss UX. For inline alerts use `Alert` directly; for ephemeral save-feedback toasts use `flash()`; for persistent notification panel rows use `NotificationItem`.
 - Always wrap the app in `NotificationProvider` if any consumer uses `useNotification()`. The hook throws when no provider is mounted — this is intentional.
 - Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
-- For user-driven notifications, pass `avatar={<Avatar name="..." />}` so the leading visual matches the rest of the product's identity treatment.
+- For user-driven notifications, pass `avatar={<Avatar label="..." />}` so the leading visual matches the rest of the product's identity treatment.
 - Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
 
 ---
@@ -2227,6 +2735,668 @@ Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDrop
 - Wrap any `RichEditorToolbar` / `RichEditorIconButton` / `RichEditorTextDropdown` / `RichEditorDropdownButton` / `RichEditorColorButton` inside `<RichEditor>` — they throw outside the editor context (the error message points to the offending component).
 - Keep the editor output trustworthy: do not bypass `onChange` (the sanitizer enforces the allowed tag/attr set). For custom commands, write through `useRichEditorContext().exec`.
 - For server-rendered content always feed the editor through `dangerouslySetInnerHTML` of `sanitizeHtmlRichText(value)` before passing to `value` — the primitive re-sanitizes but storing pre-sanitized HTML keeps the DB clean.
+
+---
+
+## Specialized Inputs (overview)
+
+These primitives live in `@open-mercato/ui/backend/inputs/*` and ship richer behavior than the foundation primitives (`Input`, `Select`, `Textarea`). Reach for them when the foundation primitive would force you to hand-roll suggestions, async loaders, validation, or rich-list selection. Anti-pattern symptoms: `<Input value="comma,separated,slugs">` for multi-value lookup, `<Select>` with 200+ items, `<input type="tel">` with custom `onBlur` E.164 normalization, raw `<textarea>` + a separate "preview" mode toggle.
+
+### Decision rule
+
+| If you need… | Use | Notes |
+|---|---|---|
+| Single value with sync/async suggestions, free-form allowed | [`ComboboxInput`](#comboboxinput) | One value (`string`). For multi-value, see `TagsInput`. |
+| Multi-value tags with rich labels / descriptions / async loader | [`TagsInput`](#tagsinput-backend) | Returns `string[]`. For flat free-form chips where `value === label`, use the primitive `TagInput` instead. |
+| Rich card-list search + select (title / subtitle / icon / badge) | [`LookupSelect`](#lookupselect) | Returns id (`string \| null`). Ships its own search input + debounced fetch. |
+| Strict select bound to declared platform events | [`EventSelect`](#eventselect) | Groups by module; auto-fetched from `/api/events`. Mandated by `packages/ui/AGENTS.md`. |
+| Event pattern entry (allow wildcards / custom patterns) | [`EventPatternInput`](#eventpatterninput) | `ComboboxInput` preloaded with declared events; permits custom strings (e.g. `sales.*`). |
+| Phone-number entry with E.164 normalization + optional duplicate lookup | [`PhoneNumberField`](#phonenumberfield) | Built on `Input type="tel"`; validates on blur. |
+| Rich-text input that can also operate as a plain textarea | [`SwitchableMarkdownInput`](#switchablemarkdowninput) — **@deprecated**, prefer [`RichEditor`](#richeditor) | Dynamically imports `@uiw/react-md-editor`. Kept as a backward-compatibility shim for Markdown-backed surfaces only. New rich-text fields MUST use `RichEditor` (sanitized HTML). |
+| Bare `HH:MM` editor (two number inputs, no popover) | [`TimeInput`](#timeinput) | Low-level atom — most flows want `TimePicker`. |
+| Date / Date+Time / Time picker with popover | `DatePicker` / `DatePicker withTime` / `TimePicker` primitives | The `backend/inputs/{DatePicker,DateTimePicker,TimePicker}` modules are `@deprecated` shims — see [Backend shims](#backend-shims-datepicker--datetimepicker--timepicker). |
+
+### MUST rules (global)
+
+- NEVER mount these inside `FormField` twice — they each render their own internal `<input>` / trigger. If you need a label + description row, wrap in a single `FormField` and pass the specialized primitive as the field control.
+- All write through `onChange` / `onValueChange` props — never read DOM values manually. They are controlled components.
+- For dialog forms wired through `CrudForm`, the auto-focus contract is honored via `data-crud-focus-target=""` already set on the inner element. Do NOT add your own `autoFocus` unless you mean to override CrudForm's first-field focus.
+- These primitives ship default English copy (placeholder, "Loading…", "No results", "Type to search…") that callers SHOULD override via `useT()` for translated surfaces.
+
+---
+
+## ComboboxInput
+
+```typescript
+import { ComboboxInput, type ComboboxInputProps, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+```
+
+Single-value typeahead with sync and/or async suggestions. Filters the merged option list against the typed query, supports keyboard navigation, and (by default) allows free-form custom values when no suggestion matches. Used inside `EventPatternInput`, custom-field dictionary editors, and dictionary-backed form fields.
+
+### Quick usage
+
+```tsx
+const [value, setValue] = React.useState<string>('')
+
+<ComboboxInput
+  value={value}
+  onChange={setValue}
+  placeholder={t('customers.industry.placeholder', 'Industry')}
+  suggestions={[
+    { value: 'saas', label: 'SaaS', description: 'Software-as-a-Service' },
+    { value: 'ecom', label: 'E-commerce' },
+    'manufacturing',  // bare strings auto-normalize to { value, label }
+  ]}
+  allowCustomValues
+/>
+```
+
+### Async loader
+
+```tsx
+<ComboboxInput
+  value={value}
+  onChange={setValue}
+  loadSuggestions={async (query) => {
+    const res = await apiCall<{ items: Array<{ value: string; label: string }> }>(
+      `/api/customers/industries?q=${encodeURIComponent(query ?? '')}`
+    )
+    return res.result?.items ?? []
+  }}
+  resolveLabel={(val) => industriesById[val]?.label ?? val}
+/>
+```
+
+`loadSuggestions` is debounced 200 ms after the user types. Pass `resolveLabel` (and optionally `resolveDescription`) so an incoming `value` that is not yet in the loaded list still renders a human-friendly label.
+
+### Behaviors
+
+- **Keyboard**: `↓` opens the popup / moves selection down. `↑` moves up. `Enter` commits the highlighted suggestion or the typed text. `Escape` closes the popup.
+- **Blur**: a 200 ms delay before commit lets `onClick` on a suggestion win the race.
+- **`allowCustomValues={false}`**: on blur or `Enter`, if the typed text does not match any option (by value or case-insensitive label), the input reverts to the current `value`.
+- **Inner element**: deliberately a raw `<input>` (not the `Input` primitive) — the focus / suggestion-popup interplay relies on a plain input. The raw element is styled to *match* the DS `Input` visual contract (`h-9 rounded-md border-input shadow-xs`, `focus-visible:shadow-focus focus-visible:border-foreground`, `placeholder:text-muted-foreground`). Do not "fix" by swapping to the DS `Input` wrapper.
+- **Popup visual**: `rounded-2xl` container with Figma drop-shadow (`0 16px 32px -12px rgba(14,18,27,0.1)`), `p-2`, items `rounded-lg p-2` with `bg-muted` for keyboard-highlighted row — matches the DS `SelectContent` / `SelectItem` token contract.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Controlled. The committed value; may or may not exist in `suggestions`. |
+| `onChange` | `(next: string) => void` | — | Called on commit (selection, `Enter`, or blur). Trimmed. |
+| `suggestions` | `Array<string \| ComboboxOption>` | — | Sync options. Strings auto-normalize to `{ value, label }`. |
+| `loadSuggestions` | `(query?: string) => Promise<Array<string \| ComboboxOption>>` | — | Async loader; debounced 200 ms. Merged with `suggestions`. |
+| `resolveLabel` | `(value: string) => string` | — | Resolve a label for a `value` not present in current option set. |
+| `resolveDescription` | `(value: string) => string \| null \| undefined` | — | Resolve a description likewise. |
+| `placeholder` | `string` | `t('ui.inputs.comboboxInput.placeholder', 'Type to search...')` | Auto-translated; override per surface if needed. |
+| `autoFocus` | `boolean` | — | — |
+| `disabled` | `boolean` | `false` | — |
+| `allowCustomValues` | `boolean` | `true` | When `false`, blur / `Enter` on an unmatched value reverts. |
+
+### MUST rules
+
+- For multi-value lookup (`string[]`), use [`TagsInput`](#tagsinput-backend) — do NOT roll your own array logic on top of `ComboboxInput`.
+- Pass `resolveLabel` whenever the committed `value` differs from a display label (id-vs-name dictionaries) — otherwise the trigger shows the raw id on first render.
+- Do NOT replace the inner `<input>` with the DS `Input` primitive — see "Inner element" above.
+- For event-pattern fields (with wildcards), use [`EventPatternInput`](#eventpatterninput) — it composes this primitive with a declared-events loader.
+
+### Anti-patterns
+
+- `<Input value={a} onChange={...} />` + a hand-rolled `<ul>` of suggestions → use `ComboboxInput`.
+- `<Select>` with hundreds of `<SelectItem>`s and `onSearchChange` glue → use `ComboboxInput` with `loadSuggestions`.
+
+---
+
+## TagsInput (backend)
+
+```typescript
+import { TagsInput, type TagsInputProps, type TagsInputOption } from '@open-mercato/ui/backend/inputs/TagsInput'
+```
+
+Multi-value version of `ComboboxInput`. Renders selected values as `Tag shape="square" variant="default"` chips inline with the typing surface, supports sync/async suggestions with rich `{ value, label, description }` triples, and emits a `string[]`. Use whenever the form field is a flat list of dictionary-backed identifiers (tags, categories, segments, custom-field multi-select).
+
+### TagsInput (backend) vs `TagInput` (primitive)
+
+| | `TagsInput` (backend) | `TagInput` (primitive) |
+|---|---|---|
+| Import | `@open-mercato/ui/backend/inputs/TagsInput` | `@open-mercato/ui/primitives/tag-input` |
+| Value shape | `string[]` (id-like values, often with a separate label) | `string[]` (free-form, where value === label) |
+| Suggestions | sync + async loaders, with `{ value, label, description }` | none (free typing only) |
+| `resolveLabel` / `resolveDescription` | ✅ for id-vs-label dictionaries | ❌ |
+| Keyboard add | `Enter` / `,` | `Enter` / `,` / `Tab` (configurable) |
+| Use case | dictionary-backed multi-select (industries, segments, scopes) | free-form keyword chips (search filters, ad-hoc labels) |
+
+### Quick usage
+
+```tsx
+const [tags, setTags] = React.useState<string[]>([])
+
+<TagsInput
+  value={tags}
+  onChange={setTags}
+  placeholder={t('customers.segments.placeholder', 'Add segment')}
+  loadSuggestions={async (query) => {
+    const res = await apiCall<{ items: TagsInputOption[] }>(
+      `/api/customers/segments?q=${encodeURIComponent(query ?? '')}`
+    )
+    return res.result?.items ?? []
+  }}
+  selectedOptions={currentSelectionWithLabels}
+  resolveLabel={(val) => segmentsById[val]?.label ?? val}
+/>
+```
+
+### Behaviors
+
+- **Keyboard**: `Enter` or `,` commits the current input as a tag. `Backspace` on an empty input removes the last tag.
+- **Suggestions popup**: shown on focus (`showSuggestionsOnFocus`, default `true`), filtered by the merged option map (`suggestions` + async + `selectedOptions` + current values resolved via `resolveLabel`).
+- **Blur commit**: if the user clicks a suggestion the chip commits via the suggestion's `mousedown` (the input's blur is suppressed for one cycle).
+- **Tag rendering**: uses the DS `Tag` primitive with `shape="square"` so chips align with the typing baseline; description (if any) renders as a small `text-overline text-muted-foreground` line under the label.
+- **i18n**: built-in keys `ui.inputs.tagsInput.removeTag` (default `'Remove {label}'`) and `ui.inputs.tagsInput.placeholder` (default `'Add tag and press Enter'`).
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string[]` | — | Controlled list of committed values. |
+| `onChange` | `(next: string[]) => void` | — | Emits the new array on add/remove. Trimmed values; duplicates ignored. |
+| `suggestions` | `Array<string \| TagsInputOption>` | — | Sync options. |
+| `loadSuggestions` | `(query?: string) => Promise<Array<string \| TagsInputOption>>` | — | Debounced 200 ms. |
+| `selectedOptions` | `TagsInputOption[]` | — | Rich `{ value, label, description }` triples for current `value` entries. Avoids round-tripping to async loader to render chip labels. |
+| `resolveLabel` | `(value: string) => string` | — | Fallback label resolver for values without a matching option. |
+| `resolveDescription` | `(value: string) => string \| null \| undefined` | — | Fallback description resolver. |
+| `placeholder` | `string` | `t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')` | — |
+| `autoFocus` | `boolean` | — | — |
+| `disabled` | `boolean` | `false` | Renders muted background + disables chip remove. |
+| `allowCustomValues` | `boolean` | `true` | When `false`, ignores `Enter` on unmatched input. |
+| `showSuggestionsOnFocus` | `boolean` | `true` | When `false`, popup opens only after the user types. |
+
+### MUST rules
+
+- Use this primitive (not `TagInput`) whenever `value` is an identifier (segment id, dictionary code) and the display label / description live separately. `TagInput` is for flat free-form chips only.
+- Pass `selectedOptions` for the current `value` so chips render labels without re-running the async loader on mount.
+- Do NOT pass `<Tag>` markup as children — chips are managed internally. If you need different chip variants per tag (e.g. coloured by category), open an issue rather than wrapping the primitive.
+- Always wire `loadSuggestions` to a server-side filter (`?q=`) when the dictionary exceeds ~50 entries; do not load the full list client-side.
+
+### Anti-patterns
+
+- `<Input value="a,b,c" onChange={...} />` + manual `.split(',')` → use `TagsInput`.
+- `<Select multiple>` (native HTML) → no Tags-like UX; use `TagsInput`.
+- Building your own chip row with `<Tag>` + `<input>` next to it → that is exactly what this primitive composes.
+
+---
+
+## LookupSelect
+
+```typescript
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
+```
+
+Card-list search/select for picking one rich record from a (typically) large dataset. Renders its own search field plus a vertically scrollable list of cards (`title`, `subtitle`, `description`, `rightLabel`, `badge`, `icon`, `disabled`). Returns a single id (`string \| null`) — for multi-pick flows, build a wrapper that calls `onChange` repeatedly on a parent array.
+
+### Quick usage
+
+```tsx
+const [id, setId] = React.useState<string | null>(null)
+
+<LookupSelect
+  value={id}
+  onChange={setId}
+  minQuery={2}
+  fetchItems={async (query) => {
+    const res = await apiCall<{ items: LookupSelectItem[] }>(
+      `/api/customers/people?q=${encodeURIComponent(query)}&limit=20`
+    )
+    return res.result?.items ?? []
+  }}
+  searchPlaceholder={t('customers.lookup.search', 'Search by name or email')}
+  emptyLabel={t('customers.lookup.empty', 'No matches')}
+  actionSlot={
+    <Button type="button" variant="outline" size="sm" onClick={openCreateDialog}>
+      <Plus className="size-4" />
+      {t('customers.lookup.create', 'New person')}
+    </Button>
+  }
+/>
+```
+
+### Sync vs async
+
+| Mode | Pass | Behavior |
+|---|---|---|
+| Sync | `options: LookupSelectItem[]` | Renders `options` as-is. `fetchItems` is ignored. Reactive — passing a new array re-renders the list. |
+| Async | `fetchItems(query)` *or* the legacy `fetchOptions(query)` alias | Debounced 220 ms. Fires when `query.length >= minQuery` OR `defaultOpen` is set OR a `value` is preselected. |
+
+If both are passed, the async loader wins as soon as the user types. Keep your loader cancellable on the caller side — the primitive cancels its own in-flight promise on next query but does NOT propagate `AbortSignal`.
+
+### Item shape
+
+```ts
+type LookupSelectItem = {
+  id: string
+  title: string
+  subtitle?: string | null
+  description?: string | null
+  rightLabel?: string | null      // small uppercase tracked label on top right (country code, status badge etc.)
+  badge?: string | null
+  icon?: React.ReactNode          // 48×48 leading slot (rounded-lg). Falls back to the first letter of `title`.
+  disabled?: boolean              // disables the row unless it is currently selected
+}
+```
+
+### Visual
+
+- Container: vertical card list, `gap-1.5`, `max-h-80` scroll
+- Card: `rounded-xl border p-4` with `gap-4` between the 48×48 leading slot, the text column, and the trailing checkmark slot
+- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-lg border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
+- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm` (subtle elevation)
+- Selected state: `border-brand-violet bg-brand-violet/5 shadow-sm` with a `Check` icon (`size-5 text-brand-violet`) on the right and the leading icon box tinted `bg-brand-violet/10`
+- The right-hand `Select` / `Selected` button has been **removed** — the entire row is the click target. The resolved labels are still exposed via the row's `title` attribute (browser tooltip + screen-reader hint) for backward compatibility
+- Typography: title `text-sm font-semibold`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-[11px] uppercase tracking-wider text-muted-foreground`
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string \| null` | — | Selected item id. |
+| `onChange` | `(next: string \| null) => void` | — | Called on row click or "Clear selection". |
+| `fetchItems` | `(query: string) => Promise<LookupSelectItem[]>` | — | Async loader (preferred). |
+| `fetchOptions` | `(query?: string) => Promise<LookupSelectItem[]>` | — | Legacy alias. Prefer `fetchItems`. |
+| `options` | `LookupSelectItem[]` | — | Sync list. Mutually exclusive with `fetchItems`/`fetchOptions`. |
+| `minQuery` | `number` | `2` | Minimum query length before the loader fires. Bypassed by `defaultOpen` or a preselected `value`. |
+| `defaultOpen` | `boolean` | `false` | Loads on mount and ignores `minQuery`. |
+| `actionSlot` | `React.ReactNode` | — | Right-of-search slot, typically a "Create new" button. |
+| `onReady` | `(controls: { setQuery: (value: string) => void }) => void` | — | Receives a parent-driven query setter (deep-linking, "Search again" buttons). |
+| `searchPlaceholder` | `string` | `placeholder ?? t('ui.lookupSelect.searchPlaceholder', 'Search…')` | Auto-translated. |
+| `placeholder` | `string` | — | Convenience alias for `searchPlaceholder`. |
+| `clearLabel` | `string` | `t('ui.lookupSelect.clearSelection', 'Clear selection')` | Auto-translated. |
+| `emptyLabel` | `string` | `t('ui.lookupSelect.noResults', 'No results')` | Auto-translated; also rendered as the error fallback. |
+| `loadingLabel` | `string` | `t('ui.lookupSelect.searching', 'Searching…')` | Auto-translated. |
+| `selectLabel` / `selectedLabel` | `string` | `t('ui.lookupSelect.select', 'Select')` / `t('ui.lookupSelect.selected', 'Selected')` | Auto-translated button labels per row. |
+| `minQueryHintLabel` | `string` | `t('ui.lookupSelect.minQueryHint', 'Type at least {minQuery} characters or paste an id to search.', { minQuery })` | Shown when the user has typed but below `minQuery`. |
+| `startTypingLabel` | `string` | `t('ui.lookupSelect.startTyping', 'Start typing to search.')` | Auto-translated. |
+| `selectedHintLabel` | `(id: string) => string` | — | Future hook for an inline preview block (currently unused by the primitive — pass through for forward-compat). |
+| `disabled` | `boolean` | `false` | Disables both the search input and row interaction. |
+| `loading` | `boolean` | `false` | Force the loading state regardless of the internal fetch — useful when the parent owns the request. |
+
+### MUST rules
+
+- All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `startTypingLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy.
+- Search input is styled `h-10 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — slightly bigger and more rounded than a standard form `Input` to read as a picker chrome rather than a form field. The leading search icon sits at `left-3.5`. Card rows use `rounded-xl p-4` with selected state `border-brand-violet bg-brand-violet/5 shadow-sm` and a leading `Check` icon (DS active token).
+- Set `minQuery` to match the API's minimum filter length (typically 2 or 3). For pre-loaded short lists, switch to `options` instead of `fetchItems`.
+- Use `actionSlot` for a "Create new" affordance — do not render a separate `<Button>` outside the primitive that breaks the search-row alignment.
+- For modules with permission-gated lookup APIs, route `fetchItems` through `apiCall`/`apiCallOrThrow` so 401/403 flows reach the global error handler.
+- For single-value form fields, prefer wrapping `LookupSelect` in a `FormField`-styled label/description block; do not duplicate the label inside `searchPlaceholder`.
+
+### Anti-patterns
+
+- `<Select>` with a long `<SelectItem>` list of records → `LookupSelect` ships the search + card UX out of the box.
+- `<ComboboxInput>` for selecting a record (id + subtitle + icon) → `LookupSelect` is the right primitive for entity pickers.
+
+---
+
+## EventSelect
+
+```typescript
+import { EventSelect, useAvailableEvents, type EventDefinition, type EventSelectProps } from '@open-mercato/ui/backend/inputs/EventSelect'
+```
+
+Strict `Select`-style picker bound to the declared platform events. Fetches `/api/events?excludeTriggerExcluded=...` via TanStack Query (5-minute `staleTime`), groups options by module under `<SelectLabel>`, and emits the selected event id. **The root `packages/ui/AGENTS.md` mandates this primitive whenever users select a declared event** — never roll a manual `<Select>` over the events API.
+
+### Quick usage
+
+```tsx
+const [eventId, setEventId] = React.useState<string>('')
+
+<EventSelect
+  value={eventId}
+  onChange={setEventId}
+  categories={['crud', 'lifecycle']}
+  modules={['sales', 'customers']}
+  placeholder={t('subscribers.event.placeholder', 'Select an event')}
+/>
+```
+
+### Behaviors
+
+- Loading state: trigger is disabled while the API request is in flight; placeholder reads `t('ui.inputs.eventSelect.loading', 'Loading...')`.
+- Empty state (after filters): trigger placeholder reads `t('ui.inputs.eventSelect.empty', 'No events available')`; still disabled.
+- Grouping: events are bucketed by `module` (falling back to `'other'`), with modules sorted alphabetically and capitalized for display.
+- Cache: shared with `useAvailableEvents` (same `queryKey: ['declared-events', excludeTriggerExcluded]`). Toggling `excludeTriggerExcluded` produces a separate cache entry.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Selected event id. Empty string renders the placeholder. |
+| `onChange` | `(eventId: string) => void` | — | Emits the selected id (or `''` if Radix passes `null`). |
+| `placeholder` | `string` | `t('ui.inputs.eventSelect.placeholder', 'Select an event...')` | Overridden by loading / empty placeholders when applicable. |
+| `className` | `string` | — | Applied to the `<SelectTrigger>`. |
+| `disabled` | `boolean` | — | OR'd with `isLoading`. |
+| `categories` | `Array<'crud' \| 'lifecycle' \| 'system' \| 'custom'>` | — | Filter — empty/undefined means all. |
+| `modules` | `string[]` | — | Filter — empty/undefined means all. |
+| `excludeTriggerExcluded` | `boolean` | `true` | Filters out events flagged `excludeFromTriggers: true` in their `EventDefinition`. Set to `false` for the rare admin / debug UI that needs every declared event. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Trigger row height — matches the DS `SelectTrigger` size contract. The pre-DS-align version of this component hardcoded `'lg'`; pass `size="lg"` explicitly if you need the legacy taller trigger. |
+
+### `useAvailableEvents` hook
+
+```tsx
+const { events, eventsByModule, isLoading, error, refetch } = useAvailableEvents({
+  categories: ['crud'],
+  modules: ['sales'],
+  excludeTriggerExcluded: true,
+})
+```
+
+Returns the same filtered/grouped data the primitive uses internally — reach for it when you need a non-`Select` UI (radio list, table-style picker, settings preview).
+
+### MUST rules
+
+- NEVER call `/api/events` directly from a component — use `EventSelect` or `useAvailableEvents` so the cache is shared.
+- Pass `categories` / `modules` filters early — server-side filtering is not yet available, so client filtering keeps the dropdown short.
+- The default `placeholder` / loading / empty copy is auto-translated via `useT()` against `ui.inputs.eventSelect.*` — override `placeholder` only when the surface needs custom copy distinct from the global default.
+- For UIs that need to accept wildcard / custom patterns (e.g. `sales.*`), use [`EventPatternInput`](#eventpatterninput) instead.
+
+### Anti-patterns
+
+- `<Select>` populated by `fetch('/api/events')` in a `useEffect` → bypass cache + duplicates code; use `EventSelect`.
+- `<ComboboxInput suggestions={eventsList}>` for a strict selection (no wildcards) → use `EventSelect`; combobox blur-commits on free text.
+
+---
+
+## EventPatternInput
+
+```typescript
+import { EventPatternInput, type EventPatternInputProps } from '@open-mercato/ui/backend/inputs/EventPatternInput'
+```
+
+`ComboboxInput` preloaded with declared events (via `useAvailableEvents`) that **allows custom values**. Use for fields where the operator types an event pattern that MAY include wildcards or not-yet-declared event ids — typical surfaces: subscriber configuration, webhook trigger filter, workflow trigger pattern, audit log filter.
+
+### Quick usage
+
+```tsx
+const [pattern, setPattern] = React.useState<string>('')
+
+<EventPatternInput
+  value={pattern}
+  onChange={setPattern}
+  placeholder="sales.orders.*"
+  categories={['crud', 'lifecycle']}
+/>
+```
+
+### Behaviors
+
+- Suggestion list is built from declared events: each event becomes `{ value: event.id, label: event.label, description: event.id }`.
+- `allowCustomValues={true}` is hardcoded — the operator can type any string (e.g. `sales.*`, `custom.thing.happened`) and commit it on blur or `Enter`.
+- All other behaviors mirror [`ComboboxInput`](#comboboxinput) (keyboard nav, 200 ms debounce on async path — though async is not used here, the loader cache is the shared `useAvailableEvents` query).
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Current pattern (event id or wildcard expression). |
+| `onChange` | `(pattern: string) => void` | — | Emits committed pattern. |
+| `placeholder` | `string` | `t('ui.inputs.eventPatternInput.placeholder', 'sales.orders.created')` | Auto-translated via `useT()` — override only for surface-specific copy. Event ids stay language-agnostic across locales. |
+| `disabled` | `boolean` | — | — |
+| `categories` | `Array<'crud' \| 'lifecycle' \| 'system' \| 'custom'>` | — | Forwarded to `useAvailableEvents`. |
+| `modules` | `string[]` | — | Forwarded to `useAvailableEvents`. |
+
+### MUST rules
+
+- For fields that must accept ONLY a declared event id (no wildcards), use [`EventSelect`](#eventselect) — its strict select prevents typos.
+- Document the wildcard syntax somewhere reachable (typically a `FormField` description) — the primitive shows suggestions but does not advertise the wildcard grammar.
+- Keep `placeholder` aligned with the consumer's expected pattern (e.g. `sales.orders.*`, `customers.person.created`) so the example doubles as documentation.
+
+### Anti-patterns
+
+- `<Input value={pattern} onChange={...} />` for an event-pattern field → users can't discover available events; use `EventPatternInput`.
+- `<EventSelect>` followed by a separate "or type custom pattern" `<Input>` → fold both affordances into `EventPatternInput`.
+
+---
+
+## PhoneNumberField
+
+```typescript
+import { PhoneNumberField, type PhoneNumberFieldProps, type PhoneDuplicateMatch } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+```
+
+Phone-number input matching Figma `Text Input [1.1]` (node `266:5251`) **Phone** variant: a single compound field with a country picker on the left (flag + dial code + chevron), a vertical divider, and the national-number text input on the right — all sharing one rounded-[10px] border, shadow-xs, and focus ring. The component preserves the original prop contract (`value: string` E.164 in, same out) by splitting the value internally into `country` + `localNumber` state and re-composing on every change.
+
+Country list ships as a static export (`PHONE_COUNTRIES`) — 16 markets (US, CA, GB, PL, DE, FR, ES, IT, NL, SE, AT, CH, PT, CZ, RO, UA). Override per surface with the `countries` prop. Default fallback is US (`+1`); override with `defaultCountryIso2`.
+
+Validates and normalizes on blur via `validatePhoneNumber` from `@open-mercato/shared/lib/phone`, with optional duplicate lookup (debounced 350 ms) that surfaces an existing contact link inline. Used in the customer-create flow, contact forms, and any onboarding step that captures a phone number.
+
+### Quick usage
+
+```tsx
+const [phone, setPhone] = React.useState<string | undefined>(undefined)
+
+<PhoneNumberField
+  id="phone"
+  value={phone}
+  onValueChange={setPhone}
+  externalError={fieldErrors.phone}
+  placeholder="+1 212 555 1234"
+  invalidLabel={t('customers.phone.invalid', 'Enter a valid phone number with country code.')}
+  onDuplicateLookup={async (digits) => findExistingByPhone(digits)}
+  duplicateLabel={(match) => t('customers.phone.duplicate', 'Looks like {label} already uses this number', { label: match.label })}
+  duplicateLinkLabel={t('customers.phone.duplicateLink', 'Open record')}
+  checkingLabel={t('customers.phone.checking', 'Checking for duplicates…')}
+/>
+```
+
+### Behaviors
+
+- **Country selection**: opens a DS `Select` dropdown showing flag + label + dial code per country. Switching country re-emits `value` with the new dial code prepended to the current local digits.
+- **Local-number entry**: the right-hand `<input type="tel">` only holds the national portion (no dial-code prefix in the visible text). Internally the component re-composes `${dialCode} ${local}` on every change and emits it via `onValueChange`.
+- **On blur**: runs `validatePhoneNumber(composed)`. If valid → re-splits the normalized form back into `country` + `localNumber` and emits the normalized full string; if invalid → sets `aria-invalid="true"` and shows `invalidLabel`.
+- **Initial country**: parsed from incoming `value` by matching the longest dial-code prefix. Falls back to `defaultCountryIso2` (or US) when `value` is empty or unparseable.
+- **Duplicate lookup**: debounced 350 ms; fires when `extractPhoneDigits(composed).length >= minDigits` (default `6`). Errors silently swallow (no toast).
+- **Error precedence**: `externalError` (e.g. server-side Zod) > internal `validationHint` > duplicate match (informational only, amber/warning). Duplicate is hidden whenever any error is showing.
+- **Visual**: container `rounded-[10px] border shadow-xs`. Focus state replaces the border with `border-brand-violet` and adds `shadow-focus`; error state replaces with `border-status-error-icon`. Tokens: error `text-status-error-text`, duplicate `text-status-warning-text`, duplicate link `text-brand-violet`.
+- **Externally driven sync**: if `value` updates externally while the user is NOT actively editing, both `country` and `localNumber` are re-derived from the new value.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `id` | `string` | — | Used to build `aria-describedby` for the error message (`${id}-error`). |
+| `value` | `string \| null` | — | Controlled value. `null`/empty renders empty field. |
+| `onValueChange` | `(next: string \| undefined) => void` | — | Emits raw on change, normalized on valid blur, `undefined` on cleared. |
+| `onDigitsChange` | `(digits: string \| null) => void` | — | Optional — emits the extracted digit string (no country prefix). |
+| `externalError` | `string \| null` | — | Server / Zod error. Takes precedence over internal validation hint. |
+| `disabled` | `boolean` | `false` | Disables duplicate lookup as well. |
+| `autoFocus` | `boolean` | — | — |
+| `ariaLabel` | `string` | — | Forwarded to the national-number input; suffixed with `" country"` for the country picker trigger. |
+| `ariaDescribedBy` | `string` | — | Merged with the error id when an error is shown. |
+| `placeholder` | `string` | `'(555) 000-0000'` | Placeholder for the national-number input only — the country picker shows the selected dial code. |
+| `countries` | `PhoneCountry[]` | `PHONE_COUNTRIES` | Override the country list (e.g. limit to specific markets). Longest dial codes MUST appear before shorter ancestors. |
+| `defaultCountryIso2` | `string` | `'US'` | Initial country when `value` is empty / unparseable. |
+| `minDigits` | `number` | `6` | Lower bound for triggering duplicate lookup. |
+| `checkingLabel` | `string` | `t('ui.inputs.phoneNumberField.checking', 'Checking for duplicates…')` | Auto-translated; override per surface if needed. |
+| `duplicateLabel` | `(match: PhoneDuplicateMatch) => string` | — | Required to render the duplicate callout — no sensible default because the copy depends on the match's `label`. |
+| `duplicateLinkLabel` | `string` | `t('ui.inputs.phoneNumberField.duplicateLink', 'Open record')` | Auto-translated; override per surface if needed. |
+| `invalidLabel` | `string` | `t('ui.inputs.phoneNumberField.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')` | Auto-translated; override per surface if needed. |
+| `onDuplicateLookup` | `(normalizedValue: string) => Promise<PhoneDuplicateMatch \| null>` | — | Provide to enable the duplicate-detection branch. |
+
+### MUST rules
+
+- Default `invalidLabel` / `checkingLabel` / `duplicateLinkLabel` are auto-translated via `useT()` against `ui.inputs.phoneNumberField.*` keys. Override only when the surface needs custom copy that differs from the global default.
+- Surface server-side errors via `externalError`, not by setting `validationHint` manually — it has precedence and integrates with `aria-invalid`.
+- Implement `onDuplicateLookup` against an authenticated, tenant-scoped API; it receives the normalized digits string (no `+`), so server-side comparison should normalize the same way.
+- For phone columns in CRUD lists, pair this field with a server-side unique constraint — the duplicate lookup is informational, not authoritative.
+
+### Anti-patterns
+
+- `<Input type="tel">` + manual `onBlur` running E.164 normalization → use `PhoneNumberField`.
+- Reading `extractPhoneDigits` on every render of a parent component → pass `onDigitsChange` and store the result alongside `value`.
+
+---
+
+## SwitchableMarkdownInput
+
+> **@deprecated** — Prefer the DS [`RichEditor`](#richeditor) primitive for any new rich-text input. The DS direction is to consolidate on a single rich-text format (sanitized HTML) so user-authored content renders consistently across email, exports, and the customer portal. `SwitchableMarkdownInput` remains as a backward-compatibility shim until existing Markdown-backed surfaces (customers Notes, agent prompts) migrate their storage format. Do NOT introduce new Markdown surfaces; pick `RichEditor` for HTML or a plain `Textarea` for plain text.
+
+```typescript
+import { SwitchableMarkdownInput, type SwitchableMarkdownInputProps } from '@open-mercato/ui/backend/inputs/SwitchableMarkdownInput'
+```
+
+A controlled text input that switches between a plain `<textarea>` and the `@uiw/react-md-editor` rich Markdown editor based on the `isMarkdownEnabled` prop. Used in the customers Notes section and other Markdown-backed surfaces where the operator may upgrade a plain note to formatted Markdown without rendering both fields simultaneously.
+
+### Migration to `RichEditor`
+
+```diff
+- import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs/SwitchableMarkdownInput'
+- <SwitchableMarkdownInput value={md} onChange={setMd} isMarkdownEnabled={enabled} />
++ import { RichEditor } from '@open-mercato/ui/primitives/rich-editor'
++ <RichEditor value={html} onChange={setHtml} variant="basic" />
+```
+
+The storage format changes from Markdown to sanitized HTML — coordinate with the API/persistence layer when migrating.
+
+### Quick usage
+
+```tsx
+const [body, setBody] = React.useState<string>('')
+const [markdown, setMarkdown] = React.useState(false)
+
+<SwitchableMarkdownInput
+  value={body}
+  onChange={setBody}
+  isMarkdownEnabled={markdown}
+  placeholder={t('customers.notes.placeholder', 'Add a note…')}
+  rows={4}
+  height={260}
+/>
+```
+
+### Behaviors
+
+- **Switching**: when `isMarkdownEnabled && !disableMarkdown`, renders `@uiw/react-md-editor` via `next/dynamic` (`ssr: false`); otherwise renders a plain `<textarea>`. Switching at runtime preserves `value` content (the parent's controlled state).
+- **Dynamic import**: a `LoadingMessage` covers the area while the editor chunk loads. In `NODE_ENV === 'test'` or under Jest, a textarea stub renders in place of the editor (no chunk load).
+- **Theme**: respects the resolved theme via `useTheme()` (the editor's `data-color-mode` attribute switches between `dark` and `light`).
+- **Remark plugins**: any `remarkPlugins` are merged with the shared Markdown plugin set (`useMarkdownRemarkPlugins`) so preview output matches the rest of the app's Markdown rendering.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | — | Controlled body. |
+| `onChange` | `(value: string) => void` | — | Emits on every keystroke (`''` when the editor returns `undefined`). |
+| `isMarkdownEnabled` | `boolean` | — | Master toggle between editor and textarea. |
+| `disableMarkdown` | `boolean` | — | Force textarea mode regardless of the master toggle (use for read-only-Markdown surfaces). |
+| `height` | `number` | `220` | Editor pixel height. Ignored in textarea mode. |
+| `placeholder` | `string` | — | Textarea placeholder only. |
+| `rows` | `number` | `3` | Textarea rows only. |
+| `textareaRef` | `React.Ref<HTMLTextAreaElement>` | — | Forwarded ref (textarea mode). |
+| `onTextareaInput` | `React.FormEventHandler<HTMLTextAreaElement>` | — | Forwarded `onInput` (textarea mode) — used for auto-grow logic in `customers/components/detail/NotesSection.tsx`. |
+| `textareaClassName` | `string` | DS-styled rounded textarea | Override the textarea look. |
+| `editorWrapperClassName` | `string` | DS-styled bordered card | Override the editor wrapper. |
+| `editorClassName` | `string` | `'w-full'` | Override the editor's inner wrapper. |
+| `disabled` | `boolean` | — | Textarea mode only. |
+| `remarkPlugins` | `PluggableList` | — | Extra plugins merged with `useMarkdownRemarkPlugins`. |
+
+### MUST rules
+
+- **Do NOT introduce new usages of `SwitchableMarkdownInput`.** Use [`RichEditor`](#richeditor) (sanitized HTML) for rich-text or a plain `Textarea` for plain text. This primitive is `@deprecated` and remains only as a backward-compatibility shim for already-Markdown-backed surfaces.
+- When migrating an existing surface to `RichEditor`, coordinate the storage-format change (Markdown → sanitized HTML) with the persistence layer and existing data — a Markdown-to-HTML conversion script may be required.
+- For existing consumers (customers Notes etc.) until they migrate: drive `isMarkdownEnabled` from a sibling `Switch` (or a per-user preference) — do not toggle it implicitly based on whether `value` contains Markdown syntax. Forward `textareaRef` when the parent owns auto-grow / scroll-into-view logic.
+
+### Anti-patterns
+
+- Conditionally rendering `<textarea>` vs `<MdEditor>` in the parent → `SwitchableMarkdownInput` already does this and centralizes the loading/test/stub logic.
+- Stripping Markdown to plain text on the API boundary because the rich editor occasionally appears → store the format that matches the operator's mode, and switch at render time.
+
+---
+
+## TimeInput
+
+```typescript
+import { TimeInput, type TimeInputProps } from '@open-mercato/ui/backend/inputs/TimeInput'
+```
+
+Low-level `HH:MM` editor: two `<Input type="number">` cells (hour `0–23`, minute `0–59`) separated by a `:`. No popover, no slot list, no Now/Clear footer. Used as the internal atom inside `DatePicker withTime` and the legacy `TimePicker` shim — **most consumer-facing time fields should use the [`TimePicker`](#timepicker) primitive instead**.
+
+### Quick usage
+
+```tsx
+const [hhmm, setHhmm] = React.useState<string>('09:30')
+
+<TimeInput
+  value={hhmm}
+  onChange={setHhmm}
+  minuteStep={5}
+/>
+```
+
+### Behaviors
+
+- **Keyboard**: `↑` / `↓` on the hour field nudges by 1 with wrap-around (`23 → 0`). On the minute field it nudges by `minuteStep` (default `1`) with wrap-around. The native number-spinner arrows are hidden via `appearance: textfield` so the keyboard is the canonical control surface.
+- **Direct typing**: parses to integer, clamps to `[0,23]` / `[0,59]`, and (minute only) snaps to the nearest `minuteStep` multiple.
+- **Output**: always emits `HH:MM` zero-padded (`'09:05'`, never `'9:5'`).
+- **Width**: each input cell is `w-14` (~`3.5rem`) — keeps the colon visually centred and fits in narrow popovers.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string \| null` | — | `'HH:MM'` (24-hour). `null` is treated as `'00:00'`. |
+| `onChange` | `(time: string) => void` | — | Always emits `HH:MM`. |
+| `disabled` | `boolean` | `false` | — |
+| `className` | `string` | — | Applied to the outer flex container. |
+| `minuteStep` | `number` | `1` | Step for keyboard nudge and snap on direct entry. |
+| `hourLabel` | `string` | `t('ui.timePicker.hourLabel', 'Hour')` | aria-label on the hour input. |
+| `minuteLabel` | `string` | `t('ui.timePicker.minuteLabel', 'Minute')` | aria-label on the minute input. |
+
+### MUST rules
+
+- For dialog forms and end-user scheduling UIs, use [`TimePicker`](#timepicker) (slot list, Now action, 12h display) — NOT this primitive.
+- When pairing with a date picker, use `DatePicker withTime` rather than composing `DatePicker` + `TimeInput` manually — the primitive already composes them.
+- Always pass i18n-resolved `hourLabel` / `minuteLabel` (or let the built-in `useT()` defaults run) — the two number inputs are otherwise unlabelled for screen readers.
+- `value` MUST be 24-hour `HH:MM`. Do not feed AM/PM strings or ISO datetimes — convert on the API boundary.
+
+### Anti-patterns
+
+- Two raw `<input type="number">` elements + a colon `<span>` → use `TimeInput` for keyboard parity and zero-padded output.
+- `<TimePicker>` inside a tight composite (calendar footer, inline dial) where the popover would re-trigger — that is exactly where `TimeInput` belongs.
+
+---
+
+## Backend shims (DatePicker / DateTimePicker / TimePicker)
+
+The following modules under `packages/ui/src/backend/inputs/` are kept as `@deprecated` re-export shims so existing consumers (CrudForm, example pages, third-party modules) continue to work without code change. **New code MUST import from the primitive path.**
+
+| Legacy import | Replacement | Notes |
+|---|---|---|
+| `@open-mercato/ui/backend/inputs/DatePicker` | `@open-mercato/ui/primitives/date-picker` (`DatePicker`) | Direct re-export. Default footer is now `'apply-cancel'` (Figma-aligned, applied globally 2026-05-09). Pass `footer="today-clear"` to opt back into the legacy Today/Clear footer. |
+| `@open-mercato/ui/backend/inputs/DateTimePicker` | `@open-mercato/ui/primitives/date-picker` (`DatePicker` with `withTime`) | The shim is a thin wrapper: `<DateTimePicker {...props} />` ≡ `<DatePicker {...props} withTime />`. Props type is `Omit<DatePickerProps, 'withTime'>`. |
+| `@open-mercato/ui/backend/inputs/TimePicker` | `@open-mercato/ui/primitives/time-picker` (`TimePicker`) | The shim wraps the primitive with a Figma-styled Clock-icon trigger, maps `minuteStep` → `intervalMinutes`, and adapts the legacy `showNowButton` / `showClearButton` flags onto `pinnedTopActions` / `legacyFooterActions`. `showClearButton` default flipped to `false` on 2026-05-11 — the primitive's Cancel already covers most "dismiss" intents. |
+
+### Migration
+
+```diff
+- import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'
++ import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+
+- import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
+- <DateTimePicker value={value} onChange={setValue} />
++ import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
++ <DatePicker value={value} onChange={setValue} withTime />
+
+- import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
++ import { TimePicker } from '@open-mercato/ui/primitives/time-picker'
+```
+
+### MUST rules
+
+- Do NOT add new features to the shims — every new flag must land on the primitive first. The shim layer is a stable compatibility surface (see `BACKWARD_COMPATIBILITY.md` → Type definitions, Import paths).
+- When you touch a file that still imports from `backend/inputs/{DatePicker,DateTimePicker,TimePicker}`, migrate that import to the primitive in the same change — leaving the legacy import in a freshly-touched file is a regression.
+- For Markdown docs / generators, the canonical names live next to the primitive path (`packages/ui/src/primitives/date-picker.tsx` / `time-picker.tsx`). The shim files are intentionally thin (~30 LOC) and should not accumulate logic.
+
+### Anti-patterns
+
+- `import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'` in any new file → use the primitive path.
+- Wrapping the shim in another wrapper to add features → land the feature on the primitive instead.
 
 ---
 
