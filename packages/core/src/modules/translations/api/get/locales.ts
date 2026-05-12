@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -22,7 +22,7 @@ async function GET(req: Request) {
 
     return NextResponse.json({ locales: Array.isArray(locales) ? locales : [...defaultLocales] })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[translations/locales.GET] Unexpected error', err)

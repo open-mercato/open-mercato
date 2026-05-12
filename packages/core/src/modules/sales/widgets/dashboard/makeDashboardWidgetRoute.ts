@@ -6,7 +6,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveDateRange } from '@open-mercato/ui/backend/date-range'
 import type { DatePeriodOption } from '../../api/dashboard/widgets/helpers'
@@ -204,7 +204,7 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
 
       return NextResponse.json(response)
     } catch (err) {
-      if (err instanceof CrudHttpError) {
+      if (isCrudHttpError(err)) {
         return NextResponse.json(err.body, { status: err.status })
       }
       console.error(`${config.errorPrefix} failed`, err)

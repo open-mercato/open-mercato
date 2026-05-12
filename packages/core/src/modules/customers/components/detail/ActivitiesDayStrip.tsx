@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -13,6 +14,29 @@ interface ActivitiesDayStripProps {
   selectedDate: Date
   onSelectDate: (date: Date) => void
   refreshKey?: number
+  /**
+   * Optional pre-fetched events. When provided, the day strip skips its own fetch
+   * and uses the supplied list, ensuring its busyness count agrees with the
+   * activity list rendered alongside it (issue #1809 — E1 status filter alignment).
+   */
+  events?: InteractionSummary[]
+}
+
+const USER_TIMEZONE = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+})()
+
+// Project a UTC ISO timestamp to the user's local timezone before comparing
+// "same day" (issue #1809 — E3). The browser's `new Date(iso)` treats the
+// instant correctly, but `getDate()/getMonth()/getFullYear()` reflect the
+// user's local day, so for activities scheduled at e.g. 23:30 local on a UTC
+// boundary the day-strip and list now agree.
+function toLocalZonedDate(value: string | Date): Date {
+  return toZonedTime(value, USER_TIMEZONE)
 }
 
 const VISIBLE_DAYS = 5
@@ -114,7 +138,10 @@ function computeDayBusyness(events: InteractionSummary[], day: Date): DayBusynes
     if (!startIso) continue
     const start = new Date(startIso)
     if (Number.isNaN(start.getTime())) continue
-    if (!isSameDay(start, day)) continue
+    // Compare in the user's local timezone so an activity at 23:30 local time
+    // doesn't bleed into the next UTC day's chip (issue #1809 — E3).
+    const localStart = toLocalZonedDate(startIso)
+    if (!isSameDay(localStart, day)) continue
     eventCount += 1
     const durationMinutes = typeof event.duration === 'number' && event.duration > 0 ? event.duration : 30
     totalMinutes += durationMinutes
@@ -171,10 +198,14 @@ function formatDayLabel(date: Date, t: TranslateFn): string {
   return entry ? t(entry[1], entry[2]) : ''
 }
 
-export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0 }: ActivitiesDayStripProps) {
+export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
-  const [events, setEvents] = React.useState<InteractionSummary[]>([])
+  const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
+  // When the parent supplies `events` (preferred path — keeps day strip and
+  // the list in lockstep, fixes #1809 E1), skip the local fetch entirely.
+  const useProvidedEvents = providedEvents !== undefined
+  const events = useProvidedEvents ? providedEvents : fetchedEvents
 
   React.useEffect(() => {
     setAnchor((current) => {
@@ -189,6 +220,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   const headerLabel = React.useMemo(() => formatMonthLabel(visibleDays[0], t), [visibleDays, t])
 
   React.useEffect(() => {
+    if (useProvidedEvents) return
     if (!entityId || visibleDays.length === 0) return
     const controller = new AbortController()
     const fromIso = startOfDay(visibleDays[0]).toISOString()
@@ -208,16 +240,16 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
           `/api/customers/interactions?${params.toString()}`,
           { signal: controller.signal },
         )
-        setEvents(Array.isArray(payload?.items) ? payload.items : [])
+        setFetchedEvents(Array.isArray(payload?.items) ? payload.items : [])
       } catch (err) {
         if ((err as { name?: string } | null)?.name !== 'AbortError') {
           console.warn('[ActivitiesDayStrip] failed to load interactions', err)
         }
-        setEvents([])
+        setFetchedEvents([])
       }
     })()
     return () => controller.abort()
-  }, [entityId, visibleDays, refreshKey])
+  }, [entityId, visibleDays, refreshKey, useProvidedEvents])
 
   const todayDate = React.useMemo(() => startOfDay(new Date()), [])
 

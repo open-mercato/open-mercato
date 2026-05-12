@@ -885,6 +885,8 @@
   "ui.perspectives.untitled": "Unbenannte Perspektive",
   "ui.perspectives.updated": "Aktualisiert {date}",
   "ui.rowActions.openActions": "Aktionen öffnen",
+  "ui.sidebar.chevron.scrollBottom": "Nach unten scrollen",
+  "ui.sidebar.chevron.scrollTop": "Nach oben scrollen",
   "ui.spinner.ariaLabel": "Wird geladen",
   "ui.spinner.srOnly": "Wird geladen...",
   "ui.timePicker.clearButton": "Löschen",

@@ -21,6 +21,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -37,6 +38,17 @@ type DocumentBinding = {
 }
 
 const rawBodySchema = z.object({}).passthrough()
+
+const normalizeJsonRecord = (value: unknown): Record<string, unknown> | null => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
 
 const resolveCustomerName = (snapshot: Record<string, unknown> | null, fallback?: string | null) => {
   if (!snapshot) return fallback ?? null
@@ -155,38 +167,43 @@ function buildSortMap(numberColumn: string) {
   }
 }
 
-const mapUpdateResponse = (entity: any) => ({
-  id: entity?.id ?? null,
-  orderNumber: entity?.orderNumber ?? null,
-  quoteNumber: entity?.quoteNumber ?? null,
-  customerEntityId: entity?.customerEntityId ?? null,
-  customerContactId: entity?.customerContactId ?? null,
-  customerSnapshot: entity?.customerSnapshot ?? null,
-  metadata: entity?.metadata ?? null,
-  externalReference: entity?.externalReference ?? null,
-  customerReference: entity?.customerReference ?? null,
-  comment: entity?.comments ?? null,
-  statusEntryId: (entity as any)?.statusEntryId ?? null,
-  status: (entity as any)?.status ?? null,
-  channelId: (entity as any)?.channelId ?? null,
-  customerName: resolveCustomerName(entity?.customerSnapshot ?? null, entity?.customerEntityId ?? null),
-  contactEmail:
-    resolveCustomerEmail(entity?.customerSnapshot ?? null) ??
-    (typeof entity?.metadata?.customerEmail === 'string' ? entity.metadata.customerEmail : null),
-  currencyCode: entity?.currencyCode ?? null,
-  placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
-  expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
-  shippingAddressId: entity?.shippingAddressId ?? null,
-  billingAddressId: entity?.billingAddressId ?? null,
-  shippingAddressSnapshot: entity?.shippingAddressSnapshot ?? null,
-  billingAddressSnapshot: entity?.billingAddressSnapshot ?? null,
-  shippingMethodId: entity?.shippingMethodId ?? null,
-  shippingMethodCode: entity?.shippingMethodCode ?? null,
-  shippingMethodSnapshot: entity?.shippingMethodSnapshot ?? null,
-  paymentMethodId: entity?.paymentMethodId ?? null,
-  paymentMethodCode: entity?.paymentMethodCode ?? null,
-  paymentMethodSnapshot: entity?.paymentMethodSnapshot ?? null,
-})
+const mapUpdateResponse = (entity: any) => {
+  const customerSnapshot = normalizeJsonRecord(entity?.customerSnapshot)
+  const metadata = normalizeJsonRecord(entity?.metadata)
+
+  return {
+    id: entity?.id ?? null,
+    orderNumber: entity?.orderNumber ?? null,
+    quoteNumber: entity?.quoteNumber ?? null,
+    customerEntityId: entity?.customerEntityId ?? null,
+    customerContactId: entity?.customerContactId ?? null,
+    customerSnapshot,
+    metadata,
+    externalReference: entity?.externalReference ?? null,
+    customerReference: entity?.customerReference ?? null,
+    comment: entity?.comments ?? null,
+    statusEntryId: (entity as any)?.statusEntryId ?? null,
+    status: (entity as any)?.status ?? null,
+    channelId: (entity as any)?.channelId ?? null,
+    customerName: resolveCustomerName(customerSnapshot, entity?.customerEntityId ?? null),
+    contactEmail:
+      resolveCustomerEmail(customerSnapshot) ??
+      (typeof metadata?.customerEmail === 'string' ? metadata.customerEmail : null),
+    currencyCode: entity?.currencyCode ?? null,
+    placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
+    expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
+    shippingAddressId: entity?.shippingAddressId ?? null,
+    billingAddressId: entity?.billingAddressId ?? null,
+    shippingAddressSnapshot: normalizeJsonRecord(entity?.shippingAddressSnapshot),
+    billingAddressSnapshot: normalizeJsonRecord(entity?.billingAddressSnapshot),
+    shippingMethodId: entity?.shippingMethodId ?? null,
+    shippingMethodCode: entity?.shippingMethodCode ?? null,
+    shippingMethodSnapshot: normalizeJsonRecord(entity?.shippingMethodSnapshot),
+    paymentMethodId: entity?.paymentMethodId ?? null,
+    paymentMethodCode: entity?.paymentMethodCode ?? null,
+    paymentMethodSnapshot: normalizeJsonRecord(entity?.paymentMethodSnapshot),
+  }
+}
 
 const attachTags = async (payload: any, ctx: any) => {
   const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
@@ -369,10 +386,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           shippingAddressId: item.shipping_address_id ?? null,
           shippingMethodId: item.shipping_method_id ?? null,
           shippingMethodCode: item.shipping_method_code ?? null,
-          shippingMethodSnapshot: item.shipping_method_snapshot ?? null,
+          shippingMethodSnapshot: normalizeJsonRecord(item.shipping_method_snapshot),
           paymentMethodId: item.payment_method_id ?? null,
           paymentMethodCode: item.payment_method_code ?? null,
-          paymentMethodSnapshot: item.payment_method_snapshot ?? null,
+          paymentMethodSnapshot: normalizeJsonRecord(item.payment_method_snapshot),
           currencyCode: item.currency_code ?? null,
           channelId: item.channel_id ?? null,
           externalReference: item.external_reference ?? null,
@@ -395,10 +412,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           paidTotalAmount: toNumber(item.paid_total_amount),
           refundedTotalAmount: toNumber(item.refunded_total_amount),
           outstandingAmount: toNumber(item.outstanding_amount),
-          customerSnapshot: item.customer_snapshot ?? null,
-          billingAddressSnapshot: item.billing_address_snapshot ?? null,
-          shippingAddressSnapshot: item.shipping_address_snapshot ?? null,
-          metadata: item.metadata ?? null,
+          customerSnapshot: normalizeJsonRecord(item.customer_snapshot),
+          billingAddressSnapshot: normalizeJsonRecord(item.billing_address_snapshot),
+          shippingAddressSnapshot: normalizeJsonRecord(item.shipping_address_snapshot),
+          metadata: normalizeJsonRecord(item.metadata),
           organizationId: item.organization_id ?? null,
           tenantId: item.tenant_id ?? null,
           createdAt: item.created_at,

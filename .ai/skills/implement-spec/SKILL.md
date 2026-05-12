@@ -1,6 +1,6 @@
 ---
 name: implement-spec
-description: Implement a specification (or specific phases of a spec) using coordinated subagents. Handles multi-phase spec implementation with unit tests, integration tests, documentation, and code-review compliance. Use when the user says "implement spec", "implement the spec", "implement a dated spec file", "implement phases", "build from spec", or "code the spec". Tracks progress by updating the spec with implementation status.
+description: Implement a specification (or specific phases) using coordinated subagents with unit tests, integration tests, docs, and code-review compliance. Tracks progress by updating the spec. Triggers on "implement spec", "implement phases", "build from spec", "code the spec".
 ---
 
 # Implement Spec Skill
@@ -72,15 +72,19 @@ For every piece of code, enforce these code-review rules inline:
 | Area | Rule |
 |------|------|
 | Types | No `any` — use zod + `z.infer` |
-| API routes | Export `openApi` and `metadata` with auth guards |
-| Entities | Standard columns, snake_case, UUID PKs |
+| API routes | Export `openApi` and per-method `metadata` with `requireAuth` / `requireFeatures` (no top-level `export const requireAuth`) |
+| **CRUD APIs** | **Use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success. See `packages/core/AGENTS.md` → API Routes / CRUD Factory.** |
+| Entities | Standard columns, snake_case, UUID PKs, indexed `organization_id` + `tenant_id` |
 | Security | `findWithDecryption`, tenant scoping, zod validation |
-| UI | `CrudForm`/`DataTable`, `apiCall`, `flash()`, `LoadingMessage`/`ErrorMessage` |
+| **Encryption maps** | **For every PII / GDPR-relevant column the phase touches, declare in `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads via `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. NEVER hand-rolled AES/KMS, `crypto.subtle`, or "encrypt later" stubs. See `packages/core/AGENTS.md` → Encryption + `apps/docs/docs/user-guide/encryption.mdx`.** |
+| UI | `CrudForm`/`DataTable` (with stable `entityId` + `extensionTableId`), `apiCall` (never raw `fetch`), `flash()`, `LoadingMessage`/`ErrorMessage` |
+| **Design System** | **Semantic status tokens (no `text-red-*` / `bg-green-*`); Tailwind text scale (no `text-[13px]` / `text-[11px]`); shared primitives `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `Spinner` / `DataLoader` / `EmptyState`; lucide-react icons in PAGE BODY (never inline `<svg>`); `aria-label` on every icon-only button; Boy Scout rule on touched lines. See root `AGENTS.md` → Design System Rules + `.ai/ds-rules.md` + `.ai/ui-components.md`.** |
+| **Cache** | **Resolve via DI (`container.resolve('cache')`); tag with `tenant:<id>` / `org:<id>`; declare invalidation per write path. NEVER `new Redis(...)` or raw SQLite. See `packages/cache/AGENTS.md`.** |
 | Commands | `registerCommand`, undoable, `extractUndoPayload()` |
-| Events | `createModuleEvents()` with `as const`, subscribers export `metadata` |
+| Events | `createModuleEvents()` with `as const`; subscribers export `metadata`; cross-module side effects via subscribers, never direct imports |
 | i18n | `useT()` client, `resolveTranslations()` server, no hardcoded strings |
 | Imports | Package-level `@open-mercato/<pkg>/...` for cross-module |
-| Mutations | `useGuardedMutation` when not using CrudForm |
+| Mutations | `useGuardedMutation` when not using CrudForm; pass `retryLastMutation` in injection context |
 | Keyboard | `Cmd/Ctrl+Enter` submit, `Escape` cancel on dialogs |
 | Naming | Modules plural snake_case, events `module.entity.past_tense`, features `module.action` |
 

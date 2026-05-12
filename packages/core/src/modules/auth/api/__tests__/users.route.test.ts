@@ -1,10 +1,13 @@
 /** @jest-environment node */
 
-import { GET } from '@open-mercato/core/modules/auth/api/users/route'
+import { GET, POST, PUT } from '@open-mercato/core/modules/auth/api/users/route'
+import { Role, RoleAcl, User } from '@open-mercato/core/modules/auth/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockFindOneWithDecryption = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
 const mockLogCrudAccess = jest.fn()
 
@@ -28,6 +31,7 @@ const mockKysely = { selectFrom: mockSelectFrom }
 
 const mockEm = {
   find: jest.fn(),
+  findOne: jest.fn(),
   findAndCount: jest.fn(),
   getKysely: jest.fn(() => mockKysely),
 }
@@ -48,11 +52,42 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+type MockCrudAction = {
+  schema?: { parse: (input: unknown) => Record<string, unknown> }
+  mapInput?: (args: {
+    parsed: Record<string, unknown>
+    raw: Record<string, unknown>
+    ctx: { request: Request }
+  }) => Promise<unknown> | unknown
+  status?: number
+}
+
+async function mockRunCrudAction(action: MockCrudAction | undefined, request: Request): Promise<Response> {
+  try {
+    const raw = await request.json().catch(() => ({})) as Record<string, unknown>
+    const parsed = action?.schema ? action.schema.parse(raw) : raw
+    if (action?.mapInput) await action.mapInput({ parsed, raw, ctx: { request } })
+    return new Response(JSON.stringify({ id: 'created-id' }), {
+      status: action?.status ?? 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (err) {
+    const httpError = err as { status?: unknown; body?: unknown; message?: string }
+    if (typeof httpError.status === 'number') {
+      return new Response(JSON.stringify(httpError.body ?? { error: httpError.message ?? 'Request failed' }), {
+        status: httpError.status,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    throw err
+  }
+}
+
 jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
-  makeCrudRoute: jest.fn((opts: { metadata: unknown }) => ({
+  makeCrudRoute: jest.fn((opts: { metadata: unknown; actions?: { create?: MockCrudAction; update?: MockCrudAction } }) => ({
     metadata: opts.metadata,
-    POST: jest.fn(),
-    PUT: jest.fn(),
+    POST: jest.fn((request: Request) => mockRunCrudAction(opts.actions?.create, request)),
+    PUT: jest.fn((request: Request) => mockRunCrudAction(opts.actions?.update, request)),
     DELETE: jest.fn(),
   })),
   logCrudAccess: jest.fn((args: unknown) => mockLogCrudAccess(args)),
@@ -60,6 +95,7 @@ jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
@@ -80,9 +116,11 @@ describe('GET /api/auth/users', () => {
     mockGetAuthFromRequest.mockReset()
     mockLoadAcl.mockReset()
     mockEm.find.mockReset()
+    mockEm.findOne.mockReset()
     mockEm.findAndCount.mockReset()
     mockEm.getKysely.mockClear()
     mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
     mockLoadCustomFieldValues.mockReset()
     mockLogCrudAccess.mockReset()
     mockContainer.resolve.mockClear()
@@ -102,8 +140,10 @@ describe('GET /api/auth/users', () => {
     })
     mockLoadAcl.mockResolvedValue({ isSuperAdmin: false })
     mockEm.find.mockResolvedValue([])
+    mockEm.findOne.mockResolvedValue(null)
     mockEm.findAndCount.mockResolvedValue([[], 0])
     mockFindWithDecryption.mockResolvedValue([])
+    mockFindOneWithDecryption.mockResolvedValue(null)
     mockLoadCustomFieldValues.mockResolvedValue({})
     mockLogCrudAccess.mockResolvedValue(undefined)
   })
@@ -387,5 +427,113 @@ describe('GET /api/auth/users', () => {
       { tenantId },
     ]))
     expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('allows assigning a role whose wildcard ACL is covered by actor wildcard ACL', async () => {
+    const employeeRoleId = '323e4567-e89b-12d3-a456-426614174776'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.create', 'example.*'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Organization) return { id: organizationId, tenant: { id: tenantId } }
+      if (entity === Role) return { id: employeeRoleId, name: 'employee', tenantId }
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: false,
+          featuresJson: ['example.widgets.*'],
+          organizationsJson: null,
+          tenantId,
+        }
+      }
+      return null
+    })
+
+    const response = await POST(new Request('http://localhost/api/auth/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'employee-create@example.com',
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [employeeRoleId],
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+  })
+
+  test('rejects limited users assigning a role whose ACL grants features outside the actor ACL', async () => {
+    const privilegedRoleId = '323e4567-e89b-12d3-a456-426614174777'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.create'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Organization) return { id: organizationId, tenant: { id: tenantId } }
+      if (entity === Role) return { id: privilegedRoleId, name: 'Tenant Admin', tenantId }
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: false,
+          featuresJson: ['auth.*'],
+          organizationsJson: null,
+          tenantId,
+        }
+      }
+      return null
+    })
+
+    const response = await POST(new Request('http://localhost/api/auth/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'limited-create@example.com',
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [privilegedRoleId],
+      }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('Cannot grant feature')
+  })
+
+  test('rejects limited users reassigning an existing user to a privileged role on update', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174501'
+    const privilegedRoleId = '323e4567-e89b-12d3-a456-426614174778'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Role) return { id: privilegedRoleId, name: 'Tenant Admin', tenantId }
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: false,
+          featuresJson: ['api_keys.create'],
+          organizationsJson: null,
+          tenantId,
+        }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        roles: [privilegedRoleId],
+      }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('Cannot grant feature api_keys.create')
   })
 })

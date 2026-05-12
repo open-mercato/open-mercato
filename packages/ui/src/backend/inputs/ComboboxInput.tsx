@@ -61,6 +61,7 @@ export function ComboboxInput({
   const [showSuggestions, setShowSuggestions] = React.useState(false)
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
 
   const staticOptions = React.useMemo(() => normalizeOptions(suggestions), [suggestions])
 
@@ -223,6 +224,10 @@ export function ComboboxInput({
         disabled={disabled}
         onFocus={() => {
           setTouched(true)
+          if (suppressOpenOnFocusRef.current) {
+            suppressOpenOnFocusRef.current = false
+            return
+          }
           setShowSuggestions(true)
         }}
         onChange={(event) => {
@@ -242,7 +247,7 @@ export function ComboboxInput({
       />
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
-        <div className="absolute z-dropdown w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
+        <div className="absolute z-popover w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">Loading suggestions…</div>
           ) : (

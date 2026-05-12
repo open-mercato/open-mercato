@@ -76,20 +76,41 @@ describe('TenantDataEncryptionService.decryptFields (issue #1734)', () => {
     expect(out.primary_email).toBe('mail@example.com')
   })
 
-  it('still recovers JSON object payloads (audit_logs use case)', () => {
+  it('returns the raw JSON-string payload for JSON-object values (issue #1810 follow-up)', () => {
+    // After the issue #1810 follow-up, decryptFields no longer auto-parses
+    // decrypted entity-field strings — even when they happen to look like
+    // JSON. Callers that legitimately need the parsed shape (audit_logs jsonb
+    // columns, custom-field rotation, encryption CLI) MUST invoke
+    // `parseDecryptedFieldValue` themselves on the decrypted payload.
     const service = makeService()
     const payload = { actor: 'user-1', changes: { name: 'old → new' } }
-    const obj = { context_json: encrypt(JSON.stringify(payload)) }
+    const serialized = JSON.stringify(payload)
+    const obj = { context_json: encrypt(serialized) }
     const out = service.decryptFields(obj, [{ field: 'context_json' }], { key: fixedKey } as never)
-    expect(out.context_json).toEqual(payload)
+    expect(out.context_json).toBe(serialized)
+    expect(typeof out.context_json).toBe('string')
   })
 
-  it('still recovers JSON array payloads', () => {
+  it('returns the raw JSON-string payload for JSON-array values', () => {
     const service = makeService()
     const arr = [{ id: 1 }, { id: 2 }]
-    const obj = { thread_messages: encrypt(JSON.stringify(arr)) }
+    const serialized = JSON.stringify(arr)
+    const obj = { thread_messages: encrypt(serialized) }
     const out = service.decryptFields(obj, [{ field: 'thread_messages' }], { key: fixedKey } as never)
-    expect(out.thread_messages).toEqual(arr)
+    expect(out.thread_messages).toBe(serialized)
+    expect(typeof out.thread_messages).toBe('string')
+  })
+
+  it('preserves JSON-object-shaped display names as raw strings (regression: issue #1810)', () => {
+    // Display names like `{"a":1,"qa":12345}` are typed as text and must remain
+    // strings so React can render them safely in detail/list views. Auto-parsing
+    // them used to throw "Objects are not valid as a React child".
+    const service = makeService()
+    const raw = '{"a":1,"qa":12345}'
+    const obj = { display_name: encrypt(raw) }
+    const out = service.decryptFields(obj, [{ field: 'display_name' }], { key: fixedKey } as never)
+    expect(out.display_name).toBe(raw)
+    expect(typeof out.display_name).toBe('string')
   })
 
   it('keeps boolean-like and null-like text strings as strings', () => {

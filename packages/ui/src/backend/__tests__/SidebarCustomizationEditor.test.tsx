@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { SidebarCustomizationEditor } from '../sidebar/SidebarCustomizationEditor'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -176,6 +176,86 @@ describe('SidebarCustomizationEditor', () => {
       expect(screen.getByText('Staff')).toBeInTheDocument()
     })
     expect(screen.getByText('Admin')).toBeInTheDocument()
+  })
+
+  it('shows duplicate-name error inline inside the add-variant dialog (not on the page behind it)', async () => {
+    const duplicateMessage = 'A variant with this name already exists. Choose a different name.'
+
+    apiCallMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && /\/api\/auth\/sidebar\/variants$/.test(url)) {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          result: { error: duplicateMessage, code: 'duplicate_name' },
+          response: {},
+          cacheStatus: null,
+        } as ApiCallResult<unknown>)
+      }
+      if (/\/api\/auth\/sidebar\/variants/.test(url)) {
+        return Promise.resolve(okResult({ locale: 'en', variants: [] }))
+      }
+      if (/\/api\/auth\/sidebar\/preferences/.test(url)) {
+        return Promise.resolve(okResult({ canApplyToRoles: false, roles: [] }))
+      }
+      throw new Error(`apiCall mock: no response configured for ${url}`)
+    })
+
+    renderWithProviders(<SidebarCustomizationEditor groups={fakeGroups} />, { dict })
+
+    const openDialogButton = await screen.findByRole('button', { name: /Create new/ })
+    fireEvent.click(openDialogButton)
+
+    const dialog = await screen.findByRole('dialog')
+    const nameInput = within(dialog).getByPlaceholderText('My preferences')
+    fireEvent.change(nameInput, { target: { value: 'My Variant' } })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Create variant/ }))
+
+    const dialogAlert = await within(dialog).findByRole('alert')
+    expect(dialogAlert).toHaveTextContent(duplicateMessage)
+    expect(within(dialog).getByRole('textbox')).toHaveAttribute('aria-invalid', 'true')
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    expect(screen.getAllByText(duplicateMessage)).toHaveLength(1)
+  })
+
+  it('clears the inline dialog error when the user edits the name', async () => {
+    const duplicateMessage = 'A variant with this name already exists. Choose a different name.'
+
+    apiCallMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && /\/api\/auth\/sidebar\/variants$/.test(url)) {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          result: { error: duplicateMessage, code: 'duplicate_name' },
+          response: {},
+          cacheStatus: null,
+        } as ApiCallResult<unknown>)
+      }
+      if (/\/api\/auth\/sidebar\/variants/.test(url)) {
+        return Promise.resolve(okResult({ locale: 'en', variants: [] }))
+      }
+      if (/\/api\/auth\/sidebar\/preferences/.test(url)) {
+        return Promise.resolve(okResult({ canApplyToRoles: false, roles: [] }))
+      }
+      throw new Error(`apiCall mock: no response configured for ${url}`)
+    })
+
+    renderWithProviders(<SidebarCustomizationEditor groups={fakeGroups} />, { dict })
+
+    const openDialogButton = await screen.findByRole('button', { name: /Create new/ })
+    fireEvent.click(openDialogButton)
+    const dialog = await screen.findByRole('dialog')
+    const nameInput = within(dialog).getByPlaceholderText('My preferences')
+    fireEvent.change(nameInput, { target: { value: 'My Variant' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /Create variant/ }))
+
+    await within(dialog).findByRole('alert')
+
+    fireEvent.change(nameInput, { target: { value: 'My Variant 2' } })
+
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('does not render the role-apply target list when canApplyToRoles is false', async () => {

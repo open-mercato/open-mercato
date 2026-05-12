@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -88,7 +88,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       })),
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.GET] Unexpected error', err)
@@ -152,7 +152,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.POST] Unexpected error', err)

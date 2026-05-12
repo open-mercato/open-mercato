@@ -4,7 +4,9 @@ import * as React from 'react'
 import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -12,7 +14,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
-import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
+import { PhoneNumberField, SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   useScheduleFormState,
@@ -112,15 +114,41 @@ export function ScheduleActivityDialog({
   const [callDirection, setCallDirection] = React.useState<'outbound' | 'inbound'>('outbound')
   const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
   const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
+  const [callPhoneError, setCallPhoneError] = React.useState<string | null>(null)
   const [taskPriority, setTaskPriority] = React.useState<string>('medium')
+  const callPhoneInvalidMessage = React.useMemo(
+    () =>
+      t(
+        'customers.activities.errors.phoneInvalid',
+        'Enter a valid phone number with country code (e.g. +1 212 555 1234)',
+      ),
+    [t],
+  )
+  const translateErrorMessage = React.useCallback(
+    (message: string | undefined, fallback: string) => {
+      const key = typeof message === 'string' ? message.trim() : ''
+      return key ? t(key, key) : fallback
+    },
+    [t],
+  )
 
   React.useEffect(() => {
     if (!open) return
-    const raw = editData as (Record<string, unknown> & { customValues?: unknown }) | null | undefined
+    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown }) | null | undefined
     const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
     setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
     setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
-    setCallPhoneNumber(typeof cv?.callPhoneNumber === 'string' ? cv.callPhoneNumber : '')
+    // Seed phone number from either top-level `phoneNumber` (newer write path)
+    // or legacy `customValues.callPhoneNumber` so previously-saved calls still
+    // round-trip on edit (#1808).
+    const seededPhone =
+      typeof raw?.phoneNumber === 'string' && raw.phoneNumber.trim().length > 0
+        ? raw.phoneNumber
+        : typeof cv?.callPhoneNumber === 'string'
+          ? cv.callPhoneNumber
+          : ''
+    setCallPhoneNumber(seededPhone)
+    setCallPhoneError(null)
     setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
   }, [open, editData])
 
@@ -131,8 +159,14 @@ export function ScheduleActivityDialog({
     setCallDirection('outbound')
     setCallOutcome(null)
     setCallPhoneNumber('')
+    setCallPhoneError(null)
     setTaskPriority('medium')
   }, [state.activityType, open, isEditing])
+
+  const handleCallPhoneChange = React.useCallback((next: string | undefined) => {
+    setCallPhoneNumber(next ?? '')
+    setCallPhoneError(null)
+  }, [])
 
   const formSnapshot = React.useMemo(() => JSON.stringify({
     activityType: state.activityType,
@@ -284,8 +318,41 @@ export function ScheduleActivityDialog({
     return () => clearTimeout(timer)
   }, [editData?.id, open, state.date, state.startTime, state.duration, state.allDay, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const trimmedDate = state.date.trim()
+  const trimmedStartTime = state.startTime.trim()
+  const trimmedCallPhone = callPhoneNumber.trim()
+  const isDateMissing = !trimmedDate
+  const isTimeMissing = !state.allDay && !trimmedStartTime
+  const isSubmitDisabled =
+    state.saving ||
+    !state.title.trim() ||
+    isDateMissing ||
+    isTimeMissing
+
   const handleSave = React.useCallback(async () => {
     if (!state.title.trim()) return
+    if (isDateMissing) {
+      flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
+      return
+    }
+    if (isTimeMissing) {
+      flash(t('customers.activities.errors.timeRequired', 'Time is required'), 'error')
+      return
+    }
+    let phoneNumberForPayload: string | undefined
+    if (state.activityType === 'call' && trimmedCallPhone) {
+      const phoneValidation = validatePhoneNumber(trimmedCallPhone)
+      if (!phoneValidation.valid) {
+        setCallPhoneError(callPhoneInvalidMessage)
+        flash(callPhoneInvalidMessage, 'error')
+        return
+      }
+      phoneNumberForPayload = phoneValidation.normalized ?? trimmedCallPhone
+      setCallPhoneError(null)
+      if (phoneNumberForPayload !== callPhoneNumber) {
+        setCallPhoneNumber(phoneNumberForPayload)
+      }
+    }
     state.setSaving(true)
     try {
       const scheduledAt = state.allDay
@@ -301,7 +368,7 @@ export function ScheduleActivityDialog({
       if (state.activityType === 'call') {
         customValues.callDirection = callDirection
         if (callOutcome) customValues.callOutcome = callOutcome
-        if (callPhoneNumber.trim()) customValues.callPhoneNumber = callPhoneNumber.trim()
+        if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
       if (state.activityType === 'task') {
         customValues.taskPriority = taskPriority
@@ -314,6 +381,9 @@ export function ScheduleActivityDialog({
         title: state.title.trim(),
         body: state.description.trim() || null,
         status: 'planned',
+        date: trimmedDate,
+        time: state.allDay ? '00:00' : trimmedStartTime,
+        phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -350,12 +420,23 @@ export function ScheduleActivityDialog({
       onClose()
       // Delay data reload so the dialog can unmount cleanly and Radix restores body scroll
       requestAnimationFrame(() => { onActivityCreated?.() })
-    } catch {
-      flash(t('customers.schedule.error', 'Failed to schedule activity'), 'error')
+    } catch (err) {
+      const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+      const phoneFieldError = fieldErrors?.phoneNumber
+      if (state.activityType === 'call' && phoneFieldError) {
+        const translatedPhoneError = translateErrorMessage(phoneFieldError, callPhoneInvalidMessage)
+        setCallPhoneError(translatedPhoneError)
+        flash(translatedPhoneError, 'error')
+        return
+      }
+      flash(
+        translateErrorMessage(message, t('customers.schedule.error', 'Failed to schedule activity')),
+        'error',
+      )
     } finally {
       state.setSaving(false)
     }
-  }, [state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, state.title, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -580,15 +661,17 @@ export function ScheduleActivityDialog({
         {/* Location (or phone number for calls) */}
         {state.activityType === 'call' ? (
           <div className="flex flex-col gap-1.5">
-            <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+            <label htmlFor="schedule-call-phone" className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
               {t('customers.schedule.call.phoneLabel', 'Phone number')}
             </label>
-            <input
-              type="tel"
+            <PhoneNumberField
+              id="schedule-call-phone"
               value={callPhoneNumber}
-              onChange={(e) => setCallPhoneNumber(e.target.value)}
+              onValueChange={handleCallPhoneChange}
               placeholder={t('customers.schedule.call.phonePlaceholder', '+1 555 000 0000')}
-              className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-foreground"
+              externalError={callPhoneError}
+              invalidLabel={callPhoneInvalidMessage}
+              minDigits={7}
             />
           </div>
         ) : (
@@ -642,7 +725,7 @@ export function ScheduleActivityDialog({
           <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-md border border-input bg-background px-5 py-3 text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
+          <Button type="button" onClick={handleSave} disabled={isSubmitDisabled} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
             <SaveIcon className="size-3.5" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')

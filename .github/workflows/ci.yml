@@ -10,10 +10,12 @@ on:
     branches:
       - main
       - develop
+      - feat/wms
   pull_request:
     branches:
       - main
       - develop
+      - feat/wms
 
 # Cancel any in-progress run on the same branch when a new push arrives.
 # Prevents multiple long runs queuing up from rapid pushes.

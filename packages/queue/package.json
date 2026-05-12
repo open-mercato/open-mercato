@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/queue",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Multi-strategy job queue with local and BullMQ support",
   "type": "module",
   "main": "./dist/index.js",
@@ -42,8 +42,8 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.0",
-    "jest": "^30.3.0",
+    "@types/node": "^25.6.2",
+    "jest": "^30.4.2",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

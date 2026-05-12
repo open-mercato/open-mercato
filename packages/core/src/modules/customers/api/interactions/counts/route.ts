@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -21,6 +21,7 @@ const responseSchema = z.object({
     email: z.number(),
     meeting: z.number(),
     note: z.number(),
+    task: z.number(),
     total: z.number(),
   }),
 })
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
       .groupBy('interaction_type')
       .execute() as Array<{ interaction_type: string; count: string | number }>
 
-    const counts: Record<string, number> = { call: 0, email: 0, meeting: 0, note: 0 }
+    const counts: Record<string, number> = { call: 0, email: 0, meeting: 0, note: 0, task: 0 }
     let total = 0
     for (const row of rows) {
       const count = typeof row.count === 'string' ? parseInt(row.count, 10) : row.count
@@ -105,7 +106,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ok: true, result: { ...counts, total } })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/interactions/counts] GET failed', err)

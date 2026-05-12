@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -77,7 +77,7 @@ export async function GET(req: Request) {
       },
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     console.error('staff.teamMembers.self.load failed', err)
     return NextResponse.json({ member: null })
   }
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()

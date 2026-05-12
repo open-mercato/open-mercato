@@ -67,6 +67,7 @@ export function TranslationManager({
   const [selectedRecordId, setSelectedRecordId] = React.useState(propRecordId ?? '')
   const [activeLocale, setActiveLocale] = React.useState('')
   const [editedTranslations, setEditedTranslations] = React.useState<Record<string, Record<string, string>>>({})
+  const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
@@ -194,7 +195,10 @@ export function TranslationManager({
     lastTranslationSignatureRef.current = sig
 
     if (!translationData?.translations) {
-      if (!hasUserEdited) setEditedTranslations({})
+      if (!hasUserEdited) {
+        editedTranslationsRef.current = {}
+        setEditedTranslations({})
+      }
       return
     }
 
@@ -206,7 +210,10 @@ export function TranslationManager({
         parsed[locale][key] = typeof val === 'string' ? val : ''
       }
     }
-    if (!hasUserEdited) setEditedTranslations(parsed)
+    if (!hasUserEdited) {
+      editedTranslationsRef.current = parsed
+      setEditedTranslations(parsed)
+    }
   }, [translationSignature, translationData, hasUserEdited])
 
   const mutation = useMutation({
@@ -215,7 +222,7 @@ export function TranslationManager({
         throw new Error(t('translations.manager.errors.selectRecord', 'Select an entity and record before saving'))
       }
       const body: Record<string, Record<string, string | null>> = {}
-      for (const [locale, fields] of Object.entries(editedTranslations)) {
+      for (const [locale, fields] of Object.entries(editedTranslationsRef.current)) {
         const localeFields: Record<string, string | null> = {}
         let hasValues = false
         for (const [key, val] of Object.entries(fields)) {
@@ -256,13 +263,15 @@ export function TranslationManager({
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
     setHasUserEdited(true)
-    setEditedTranslations((prev) => ({
-      ...prev,
+    const next = {
+      ...editedTranslationsRef.current,
       [locale]: {
-        ...prev[locale],
+        ...editedTranslationsRef.current[locale],
         [fieldKey]: value,
       },
-    }))
+    }
+    editedTranslationsRef.current = next
+    setEditedTranslations(next)
   }
 
   const getBaseValue = (fieldKey: string): string => resolveBaseValue(baseValues, fieldKey)

@@ -27,7 +27,7 @@ import { DealWonPopup } from '../../../../components/detail/DealWonPopup'
 import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
 import { PipelineStepper } from '../../../../components/detail/PipelineStepper'
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
-import { ScheduleActivityDialog } from '../../../../components/detail/ScheduleActivityDialog'
+import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
@@ -220,12 +220,18 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     if (activity.entityId && activityEntities.some((entry) => entry.id === activity.entityId)) {
       setSelectedActivityEntityId(activity.entityId)
     }
+    // Forward `customValues` so per-type chip state (callPhoneNumber,
+    // callDirection, taskPriority) round-trips on edit (#1808 phone persistence).
+    // Forward `occurredAt` so historical activity edits prefill from the
+    // original moment instead of "today" (#1807 prefill).
+    const rawActivity = activity as unknown as Record<string, unknown>
     openScheduleEdit({
       id: activity.id,
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,
       scheduledAt: activity.scheduledAt ?? null,
+      occurredAt: activity.occurredAt ?? null,
       durationMinutes: activity.duration ?? null,
       location: activity.location ?? null,
       allDay: activity.allDay ?? null,
@@ -236,7 +242,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       visibility: activity.visibility ?? null,
       linkedEntities: activity.linkedEntities ?? null,
       guestPermissions: activity.guestPermissions ?? null,
-    })
+      ...(rawActivity.customValues && typeof rawActivity.customValues === 'object'
+        ? { customValues: rawActivity.customValues as Record<string, unknown> }
+        : {}),
+      ...(typeof rawActivity.phoneNumber === 'string'
+        ? { phoneNumber: rawActivity.phoneNumber as string }
+        : {}),
+    } as ScheduleActivityEditData & { customValues?: Record<string, unknown> | null; phoneNumber?: string | null })
   }, [activityEntities, openScheduleEdit])
 
   const handleViewDashboard = React.useCallback(() => {

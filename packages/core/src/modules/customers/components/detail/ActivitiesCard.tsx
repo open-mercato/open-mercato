@@ -2,15 +2,25 @@
 
 import * as React from 'react'
 import { Calendar, CalendarClock, Clock, Mail, Phone, StickyNote, Users } from 'lucide-react'
+import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
 
 interface ActivitiesCardProps {
   entityId: string
+  /**
+   * Initial planned activities (from the parent route's `plannedActivitiesPreview`).
+   * Used as the seed value before the broader `/api/customers/interactions` fetch
+   * resolves, and as the fallback when the fetch fails. The card always prefers
+   * its own fetched window (issue #1809 — fixes E1 status alignment and E2 type
+   * coverage by sourcing from the same endpoint as the day strip rather than the
+   * 5-item server preview that excluded most types in practice).
+   */
   plannedActivities: InteractionSummary[]
   refreshKey?: number
   onAddNew: (kind: ActivityKind) => void
@@ -27,6 +37,20 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   email: Mail,
   meeting: Users,
   note: StickyNote,
+}
+
+const USER_TIMEZONE = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+})()
+
+// Project a UTC instant to the user's local timezone before extracting day/month/year
+// for "same day" comparisons (issue #1809 — E3 timezone drift).
+function toLocalZonedDate(value: string | Date): Date {
+  return toZonedTime(value, USER_TIMEZONE)
 }
 
 function startOfDay(date: Date): Date {
@@ -46,6 +70,11 @@ function isOverdue(activity: InteractionSummary, now: Date): boolean {
   if (Number.isNaN(date.getTime())) return false
   return date.getTime() < now.getTime() && activity.status !== 'done'
 }
+
+// Visible window for the day-strip + activity list. Mirrors `VISIBLE_DAYS = 5`
+// in ActivitiesDayStrip with extra padding so navigation forward/back doesn't
+// race the fetch.
+const FETCH_WINDOW_DAYS = 31
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -80,26 +109,83 @@ export function ActivitiesCard({
 }: ActivitiesCardProps) {
   const t = useT()
   const [selectedDate, setSelectedDate] = React.useState<Date>(() => startOfDay(new Date()))
+  // Fetch the same broader window as the day strip via the canonical interactions
+  // endpoint. This single source of truth aligns the day-strip count with the
+  // visible event list (issue #1809 — E1) and surfaces all interaction types
+  // (issue #1809 — E2: the previous reliance on the server-side 5-item preview
+  // produced "Person view shows only Calls" because the limit happened to drop
+  // every non-call entry from the prefix-window).
+  const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[] | null>(null)
+
+  React.useEffect(() => {
+    if (!entityId) {
+      setFetchedEvents(null)
+      return
+    }
+    const controller = new AbortController()
+    const today = startOfDay(new Date())
+    const fromDate = new Date(today)
+    fromDate.setDate(today.getDate() - FETCH_WINDOW_DAYS)
+    const toDate = new Date(today)
+    toDate.setDate(today.getDate() + FETCH_WINDOW_DAYS)
+    toDate.setHours(23, 59, 59, 999)
+    const params = new URLSearchParams({
+      entityId,
+      from: fromDate.toISOString(),
+      to: toDate.toISOString(),
+      // Server caps at 100 (interactions querySchema). 100 is well above what
+      // an active CRM record accumulates in a 31-day window of meetings/calls,
+      // and the day strip + list naturally degrade to truncation if exceeded.
+      limit: '100',
+      sortField: 'scheduledAt',
+      sortDir: 'asc',
+      excludeInteractionType: 'task',
+    })
+    void (async () => {
+      try {
+        const payload = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
+          `/api/customers/interactions?${params.toString()}`,
+          { signal: controller.signal },
+        )
+        setFetchedEvents(Array.isArray(payload?.items) ? payload.items : [])
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name !== 'AbortError') {
+          console.warn('[ActivitiesCard] failed to load interactions', err)
+          setFetchedEvents(null)
+        }
+      }
+    })()
+    return () => controller.abort()
+  }, [entityId, refreshKey])
+
+  // Prefer the broader fetch when it has resolved; fall back to the seed prop
+  // (route-supplied preview) only while the fetch is in flight or after a
+  // hard failure. This guarantees that the rare prop-only render path keeps
+  // backwards-compat with existing unit tests while live UI uses the broader fetch.
+  const effectiveEvents: InteractionSummary[] = fetchedEvents ?? plannedActivities
 
   const eventsForSelectedDay = React.useMemo(() => {
-    const items = plannedActivities.filter((activity) => {
+    const items = effectiveEvents.filter((activity) => {
       const scheduled = activity.scheduledAt ?? activity.occurredAt
       if (!scheduled) return false
       const date = new Date(scheduled)
       if (Number.isNaN(date.getTime())) return false
-      return isSameDay(date, selectedDate)
+      // Compare in the user's local timezone so a 23:30 local activity stays
+      // on its local-day chip instead of bleeding into the next UTC day
+      // (issue #1809 — E3).
+      return isSameDay(toLocalZonedDate(scheduled), selectedDate)
     })
     return items.sort((left, right) => {
       const leftTime = new Date(left.scheduledAt ?? left.occurredAt ?? left.createdAt).getTime()
       const rightTime = new Date(right.scheduledAt ?? right.occurredAt ?? right.createdAt).getTime()
       return leftTime - rightTime
     })
-  }, [plannedActivities, selectedDate])
+  }, [effectiveEvents, selectedDate])
 
   const overdueCount = React.useMemo(() => {
     const now = new Date()
-    return plannedActivities.filter((activity) => isOverdue(activity, now)).length
-  }, [plannedActivities])
+    return effectiveEvents.filter((activity) => isOverdue(activity, now)).length
+  }, [effectiveEvents])
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
@@ -124,6 +210,7 @@ export function ActivitiesCard({
         selectedDate={selectedDate}
         onSelectDate={setSelectedDate}
         refreshKey={refreshKey}
+        events={fetchedEvents ?? undefined}
       />
 
       {eventsForSelectedDay.length > 0 ? (

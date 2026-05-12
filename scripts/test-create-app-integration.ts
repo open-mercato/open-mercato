@@ -58,7 +58,9 @@ function writeStandaloneEnv(appDir: string): void {
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
     'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
+    'MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret',
     'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
+    'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true',
@@ -88,7 +90,9 @@ async function main(): Promise<void> {
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
+    MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
+    NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true',
@@ -96,6 +100,7 @@ async function main(): Promise<void> {
     AUTO_SPAWN_SCHEDULER: 'false',
     CACHE_STRATEGY: 'memory',
     OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180',
+    OM_TEST_APP_ROOT: appDir,
     NODE_ENV: 'test',
   }
 
