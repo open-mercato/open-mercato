@@ -853,7 +853,13 @@ export type RichEditorColorButtonProps = Omit<ToolbarButtonBaseProps, 'type' | '
 export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEditorColorButtonProps>(
   ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, palette = COLOR_KEYS, ...props }, ref) => {
     const { exec, disabled } = useRichEditorContext('RichEditorColorButton')
-    const swatchColor = colorValue ? RICH_EDITOR_COLOR_PALETTE[colorValue] : RICH_EDITOR_COLOR_PALETTE.blue
+    // Track the most recently selected colour internally so the trigger swatch
+    // reflects the latest pick even when the consumer doesn't pass a
+    // controlled `colorValue`. The `colorValue` prop still wins in controlled
+    // mode (e.g. when the consumer wants the swatch to mirror a saved value).
+    const [lastSelected, setLastSelected] = React.useState<RichEditorColorKey | null>(null)
+    const effectiveValue = colorValue ?? lastSelected
+    const swatchColor = effectiveValue ? RICH_EDITOR_COLOR_PALETTE[effectiveValue] : RICH_EDITOR_COLOR_PALETTE.blue
     return (
       <Popover>
         <PopoverTrigger asChild>
@@ -875,11 +881,12 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-36 p-1">
           <RichEditorColorPalette
-            value={colorValue}
+            value={effectiveValue}
             labels={colorLabels}
             palette={palette}
             onChange={(key) => {
               if (key) exec(command, RICH_EDITOR_COLOR_PALETTE[key])
+              setLastSelected(key)
               onSelect?.(key)
             }}
           />
