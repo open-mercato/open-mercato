@@ -11,7 +11,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../../../data/repositories/AiTokenUsageRepository', () => ({
+jest.mock('../../../../../../data/repositories/AiTokenUsageRepository', () => ({
   AiTokenUsageRepository: jest.fn().mockImplementation(() => ({
     listEventsForSession: listEventsForSessionMock,
   })),
@@ -19,7 +19,7 @@ jest.mock('../../../../../../../data/repositories/AiTokenUsageRepository', () =>
 
 import { GET } from '../route'
 
-const SESSION_ID = '00000000-0000-0000-0000-000000000001'
+const SESSION_ID = '11111111-1111-4111-8111-111111111111'
 
 function buildRequest() {
   return new Request(`http://localhost/api/ai_assistant/usage/sessions/${SESSION_ID}`, { method: 'GET' })
@@ -38,7 +38,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
     agentId: 'catalog.assistant',
     moduleId: 'catalog',
     sessionId: SESSION_ID,
-    turnId: '00000000-0000-0000-0000-000000000002',
+    turnId: '22222222-2222-4222-8222-222222222222',
     stepIndex: 0,
     providerId: 'anthropic',
     modelId: 'claude-haiku-4-5',
@@ -64,7 +64,7 @@ describe('GET /api/ai_assistant/usage/sessions/[sessionId]', () => {
     loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { loadAcl: loadAclMock, hasAllFeatures: (req: string[], have: string[]) => req.every((r) => have.includes(r)) }
         if (name === 'em') return {}
         throw new Error(`Unknown token: ${name}`)
       },

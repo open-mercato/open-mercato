@@ -59,7 +59,7 @@ describe('GET /api/ai_assistant/usage/daily', () => {
     loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { loadAcl: loadAclMock, hasAllFeatures: (req: string[], have: string[]) => req.every((r) => have.includes(r)) }
         if (name === 'em') return {}
         throw new Error(`Unknown token: ${name}`)
       },
