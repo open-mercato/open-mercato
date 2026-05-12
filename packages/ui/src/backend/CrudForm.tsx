@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
+import { PasswordInput } from '../primitives/password-input'
 import { Textarea } from '../primitives/textarea'
 import {
   Select,
@@ -3401,6 +3402,22 @@ function TextInput({
     commitIfChanged()
   }, [commitIfChanged])
 
+  if (inputType === 'password') {
+    return (
+      <PasswordInput
+        placeholder={placeholder}
+        value={local}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+        disabled={disabled}
+      />
+    )
+  }
   return (
     <>
       <Input
