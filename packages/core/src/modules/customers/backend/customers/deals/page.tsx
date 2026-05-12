@@ -12,6 +12,8 @@ import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advance
 import { deserializeAdvancedFilter, serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -765,42 +767,58 @@ export default function CustomersDealsPage() {
       variant: 'destructive',
     })
     if (!confirmed) return false
-    let deletedCount = 0
-    const failedIds: string[] = []
-    for (const row of selectedRows) {
-      try {
+
+    const { succeeded, failures } = await runBulkDelete(
+      selectedRows,
+      async (row) => {
         await deleteCrud('customers/deals', {
           body: { id: row.id },
           errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
         })
-        deletedCount++
-      } catch (err) {
-        failedIds.push(row.id)
-        console.warn('[customers.deals.list] bulk delete failed', row.id, err)
+      },
+      { fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.') },
+    )
+
+    if (succeeded.length > 0) {
+      const succeededIds = new Set(succeeded.map((r) => r.id))
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
+      setTotal((prev) => Math.max(0, prev - succeeded.length))
+      if (succeeded.length > 1) {
+        coalesceLastOperations(succeeded.length, {
+          commandId: 'customers.deals.delete',
+          actionLabel: t('customers.deals.list.bulkDelete.operationLabel', 'Delete {count} deals', { count: succeeded.length }),
+          resourceKind: 'customers.deal',
+        })
       }
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
-        return prev.filter((r) => !succeeded.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      if (failedIds.length === 0) {
-        flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
+      if (failures.length === 0) {
+        flash(
+          t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: succeeded.length }),
+          'success',
+        )
       } else {
         flash(
           t('customers.deals.list.bulkDelete.partial', '{deleted} of {total} deals deleted; {failed} failed', {
-            deleted: deletedCount,
+            deleted: succeeded.length,
             total: selectedRows.length,
-            failed: failedIds.length,
+            failed: failures.length,
           }),
           'warning',
         )
       }
-    } else if (failedIds.length > 0) {
-      flash(t('customers.deals.list.bulkDelete.failed', 'Failed to delete {count} deals', { count: failedIds.length }), 'error')
     }
-    return deletedCount > 0
+
+    for (const group of groupBulkDeleteFailures(failures)) {
+      const message = group.count === 1
+        ? group.sampleMessage
+        : t(
+            'customers.deals.list.bulkDelete.failedGroup',
+            '{count} deals could not be deleted: {message}',
+            { count: group.count, message: group.sampleMessage },
+          )
+      flash(message, 'error')
+    }
+
+    return succeeded.length > 0
   }, [confirm, t])
 
   const personOptions = peopleState.options

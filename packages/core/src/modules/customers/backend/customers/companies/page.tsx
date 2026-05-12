@@ -10,6 +10,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -485,43 +487,59 @@ export default function CustomersCompaniesPage() {
       variant: 'destructive',
     })
     if (!confirmed) return false
-    let deletedCount = 0
-    const failedIds: string[] = []
-    for (const row of selectedRows) {
-      try {
+
+    const { succeeded, failures } = await runBulkDelete(
+      selectedRows,
+      async (row) => {
         await apiCallOrThrow(`/api/customers/companies?id=${encodeURIComponent(row.id)}`, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
         })
-        deletedCount++
-      } catch (err) {
-        failedIds.push(row.id)
-        console.warn('[customers.companies.list] bulk delete failed', row.id, err)
+      },
+      { fallbackErrorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+    )
+
+    if (succeeded.length > 0) {
+      const succeededIds = new Set(succeeded.map((r) => r.id))
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
+      setTotal((prev) => Math.max(0, prev - succeeded.length))
+      setReloadToken((prev) => prev + 1)
+      if (succeeded.length > 1) {
+        coalesceLastOperations(succeeded.length, {
+          commandId: 'customers.companies.delete',
+          actionLabel: t('customers.companies.list.bulkDelete.operationLabel', 'Delete {count} companies', { count: succeeded.length }),
+          resourceKind: 'customers.company',
+        })
       }
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
-        return prev.filter((r) => !succeeded.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      if (failedIds.length === 0) {
-        flash(t('customers.companies.list.bulkDelete.success', '{count} companies deleted', { count: deletedCount }), 'success')
+      if (failures.length === 0) {
+        flash(
+          t('customers.companies.list.bulkDelete.success', '{count} companies deleted', { count: succeeded.length }),
+          'success',
+        )
       } else {
         flash(
           t('customers.companies.list.bulkDelete.partial', '{deleted} of {total} companies deleted; {failed} failed', {
-            deleted: deletedCount,
+            deleted: succeeded.length,
             total: selectedRows.length,
-            failed: failedIds.length,
+            failed: failures.length,
           }),
           'warning',
         )
       }
-      setReloadToken((prev) => prev + 1)
-    } else if (failedIds.length > 0) {
-      flash(t('customers.companies.list.bulkDelete.failed', 'Failed to delete {count} companies', { count: failedIds.length }), 'error')
     }
-    return deletedCount > 0
+
+    for (const group of groupBulkDeleteFailures(failures)) {
+      const message = group.count === 1
+        ? group.sampleMessage
+        : t(
+            'customers.companies.list.bulkDelete.failedGroup',
+            '{count} companies could not be deleted: {message}',
+            { count: group.count, message: group.sampleMessage },
+          )
+      flash(message, 'error')
+    }
+
+    return succeeded.length > 0
   }, [confirm, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
