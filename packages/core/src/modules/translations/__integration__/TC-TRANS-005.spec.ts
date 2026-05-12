@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -44,7 +44,7 @@ async function fillCombobox(
 }
 
 async function selectEntityForRecordPicker(
-  page: import('@playwright/test').Page,
+  page: Page,
   entityType: string,
 ) {
   const recordInput = page.getByPlaceholder('Search records...')
@@ -62,6 +62,28 @@ async function selectEntityForRecordPicker(
   }
 
   await expect(recordInput).toBeEnabled({ timeout: 10_000 })
+}
+
+async function waitForTranslationField(root: Locator, preferredPlaceholder?: string): Promise<Locator> {
+  const fieldLocator = root.locator('table').locator('input, textarea')
+  await expect.poll(async () => fieldLocator.count(), {
+    message: 'Expected at least one translation input to be available',
+    timeout: 45_000,
+  }).toBeGreaterThan(0)
+
+  const firstEditableField = fieldLocator.first()
+  await expect(firstEditableField).toBeVisible()
+  await expect(firstEditableField).toBeEnabled()
+
+  const normalizedPlaceholder = preferredPlaceholder?.trim()
+  if (!normalizedPlaceholder) return firstEditableField
+
+  const preferredField = root.getByPlaceholder(normalizedPlaceholder).first()
+  if (await preferredField.count()) {
+    if (await preferredField.isVisible()) return preferredField
+  }
+
+  return firstEditableField
 }
 
 /**
@@ -121,9 +143,11 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      const titleInput = page.locator('table input').first()
-      await titleInput.fill('Deutscher Titel QA')
-      await expect(titleInput).toHaveValue('Deutscher Titel QA')
+      const titleInput = await waitForTranslationField(managerCard, 'Deutscher Titel QA')
+      await titleInput.click()
+      await page.keyboard.type('Deutscher Titel QA')
+      await expect.poll(async () => titleInput.inputValue()).toBe('Deutscher Titel QA')
+      await titleInput.press('Tab')
 
       const saveResponsePromise = page.waitForResponse((response) =>
         response.request().method() === 'PUT'
@@ -181,7 +205,8 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      await expect(page.locator('table input').first()).toHaveValue('Persistenter Titel')
+      const titleInput = await waitForTranslationField(managerCard, 'Persistenter Titel')
+      await expect(titleInput).toHaveValue('Persistenter Titel')
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
