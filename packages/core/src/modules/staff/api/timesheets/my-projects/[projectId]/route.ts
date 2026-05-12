@@ -51,7 +51,7 @@ export async function PATCH(req: Request) {
     }
 
     const projectId = extractProjectIdFromUrl(req)
-    if (!projectId || !/^[0-9a-f-]{36}$/i.test(projectId)) {
+    if (!projectId || !z.string().uuid().safeParse(projectId).success) {
       throw new CrudHttpError(400, {
         error: translate('staff.timesheets.errors.invalidProjectId', 'Invalid project id.'),
       })
