@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
@@ -43,7 +44,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Segment id is required' }, { status: 400 })
   }
 
-  const rawBody = await req.json().catch(() => null)
+  const rawBody = await readJsonSafe<Record<string, unknown>>(req, null)
   if (!rawBody) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }

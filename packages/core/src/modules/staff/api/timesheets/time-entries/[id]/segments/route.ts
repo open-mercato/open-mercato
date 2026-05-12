@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
-    const body = await req.json().catch(() => ({}))
+    const body = await readJsonSafe(req, {})
     const input = parseScopedCommandInput(
       staffTimeEntrySegmentCreateSchema,
       { ...body, timeEntryId: entryId },

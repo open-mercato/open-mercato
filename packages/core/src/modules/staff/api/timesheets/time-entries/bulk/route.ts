@@ -6,6 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
 
-    const body = await req.json().catch(() => ({}))
+    const body = await readJsonSafe(req, {})
     const parsed = staffTimeEntryBulkSaveSchema.safeParse(body)
     if (!parsed.success) {
       const errors = parsed.error.issues.map((issue) => ({
