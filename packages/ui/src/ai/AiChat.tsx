@@ -901,6 +901,21 @@ export function AiChat({
     readModelPickerValue(agent),
   )
 
+  const effectiveModelPickerValue = React.useMemo(() => {
+    if (!modelProvidersLoaded || !allowRuntimeModelOverride || modelProviders.length === 0) {
+      return null
+    }
+    if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      return modelPickerValue
+    }
+    return firstAvailableModelPickerValue(modelProviders)
+  }, [
+    allowRuntimeModelOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
+
   React.useEffect(() => {
     setModelPickerValue(readModelPickerValue(agent))
   }, [agent])
@@ -944,8 +959,8 @@ export function AiChat({
     initialMessages,
     onError,
     conversationId,
-    providerOverride: modelPickerValue?.providerId ?? null,
-    modelOverride: modelPickerValue?.modelId ?? null,
+    providerOverride: effectiveModelPickerValue?.providerId ?? null,
+    modelOverride: effectiveModelPickerValue?.modelId ?? null,
   })
 
   const isStreaming = chat.status === 'streaming'
@@ -1417,7 +1432,7 @@ export function AiChat({
             {allowRuntimeModelOverride && modelProviders.length > 0 ? (
               <ModelPicker
                 agentId={agent}
-                value={modelPickerValue}
+                value={effectiveModelPickerValue}
                 onChange={handleModelPickerChange}
                 availableProviders={modelProviders}
                 disabled={isBusy}
