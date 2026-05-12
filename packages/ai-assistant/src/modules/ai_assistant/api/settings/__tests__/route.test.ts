@@ -161,6 +161,53 @@ describe('PUT /api/ai_assistant/settings', () => {
     )
   })
 
+  it('saves per-agent chat override allowlist without requiring a model override', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      allowedOverrideProviders: ['openai'],
+      allowedOverrideModelsByProvider: { openai: ['gpt-5-mini'] },
+      updatedAt: new Date('2026-05-08T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', {
+        agentId: 'catalog.catalog_assistant',
+        allowedOverrideProviders: ['openai'],
+        allowedOverrideModelsByProvider: { openai: ['gpt-5-mini'] },
+      }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.allowedOverrideProviders).toEqual(['openai'])
+    expect(json.allowedOverrideModelsByProvider).toEqual({ openai: ['gpt-5-mini'] })
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'catalog.catalog_assistant',
+        allowedOverrideProviders: ['openai'],
+        allowedOverrideModelsByProvider: { openai: ['gpt-5-mini'] },
+      }),
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }),
+    )
+  })
+
+  it('requires agentId when saving per-agent chat override allowlist', async () => {
+    const response = await PUT(
+      buildRequest('PUT', { allowedOverrideProviders: ['openai'] }) as any,
+    )
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.code).toBe('agent_required')
+    expect(upsertDefaultMock).not.toHaveBeenCalled()
+  })
+
   it('returns 400 baseurl_not_allowlisted when baseURL fails allowlist check', async () => {
     isBaseurlAllowlistedMock.mockReturnValue(false)
 

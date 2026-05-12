@@ -1,4 +1,7 @@
 import {
+  agentOverrideModelAllowlistEnvVarName,
+  agentOverrideProviderAllowlistEnvVarName,
+  intersectEffectiveAllowlistWithSnapshot,
   intersectAllowlists,
   isModelAllowedForProvider,
   isModelAllowedForProviderInEffective,
@@ -8,6 +11,7 @@ import {
   isProviderModelAllowedInEffective,
   modelAllowlistEnvVarName,
   providerAllowlistEnvVarName,
+  readAgentRuntimeOverrideAllowlist,
   readAllowedModels,
   readAllowedProviders,
   readAllowlistConfig,
@@ -134,6 +138,10 @@ describe('model-allowlist', () => {
       expect(providerAllowlistEnvVarName()).toBe('OM_AI_AVAILABLE_PROVIDERS')
       expect(modelAllowlistEnvVarName('openai')).toBe('OM_AI_AVAILABLE_MODELS_OPENAI')
       expect(modelAllowlistEnvVarName('lm-studio')).toBe('OM_AI_AVAILABLE_MODELS_LM_STUDIO')
+      expect(agentOverrideProviderAllowlistEnvVarName('catalog.catalog_assistant'))
+        .toBe('OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS')
+      expect(agentOverrideModelAllowlistEnvVarName('catalog.catalog_assistant', 'lm-studio'))
+        .toBe('OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_LM_STUDIO')
     })
   })
 
@@ -245,6 +253,38 @@ describe('model-allowlist', () => {
         .toBe(true)
       expect(isProviderModelAllowedInEffective(effective, 'lm-studio', 'qwen/qwen3.5-9b'))
         .toBe(true)
+    })
+
+    it('intersects per-agent chat override env and settings with the effective allowlist', () => {
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'openai,anthropic',
+        OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini,gpt-4o',
+        OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS: 'openai',
+        OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini',
+      }
+      const base = intersectAllowlists(env, ['openai', 'anthropic'], {
+        allowedProviders: ['openai', 'anthropic'],
+        allowedModelsByProvider: { openai: ['gpt-5-mini', 'gpt-4o'] },
+      })
+      const agentEnv = readAgentRuntimeOverrideAllowlist(
+        env,
+        'catalog.catalog_assistant',
+        ['openai', 'anthropic'],
+      )
+      const effective = intersectEffectiveAllowlistWithSnapshot(
+        intersectEffectiveAllowlistWithSnapshot(base, ['openai', 'anthropic'], agentEnv),
+        ['openai', 'anthropic'],
+        {
+          allowedProviders: ['openai', 'anthropic'],
+          allowedModelsByProvider: { openai: ['gpt-4o', 'gpt-5-mini'] },
+        },
+      )
+
+      expect(effective.providers).toEqual(['openai'])
+      expect(effective.modelsByProvider.openai).toEqual(['gpt-5-mini'])
+      expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-5-mini')).toBe(true)
+      expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-4o')).toBe(false)
+      expect(isProviderAllowedInEffective(effective, 'anthropic')).toBe(false)
     })
   })
 })

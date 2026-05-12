@@ -34,6 +34,18 @@ function envModelsVarName(providerId: string): string {
   return `OM_AI_AVAILABLE_MODELS_${envSafeProviderId}`
 }
 
+function envSafeId(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+}
+
+function agentOverrideProvidersVarName(agentId: string): string {
+  return `OM_AI_AGENT_${envSafeId(agentId)}_AVAILABLE_PROVIDERS`
+}
+
+function agentOverrideModelsVarName(agentId: string, providerId: string): string {
+  return `OM_AI_AGENT_${envSafeId(agentId)}_AVAILABLE_MODELS_${envSafeId(providerId)}`
+}
+
 export function normalizeProviderId(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, '-')
 }
@@ -190,6 +202,17 @@ export function providerAllowlistEnvVarName(): string {
   return envProvidersVarName()
 }
 
+export function agentOverrideProviderAllowlistEnvVarName(agentId: string): string {
+  return agentOverrideProvidersVarName(agentId)
+}
+
+export function agentOverrideModelAllowlistEnvVarName(
+  agentId: string,
+  providerId: string,
+): string {
+  return agentOverrideModelsVarName(agentId, providerId)
+}
+
 /**
  * Tenant-scoped allowlist snapshot (Phase 1780-6). Persisted by the
  * `ai_tenant_model_allowlists` table and edited from the AI assistant
@@ -204,6 +227,32 @@ export function providerAllowlistEnvVarName(): string {
 export interface TenantAllowlistSnapshot {
   allowedProviders: string[] | null
   allowedModelsByProvider: Record<string, string[]>
+}
+
+export function hasAllowlistSnapshotRestrictions(snapshot: TenantAllowlistSnapshot | null): boolean {
+  return Boolean(
+    snapshot &&
+      (snapshot.allowedProviders !== null ||
+        Object.keys(snapshot.allowedModelsByProvider ?? {}).length > 0),
+  )
+}
+
+export function readAgentRuntimeOverrideAllowlist(
+  env: EnvLookup,
+  agentId: string,
+  knownProviderIds: string[],
+): TenantAllowlistSnapshot | null {
+  const providers = parseList(env[agentOverrideProvidersVarName(agentId)])
+  const modelsByProvider: Record<string, string[]> = {}
+  for (const providerId of knownProviderIds) {
+    const list = parseList(env[agentOverrideModelsVarName(agentId, providerId)])
+    if (list !== null) modelsByProvider[providerId] = list
+  }
+  const snapshot = {
+    allowedProviders: providers,
+    allowedModelsByProvider: modelsByProvider,
+  }
+  return hasAllowlistSnapshotRestrictions(snapshot) ? snapshot : null
 }
 
 /**
@@ -285,6 +334,35 @@ export function intersectAllowlists(
     hasRestrictions:
       providers !== null || Object.keys(modelsByProvider).length > 0,
     tenantOverridesActive,
+  }
+}
+
+export function intersectEffectiveAllowlistWithSnapshot(
+  outer: EffectiveAllowlist,
+  knownProviderIds: string[],
+  inner: TenantAllowlistSnapshot | null,
+): EffectiveAllowlist {
+  if (!hasAllowlistSnapshotRestrictions(inner)) return outer
+
+  const innerProviders = canonicalizeProviderList(inner?.allowedProviders ?? null, knownProviderIds)
+  const providers = intersectIdLists(outer.providers, innerProviders, true)
+
+  const modelsByProvider: Record<string, string[]> = { ...outer.modelsByProvider }
+  for (const rawProviderId of Object.keys(inner?.allowedModelsByProvider ?? {})) {
+    const providerId = canonicalProviderId(rawProviderId, knownProviderIds) ?? normalizeProviderId(rawProviderId)
+    const innerList = inner?.allowedModelsByProvider[rawProviderId] ?? []
+    const outerList = modelsByProvider[providerId] ?? null
+    const intersection = intersectIdLists(outerList, innerList, false)
+    if (intersection !== null) {
+      modelsByProvider[providerId] = intersection
+    }
+  }
+
+  return {
+    providers,
+    modelsByProvider,
+    hasRestrictions: true,
+    tenantOverridesActive: outer.tenantOverridesActive || hasAllowlistSnapshotRestrictions(inner),
   }
 }
 

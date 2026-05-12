@@ -46,7 +46,16 @@ Tenant snapshots may NEVER widen the env allowlist: the PUT validator and the mo
 
 The route `/backend/config/ai-assistant/agents` now includes a **Provider and model** section for the selected agent. It shows the code-declared `defaultProvider` / `defaultModel`, the current tenant-scoped per-agent override (if one exists), the effective runtime pair, and dropdowns clipped to the effective allowlist. Saving writes an `ai_agent_runtime_overrides` row with `agentId = <module.agent>`; clearing removes only that agent-specific row and leaves the tenant-wide default untouched.
 
-To clear the override and return to the env-based defaults, click **Clear override**. This deletes the `ai_settings` row for the tenant.
+To clear the override and return to the env-based defaults, click **Clear override**. This clears the provider/model fields on the `ai_agent_runtime_overrides` row for that agent; any saved **Chat override choices** stay in place.
+
+The same section includes **Chat override choices**. Use it to narrow which providers and models users may pick from the chat footer for this one agent. These choices are intersected with the global env allowlist and the tenant allowlist, so they can only narrow. The deployment-level version is:
+
+```env
+OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS=openai,lm-studio
+OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_OPENAI=gpt-5-mini,gpt-4o
+```
+
+The chat footer shows the effective default model name beside **Default**, making it easy to verify whether a per-agent default override is active before choosing a runtime override.
 
 ### Per-agent override list
 

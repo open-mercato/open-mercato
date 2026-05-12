@@ -98,21 +98,26 @@ interface ModelsApiResponse {
   allowRuntimeModelOverride: boolean
   defaultProviderId: string | null
   defaultModelId: string | null
+  defaultProviderName?: string | null
+  defaultModelName?: string | null
   providers: ModelPickerProvider[]
 }
 
 function useAgentModels(agent: string): {
   providers: ModelPickerProvider[]
   allowRuntimeModelOverride: boolean
+  defaultLabel: string | null
   loaded: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeModelOverride, setAllowRuntimeModelOverride] = React.useState(false)
+  const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
   const [loaded, setLoaded] = React.useState(false)
 
   React.useEffect(() => {
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
     setLoaded(false)
+    setDefaultLabel(null)
     void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
       if (!result.ok || !result.result) {
         setLoaded(true)
@@ -120,11 +125,18 @@ function useAgentModels(agent: string): {
       }
       setAllowRuntimeModelOverride(result.result.allowRuntimeModelOverride)
       setProviders(result.result.providers)
+      setDefaultLabel(
+        result.result.defaultProviderName && result.result.defaultModelName
+          ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
+          : result.result.defaultProviderId && result.result.defaultModelId
+            ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
+            : null,
+      )
       setLoaded(true)
     })
   }, [agent])
 
-  return { providers, allowRuntimeModelOverride, loaded }
+  return { providers, allowRuntimeModelOverride, defaultLabel, loaded }
 }
 
 function firstAvailableModelPickerValue(
@@ -881,6 +893,7 @@ export function AiChat({
   const {
     providers: modelProviders,
     allowRuntimeModelOverride,
+    defaultLabel: modelDefaultLabel,
     loaded: modelProvidersLoaded,
   } = useAgentModels(agent)
 
@@ -1409,6 +1422,7 @@ export function AiChat({
                 availableProviders={modelProviders}
                 disabled={isBusy}
                 compact={isCompactFooter}
+                defaultLabel={modelDefaultLabel}
                 className="shrink-0"
               />
             ) : null}

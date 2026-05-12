@@ -18,13 +18,18 @@ import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-al
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory } from '../../lib/model-factory'
 import {
+  agentOverrideModelAllowlistEnvVarName,
+  agentOverrideProviderAllowlistEnvVarName,
   canonicalProviderId,
+  hasAllowlistSnapshotRestrictions,
+  intersectEffectiveAllowlistWithSnapshot,
   intersectAllowlists,
   isProviderAllowed,
   isProviderAllowedInEffective,
   isProviderModelAllowed,
   isProviderModelAllowedInEffective,
   modelAllowlistEnvVarName,
+  readAgentRuntimeOverrideAllowlist,
   readAllowedModels,
   readAllowedProviders,
   readAllowlistConfig,
@@ -36,6 +41,10 @@ const runtimeOverrideUpsertSchema = z.object({
   modelId: z.string().min(1).max(256).nullable().optional(),
   baseURL: z.string().url().max(2048).nullable().optional(),
   agentId: z.string().min(1).max(128).nullable().optional(),
+  allowedOverrideProviders: z.array(z.string().min(1).max(64)).nullable().optional(),
+  allowedOverrideModelsByProvider: z
+    .record(z.string().min(1).max(64), z.array(z.string().min(1).max(256)))
+    .optional(),
 })
 
 const runtimeOverrideClearSchema = z.object({
@@ -116,6 +125,12 @@ export async function GET(req: NextRequest) {
     const env = process.env as Record<string, string | undefined>
     const configuredProviderHint = env.OM_AI_PROVIDER?.trim() || env.OPENCODE_PROVIDER?.trim() || null
     const registryProviders = llmProviderRegistry.list()
+    const knownProviderIdsForAllowlist: string[] = [
+      ...OPEN_CODE_PROVIDER_IDS,
+      ...registryProviders
+        .map((p) => p.id)
+        .filter((id) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(id)),
+    ]
     const registryProviderId = configuredProviderHint
       ? canonicalProviderId(configuredProviderHint, registryProviders.map((provider) => provider.id))
       : null
@@ -167,6 +182,15 @@ export async function GET(req: NextRequest) {
         baseURL: string | null
         updatedAt: string
       } | null
+      runtimeOverrideAllowlist: {
+        env: TenantAllowlistSnapshot | null
+        tenant: TenantAllowlistSnapshot | null
+        effective: ReturnType<typeof intersectAllowlists>
+        envVarNames: {
+          providers: string
+          modelsByProvider: Record<string, string>
+        }
+      }
       providerId: string
       modelId: string
       baseURL: string | null
@@ -224,7 +248,7 @@ export async function GET(req: NextRequest) {
         await loadAgentRegistry()
         const agents = listAgents()
         const agentResolutionPromises = agents.map(async (agent) => {
-          const agentOverrideRow = await repo.getDefault({
+          const agentOverrideRow = await repo.getExact({
             tenantId,
             organizationId,
             agentId: agent.id,
@@ -245,6 +269,37 @@ export async function GET(req: NextRequest) {
             tenantOverride: agentTenantOverride,
             tenantAllowlist: tenantAllowlistSnapshot,
           })
+          const agentEnvAllowlist = readAgentRuntimeOverrideAllowlist(
+            env,
+            agent.id,
+            knownProviderIdsForAllowlist,
+          )
+          const agentTenantAllowlist = agentOverrideRow
+            ? {
+                allowedProviders: agentOverrideRow.allowedOverrideProviders ?? null,
+                allowedModelsByProvider: agentOverrideRow.allowedOverrideModelsByProvider ?? {},
+              }
+            : null
+          const baseEffectiveAllowlist = intersectAllowlists(
+            env,
+            knownProviderIdsForAllowlist,
+            tenantAllowlistSnapshot,
+          )
+          const agentEffectiveAllowlist = intersectEffectiveAllowlistWithSnapshot(
+            intersectEffectiveAllowlistWithSnapshot(
+              baseEffectiveAllowlist,
+              knownProviderIdsForAllowlist,
+              agentEnvAllowlist,
+            ),
+            knownProviderIdsForAllowlist,
+            agentTenantAllowlist,
+          )
+          const agentModelEnvVars = Object.fromEntries(
+            knownProviderIdsForAllowlist.map((providerId) => [
+              providerId,
+              agentOverrideModelAllowlistEnvVarName(agent.id, providerId),
+            ]),
+          )
           return {
             agentId: agent.id,
             moduleId: agent.moduleId,
@@ -259,6 +314,17 @@ export async function GET(req: NextRequest) {
                   updatedAt: agentOverrideRow.updatedAt.toISOString(),
                 }
               : null,
+            runtimeOverrideAllowlist: {
+              env: agentEnvAllowlist,
+              tenant: hasAllowlistSnapshotRestrictions(agentTenantAllowlist)
+                ? agentTenantAllowlist
+                : null,
+              effective: agentEffectiveAllowlist,
+              envVarNames: {
+                providers: agentOverrideProviderAllowlistEnvVarName(agent.id),
+                modelsByProvider: agentModelEnvVars,
+              },
+            },
             providerId: agentResolution.providerId,
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,
@@ -277,13 +343,6 @@ export async function GET(req: NextRequest) {
     // The env allowlist is the OUTER constraint; the tenant allowlist (Phase
     // 1780-6) narrows it further. The settings UI must never offer a value
     // the runtime would refuse to honor.
-    const knownProviderIdsForAllowlist: string[] = [
-      ...OPEN_CODE_PROVIDER_IDS,
-      ...llmProviderRegistry
-        .list()
-        .map((p) => p.id)
-        .filter((id) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(id)),
-    ]
     const allowlistConfig = readAllowlistConfig(env, knownProviderIdsForAllowlist)
     const effectiveAllowlist = intersectAllowlists(
       env,
@@ -433,6 +492,22 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  const allowedOverrideProviders = bodyResult.data.allowedOverrideProviders === undefined
+    ? undefined
+    : bodyResult.data.allowedOverrideProviders?.map((id) =>
+        canonicalProviderId(id, knownProviderIdsForRequest) ?? id,
+      ) ?? null
+  const allowedOverrideModelsByProvider = bodyResult.data.allowedOverrideModelsByProvider === undefined
+    ? undefined
+    : Object.fromEntries(
+        Object.entries(bodyResult.data.allowedOverrideModelsByProvider ?? {}).map(([id, models]) => [
+          canonicalProviderId(id, knownProviderIdsForRequest) ?? id,
+          models,
+        ]),
+      )
+  const hasRuntimeOverrideAllowlistWrite =
+    allowedOverrideProviders !== undefined || allowedOverrideModelsByProvider !== undefined
+
   // Env-driven provider/model allowlist (Phase 1780-5) intersected with the
   // per-tenant allowlist (Phase 1780-6): the EFFECTIVE allowlist clips which
   // (provider, model) pairs the runtime accepts. Reject settings PUT requests
@@ -441,7 +516,7 @@ export async function PUT(req: NextRequest) {
   // best-effort here: if the snapshot lookup fails we fall back to env-only
   // checks (the runtime still re-clips at resolution time).
   let putEffectiveAllowlist: ReturnType<typeof intersectAllowlists> | null = null
-  if (providerId) {
+  if (providerId || hasRuntimeOverrideAllowlistWrite) {
     try {
       const previewContainer = await createRequestContainer()
       const knownIdsForCheck = [
@@ -523,6 +598,57 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (hasRuntimeOverrideAllowlistWrite && !agentId) {
+    return NextResponse.json(
+      {
+        error: 'agentId is required when saving chat override allowlist settings.',
+        code: 'agent_required',
+      },
+      { status: 400 },
+    )
+  }
+
+  if (Array.isArray(allowedOverrideProviders)) {
+    for (const id of allowedOverrideProviders) {
+      if (putEffectiveAllowlist && !isProviderAllowedInEffective(putEffectiveAllowlist, id)) {
+        return NextResponse.json(
+          {
+            error: `Provider "${id}" is not in the effective tenant allowlist; per-agent chat override choices may not widen it.`,
+            code: 'provider_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
+    }
+  }
+  if (allowedOverrideModelsByProvider) {
+    for (const [id, models] of Object.entries(allowedOverrideModelsByProvider)) {
+      if (putEffectiveAllowlist && !isProviderAllowedInEffective(putEffectiveAllowlist, id)) {
+        return NextResponse.json(
+          {
+            error: `Provider "${id}" is not in the effective tenant allowlist; cannot save per-agent model choices for it.`,
+            code: 'provider_not_allowlisted',
+          },
+          { status: 400 },
+        )
+      }
+      for (const allowedModelId of models) {
+        if (
+          putEffectiveAllowlist &&
+          !isProviderModelAllowedInEffective(putEffectiveAllowlist, id, allowedModelId)
+        ) {
+          return NextResponse.json(
+            {
+              error: `Model "${allowedModelId}" is not in the effective tenant allowlist for "${id}".`,
+              code: 'model_not_allowlisted',
+            },
+            { status: 400 },
+          )
+        }
+      }
+    }
+  }
+
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
@@ -537,8 +663,26 @@ export async function PUT(req: NextRequest) {
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiAgentRuntimeOverrideRepository(em)
+    const upsertInput = {
+      agentId: agentId ?? null,
+      ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'providerId')
+        ? { providerId: providerId ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'modelId')
+        ? { modelId: modelId ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'baseURL')
+        ? { baseURL: baseURL ?? null }
+        : {}),
+      ...(allowedOverrideProviders !== undefined
+        ? { allowedOverrideProviders }
+        : {}),
+      ...(allowedOverrideModelsByProvider !== undefined
+        ? { allowedOverrideModelsByProvider }
+        : {}),
+    }
     const row = await repo.upsertDefault(
-      { providerId: providerId ?? null, modelId: modelId ?? null, baseURL: baseURL ?? null, agentId: agentId ?? null },
+      upsertInput,
       { tenantId: auth.tenantId ?? '', organizationId: auth.orgId ?? null, userId: auth.sub },
     )
     return NextResponse.json({
@@ -549,6 +693,8 @@ export async function PUT(req: NextRequest) {
       providerId: row.providerId,
       modelId: row.modelId,
       baseURL: row.baseUrl,
+      allowedOverrideProviders: row.allowedOverrideProviders ?? null,
+      allowedOverrideModelsByProvider: row.allowedOverrideModelsByProvider ?? {},
       updatedAt: row.updatedAt,
     })
   } catch (error) {

@@ -980,6 +980,38 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "allowed_override_providers": {
+          "name": "allowed_override_providers",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "allowed_override_models_by_provider": {
+          "name": "allowed_override_models_by_provider",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'{}'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "updated_by_user_id": {
           "name": "updated_by_user_id",
           "type": "uuid",

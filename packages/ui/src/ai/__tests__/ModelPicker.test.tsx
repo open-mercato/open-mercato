@@ -64,6 +64,24 @@ describe('<ModelPicker>', () => {
     expect(screen.getByRole('button', { name: 'Select AI model' })).toBeInTheDocument()
   })
 
+  it('shows the effective default model name when no runtime override is selected', () => {
+    render(
+      <ModelPicker
+        agentId="catalog.merchandising_assistant"
+        value={null}
+        onChange={jest.fn()}
+        availableProviders={providers}
+        defaultLabel="OpenAI / GPT-5 Mini"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveTextContent(
+      'Default: OpenAI / GPT-5 Mini',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select AI model' }))
+    expect(screen.getByText('Use agent default: OpenAI / GPT-5 Mini')).toBeInTheDocument()
+  })
+
   it('does not render when availableProviders is empty', () => {
     const { container } = render(
       <ModelPicker

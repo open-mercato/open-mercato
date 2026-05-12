@@ -34,6 +34,7 @@ export interface ModelPickerProps {
   availableProviders: ModelPickerProvider[]
   disabled?: boolean
   compact?: boolean
+  defaultLabel?: string | null
   className?: string
 }
 
@@ -56,6 +57,7 @@ export function ModelPicker({
   availableProviders,
   disabled,
   compact = false,
+  defaultLabel,
   className,
 }: ModelPickerProps) {
   const t = useT()
@@ -64,13 +66,17 @@ export function ModelPicker({
   const triggerRef = React.useRef<HTMLButtonElement>(null)
 
   const selectedLabel = React.useMemo(() => {
-    if (!value) return t('ai_assistant.modelPicker.defaultLabel', 'Model: Default')
+    if (!value) {
+      return defaultLabel
+        ? t('ai_assistant.modelPicker.defaultWithModelLabel', 'Default: {{model}}').replace('{{model}}', defaultLabel)
+        : t('ai_assistant.modelPicker.defaultLabel', 'Model: Default')
+    }
     const provider = availableProviders.find((p) => p.id === value.providerId)
     const model = provider?.models.find((m) => m.id === value.modelId)
     const modelLabel = model?.name ?? value.modelId
     const providerLabel = provider?.name ?? value.providerId
     return `${providerLabel} / ${modelLabel}`
-  }, [value, availableProviders, t])
+  }, [value, availableProviders, defaultLabel, t])
 
   const handleToggle = React.useCallback(() => {
     if (disabled) return
@@ -179,7 +185,9 @@ export function ModelPicker({
             data-ai-model-picker-default-option
           >
             <span className="flex-1">
-              {t('ai_assistant.modelPicker.useDefault', 'Use agent default')}
+              {defaultLabel
+                ? t('ai_assistant.modelPicker.useDefaultWithModel', 'Use agent default: {{model}}').replace('{{model}}', defaultLabel)
+                : t('ai_assistant.modelPicker.useDefault', 'Use agent default')}
             </span>
             {value === null ? (
               <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">

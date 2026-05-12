@@ -15,6 +15,8 @@ export interface AiAgentRuntimeOverrideInput {
   providerId?: string | null
   modelId?: string | null
   baseURL?: string | null
+  allowedOverrideProviders?: string[] | null
+  allowedOverrideModelsByProvider?: Record<string, string[]>
 }
 
 /**
@@ -73,6 +75,21 @@ export class AiAgentRuntimeOverrideRepository {
     return tenantRow ?? null
   }
 
+  async getExact(ctx: {
+    tenantId: string
+    organizationId?: string | null
+    agentId?: string | null
+  }): Promise<AiAgentRuntimeOverride | null> {
+    if (!ctx?.tenantId) return null
+    const row = await this.em.findOne(AiAgentRuntimeOverride, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? null,
+      agentId: ctx.agentId ?? null,
+      deletedAt: null,
+    } as any)
+    return row ?? null
+  }
+
   /**
    * Inserts or updates the runtime override for the given context.
    *
@@ -106,6 +123,11 @@ export class AiAgentRuntimeOverrideRepository {
 
     const orgFilter = ctx.organizationId ?? null
     const agentIdFilter = input.agentId ?? null
+    const hasProviderId = Object.prototype.hasOwnProperty.call(input, 'providerId')
+    const hasModelId = Object.prototype.hasOwnProperty.call(input, 'modelId')
+    const hasBaseURL = Object.prototype.hasOwnProperty.call(input, 'baseURL')
+    const hasAllowedOverrideProviders = Object.prototype.hasOwnProperty.call(input, 'allowedOverrideProviders')
+    const hasAllowedOverrideModels = Object.prototype.hasOwnProperty.call(input, 'allowedOverrideModelsByProvider')
 
     return this.em.transactional(async (tx) => {
       const existing = await tx.findOne(AiAgentRuntimeOverride, {
@@ -116,9 +138,15 @@ export class AiAgentRuntimeOverrideRepository {
       } as any)
 
       if (existing) {
-        existing.providerId = normalizedProviderId
-        existing.modelId = input.modelId ?? null
-        existing.baseUrl = input.baseURL ?? null
+        if (hasProviderId) existing.providerId = normalizedProviderId
+        if (hasModelId) existing.modelId = input.modelId ?? null
+        if (hasBaseURL) existing.baseUrl = input.baseURL ?? null
+        if (hasAllowedOverrideProviders) {
+          existing.allowedOverrideProviders = input.allowedOverrideProviders ?? null
+        }
+        if (hasAllowedOverrideModels) {
+          existing.allowedOverrideModelsByProvider = input.allowedOverrideModelsByProvider ?? {}
+        }
         existing.updatedByUserId = ctx.userId ?? null
         existing.updatedAt = new Date()
         await tx.persist(existing).flush()
@@ -129,9 +157,15 @@ export class AiAgentRuntimeOverrideRepository {
         tenantId: ctx.tenantId,
         organizationId: orgFilter,
         agentId: agentIdFilter,
-        providerId: normalizedProviderId,
-        modelId: input.modelId ?? null,
-        baseUrl: input.baseURL ?? null,
+        providerId: hasProviderId ? normalizedProviderId : null,
+        modelId: hasModelId ? (input.modelId ?? null) : null,
+        baseUrl: hasBaseURL ? (input.baseURL ?? null) : null,
+        allowedOverrideProviders: hasAllowedOverrideProviders
+          ? (input.allowedOverrideProviders ?? null)
+          : null,
+        allowedOverrideModelsByProvider: hasAllowedOverrideModels
+          ? (input.allowedOverrideModelsByProvider ?? {})
+          : {},
         updatedByUserId: ctx.userId ?? null,
       } as unknown as AiAgentRuntimeOverride)
       await tx.persist(row).flush()
@@ -162,6 +196,17 @@ export class AiAgentRuntimeOverrideRepository {
         deletedAt: null,
       } as any)
       if (!existing) return false
+      if (
+        existing.allowedOverrideProviders != null ||
+        Object.keys(existing.allowedOverrideModelsByProvider ?? {}).length > 0
+      ) {
+        existing.providerId = null
+        existing.modelId = null
+        existing.baseUrl = null
+        existing.updatedAt = new Date()
+        await tx.persist(existing).flush()
+        return true
+      }
       existing.deletedAt = new Date()
       await tx.persist(existing).flush()
       return true

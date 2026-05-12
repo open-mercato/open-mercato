@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import {
   Select,
   SelectContent,
@@ -14,13 +15,14 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Plus, Save, Trash2 } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getEntityFields } from '#generated/entity-fields-registry'
 
 type EntityOption = { entityId: string; label?: string; source?: string }
+type FieldOption = { value: string; label: string }
 
 type EncryptionFieldRow = {
   id: string
@@ -35,6 +37,8 @@ type EncryptionMapResponse = {
 }
 
 type CanonicalOption = { value: string; label?: string }
+
+const EMPTY_FIELD_DEFS: CustomFieldDefDto[] = []
 
 function normalizeToken(value: string): string {
   return value
@@ -64,6 +68,24 @@ function normalizeFieldRows(raw: EncryptionMapResponse | undefined, options: Can
   }))
 }
 
+function areFieldRowsEqual(a: EncryptionFieldRow[], b: EncryptionFieldRow[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((row, idx) => {
+    const other = b[idx]
+    return !!other && row.id === other.id && row.field === other.field && (row.hashField ?? null) === (other.hashField ?? null)
+  })
+}
+
+function areFieldOptionsEqual(a: FieldOption[], b: FieldOption[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((option, idx) => {
+    const other = b[idx]
+    return !!other && option.value === other.value && option.label === other.label
+  })
+}
+
 function buildRowId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return `row-${Math.random().toString(36).slice(2)}`
@@ -75,11 +97,12 @@ export function EncryptionManager() {
   const [selectedEntityId, setSelectedEntityId] = React.useState('')
   const [fields, setFields] = React.useState<EncryptionFieldRow[]>([])
   const [isActive, setIsActive] = React.useState(true)
-  const [baseFieldOptions, setBaseFieldOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [baseFieldOptions, setBaseFieldOptions] = React.useState<FieldOption[]>([])
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
-  const { data: fieldDefs = [], isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
+  const { data: rawFieldDefs, isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
     enabled: !!selectedEntityId,
   })
+  const fieldDefs = rawFieldDefs ?? EMPTY_FIELD_DEFS
   const canonicalOptions = React.useMemo<CanonicalOption[]>(() => {
     const options: CanonicalOption[] = []
     for (const option of baseFieldOptions) {
@@ -133,13 +156,13 @@ export function EncryptionManager() {
 
   React.useEffect(() => {
     if (!selectedEntityId) {
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
     const parts = selectedEntityId.split(':')
     const entitySlug = parts[1]
     if (!entitySlug) {
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
 
@@ -147,11 +170,11 @@ export function EncryptionManager() {
     const mod = getEntityFields(entitySlug)
     if (!mod) {
       console.warn('[encryption] No fields found for entity', entitySlug)
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
 
-    const options: Array<{ value: string; label: string }> = []
+    const options: FieldOption[] = []
     for (const raw of Object.values(mod)) {
       if (typeof raw !== 'string' || !raw.trim()) continue
       const value = raw.trim()
@@ -163,7 +186,7 @@ export function EncryptionManager() {
         .trim() || value
       options.push({ value, label })
     }
-    setBaseFieldOptions(options)
+    setBaseFieldOptions((prev) => (areFieldOptionsEqual(prev, options) ? prev : options))
   }, [selectedEntityId])
 
   const {
@@ -188,14 +211,16 @@ export function EncryptionManager() {
     const isSameMap = signature === lastMapSignatureRef.current
     if (isSameMap && hasUserEdited) return
     if (!map) {
-      setFields([])
-      setIsActive(true)
+      setFields((prev) => (prev.length ? [] : prev))
+      setIsActive((prev) => (prev === true ? prev : true))
       setHasUserEdited(false)
       lastMapSignatureRef.current = signature
       return
     }
-    setFields(normalizeFieldRows(map, canonicalOptions))
-    setIsActive(map?.isActive !== false)
+    const nextFields = normalizeFieldRows(map, canonicalOptions)
+    setFields((prev) => (areFieldRowsEqual(prev, nextFields) ? prev : nextFields))
+    const nextIsActive = map?.isActive !== false
+    setIsActive((prev) => (prev === nextIsActive ? prev : nextIsActive))
     setHasUserEdited(false)
     lastMapSignatureRef.current = signature
   }, [mapSignature, map, canonicalOptions, hasUserEdited])
@@ -267,7 +292,7 @@ export function EncryptionManager() {
         <ErrorMessage
           label={t('entities.encryption.errors.loadMap', 'Failed to load encryption map')}
           action={(
-            <Button variant="outline" size="sm" onClick={() => void refetchMap()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetchMap()}>
               {t('entities.encryption.actions.retry', 'Retry')}
             </Button>
           )}
@@ -348,6 +373,7 @@ export function EncryptionManager() {
                   </td>
                   <td className="px-3 py-2 align-top text-right">
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       className="h-9 w-9 px-0"
@@ -398,7 +424,7 @@ export function EncryptionManager() {
                 </SelectContent>
               </Select>
               {entitiesError ? (
-                <p className="mt-1 text-xs text-red-600">
+                <p className="mt-1 text-xs text-status-error-text">
                   {t('entities.encryption.errors.loadEntities', 'Failed to load entities')}
                 </p>
               ) : (
@@ -407,14 +433,16 @@ export function EncryptionManager() {
                 </p>
               )}
             </div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+            <div className="inline-flex items-center gap-2 text-sm">
+              <Checkbox
+                id="entities-encryption-active"
                 checked={isActive}
-                onChange={(event) => setIsActive(event.target.checked)}
+                onCheckedChange={(checked) => setIsActive(checked === true)}
               />
-              {t('entities.encryption.active', 'Encryption enabled for this entity')}
-            </label>
+              <label htmlFor="entities-encryption-active">
+                {t('entities.encryption.active', 'Encryption enabled for this entity')}
+              </label>
+            </div>
           </div>
         </div>
         <div className="rounded-lg border bg-background/80 p-4">
@@ -425,7 +453,7 @@ export function EncryptionManager() {
                 {t('entities.encryption.fields.subtitle', 'List the attributes that should be encrypted with the tenant key.')}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={addField}>
+            <Button type="button" variant="outline" size="sm" onClick={addField}>
               <Plus className="mr-2 h-4 w-4" />
               {t('entities.encryption.actions.add', 'Add field')}
             </Button>
@@ -434,6 +462,7 @@ export function EncryptionManager() {
         </div>
         <div className="flex justify-end">
           <Button
+            type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !selectedEntityId}
           >

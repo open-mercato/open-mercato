@@ -24,6 +24,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
@@ -103,10 +104,31 @@ type AgentResolution = {
     baseURL: string | null
     updatedAt: string
   } | null
+  runtimeOverrideAllowlist: {
+    env: TenantAllowlist | null
+    tenant: TenantAllowlist | null
+    effective: EffectiveAllowlist
+    envVarNames: {
+      providers: string
+      modelsByProvider: Record<string, string>
+    }
+  }
   providerId: string
   modelId: string
   baseURL: string | null
   source: string
+}
+
+type TenantAllowlist = {
+  allowedProviders: string[] | null
+  allowedModelsByProvider: Record<string, string[]>
+}
+
+type EffectiveAllowlist = {
+  providers: string[] | null
+  modelsByProvider: Record<string, string[]>
+  hasRestrictions: boolean
+  tenantOverridesActive: boolean
 }
 
 type RuntimeSettingsResponse = {
@@ -856,8 +878,12 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
 
   const [selectedProviderId, setSelectedProviderId] = React.useState('')
   const [selectedModelId, setSelectedModelId] = React.useState('')
+  const [allowedProviders, setAllowedProviders] = React.useState<string[] | null>(null)
+  const [allowedModelsByProvider, setAllowedModelsByProvider] = React.useState<Record<string, string[]>>({})
+  const [allowlistDirty, setAllowlistDirty] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
   const [isClearing, setIsClearing] = React.useState(false)
+  const [isSavingAllowlist, setIsSavingAllowlist] = React.useState(false)
   const [state, setState] = React.useState<
     | { kind: 'idle' }
     | { kind: 'success'; message: string }
@@ -868,10 +894,35 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
     const override = agentResolution?.override
     setSelectedProviderId(override?.providerId ?? '')
     setSelectedModelId(override?.modelId ?? '')
+    setAllowedProviders(agentResolution?.runtimeOverrideAllowlist.tenant?.allowedProviders ?? null)
+    setAllowedModelsByProvider({
+      ...(agentResolution?.runtimeOverrideAllowlist.tenant?.allowedModelsByProvider ?? {}),
+    })
+    setAllowlistDirty(false)
     setState({ kind: 'idle' })
-  }, [agent.id, agentResolution?.override?.modelId, agentResolution?.override?.providerId])
+  }, [
+    agent.id,
+    agentResolution?.override?.modelId,
+    agentResolution?.override?.providerId,
+    agentResolution?.runtimeOverrideAllowlist.tenant,
+  ])
 
   const selectedProvider = configuredProviders.find((provider) => provider.id === selectedProviderId)
+  const isProviderAllowedForPicker = React.useCallback(
+    (providerId: string) => {
+      if (allowedProviders === null) return true
+      return allowedProviders.includes(providerId)
+    },
+    [allowedProviders],
+  )
+  const isModelAllowedForPicker = React.useCallback(
+    (providerId: string, modelId: string) => {
+      const list = allowedModelsByProvider[providerId]
+      if (list === undefined) return true
+      return list.includes(modelId)
+    },
+    [allowedModelsByProvider],
+  )
   const hasChange =
     selectedProviderId.length > 0 &&
     selectedModelId.length > 0 &&
@@ -955,7 +1006,90 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
     }
   }, [agent.id, isClearing, queryClient, t])
 
-  const busy = isSaving || isClearing
+  const toggleAllowedProvider = React.useCallback(
+    (providerId: string, next: boolean) => {
+      setAllowlistDirty(true)
+      setState({ kind: 'idle' })
+      setAllowedProviders((current) => {
+        if (next) {
+          return current === null ? [providerId] : Array.from(new Set([...current, providerId]))
+        }
+        const baseline = current === null
+          ? configuredProviders.map((provider) => provider.id)
+          : current
+        return baseline.filter((id) => id !== providerId)
+      })
+    },
+    [configuredProviders],
+  )
+
+  const toggleAllowedModel = React.useCallback(
+    (providerId: string, modelId: string, next: boolean) => {
+      setAllowlistDirty(true)
+      setState({ kind: 'idle' })
+      const provider = configuredProviders.find((entry) => entry.id === providerId)
+      const allModelIds = provider?.defaultModels.map((model) => model.id) ?? []
+      setAllowedModelsByProvider((current) => {
+        const existing = current[providerId]
+        const baseline = existing === undefined ? allModelIds : existing
+        const nextModels = next
+          ? Array.from(new Set([...baseline, modelId]))
+          : baseline.filter((id) => id !== modelId)
+        return { ...current, [providerId]: nextModels }
+      })
+    },
+    [configuredProviders],
+  )
+
+  const resetAllowlistDraft = React.useCallback(() => {
+    setAllowedProviders(null)
+    setAllowedModelsByProvider({})
+    setAllowlistDirty(true)
+    setState({ kind: 'idle' })
+  }, [])
+
+  const saveAllowlist = React.useCallback(async () => {
+    if (isSavingAllowlist) return
+    setIsSavingAllowlist(true)
+    setState({ kind: 'idle' })
+    try {
+      const { ok, status, result } = await apiCall<{ error?: string }>(
+        '/api/ai_assistant/settings',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            agentId: agent.id,
+            allowedOverrideProviders: allowedProviders,
+            allowedOverrideModelsByProvider: allowedModelsByProvider,
+          }),
+        },
+      )
+      if (!ok) {
+        setState({
+          kind: 'error',
+          message: result?.error ?? `Failed to save chat override allowlist (${status}).`,
+        })
+        return
+      }
+      setAllowlistDirty(false)
+      setState({
+        kind: 'success',
+        message: t(
+          'ai_assistant.agents.model_override.allowlistSaved',
+          'Chat override choices saved.',
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } finally {
+      setIsSavingAllowlist(false)
+    }
+  }, [agent.id, allowedModelsByProvider, allowedProviders, isSavingAllowlist, queryClient, t])
+
+  const busy = isSaving || isClearing || isSavingAllowlist
 
   return (
     <section
@@ -1099,6 +1233,130 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
             </div>
           </div>
         )}
+
+        {agent.allowRuntimeModelOverride ? (
+          <div className="rounded-md border border-border bg-muted/20 p-3" data-ai-agent-model-picker-allowlist>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-semibold">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistTitle',
+                    'Chat override choices',
+                  )}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistHelp',
+                    'Limit which provider/model overrides users can pick in the chat footer for this agent.',
+                  )}
+                </p>
+                {agentResolution?.runtimeOverrideAllowlist.env ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <code className="font-mono text-xs">
+                      {agentResolution.runtimeOverrideAllowlist.envVarNames.providers}
+                    </code>
+                    {' '}
+                    {t(
+                      'ai_assistant.agents.model_override.envAlsoNarrows',
+                      'also narrows this list from env.',
+                    )}
+                  </p>
+                ) : null}
+              </div>
+              <StatusBadge
+                variant={agentResolution?.runtimeOverrideAllowlist.tenant ? 'info' : 'neutral'}
+                dot
+              >
+                {agentResolution?.runtimeOverrideAllowlist.tenant
+                  ? t('ai_assistant.agents.model_override.allowlistCustom', 'custom')
+                  : t('ai_assistant.agents.model_override.allowlistInherited', 'inherited')}
+              </StatusBadge>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-3">
+              {configuredProviders.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistEmpty',
+                    'No configured providers are available for chat overrides.',
+                  )}
+                </p>
+              ) : (
+                configuredProviders.map((provider) => {
+                  const providerEnabled = isProviderAllowedForPicker(provider.id)
+                  return (
+                    <div key={provider.id} className="rounded-md border border-border bg-background p-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`ai-agent-picker-provider-${agent.id}-${provider.id}`}
+                          checked={providerEnabled}
+                          onCheckedChange={(value) =>
+                            toggleAllowedProvider(provider.id, value === true)
+                          }
+                        />
+                        <Label
+                          htmlFor={`ai-agent-picker-provider-${agent.id}-${provider.id}`}
+                          className="text-sm font-medium"
+                        >
+                          {provider.name}
+                        </Label>
+                      </div>
+                      {providerEnabled ? (
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {provider.defaultModels.map((model) => (
+                            <label
+                              key={model.id}
+                              className="flex min-w-0 items-center gap-2 text-xs"
+                            >
+                              <Checkbox
+                                checked={isModelAllowedForPicker(provider.id, model.id)}
+                                onCheckedChange={(value) =>
+                                  toggleAllowedModel(provider.id, model.id, value === true)
+                                }
+                              />
+                              <span className="truncate font-mono">{model.id}</span>
+                              {model.id === provider.defaultModel ? (
+                                <Badge variant="outline" className="text-overline">
+                                  {t('ai_assistant.agents.model_override.defaultBadge', 'default')}
+                                </Badge>
+                              ) : null}
+                            </label>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={resetAllowlistDraft}
+                disabled={busy}
+              >
+                {t('ai_assistant.agents.model_override.allowlistReset', 'Inherit')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void saveAllowlist()}
+                disabled={busy || !allowlistDirty}
+                data-ai-agent-model-allowlist-save
+              >
+                {isSavingAllowlist ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Save className="size-4" aria-hidden />
+                )}
+                <span>{t('ai_assistant.agents.model_override.allowlistSave', 'Save choices')}</span>
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {state.kind === 'success' ? (
           <Alert variant="success" data-ai-agent-model-override-state="success">

@@ -356,6 +356,8 @@ Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips
 |----------|---------|
 | `OM_AI_AVAILABLE_PROVIDERS` | Optional, comma-separated provider id list. Unset / empty → no provider restriction. Whitespace-tolerant; provider id comparison is case-insensitive. |
 | `OM_AI_AVAILABLE_MODELS_<PROVIDER>` | Optional, comma-separated model id list per provider. `<PROVIDER>` is uppercased from the registry id (`openai` → `OM_AI_AVAILABLE_MODELS_OPENAI`). Model id comparison is case-sensitive (model ids are vendor strings). Unset / empty → no model restriction for that provider. |
+| `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_PROVIDERS` | Optional, comma-separated provider id list that narrows only chat-footer runtime overrides for one agent. `<AGENT_ID>` is the full id uppercased with non-alphanumerics replaced by `_` (`catalog.catalog_assistant` → `OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS`). |
+| `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_MODELS_<PROVIDER>` | Optional, comma-separated model id list that narrows chat-footer runtime overrides for one agent/provider pair. Example: `OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_OPENAI=gpt-5-mini,gpt-4o`. |
 
 When a higher-priority override (request, caller, tenant, module env, agent default) resolves to a blocked combination, the factory falls back in this order:
 
@@ -366,7 +368,7 @@ The resolution returns `source: 'allowlist_fallback'` and an `allowlistFallback`
 
 Tenant-editable allowlist (Phase 1780-6) — the runtime intersects the env allowlist above with an optional per-tenant snapshot stored in `ai_tenant_model_allowlists`. Admins with `ai_assistant.settings.manage` edit the allowlist from `/backend/config/ai-assistant/allowlist`. The editor renders the env-clipped provider/model universe, not the tenant-clipped result, so deselected models remain visible and can be re-enabled. The constraint chain is **outer → inner**: `OM_AI_AVAILABLE_*` env → tenant allowlist → tenant runtime override → per-request override.
 
-Per-agent provider/model overrides are edited from `/backend/config/ai-assistant/agents` in the selected agent's **Provider and model** section. They write `ai_agent_runtime_overrides` rows scoped to the agent id and sit above tenant-wide defaults in the resolution chain. The chat `<ModelPicker>` self-heals stale localStorage selections after allowlist changes by swapping to the first still-allowed model returned by the `/models` endpoint.
+Per-agent provider/model overrides are edited from `/backend/config/ai-assistant/agents` in the selected agent's **Provider and model** section. They write `ai_agent_runtime_overrides` rows scoped to the agent id and sit above tenant-wide defaults in the resolution chain. The same row also stores **Chat override choices** (`allowed_override_providers`, `allowed_override_models_by_provider`) that narrow which values users can pick in the chat footer for that agent. These choices are intersected with `OM_AI_AVAILABLE_*`, the tenant allowlist, and the per-agent `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_*` env vars. The chat `<ModelPicker>` displays the effective default model name and self-heals stale localStorage selections after allowlist changes by swapping to the first still-allowed model returned by the `/models` endpoint.
 
 | Surface | Behaviour |
 |---------|-----------|

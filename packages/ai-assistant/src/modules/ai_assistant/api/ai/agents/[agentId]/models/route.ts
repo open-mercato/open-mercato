@@ -10,12 +10,16 @@ import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { createModelFactory } from '../../../../../lib/model-factory'
 import {
+  hasAllowlistSnapshotRestrictions,
+  intersectEffectiveAllowlistWithSnapshot,
   intersectAllowlists,
   isModelAllowedForProviderInEffective,
   isProviderAllowedInEffective,
+  readAgentRuntimeOverrideAllowlist,
   type TenantAllowlistSnapshot,
 } from '../../../../../lib/model-allowlist'
 import { AiTenantModelAllowlistRepository } from '../../../../../data/repositories/AiTenantModelAllowlistRepository'
+import { AiAgentRuntimeOverrideRepository } from '../../../../../data/repositories/AiAgentRuntimeOverrideRepository'
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -113,6 +117,7 @@ export async function GET(
     // Load the per-tenant allowlist snapshot so the picker reflects both env
     // and admin-edited tenant constraints (Phase 1780-6).
     let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
+    let agentRuntimeOverrideAllowlist: TenantAllowlistSnapshot | null = null
     if (auth.tenantId) {
       try {
         const em = container.resolve<EntityManager>('em')
@@ -121,6 +126,21 @@ export async function GET(
           tenantId: auth.tenantId,
           organizationId: auth.orgId ?? null,
         })
+        const runtimeOverrideRepo = new AiAgentRuntimeOverrideRepository(em)
+        const runtimeOverrideRow = await runtimeOverrideRepo.getExact({
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+          agentId,
+        })
+        const tenantAgentAllowlist = runtimeOverrideRow
+          ? {
+              allowedProviders: runtimeOverrideRow.allowedOverrideProviders ?? null,
+              allowedModelsByProvider: runtimeOverrideRow.allowedOverrideModelsByProvider ?? {},
+            }
+          : null
+        agentRuntimeOverrideAllowlist = hasAllowlistSnapshotRestrictions(tenantAgentAllowlist)
+          ? tenantAgentAllowlist
+          : null
       } catch (snapshotError) {
         console.warn('[AI Agents Models] Failed to load tenant allowlist:', snapshotError)
       }
@@ -144,10 +164,20 @@ export async function GET(
     // chat-UI picker can never offer a value the runtime would refuse.
     const env = process.env as Record<string, string | undefined>
     const knownProviderIds = llmProviderRegistry.list().map((p) => p.id)
-    const effectiveAllowlist = intersectAllowlists(
+    const baseEffectiveAllowlist = intersectAllowlists(
       env,
       knownProviderIds,
       tenantAllowlistSnapshot,
+    )
+    const envAgentAllowlist = readAgentRuntimeOverrideAllowlist(env, agentId, knownProviderIds)
+    const effectiveAllowlist = intersectEffectiveAllowlistWithSnapshot(
+      intersectEffectiveAllowlistWithSnapshot(
+        baseEffectiveAllowlist,
+        knownProviderIds,
+        envAgentAllowlist,
+      ),
+      knownProviderIds,
+      agentRuntimeOverrideAllowlist,
     )
     const providers = allowRuntimeModelOverride
       ? llmProviderRegistry.list()
@@ -159,7 +189,7 @@ export async function GET(
             )
             return {
               id: provider.id,
-              name: provider.id,
+              name: provider.name,
               isDefault: provider.id === defaultProviderId,
               models: filteredModels.map((model) => ({
                 id: model.id,
@@ -177,6 +207,11 @@ export async function GET(
       allowRuntimeModelOverride,
       defaultProviderId,
       defaultModelId,
+      defaultProviderName: llmProviderRegistry.get(defaultProviderId)?.name ?? defaultProviderId,
+      defaultModelName:
+        llmProviderRegistry
+          .get(defaultProviderId)
+          ?.defaultModels.find((model) => model.id === defaultModelId)?.name ?? defaultModelId,
       providers,
     })
   } catch (error) {

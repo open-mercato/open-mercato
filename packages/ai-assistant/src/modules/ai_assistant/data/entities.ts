@@ -260,6 +260,8 @@ export class AiAgentRuntimeOverride {
     | 'providerId'
     | 'modelId'
     | 'baseUrl'
+    | 'allowedOverrideProviders'
+    | 'allowedOverrideModelsByProvider'
     | 'updatedByUserId'
     | 'deletedAt'
 
@@ -283,6 +285,12 @@ export class AiAgentRuntimeOverride {
 
   @Property({ name: 'base_url', type: 'string', columnType: 'varchar(2048)', nullable: true })
   baseUrl?: string | null
+
+  @Property({ name: 'allowed_override_providers', type: 'jsonb', nullable: true })
+  allowedOverrideProviders?: string[] | null
+
+  @Property({ name: 'allowed_override_models_by_provider', type: 'jsonb', default: '{}' })
+  allowedOverrideModelsByProvider: Record<string, string[]> = {}
 
   @Property({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
   updatedByUserId?: string | null

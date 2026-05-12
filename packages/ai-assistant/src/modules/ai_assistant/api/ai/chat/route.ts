@@ -13,13 +13,17 @@ import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
   canonicalProviderId,
+  hasAllowlistSnapshotRestrictions,
+  intersectEffectiveAllowlistWithSnapshot,
   intersectAllowlists,
   isModelAllowedForProviderInEffective,
   isProviderAllowedInEffective,
   modelAllowlistEnvVarName,
+  readAgentRuntimeOverrideAllowlist,
   type TenantAllowlistSnapshot,
 } from '../../../lib/model-allowlist'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
+import { AiAgentRuntimeOverrideRepository } from '../../../data/repositories/AiAgentRuntimeOverrideRepository'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const MAX_MESSAGES = 100
@@ -250,6 +254,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
+    let agentRuntimeOverrideAllowlist: TenantAllowlistSnapshot | null = null
     if (auth.tenantId) {
       try {
         const em = container.resolve<EntityManager>('em')
@@ -258,15 +263,44 @@ export async function POST(req: NextRequest): Promise<Response> {
           tenantId: auth.tenantId,
           organizationId: auth.orgId ?? null,
         })
+        const runtimeOverrideRepo = new AiAgentRuntimeOverrideRepository(em)
+        const agentRuntimeOverrideRow = await runtimeOverrideRepo.getExact({
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+          agentId,
+        })
+        const tenantAgentAllowlist = agentRuntimeOverrideRow
+          ? {
+              allowedProviders: agentRuntimeOverrideRow.allowedOverrideProviders ?? null,
+              allowedModelsByProvider: agentRuntimeOverrideRow.allowedOverrideModelsByProvider ?? {},
+            }
+          : null
+        agentRuntimeOverrideAllowlist = hasAllowlistSnapshotRestrictions(tenantAgentAllowlist)
+          ? tenantAgentAllowlist
+          : null
       } catch (snapshotError) {
         console.warn('[AI Chat Agent] Tenant allowlist lookup failed; falling back to env-only:', snapshotError)
       }
     }
     const knownProviderIds = llmProviderRegistry.list().map((p) => p.id)
-    const effectiveAllowlist = intersectAllowlists(
+    const baseEffectiveAllowlist = intersectAllowlists(
       process.env as Record<string, string | undefined>,
       knownProviderIds,
       tenantAllowlistSnapshot,
+    )
+    const envAgentAllowlist = readAgentRuntimeOverrideAllowlist(
+      process.env as Record<string, string | undefined>,
+      agentId,
+      knownProviderIds,
+    )
+    const effectiveAllowlist = intersectEffectiveAllowlistWithSnapshot(
+      intersectEffectiveAllowlistWithSnapshot(
+        baseEffectiveAllowlist,
+        knownProviderIds,
+        envAgentAllowlist,
+      ),
+      knownProviderIds,
+      agentRuntimeOverrideAllowlist,
     )
 
     const normalizedProvider = rawProvider && rawProvider.trim().length > 0
