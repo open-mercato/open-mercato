@@ -388,6 +388,15 @@ export const RichEditor = React.memo(function RichEditor({
       if (!el || disabled) return
       el.focus()
       try {
+        // Tell the browser to emit modern <span style="…"> output (forecolor,
+        // backColor, fontSize, etc.) instead of the deprecated <font> tag —
+        // the sanitizer drops <font> outright, so without this colour /
+        // font-size changes silently disappear on the next blur.
+        document.execCommand('styleWithCSS', false, 'true' as never)
+      } catch {
+        // ignore — older browsers without styleWithCSS support
+      }
+      try {
         document.execCommand(command, false, arg)
       } catch {
         // ignore unsupported commands
@@ -1025,7 +1034,31 @@ export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorCont
           // Figma reference: content lives in its own bordered card with rounded-8 + shadow-xs,
           // visually separated from the toolbar by the small vertical gap from the parent
           // wrapper's `space-y-2`.
-          'prose prose-sm w-full max-w-none rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+          'w-full max-w-none rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+          // The project does not include `@tailwindcss/typography`, so we have to
+          // re-implement the rich text rendering ourselves via descendant-arbitrary
+          // selectors. Cover every tag the toolbar can produce so the user sees
+          // the formatting instantly after each execCommand.
+          '[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-bold',
+          '[&_h2]:mt-3 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold',
+          '[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-lg [&_h3]:font-semibold',
+          '[&_p]:my-1',
+          '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6',
+          '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
+          '[&_li]:my-0.5',
+          // Task list checklist override — when <ul data-task-list> we drop the
+          // disc bullet so the <input type=checkbox> child stands alone.
+          '[&_ul[data-task-list]]:list-none [&_ul[data-task-list]]:pl-0',
+          '[&_ul[data-task-list]_input[type=checkbox]]:mr-2',
+          '[&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
+          '[&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs',
+          '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs',
+          '[&_a]:text-primary [&_a]:underline',
+          '[&_hr]:my-3 [&_hr]:border-border',
+          '[&_img]:my-2 [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded',
+          '[&_table]:my-2 [&_table]:border-collapse',
+          '[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1',
+          '[&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1',
           'data-[placeholder]:before:pointer-events-none data-[placeholder]:empty:before:content-[attr(data-placeholder)] data-[placeholder]:empty:before:text-muted-foreground',
           className,
         )}
