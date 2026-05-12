@@ -70,6 +70,29 @@ export interface AiAgentDefinition {
    * Phase 0 and Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   defaultModel?: string
+  /**
+   * Optional base URL this agent prefers for its chosen provider.
+   * Sits between `<MODULE>_AI_BASE_URL` (step 6) and the preset env override
+   * (`baseURLEnvKeys`) in the resolution chain. Only honoured by adapters that
+   * support baseURL (Anthropic Messages-protocol relays, all OpenAI-compatible
+   * adapters, Google via @ai-sdk/google ≥3.0).
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  defaultBaseUrl?: string
+  /**
+   * When false, per-request HTTP overrides (query params `provider`, `model`,
+   * `baseUrl`) and the per-tenant settings override stored in
+   * `ai_agent_runtime_overrides` are both suppressed. Steps 1 and 3 of the
+   * model-factory resolution chain are skipped for this agent.
+   *
+   * Default is `true` (permissive). Agents that pin a specific model for
+   * correctness reasons (e.g. a structured-output agent whose JSON-mode schema
+   * only works with one provider) should set this to `false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  allowRuntimeModelOverride?: boolean
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
   uiParts?: string[]

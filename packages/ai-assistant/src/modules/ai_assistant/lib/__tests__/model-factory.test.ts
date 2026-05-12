@@ -662,3 +662,133 @@ describe('parseSlashShorthand', () => {
     })
   })
 })
+
+describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverride', () => {
+  function makeMultiRegistry(providers: FakeProvider[]): AiModelFactoryRegistry {
+    return {
+      resolveFirstConfigured: (options) => {
+        const order = options?.order
+        if (order && order.length > 0) {
+          for (const id of order) {
+            const found = providers.find((p) => p.id === id)
+            if (found && found.isConfigured()) return found as unknown as ReturnType<AiModelFactoryRegistry['resolveFirstConfigured']>
+          }
+          const listed = new Set(order)
+          for (const p of providers) {
+            if (!listed.has(p.id) && p.isConfigured()) return p as unknown as ReturnType<AiModelFactoryRegistry['resolveFirstConfigured']>
+          }
+          return null
+        }
+        return providers.find((p) => p.isConfigured()) as unknown as ReturnType<AiModelFactoryRegistry['resolveFirstConfigured']> ?? null
+      },
+      get: (id: string) => providers.find((p) => p.id === id) as unknown as ReturnType<NonNullable<AiModelFactoryRegistry['get']>> ?? null,
+    }
+  }
+
+  it('requestOverride wins over callerOverride for both model and provider axes', () => {
+    const anthropic = makeProvider({ id: 'anthropic' })
+    const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+    const factory = createModelFactory({} as AwilixContainer, {
+      registry: makeMultiRegistry([anthropic, openai]),
+      env: {},
+    })
+    const resolution = factory.resolveModel({
+      callerOverride: 'some-caller-model',
+      requestOverride: { providerId: 'openai', modelId: 'gpt-5-mini' },
+    })
+    expect(resolution.source).toBe('request_override')
+    expect(resolution.modelId).toBe('gpt-5-mini')
+    expect(resolution.providerId).toBe('openai')
+  })
+
+  it('tenantOverride sits below callerOverride but above module_env', () => {
+    const anthropic = makeProvider({ id: 'anthropic' })
+    const openai = makeProvider({ id: 'openai', defaultModel: 'gpt-4o-mini' })
+    const factory = createModelFactory({} as AwilixContainer, {
+      registry: makeMultiRegistry([anthropic, openai]),
+      env: {},
+    })
+    const resolution = factory.resolveModel({
+      tenantOverride: { providerId: 'openai', modelId: 'tenant-model' },
+      agentDefaultModel: 'agent-model',
+    })
+    expect(resolution.source).toBe('tenant_override')
+    expect(resolution.modelId).toBe('tenant-model')
+    expect(resolution.providerId).toBe('openai')
+  })
+
+  it('allowRuntimeModelOverride: false skips requestOverride (step 1)', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeModelOverride: false,
+      requestOverride: { modelId: 'blocked-model' },
+      agentDefaultModel: 'agent-wins',
+    })
+    expect(resolution.source).toBe('agent_default')
+    expect(resolution.modelId).toBe('agent-wins')
+  })
+
+  it('allowRuntimeModelOverride: false skips tenantOverride (step 3)', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeModelOverride: false,
+      tenantOverride: { modelId: 'blocked-tenant-model' },
+      agentDefaultModel: 'agent-wins',
+    })
+    expect(resolution.source).toBe('agent_default')
+    expect(resolution.modelId).toBe('agent-wins')
+  })
+
+  it('allowRuntimeModelOverride: false still honors callerOverride (step 2)', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeModelOverride: false,
+      callerOverride: 'caller-still-wins',
+      tenantOverride: { modelId: 'blocked' },
+    })
+    expect(resolution.source).toBe('caller_override')
+    expect(resolution.modelId).toBe('caller-still-wins')
+  })
+
+  it('allowRuntimeModelOverride: true (default) honors tenantOverride', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      tenantOverride: { modelId: 'tenant-model' },
+    })
+    expect(resolution.source).toBe('tenant_override')
+    expect(resolution.modelId).toBe('tenant-model')
+  })
+
+  it('requestOverride baseURL is resolved when runtimeOverrides are allowed', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      requestOverride: { baseURL: 'https://custom.example.com/v1' },
+    })
+    expect(resolution.baseURL).toBe('https://custom.example.com/v1')
+  })
+
+  it('tenantOverride baseURL sits below requestOverride but above agentDefaultBaseUrl', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      tenantOverride: { baseURL: 'https://tenant.example.com/v1' },
+      agentDefaultBaseUrl: 'https://agent.example.com/v1',
+    })
+    expect(resolution.baseURL).toBe('https://tenant.example.com/v1')
+  })
+
+  it('allowRuntimeModelOverride: false suppresses requestOverride baseURL', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeModelOverride: false,
+      requestOverride: { baseURL: 'https://blocked.example.com/v1' },
+    })
+    expect(resolution.baseURL).toBeUndefined()
+  })
+})

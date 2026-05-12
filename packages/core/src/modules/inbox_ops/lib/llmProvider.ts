@@ -163,6 +163,15 @@ export async function runExtractionWithConfiguredProvider(input: {
     model = factoryResolution.model
     modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
   } else {
+    // BC: Legacy OPENCODE_PROVIDER / OPENCODE_MODEL path. This branch only
+    // runs when createModelFactory throws AiModelFactoryError('no_provider_configured'),
+    // meaning none of the new-style provider env vars (ANTHROPIC_API_KEY,
+    // OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, AI_DEFAULT_PROVIDER, …) is
+    // set. The OPENCODE_* envs are deliberately NOT aliased to AI_DEFAULT_PROVIDER
+    // because they are scoped to the OpenCode Code Mode stack (spec
+    // 2026-04-27-ai-agents-provider-model-baseurl-overrides, R1 mitigation).
+    // Keeping this fallback alive preserves backward compatibility for existing
+    // inbox_ops deployments that have not yet migrated to the new env vars.
     const providerId = resolveExtractionProviderId()
     const apiKey = requireOpenCodeProviderApiKey(providerId)
     const modelConfig = resolveOpenCodeModel(providerId, {

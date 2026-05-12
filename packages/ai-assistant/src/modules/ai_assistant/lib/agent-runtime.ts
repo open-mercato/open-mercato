@@ -1,3 +1,4 @@
+import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LanguageModel, UIMessage } from 'ai'
@@ -9,8 +10,6 @@ import {
   streamText,
 } from 'ai'
 import type { ZodTypeAny } from 'zod'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { createModelFactory } from './model-factory'
 import type {
   AiAgentDefinition,
@@ -31,6 +30,7 @@ import {
 } from './attachment-parts'
 import { AiAgentPromptOverrideRepository } from '../data/repositories/AiAgentPromptOverrideRepository'
 import { AiAgentMutationPolicyOverrideRepository } from '../data/repositories/AiAgentMutationPolicyOverrideRepository'
+import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRuntimeOverrideRepository'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
@@ -75,6 +75,28 @@ export interface RunAiAgentTextInput {
    */
   providerOverride?: string
   /**
+   * Optional per-call base URL override. Wins over every other source in the
+   * baseURL resolution chain. Intended for programmatic callers only — the
+   * HTTP query-param baseUrl and the AI_RUNTIME_BASEURL_ALLOWLIST arrive in
+   * Phase 4a and MUST NOT be exposed here.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrlOverride?: string
+  /**
+   * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
+   * `?baseUrl=`). Validated by the dispatcher route before being forwarded
+   * here. Wins over tenantOverride and all lower-priority sources when
+   * `agent.allowRuntimeModelOverride !== false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  requestOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
+  /**
    * Optional DI container used by `resolvePageContext` callbacks. When omitted
    * and the agent declares a `resolvePageContext`, hydration is skipped with a
    * warning (callbacks that need database/DI cannot run safely without one).
@@ -101,53 +123,29 @@ function resolveAgentModel(
   modelOverride: string | undefined,
   providerOverride: string | undefined,
   container: AwilixContainer | undefined,
+  baseUrlOverride?: string,
+  tenantOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
+  requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
 ): ResolvedAgentModel {
-  if (container) {
-    const resolution = createModelFactory(container).resolveModel({
-      moduleId: agent.moduleId,
-      agentDefaultModel: agent.defaultModel,
-      agentDefaultProvider: agent.defaultProvider,
-      callerOverride: modelOverride,
-      providerOverride,
-    })
-    return {
-      model: resolution.model as LanguageModel,
-      modelId: resolution.modelId,
-      providerId: resolution.providerId,
-    }
+  const effectiveContainer = container ?? createContainer()
+  const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
+  const resolution = createModelFactory(effectiveContainer).resolveModel({
+    moduleId: agent.moduleId,
+    agentDefaultModel: agent.defaultModel,
+    agentDefaultProvider: agent.defaultProvider,
+    agentDefaultBaseUrl: agent.defaultBaseUrl,
+    callerOverride: modelOverride,
+    providerOverride,
+    baseUrlOverride,
+    allowRuntimeModelOverride,
+    tenantOverride: tenantOverride ?? undefined,
+    requestOverride: requestOverride ?? undefined,
+  })
+  return {
+    model: resolution.model as LanguageModel,
+    modelId: resolution.modelId,
+    providerId: resolution.providerId,
   }
-
-  const env = process.env
-  // Honor the operator-selected provider (new OM_AI_PROVIDER, with legacy
-  // OPENCODE_PROVIDER as the BC fallback) so deployments that have stale
-  // keys for other providers still hit the intended target.
-  const omProvider = (env.OM_AI_PROVIDER ?? '').trim()
-  const opencodeProvider = (env.OPENCODE_PROVIDER ?? '').trim()
-  const providerHint = omProvider.length > 0 || opencodeProvider.length > 0
-    ? [resolveAiProviderIdFromEnv(env)]
-    : undefined
-  const provider = llmProviderRegistry.resolveFirstConfigured(
-    providerHint ? { order: providerHint } : undefined,
-  )
-  if (!provider) {
-    throw new Error(
-      'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
-    )
-  }
-  const apiKey = provider.resolveApiKey()
-  if (!apiKey) {
-    throw new Error(
-      `LLM provider "${provider.id}" is advertised as configured but resolveApiKey() returned empty.`,
-    )
-  }
-  const globalEnvModel = ((env.OM_AI_MODEL ?? env.OPENCODE_MODEL) ?? '').trim()
-  const modelId =
-    (modelOverride && modelOverride.trim().length > 0 ? modelOverride : undefined) ??
-    (globalEnvModel.length > 0 ? globalEnvModel : undefined) ??
-    agent.defaultModel ??
-    provider.defaultModel
-  const model = provider.createModel({ modelId, apiKey }) as LanguageModel
-  return { model, modelId, providerId: provider.id }
 }
 
 /**
@@ -284,6 +282,53 @@ async function resolveMutationPolicyOverride(
   } catch (error) {
     console.warn(
       `[AI Agents] mutationPolicy override lookup failed for agent "${agentId}"; falling back to code-declared policy.`,
+      error,
+    )
+    return null
+  }
+}
+
+/**
+ * Looks up the per-tenant AI runtime override (provider / model / baseURL) for
+ * the given agent (Phase 4a of spec
+ * `2026-04-27-ai-agents-provider-model-baseurl-overrides`).
+ *
+ * Mirrors the fail-open contract of {@link resolveMutationPolicyOverride}: any
+ * error — missing container, missing `em`, repository throw, missing migration
+ * — is logged at `warn` level and returns null so the model factory falls
+ * through to lower-priority sources. A chat turn MUST never fail on override
+ * lookup.
+ */
+async function resolveRuntimeModelOverride(
+  agentId: string,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<{ providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null> {
+  if (!tenantId || !container) return null
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return null
+  try {
+    const repo = new AiAgentRuntimeOverrideRepository(em)
+    const row = await repo.getDefault({
+      tenantId,
+      organizationId: organizationId ?? null,
+      agentId,
+    })
+    if (!row) return null
+    return {
+      providerId: row.providerId ?? null,
+      modelId: row.modelId ?? null,
+      baseURL: row.baseUrl ?? null,
+    }
+  } catch (error) {
+    console.warn(
+      `[AI Agents] Runtime model override lookup failed for agent "${agentId}"; falling back to lower-priority sources.`,
       error,
     )
     return null
@@ -507,12 +552,20 @@ function appendRuntimeMutationPolicy(
  * invariant #7 still holds.
  */
 export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Response> {
-  const mutationPolicyOverride = await resolveMutationPolicyOverride(
-    input.agentId,
-    input.container,
-    input.authContext.tenantId,
-    input.authContext.organizationId,
-  )
+  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+    resolveMutationPolicyOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveRuntimeModelOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+  ])
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -543,7 +596,15 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
+  const { model } = resolveAgentModel(
+    agent,
+    input.modelOverride,
+    input.providerOverride,
+    input.container,
+    input.baseUrlOverride,
+    tenantRuntimeOverride,
+    input.requestOverride,
+  )
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -613,6 +674,28 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   providerOverride?: string
+  /**
+   * Optional per-call base URL override. Wins over every other source in the
+   * baseURL resolution chain. Intended for programmatic callers only — the
+   * HTTP query-param baseUrl and the AI_RUNTIME_BASEURL_ALLOWLIST arrive in
+   * Phase 4a and MUST NOT be exposed here.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  baseUrlOverride?: string
+  /**
+   * Per-request HTTP dispatcher override (query params `?provider=`, `?model=`,
+   * `?baseUrl=`). Validated by the dispatcher route before being forwarded
+   * here. Wins over tenantOverride and all lower-priority sources when
+   * `agent.allowRuntimeModelOverride !== false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  requestOverride?: {
+    providerId?: string | null
+    modelId?: string | null
+    baseURL?: string | null
+  }
   output?: RunAiAgentObjectOutputOverride<TSchema>
   debug?: boolean
   container?: AwilixContainer
@@ -695,12 +778,20 @@ function resolveStructuredOutput<TSchema>(
 export async function runAiAgentObject<TSchema = unknown>(
   input: RunAiAgentObjectInput<TSchema>,
 ): Promise<RunAiAgentObjectResult<TSchema>> {
-  const mutationPolicyOverride = await resolveMutationPolicyOverride(
-    input.agentId,
-    input.container,
-    input.authContext.tenantId,
-    input.authContext.organizationId,
-  )
+  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+    resolveMutationPolicyOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveRuntimeModelOverride(
+      input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+  ])
   const { agent, tools } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
@@ -733,7 +824,15 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(agent, input.modelOverride, input.providerOverride, input.container)
+  const { model } = resolveAgentModel(
+    agent,
+    input.modelOverride,
+    input.providerOverride,
+    input.container,
+    input.baseUrlOverride,
+    tenantRuntimeOverride,
+    input.requestOverride,
+  )
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,

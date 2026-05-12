@@ -307,13 +307,29 @@ Full reference: `apps/docs/docs/framework/ai-assistant/launcher.mdx`.
 
 The unified AI runtime picks the first configured provider from `llmProviderRegistry`. Configure providers via env variables:
 
-| Variable | Provider | Default model |
-|----------|----------|---------------|
-| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-sonnet-4-20250514` |
-| `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-1.5-pro-latest` |
+| Variable | Provider | Default model | Base URL override |
+|----------|----------|---------------|-------------------|
+| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-haiku-4-5-20251001` | N/A (Messages-protocol relays only — set `baseURL` on the agent or pass `baseUrlOverride` to `runAiAgentText`) |
+| `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
+| `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
+| `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
+| `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
+| `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI | `gpt-5-mini` | `AZURE_OPENAI_BASE_URL` (required) |
+| `LITELLM_API_KEY` | LiteLLM | `gpt-4o-mini` | `LITELLM_BASE_URL` |
+| `OLLAMA_API_KEY` | Ollama (local) | `llama3.3` | `OLLAMA_BASE_URL` |
+| `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
+| `LM_STUDIO_API_KEY` | LM Studio (local) | *(empty — auto-detects loaded model)* | `LM_STUDIO_BASE_URL` |
 
 At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+
+**baseURL override hierarchy** (highest to lowest priority for a given call):
+1. `baseUrlOverride` on `runAiAgentText` / `runAiAgentObject` — programmatic callers only (R6: no HTTP exposure before Phase 4a).
+2. `<MODULE>_AI_BASE_URL` env (e.g. `CATALOG_AI_BASE_URL`) — module-scoped override.
+3. `AiAgentDefinition.defaultBaseUrl` — agent-level default.
+4. `<PROVIDER>_BASE_URL` env (e.g. `OPENAI_BASE_URL`, `OPENROUTER_BASE_URL`) — preset env override.
+5. Preset `baseURL` (e.g. `https://openrouter.ai/api/v1`) — hard-coded default.
 
 Process-wide defaults (Phase 0 of spec
 `2026-04-27-ai-agents-provider-model-baseurl-overrides`):
@@ -545,10 +561,6 @@ The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'`
 when the registry has no configured provider and `code: 'api_key_missing'`
 when the picked provider returns an empty key — every current call site
 already relies on the throw bubbling up, do not swallow it.
-
-The `agent-runtime.ts` inline `resolveAgentModel` will migrate to
-`createModelFactory` in a follow-up Step (5.2+). New agents should accept
-the factory-backed path from day one.
 
 ## MANDATORY: Use AskUserQuestion for Confirmations
 
@@ -1362,6 +1374,14 @@ if (tool.requiredFeatures?.length) {
 ---
 
 ## Changelog
+
+### 2026-05-08 - Phase 3 call-site cleanup (spec 2026-04-27-ai-agents-provider-model-baseurl-overrides)
+
+**What changed**:
+- `agent-runtime.ts` `resolveAgentModel` fully migrated to `createModelFactory`. The inline fallback resolver (which ignored `AI_DEFAULT_PROVIDER`, `agentDefaultProvider`, `providerOverride`, `baseUrlOverride`) is removed. A throwaway `createContainer()` is used when no Awilix container is provided, keeping the function signature unchanged.
+- `api/route/route.ts` no-config fallback now delegates to `createModelFactory` instead of a manual `llmProviderRegistry.resolveFirstConfigured` call, ensuring `AI_DEFAULT_PROVIDER` / `AI_DEFAULT_MODEL` / all registered preset providers are honored in the routing path.
+- `inbox_ops/lib/llmProvider.ts` received a doc-comment explaining why `OPENCODE_PROVIDER` / `OPENCODE_MODEL` remain at the bottom of the resolution chain (BC isolation from the new `AI_DEFAULT_*` envs per spec R1 mitigation).
+- `customers/ai-agents.ts` and `catalog/ai-agents.ts` removed duplicate local `AiAgentDefinition` / `AiAgentPageContextInput` type declarations; both now import from `@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition`.
 
 ### 2026-02-22 - Code Mode Tools (search + execute)
 
