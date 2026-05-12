@@ -227,7 +227,7 @@ export function LookupSelect({
                     <div className="flex items-center justify-between gap-3">
                       <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
                       {item.rightLabel ? (
-                        <div className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <div className="shrink-0 text-overline font-medium uppercase tracking-wider text-muted-foreground">
                           {item.rightLabel}
                         </div>
                       ) : null}
