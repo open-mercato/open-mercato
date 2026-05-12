@@ -272,16 +272,16 @@ export class AiAgentRuntimeOverride {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
-  @Property({ name: 'agent_id', columnType: 'varchar(128)', nullable: true })
+  @Property({ name: 'agent_id', type: 'string', columnType: 'varchar(128)', nullable: true })
   agentId?: string | null
 
-  @Property({ name: 'provider_id', columnType: 'varchar(64)', nullable: true })
+  @Property({ name: 'provider_id', type: 'string', columnType: 'varchar(64)', nullable: true })
   providerId?: string | null
 
-  @Property({ name: 'model_id', columnType: 'varchar(256)', nullable: true })
+  @Property({ name: 'model_id', type: 'string', columnType: 'varchar(256)', nullable: true })
   modelId?: string | null
 
-  @Property({ name: 'base_url', columnType: 'varchar(2048)', nullable: true })
+  @Property({ name: 'base_url', type: 'string', columnType: 'varchar(2048)', nullable: true })
   baseUrl?: string | null
 
   @Property({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
