@@ -144,8 +144,8 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 ### Phase 1: Apply package.json bumps and regenerate lockfile
 
 - [x] 1.1 Apply minor-and-patch bumps from #1888 across affected package.json files — cb2cb22c7
-- [ ] 1.2 Run yarn install to regenerate yarn.lock
-- [ ] 1.3 Spot-check yarn.lock for key resolved versions
+- [x] 1.2 Run yarn install to regenerate yarn.lock — see next commit
+- [x] 1.3 Spot-check yarn.lock for key resolved versions — next@16.2.6, react@19.2.6, @mikro-orm/core@^7.0.15, zod@4.4.3, mermaid@11.12.2 (transitive, kept stable)
 
 ### Phase 2: Validation gate
 
