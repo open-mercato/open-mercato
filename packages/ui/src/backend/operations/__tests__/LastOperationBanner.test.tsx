@@ -78,8 +78,53 @@ describe('LastOperationBanner', () => {
         method: 'POST',
       }))
     })
-    expect(markUndoSuccess).toHaveBeenCalledWith('token-123')
+    expect(markUndoSuccess).toHaveBeenCalledWith(['token-123'])
     expect(flash).toHaveBeenCalledWith('Undo completed', 'success')
+  })
+
+  it('iterates bulkUndoTokens in reverse and reports completed tokens to the store on full success', async () => {
+    ;(useLastOperation as jest.Mock).mockReturnValue({
+      ...mockOperation,
+      undoToken: 'bulk:abc',
+      bulkUndoTokens: ['tk-1', 'tk-2', 'tk-3'],
+      bulkCount: 3,
+    })
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: {},
+      response: createMockResponse(200),
+    })
+
+    renderWithProviders(<LastOperationBanner />, { dict })
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledTimes(3)
+    })
+    const tokenBodies = (apiCall as jest.Mock).mock.calls.map((call) => JSON.parse(call[1].body))
+    expect(tokenBodies.map((body: { undoToken: string }) => body.undoToken)).toEqual(['tk-3', 'tk-2', 'tk-1'])
+    expect(markUndoSuccess).toHaveBeenCalledWith(['tk-1', 'tk-2', 'tk-3'])
+  })
+
+  it('on partial bulk failure flashes the error and reports only the completed tokens', async () => {
+    ;(useLastOperation as jest.Mock).mockReturnValue({
+      ...mockOperation,
+      undoToken: 'bulk:abc',
+      bulkUndoTokens: ['tk-1', 'tk-2', 'tk-3'],
+      bulkCount: 3,
+    })
+    ;(apiCall as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
+      .mockResolvedValueOnce({ ok: false, status: 500, result: { error: 'boom' }, response: createMockResponse(500) })
+
+    renderWithProviders(<LastOperationBanner />, { dict })
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }))
+
+    await waitFor(() => {
+      expect(flash).toHaveBeenCalledWith('boom', 'error')
+    })
+    expect(markUndoSuccess).toHaveBeenCalledWith(['tk-3'])
   })
 
   it('surfaces undo errors from the API', async () => {

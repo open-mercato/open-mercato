@@ -523,5 +523,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a company by id. The identifier can be provided via body or query.',
+    errors: [
+      {
+        status: 422,
+        description: 'Company has dependent records (people, deals, or direct staff); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('COMPANY_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

@@ -1789,6 +1789,7 @@ describe('customers commands undo custom fields', () => {
         if (ctor === CustomerInteraction && where.entity === entity) return [interaction]
         return []
       }),
+      count: jest.fn(async () => 0),
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
