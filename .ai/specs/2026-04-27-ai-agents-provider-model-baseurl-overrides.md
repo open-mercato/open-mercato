@@ -509,7 +509,7 @@ a phase are mostly independent.
 
 - [ ] `3.1` Migrate `agent-runtime.resolveAgentModel` to `createModelFactory`. Delete the inline duplicate.
 - [ ] `3.2` Replace `api/route/route.ts`'s hardcoded `order` walk with the factory.
-- [ ] `3.3` Unify `inbox_ops/lib/llmProvider.ts` resolution order with the factory; legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` move to step 5 (after `AI_DEFAULT_*`) instead of step 1.
+- [ ] `3.3` Unify `inbox_ops/lib/llmProvider.ts` resolution order with the factory; legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` move behind canonical `OM_AI_PROVIDER` / `OM_AI_MODEL` instead of step 1.
 - [ ] `3.4` Remove the duplicate `AiAgentDefinition` shapes in `customers/ai-agents.ts` and `catalog/ai-agents.ts`; both import from `@open-mercato/ai-assistant`.
 - [ ] `3.5` Update `packages/ai-assistant/AGENTS.md` to mark the Step 5.2 follow-up as done; add changelog entry.
 - [ ] `3.6` Run `yarn test` and the integration suite for `inbox_ops`, `agent-runtime`, `agent-runtime-object`, `model-factory`, `chat-config`, and `route` route tests.
@@ -606,16 +606,18 @@ risk.** LOW with the doc-comment.
 
 ### R4 — `<MODULE>_AI_PROVIDER` collides with future env conventions (LOW)
 
-**Failure scenario.** A future module named `ai_default` would shadow
-`AI_DEFAULT_AI_MODEL` and `AI_DEFAULT_AI_PROVIDER` against the global env
-var.
+**Failure scenario.** A future module named `runtime_defaults` would create
+`OM_AI_RUNTIME_DEFAULTS_MODEL` and `OM_AI_RUNTIME_DEFAULTS_PROVIDER`
+per-module env vars, which look close to the global `OM_AI_MODEL` /
+`OM_AI_PROVIDER` names.
 
-**Mitigation.** The spec reserves `AI_DEFAULT_*` as a global namespace; the
-module-id-prefixed envs always include the moduleId verbatim, so a module
-named `ai_default` would resolve `AI_DEFAULT_AI_PROVIDER` (uppercased
-moduleId + `_AI_PROVIDER`), not `OM_AI_PROVIDER`. The collision is only
-hypothetical until someone adds such a module; if they do, the global wins
-and we revisit.
+**Mitigation.** The canonical global namespace is `OM_AI_PROVIDER` /
+`OM_AI_MODEL`; per-module overrides are namespaced as
+`OM_AI_<MODULE>_PROVIDER` / `OM_AI_<MODULE>_MODEL`. A hypothetical module
+named `runtime_defaults` would resolve `OM_AI_RUNTIME_DEFAULTS_PROVIDER`
+(uppercased moduleId between `OM_AI_` and `_PROVIDER`), not
+`OM_AI_PROVIDER`. The collision is only hypothetical until someone adds such
+a module; if they do, the global wins and we revisit.
 
 **Severity.** LOW. **Affected area.** Hypothetical. **Residual risk.** LOW.
 

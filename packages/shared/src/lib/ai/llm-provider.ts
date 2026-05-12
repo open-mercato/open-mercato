@@ -21,7 +21,7 @@ export type EnvLookup = Record<string, string | undefined>
  * Metadata describing a single model available in an LLM provider.
  *
  * Used by the AI Assistant UI to populate model dropdowns and by the
- * routing layer to pick defaults when `OPENCODE_MODEL` is not set.
+ * routing layer to pick defaults when `OM_AI_MODEL` is not set.
  */
 export interface LlmModelInfo {
   /**
@@ -77,8 +77,8 @@ export interface LlmProvider {
   /**
    * Stable identifier used in configuration, env vars, and the registry.
    * MUST be lowercase snake_case or kebab-case (e.g. `anthropic`, `deepinfra`,
-   * `openai`, `internal-litellm`). The `OPENCODE_PROVIDER` env var resolves
-   * to this value.
+   * `openai`, `internal-litellm`). The `OM_AI_PROVIDER` env var resolves to
+   * this value; the legacy `OPENCODE_PROVIDER` env var is a BC fallback.
    */
   readonly id: string
   /** Human-readable display name for UI dropdowns. */
@@ -91,7 +91,7 @@ export interface LlmProvider {
   /**
    * Default model id returned by {@link LlmProvider.defaultModels}[0]
    * when the caller does not specify one. Used by the routing layer when
-   * `OPENCODE_MODEL` is not set.
+   * `OM_AI_MODEL` is not set.
    */
   readonly defaultModel: string
   /** Curated list of models shown in the UI dropdown for this provider. */

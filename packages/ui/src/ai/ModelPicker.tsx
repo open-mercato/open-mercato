@@ -127,13 +127,19 @@ export function ModelPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t('ai_assistant.modelPicker.triggerAriaLabel', 'Select AI model')}
+        title={selectedLabel}
         data-ai-model-picker-trigger
-        className="gap-1.5 font-normal"
+        className="w-8 gap-0 px-0 font-normal sm:w-auto sm:gap-1.5 sm:px-2.5"
       >
         <Cpu className="size-3.5 shrink-0" aria-hidden />
-        <span className="max-w-[140px] truncate text-xs">{selectedLabel}</span>
+        <span className="hidden max-w-[140px] truncate text-xs sm:inline">
+          {selectedLabel}
+        </span>
         <ChevronDown
-          className={cn('size-3 shrink-0 transition-transform', open && 'rotate-180')}
+          className={cn(
+            'hidden size-3 shrink-0 transition-transform sm:block',
+            open && 'rotate-180',
+          )}
           aria-hidden
         />
       </Button>
