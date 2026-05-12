@@ -85,7 +85,7 @@ export function buildFormFieldFromCustomFieldDef(
     case 'datetime':
       return { id, label, type: 'datetime', ...baseProps }
     case 'multiline': {
-      let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+      let editor: 'simple' | 'uiw' | 'html' = 'html'
       if (def.editor === 'simpleMarkdown') editor = 'simple'
       else if (def.editor === 'htmlRichText') editor = 'html'
       return { id, label, type: 'richtext', ...baseProps, editor }
@@ -136,7 +136,7 @@ export function buildFormFieldFromCustomFieldDef(
         return base
       }
       if (def.kind === 'text' && typeof def.editor === 'string' && def.editor) {
-        let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+        let editor: 'simple' | 'uiw' | 'html' = 'html'
         if (def.editor === 'simpleMarkdown') editor = 'simple'
         else if (def.editor === 'htmlRichText') editor = 'html'
         return { id, label, type: 'richtext', ...baseProps, editor }
