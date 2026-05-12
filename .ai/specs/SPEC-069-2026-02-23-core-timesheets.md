@@ -256,7 +256,7 @@ Phase 1 schema excludes billing fields; `billing_mode` and `default_currency` ar
 | `organization_id` | UUID | FK |
 | `tenant_id` | UUID | FK |
 | `name` | text | |
-| `customer_id` | UUID | FK → `customer_entities.id` (customers module) |
+| `customer_id` | UUID \| null | FK → `customer_entities.id` (customers module). Optional — internal projects have no customer. |
 | `code` | text | Unique within `(organization_id, tenant_id)` scope |
 | `description` | text \| null | Free-text project description |
 | `project_type` | text \| null | e.g. `client`, `internal`, `research` — free-text or dictionary-driven |
@@ -418,7 +418,7 @@ On any validation error, the entire batch is rolled back (atomic transaction).
 
 **GET query params**: `projectType` (optional free-text filter), `status` (`active` | `on_hold` | `completed`), `customerId`, `q` (fulltext search over project fields), `page`, `pageSize`
 
-**Create/Update fields**: `name`, `customerId` (required), `projectType`, `status`, `startDate`, `description`, `code`
+**Create/Update fields**: `name`, `customerId` (optional — internal projects have no customer), `projectType`, `status`, `startDate`, `description`, `code`
 
 ### Project Employee Assignments
 
@@ -1200,6 +1200,9 @@ None. All previously identified gaps have been resolved.
 ---
 
 ## Changelog
+
+### 2026-05-13 — TimeProject.customer_id documentation fix
+- Clarified that `TimeProject.customer_id` is optional (`UUID | null`), matching the implementation. Internal projects have no associated customer. Updates both the Data Models table and the Projects API "Create/Update fields" line.
 
 ### 2026-03-12 — Phase 1 widgets and consistency updates
 - Added two Phase 1 dashboard widgets: `Time Reporting` (start/stop timer) and `Hours by Project` (AOV-style date presets).
