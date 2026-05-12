@@ -152,7 +152,7 @@ const SelectLabel = React.forwardRef<
   <SelectPrimitive.Label
     ref={ref}
     className={cn(
-      'px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80',
+      'px-2 pt-2 pb-1 text-overline font-semibold uppercase tracking-wider text-muted-foreground/80',
       'select-none',
       className
     )}

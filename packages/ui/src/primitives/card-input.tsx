@@ -174,7 +174,7 @@ export const CardInput = React.forwardRef<HTMLInputElement, CardInputProps>(
         />
         {showBrandBadge && detected ? (
           <span
-            className="flex shrink-0 items-center justify-center rounded-[4px] px-1.5 text-[10px] font-semibold uppercase tracking-wider tabular-nums select-none"
+            className="flex shrink-0 items-center justify-center rounded-[4px] px-1.5 text-overline font-semibold uppercase tracking-wider tabular-nums leading-none select-none"
             style={{
               backgroundColor: detected.bg,
               color: detected.fg ?? '#ffffff',
