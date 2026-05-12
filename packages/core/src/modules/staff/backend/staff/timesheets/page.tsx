@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -160,6 +161,21 @@ export default function MyTimesheetsPage() {
   const [canManageProjects, setCanManageProjects] = React.useState(false)
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [allAssignedProjects, setAllAssignedProjects] = React.useState<ProjectRow[]>([])
+
+  const mutationContextId = React.useMemo(
+    () => (staffMemberId ? `staff-timesheets:${staffMemberId}` : 'staff-timesheets:pending'),
+    [staffMemberId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    staffMemberId: string | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   // --- Feature check ---
   React.useEffect(() => {
@@ -405,10 +421,22 @@ export default function MyTimesheetsPage() {
       }
       if (bulkEntries.length === 0) return
 
-      const res = await apiCall('/api/staff/timesheets/time-entries/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: bulkEntries }),
+      const payload = { entries: bulkEntries }
+      const res = await runMutation({
+        operation: () =>
+          apiCall('/api/staff/timesheets/time-entries/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: staffMemberId ?? undefined,
+          staffMemberId,
+          retryLastMutation,
+        },
+        mutationPayload: payload as unknown as Record<string, unknown>,
       })
       if (!res.ok) throw new Error(await res.response.text())
 
@@ -420,7 +448,7 @@ export default function MyTimesheetsPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [dirty, entries, hasChanges, confirm, t, loadData])
+  }, [dirty, entries, hasChanges, confirm, t, loadData, runMutation, mutationContextId, staffMemberId, retryLastMutation])
 
   // --- Totals ---
   const getRowTotal = React.useCallback((projectId: string): number => {
@@ -505,10 +533,22 @@ export default function MyTimesheetsPage() {
 
   const handleAddProject = React.useCallback(async (project: ProjectRow) => {
     try {
-      const res = await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ showInGrid: true }),
+      const payload = { showInGrid: true }
+      const res = await runMutation({
+        operation: () =>
+          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'staff.timesheets.time_project_member',
+          resourceId: project.id,
+          staffMemberId,
+          retryLastMutation,
+        },
+        mutationPayload: payload,
       })
       if (!res.ok) throw new Error(await res.response.text())
       setProjects((prev) => {
@@ -519,7 +559,7 @@ export default function MyTimesheetsPage() {
       console.error('staff.timesheets.my.addRow', error)
       flash(t('staff.timesheets.my.addRow.error', 'Could not add the project. Please try again.'), 'error')
     }
-  }, [t])
+  }, [t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
 
   const handleRemoveProject = React.useCallback(async (project: ProjectRow) => {
     const confirmed = await confirm({
@@ -532,10 +572,22 @@ export default function MyTimesheetsPage() {
     if (!confirmed) return
 
     try {
-      const res = await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ showInGrid: false }),
+      const payload = { showInGrid: false }
+      const res = await runMutation({
+        operation: () =>
+          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'staff.timesheets.time_project_member',
+          resourceId: project.id,
+          staffMemberId,
+          retryLastMutation,
+        },
+        mutationPayload: payload,
       })
       if (!res.ok) throw new Error(await res.response.text())
       setProjects((prev) => prev.filter((p) => p.id !== project.id))
@@ -555,23 +607,35 @@ export default function MyTimesheetsPage() {
       console.error('staff.timesheets.my.removeRow', error)
       flash(t('staff.timesheets.my.removeRow.error', 'Could not remove the project. Please try again.'), 'error')
     }
-  }, [confirm, t])
+  }, [confirm, t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
 
   const handleProjectCreated = React.useCallback(async (project: { id: string; name: string; code: string | null }) => {
     setAllAssignedProjects((prev) => [...prev, project])
     // New projects start hidden; immediately opt them into the grid for the creator.
     try {
-      await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ showInGrid: true }),
+      const payload = { showInGrid: true }
+      await runMutation({
+        operation: () =>
+          apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'staff.timesheets.time_project_member',
+          resourceId: project.id,
+          staffMemberId,
+          retryLastMutation,
+        },
+        mutationPayload: payload,
       })
     } catch (error) {
       console.error('staff.timesheets.my.createProject.visibility', error)
     }
     setProjects((prev) => [...prev, project])
     setCreateDialogOpen(false)
-  }, [])
+  }, [runMutation, mutationContextId, staffMemberId, retryLastMutation])
 
   // --- Loading ---
   if (isInitialLoad) {
