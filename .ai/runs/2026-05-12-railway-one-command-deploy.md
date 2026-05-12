@@ -90,11 +90,11 @@ The bulk of the work. One large markdown file under `.ai/specs/` following `.ai/
 
 ### Phase 3: Validation & PR
 
-- [ ] 3.1 Diff re-read; verify // VERIFY markers are concrete
-- [ ] 3.2 Run docs-minimum gate (yarn lint, manual re-read)
-- [ ] 3.3 Self code-review + BC self-review
-- [ ] 3.4 Open PR with labels
-- [ ] 3.5 Run auto-review-pr autofix pass
+- [x] 3.1 Diff re-read; verify // VERIFY markers are concrete — e8f3b3d06
+- [x] 3.2 Run docs-minimum gate (yarn lint, manual re-read) — e8f3b3d06
+- [x] 3.3 Self code-review + BC self-review — e8f3b3d06
+- [x] 3.4 Open PR with labels — PR #1898
+- [x] 3.5 Run auto-review-pr autofix pass — aa0e383ed (addressed A.1 .gitignore contradiction, A.2 worker command, A.3 next standalone, plus canonical heading bridges)
 - [ ] 3.6 Post comprehensive summary comment
 
 ## Changelog
