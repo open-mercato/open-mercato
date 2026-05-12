@@ -578,10 +578,14 @@ describe('POST /api/ai/chat', () => {
 
       expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
       const callArg = runAiAgentTextMock.mock.calls[0][0] as {
-        loop?: { budget?: { maxSteps?: number; maxWallClockMs?: number; maxTokens?: number } }
+        loop?: {
+          maxSteps?: number
+          budget?: { maxToolCalls?: number; maxWallClockMs?: number; maxTokens?: number }
+        }
       }
+      expect(callArg.loop?.maxSteps).toBe(3)
       expect(callArg.loop?.budget).toEqual({
-        maxSteps: 3,
+        maxToolCalls: 3,
         maxWallClockMs: 10_000,
         maxTokens: 50_000,
       })
@@ -596,10 +600,14 @@ describe('POST /api/ai/chat', () => {
 
       expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
       const callArg = runAiAgentTextMock.mock.calls[0][0] as {
-        loop?: { budget?: { maxSteps?: number; maxWallClockMs?: number; maxTokens?: number } }
+        loop?: {
+          maxSteps?: number
+          budget?: { maxToolCalls?: number; maxWallClockMs?: number; maxTokens?: number }
+        }
       }
+      expect(callArg.loop?.maxSteps).toBe(20)
       expect(callArg.loop?.budget).toEqual({
-        maxSteps: 20,
+        maxToolCalls: 20,
         maxWallClockMs: 120_000,
         maxTokens: 500_000,
       })

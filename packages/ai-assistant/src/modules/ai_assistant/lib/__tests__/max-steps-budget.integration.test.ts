@@ -145,7 +145,7 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
     })
     expect(stepCountIsMock).toHaveBeenCalledWith(3)
     const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 3 })
+    expect(callArg.stopWhen).toEqual([{ __stopWhen: 'stepCount', count: 3 }])
   })
 
   it('applies default stopWhen: stepCountIs(10) when maxSteps is undefined (tool-call-enabling default)', async () => {
@@ -167,7 +167,7 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
     })
     expect(stepCountIsMock).toHaveBeenCalledWith(10)
     const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 10 })
+    expect(callArg.stopWhen).toEqual([{ __stopWhen: 'stepCount', count: 10 }])
   })
 
   it('falls back to default stopWhen: stepCountIs(10) when maxSteps is 0', async () => {
@@ -189,7 +189,7 @@ describe('Step 5.16 — runAiAgentText maxSteps budget (integration)', () => {
     })
     expect(stepCountIsMock).toHaveBeenCalledWith(10)
     const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 10 })
+    expect(callArg.stopWhen).toEqual([{ __stopWhen: 'stepCount', count: 10 }])
   })
 })
 
@@ -211,7 +211,7 @@ describe('Step 5.16 — runAiAgentObject maxSteps budget parity (integration)', 
     toolRegistry.clear()
   })
 
-  it('preserves agent.maxSteps → stopWhen on generateObject (object-mode parity)', async () => {
+  it('preserves agent.maxSteps on generateObject (object-mode parity)', async () => {
     seedAgentRegistryForTests([
       makeAgent({
         id: 'catalog.merchandising_assistant',
@@ -230,15 +230,14 @@ describe('Step 5.16 — runAiAgentObject maxSteps budget parity (integration)', 
       input: 'draft title variants',
       authContext: baseAuth,
     })
-    expect(stepCountIsMock).toHaveBeenCalledWith(4)
-    // runAiAgentObject augments the generateObject args dynamically — the
-    // typed SDK surface ignores stopWhen but we MUST still forward it so
-    // providers that honor it behave identically across chat / object.
-    const callArg = generateObjectMock.mock.calls[0][0] as { stopWhen?: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 4 })
+    // Object mode does not call stepCountIs — ai-sdk's generateObject / streamObject
+    // signature dropped stopWhen support in 6.0.177, so the runtime forwards
+    // only maxSteps for providers that honour it.
+    const callArg = generateObjectMock.mock.calls[0][0] as { maxSteps?: number; stopWhen?: unknown }
+    expect(callArg.maxSteps).toBe(4)
   })
 
-  it('omits stopWhen on generateObject when the agent declares no maxSteps', async () => {
+  it('omits maxSteps on generateObject when the agent declares no maxSteps', async () => {
     seedAgentRegistryForTests([
       makeAgent({
         id: 'catalog.merchandising_assistant',
@@ -257,7 +256,7 @@ describe('Step 5.16 — runAiAgentObject maxSteps budget parity (integration)', 
       authContext: baseAuth,
     })
     expect(stepCountIsMock).not.toHaveBeenCalled()
-    const callArg = generateObjectMock.mock.calls[0][0] as { stopWhen?: unknown }
-    expect('stopWhen' in callArg).toBe(false)
+    const callArg = generateObjectMock.mock.calls[0][0] as { maxSteps?: unknown }
+    expect(callArg.maxSteps).toBeUndefined()
   })
 })

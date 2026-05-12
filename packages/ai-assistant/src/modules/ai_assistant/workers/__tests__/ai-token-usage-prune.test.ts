@@ -27,7 +27,7 @@ function makeConnectionStub(options: {
     if (normalized.includes('delete from ai_token_usage_events')) {
       const affected = deleteBatches[deleteCallIndex] ?? 0
       deleteCallIndex++
-      return [{ affectedRows: affected }] as unknown[]
+      return { affectedRows: affected } as unknown as ExecuteResult
     }
 
     if (normalized.includes('from ai_token_usage_daily')) {
