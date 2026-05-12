@@ -216,6 +216,13 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for combobox fields; hydrate the option map up front so a pre-selected value
+  // (typically an FK whose row is not on the first page of `loadOptions`) renders
+  // its label without requiring the user to focus the field
+  seedOptions?: CrudFieldOption[]
+  // for combobox fields; resolve a pre-selected value to its display label when it
+  // is not covered by `options`/`seedOptions`/`loadOptions` results (may be async)
+  resolveLabel?: (value: string) => string | Promise<string>
   // for text/textarea fields; HTML maxLength + (textarea only) char counter when showCount=true
   maxLength?: number
   // for textarea fields; show character counter (requires maxLength)
@@ -4077,6 +4084,12 @@ const FieldControl = React.memo(function FieldControlImpl({
               ? builtin.suggestions
               : options.map((opt) => ({ value: opt.value, label: opt.label }))
           }
+          seedOptions={
+            builtin?.seedOptions
+              ? builtin.seedOptions.map((opt) => ({ value: opt.value, label: opt.label }))
+              : undefined
+          }
+          resolveLabel={builtin?.resolveLabel}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {

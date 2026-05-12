@@ -14,8 +14,15 @@ export type ComboboxInputProps = {
   onChange: (next: string) => void
   placeholder?: string
   suggestions?: Array<string | ComboboxOption>
+  // Options to hydrate the option map up front (typically the linked entity's
+  // display fields, already present in a record-detail payload). Merged with
+  // `suggestions` so a pre-selected value renders its label without interaction.
+  seedOptions?: ComboboxOption[]
   loadSuggestions?: (query?: string) => Promise<Array<string | ComboboxOption>>
-  resolveLabel?: (value: string) => string
+  // Eagerly resolve a pre-selected `value` to a human label when it is not
+  // covered by `suggestions`/`seedOptions`/`loadSuggestions` results. Runs once
+  // per value, before any user interaction. May be sync or async.
+  resolveLabel?: (value: string) => string | Promise<string>
   resolveDescription?: (value: string) => string | null | undefined
   autoFocus?: boolean
   disabled?: boolean
@@ -47,6 +54,7 @@ export function ComboboxInput({
   onChange,
   placeholder,
   suggestions,
+  seedOptions,
   loadSuggestions,
   resolveLabel,
   resolveDescription,
@@ -56,6 +64,7 @@ export function ComboboxInput({
 }: ComboboxInputProps) {
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<ComboboxOption[]>([])
+  const [resolvedOptions, setResolvedOptions] = React.useState<ComboboxOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [touched, setTouched] = React.useState(false)
   const [showSuggestions, setShowSuggestions] = React.useState(false)
@@ -63,29 +72,46 @@ export function ComboboxInput({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
 
-  const staticOptions = React.useMemo(() => normalizeOptions(suggestions), [suggestions])
+  const staticOptions = React.useMemo(
+    () => normalizeOptions([...(seedOptions ?? []), ...(suggestions ?? [])]),
+    [seedOptions, suggestions]
+  )
+
+  // Options whose label is genuinely known (not a self-mapping `value === label`
+  // placeholder). Used to decide whether eager resolution still needs to run.
+  const knownLabelValues = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
+      if (option.label && option.label !== option.value) set.add(option.value)
+    }
+    return set
+  }, [staticOptions, asyncOptions, resolvedOptions])
 
   const optionMap = React.useMemo(() => {
     const map = new Map<string, ComboboxOption>()
     const register = (option: ComboboxOption) => {
-      if (!map.has(option.value)) {
+      const existing = map.get(option.value)
+      // Prefer an entry that carries a real label over a self-mapping placeholder.
+      if (!existing || (existing.label === existing.value && option.label !== option.value)) {
         map.set(option.value, option)
       }
     }
     staticOptions.forEach(register)
     asyncOptions.forEach(register)
+    resolvedOptions.forEach(register)
     if (value) {
       const existing = map.get(value)
       if (!existing) {
+        const sync = typeof resolveLabel === 'function' ? resolveLabel(value) : undefined
         map.set(value, {
           value,
-          label: resolveLabel?.(value) ?? value,
+          label: typeof sync === 'string' && sync ? sync : value,
           description: resolveDescription?.(value) ?? null,
         })
       }
     }
     return map
-  }, [asyncOptions, resolveDescription, resolveLabel, staticOptions, value])
+  }, [asyncOptions, resolvedOptions, resolveDescription, resolveLabel, staticOptions, value])
 
   const availableOptions = React.useMemo(() => {
     return Array.from(optionMap.values())
@@ -122,7 +148,47 @@ export function ComboboxInput({
     }
   }, [disabled, input, loadSuggestions, touched])
 
-  // Sync input with value when value changes externally and input is not focused
+  // Eagerly resolve a pre-selected value to its label without requiring the user
+  // to focus the field. Runs once per value when it is not already covered.
+  const eagerResolveLabel = typeof resolveLabel === 'function' ? resolveLabel : undefined
+  React.useEffect(() => {
+    if (!value || disabled) return
+    if (knownLabelValues.has(value)) return
+    let cancelled = false
+    const apply = (label?: string | null, description?: string | null) => {
+      const clean = typeof label === 'string' ? label.trim() : ''
+      if (cancelled || !clean || clean === value) return
+      setResolvedOptions((prev) => {
+        if (prev.some((option) => option.value === value && option.label === clean)) return prev
+        return [...prev.filter((option) => option.value !== value), { value, label: clean, description: description ?? null }]
+      })
+    }
+    if (eagerResolveLabel) {
+      Promise.resolve()
+        .then(() => eagerResolveLabel(value))
+        .then((label) => apply(label, resolveDescription?.(value)))
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
+    // Fallback: pull the first page of async suggestions so a remount that lost
+    // its option cache can still recover the label without user interaction.
+    if (loadSuggestions) {
+      setLoading(true)
+      Promise.resolve()
+        .then(() => loadSuggestions())
+        .then((items) => {
+          if (cancelled) return
+          const normalized = normalizeOptions(items)
+          setAsyncOptions(normalized)
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, disabled, knownLabelValues, eagerResolveLabel, loadSuggestions])
+
+  // Sync input with value when value changes externally and input is not focused.
   React.useEffect(() => {
     if (document.activeElement !== inputRef.current) {
       const option = optionMap.get(value)
@@ -165,10 +231,16 @@ export function ComboboxInput({
         return
       }
       if (!allowCustomValues) {
-        // Revert to current value if custom values not allowed
-        const currentOption = optionMap.get(value)
-        setInput(currentOption?.label ?? value ?? '')
+        // Revert to the current value's label — but only if we actually know it.
+        // Baking the raw value back in while eager resolution is still pending
+        // would freeze a placeholder (e.g. a UUID) into the visible input.
         setShowSuggestions(false)
+        const currentOption = optionMap.get(value)
+        if (currentOption && currentOption.label !== currentOption.value) {
+          setInput(currentOption.label)
+        } else if (!value) {
+          setInput('')
+        }
         return
       }
       selectValue(raw)
