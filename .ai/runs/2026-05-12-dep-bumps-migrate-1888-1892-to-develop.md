@@ -1,7 +1,7 @@
 ---
 title: Migrate Dependabot PRs #1888–#1892 to develop
 date: 2026-05-12
-status: in-progress
+status: complete
 related-prs:
   - https://github.com/open-mercato/open-mercato/pull/1888
   - https://github.com/open-mercato/open-mercato/pull/1889
@@ -163,3 +163,10 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 - [x] 3.1 Push branch — 994968f04
 - [x] 3.2 Open consolidated PR against develop — PR #1893
 - [x] 3.3 Close PRs #1888, #1889, #1890, #1891, #1892 with a pointer comment — all five closed with pointer to #1893
+
+### Phase 4: Post-merge follow-up — audit fix (added after CI flagged `yarn npm audit` failure)
+
+- [x] 4.1 Verified `yarn npm audit --all --recursive --severity high` exits 1 with 3 high-severity advisories pre-existing on develop tip — `@babel/plugin-transform-modules-systemjs@7.28.5` (GHSA-fv7c-fp4j-7gwp) and `fast-uri@3.1.0` (GHSA-q3j6-qgpj-74h6 + GHSA-v39h-62p7-jpjc) — 93feb8677
+- [x] 4.2 Added yarn resolutions: `@babel/plugin-transform-modules-systemjs: 7.29.4`, `fast-uri: 3.1.2` — 93feb8677
+- [x] 4.3 Regenerated yarn.lock; verified `yarn npm audit --all --recursive --severity high` now exits 0 — e8fccf029
+- [x] 4.4 Re-ran targeted validation: `yarn build:packages` (18/18), `yarn typecheck` (18/18), `yarn test` (all suites pass)
