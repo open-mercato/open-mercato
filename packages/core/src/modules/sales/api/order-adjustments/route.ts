@@ -3,7 +3,10 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesOrderAdjustment } from '../../data/entities'
-import { orderAdjustmentCreateSchema } from '../../data/validators'
+import {
+  enforceReturnAdjustmentSign,
+  orderAdjustmentCreateSchema,
+} from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -29,7 +32,9 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
 }
 
-const upsertSchema = orderAdjustmentCreateSchema.extend({ id: z.string().uuid().optional() })
+const upsertSchema = orderAdjustmentCreateSchema
+  .extend({ id: z.string().uuid().optional() })
+  .superRefine(enforceReturnAdjustmentSign)
 
 const deleteSchema = z.object({
   id: z.string().uuid(),
