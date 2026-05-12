@@ -149,14 +149,14 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 
 ### Phase 2: Validation gate
 
-- [ ] 2.1 yarn build:packages
-- [ ] 2.2 yarn generate
-- [ ] 2.3 yarn build:packages (post-generate)
-- [ ] 2.4 yarn i18n:check-sync
-- [ ] 2.5 yarn i18n:check-usage
-- [ ] 2.6 yarn typecheck
-- [ ] 2.7 yarn test
-- [ ] 2.8 yarn build:app
+- [x] 2.1 yarn build:packages — pass (18/18)
+- [x] 2.2 yarn generate — pass (339 API paths, all generators completed)
+- [x] 2.3 yarn build:packages (post-generate) — pass (18/18, 12 cached)
+- [x] 2.4 yarn i18n:check-sync — pass (all translation files in sync, 4 locales)
+- [x] 2.5 yarn i18n:check-usage — pass (3520 unused keys are advisory-only)
+- [x] 2.6 yarn typecheck — pass (18/18 packages)
+- [x] 2.7 yarn test — pass after reverting zod 4.4.3 (commit 299366ccb fixed the checkout failures)
+- [x] 2.8 yarn build:app — ⚠️ pre-existing failure on `/_global-error` prerender (`TypeError: Cannot read properties of null (reading 'useContext')`). Verified by running build:app against `refs/janitor/origin/develop` HEAD untouched files in this same worktree: identical failure surface, identical error class. Not a regression introduced by these dep bumps. Mirrors precedent run 2026-05-04 step 3.8.
 
 ### Phase 3: Open PR and close originals
 
