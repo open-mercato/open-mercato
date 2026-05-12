@@ -1,0 +1,19 @@
+---
+title: Built-in Subscribers
+description: Internal event subscribers registered by the Sales module.
+---
+
+# Sales — Built-in Subscribers
+
+The sales module registers the following internal subscribers. These run automatically — no configuration needed.
+
+| Subscriber ID | Listens to | Description |
+|---|---|---|
+| `sales:quote-expiring-notification` | `sales.quote.expiring` | Sends a notification when a quote is about to expire |
+| `sales:reconcile-on-address-delete` | `customers.address.deleted` | Clears address references on sales documents when a customer address is deleted |
+| `sales:reconcile-on-company-delete` | `customers.company.deleted` | Clears company references on sales documents when a company is deleted |
+| `sales:reconcile-on-person-delete` | `customers.person.deleted` | Clears customer references on sales documents when a person is deleted |
+
+## See also
+
+- [Events overview](/framework/events/overview)
