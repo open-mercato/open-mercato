@@ -1,4 +1,4 @@
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   buildPersonPayload,
   parseCursor,
@@ -7,6 +7,7 @@ import {
 
 const mockReadSyncExcelUploadBuffer = jest.fn()
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 const mockCommandBus = {
   execute: jest.fn(),
@@ -68,6 +69,7 @@ jest.mock('../upload-storage', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
 }))
 
 describe('sync_excel customers adapter', () => {
@@ -102,15 +104,28 @@ describe('sync_excel customers adapter', () => {
         personId: '44444444-4444-4444-8444-444444444444',
       },
     })
-    mockFindOneWithDecryption.mockResolvedValue(null)
+    mockFindOneWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
+      if (criteria?.syncRunId === 'run-1') return uploadRecord as any
+      if (criteria?.id === uploadRecord.id) return uploadRecord as any
+      if (criteria?.id === uploadRecord.attachmentId) {
+        return {
+          id: uploadRecord.attachmentId,
+          partitionCode: 'privateAttachments',
+          storagePath: 'uploads/leads.csv',
+          storageDriver: 'local',
+        } as any
+      }
+      if (criteria?.integrationId === 'sync_excel') return mappingRecord as any
+      return null
+    })
+    mockFindWithDecryption.mockResolvedValue([])
   })
 
-  it('parses persisted cursors', () => {
-    expect(parseCursor('{"uploadId":"abc","offset":12}')).toEqual({ uploadId: 'abc', offset: 12, inlineCsvBase64: null })
+  it('parses persisted cursors without retaining inline payloads', () => {
+    expect(parseCursor('{"uploadId":"abc","offset":12}')).toEqual({ uploadId: 'abc', offset: 12 })
     expect(parseCursor('{"uploadId":"abc","offset":12,"inlineCsvBase64":"YWJj"}')).toEqual({
       uploadId: 'abc',
       offset: 12,
-      inlineCsvBase64: 'YWJj',
     })
     expect(parseCursor('not-json')).toBeNull()
   })
@@ -288,12 +303,7 @@ describe('sync_excel customers adapter', () => {
     expect(uploadRecord.status).toBe('completed')
   })
 
-  it('imports rows from inline cursor data without reading attachment storage', async () => {
-    const inlineCsvBase64 = Buffer.from([
-      'Record Id,First Name,Last Name,Lead Name,Email,Address Line 1,City,Postal Code,Favorite Color',
-      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,123 Main St,Austin,78701,Blue',
-    ].join('\n')).toString('base64')
-
+  it('imports rows from attachment storage and keeps payloads out of cursors', async () => {
     const batches = []
     for await (const batch of syncExcelCustomersAdapter.streamImport!({
       entityType: 'customers.person',
@@ -308,31 +318,46 @@ describe('sync_excel customers adapter', () => {
       cursor: JSON.stringify({
         uploadId: uploadRecord.id,
         offset: 0,
-        inlineCsvBase64,
+        inlineCsvBase64: Buffer.from('legacy').toString('base64'),
       }),
     })) {
       batches.push(batch)
     }
 
     expect(batches).toHaveLength(1)
-    expect(mockReadSyncExcelUploadBuffer).not.toHaveBeenCalled()
-    expect(JSON.parse(String(batches[0].cursor))).toMatchObject({
+    expect(mockReadSyncExcelUploadBuffer).toHaveBeenCalledWith(expect.objectContaining({
+      id: uploadRecord.attachmentId,
+    }))
+    expect(JSON.parse(String(batches[0].cursor))).toEqual({
       uploadId: uploadRecord.id,
-      inlineCsvBase64,
+      offset: 1,
     })
   })
+
 
   it('falls back to email dedupe and updates existing people', async () => {
     mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
       'Email,Lead Name,Address Line 1,City,Favorite Color',
       'ada@example.com,Ada Lovelace,500 Updated Ave,Dallas,Purple',
     ].join('\n')))
-    mockFindOneWithDecryption.mockResolvedValue({ id: 'existing-person-id' } as any)
+    mockFindOneWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
+      if (criteria?.syncRunId === 'run-1') return uploadRecord as any
+      if (criteria?.id === uploadRecord.attachmentId) {
+        return {
+          id: uploadRecord.attachmentId,
+          partitionCode: 'privateAttachments',
+          storagePath: 'uploads/leads.csv',
+          storageDriver: 'local',
+        } as any
+      }
+      if (criteria?.primaryEmail === 'ada@example.com') return { id: 'existing-person-id' } as any
+      return null
+    })
     mockCommandBus.execute.mockResolvedValue({ result: { entityId: 'existing-person-id' } })
-    mockEm.find.mockResolvedValue([
+    mockFindWithDecryption.mockResolvedValue([
       {
         id: 'existing-primary-address-id',
-      },
+      } as any,
     ])
 
     const batches = []

@@ -24,7 +24,7 @@ Implement `sync_excel` as a first-class `data_sync` provider with these capabili
 
 1. Add optional `runId` to `StreamImportInput` and `StreamExportInput`
 2. Add optional `mappingKind` and `dedupeRole` to `FieldMapping`
-3. Introduce provider-owned `SyncExcelUpload` state backed by attachments with an inline attachment-metadata CSV fallback for worker-safe reads
+3. Introduce provider-owned `SyncExcelUpload` state backed by attachments with an inline attachment-metadata CSV fallback for worker-safe reads; persisted cursors keep only upload identity + row offset, never CSV payload bytes
 4. Expose provider APIs for upload, preview, and import start
 5. Reuse `data_sync` runs, queue orchestration, and progress lifecycle for background execution
 6. Scope the first target adapter to `customers.person`
@@ -64,6 +64,7 @@ This keeps the architecture aligned with upstream `SPEC-045b` and avoids a stand
 
 1. Admin uploads a CSV file to `sync_excel`
 2. Provider stores the file via `attachments`, persists a `SyncExcelUpload` record, and keeps an inline CSV copy in attachment metadata for worker-safe reads
+2a. Provider cursors persist only `{ uploadId, offset }`; workers re-resolve upload/attachment state on resume instead of copying file contents into `sync_cursors.cursor`
 3. Provider returns headers, sample rows, row count, and suggested mapping
 4. Admin confirms mapping and starts import
 5. Provider persists/updates `SyncMapping`, creates a `SyncRun`, links it to the upload session, and enqueues a normal `data_sync` run
@@ -161,7 +162,9 @@ This slice intentionally does **not** yet add an Import button directly to custo
 
 ## Configuration
 
-No new env vars are introduced by the feature itself.
+No new sync-excel-specific env vars are introduced by the feature itself.
+
+CSV uploads reuse the existing global attachment upload cap (`OM_ATTACHMENT_MAX_UPLOAD_MB` / `OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB`) for both multipart content-length preflight and file-size validation before buffering.
 
 No new migration is required for the split-task fix because the worker-safe CSV copy is stored in existing `attachments.storage_metadata`.
 
@@ -218,12 +221,12 @@ This slice touches multiple stable contract surfaces under `BACKWARD_COMPATIBILI
 
 Compatibility strategy:
 
-- `data_sync` changes are additive only
+- `data_sync` changes are additive only: `DataSyncAdapter.operationalTelemetry?` is optional and defaults to no extra integration state/log writes
 - new API routes are additive only (`/api/sync_excel/*`)
 - no existing route IDs, event IDs, ACL feature IDs, or widget spot IDs were renamed or removed
 - schema change is additive only (`sync_excel_uploads`)
 
-This branch remains additive-only because the operational fix reuses existing attachment columns and does not introduce a schema change.
+This branch remains additive-only because the operational fix reuses existing attachment columns, keeps `createSyncEngine` compatible when `integrationStateService` is not supplied by direct callers, and does not introduce a schema change.
 
 ## Test Plan
 
@@ -266,8 +269,11 @@ This branch remains additive-only because the operational fix reuses existing at
 ## Open Questions
 
 - Should follow-up slices persist unmapped provider columns as metadata/custom-field candidates instead of keeping them preview-only?
+- Should typed custom-field imports coerce CSV strings into number/date/boolean values before command validation? V1 intentionally passes raw CSV strings and surfaces type mismatches as per-row failures.
 - Should the next slice add `customers.company` / address support before or after a DataTable import entry point?
 - Should a future UI slice deep-link from customers DataTables into the `sync_excel` integration with preselected entity type?
+- Should old `SyncExcelUpload` rows and temporary upload attachments be removed by a retention/cleanup worker?
+- Should future import targets be declared through a registry where each module exposes importable fields, aliases, custom-field entity ids, create/update command bindings, and dedupe keys?
 
 ## Final Compliance Report
 
@@ -276,6 +282,7 @@ This branch remains additive-only because the operational fix reuses existing at
 - Keeps `sync_excel` inside the upstream `data_sync` architecture instead of creating a parallel subsystem
 - Integration and unit coverage added for the implemented API paths and primary happy path
 - Remaining verification focus is explicit: confirm end-to-end imports on split ECS web/worker tasks
+- Operational logs/health updates are opt-in for this provider and do not add per-batch writes for existing `data_sync` providers unless they explicitly opt in later
 
 ## Changelog
 

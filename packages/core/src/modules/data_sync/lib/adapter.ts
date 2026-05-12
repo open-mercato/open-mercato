@@ -93,6 +93,7 @@ export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
   readonly supportedEntities: string[]
+  readonly operationalTelemetry?: boolean
 
   streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>
   streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>

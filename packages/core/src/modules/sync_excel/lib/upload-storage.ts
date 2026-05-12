@@ -20,6 +20,7 @@ export async function createSyncExcelUploadAttachment(input: {
 }): Promise<Attachment> {
   await ensureDefaultPartitions(input.em)
 
+  // Attachment partitions are global storage configuration, not tenant-scoped payload data.
   const partition = await input.em.findOne(AttachmentPartition, { code: SYNC_EXCEL_PARTITION_CODE })
   if (!partition) {
     throw new Error('Storage partition is not configured.')

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   DataMapping,
@@ -23,7 +23,6 @@ import { E } from '#generated/entities.ids.generated'
 type SyncExcelCursor = {
   uploadId: string
   offset: number
-  inlineCsvBase64?: string | null
 }
 
 type Container = Awaited<ReturnType<typeof createRequestContainer>>
@@ -230,11 +229,10 @@ function buildCommandContext(container: Container, scope: TenantScope): CommandR
   }
 }
 
-export function createCursor(uploadId: string, offset: number, inlineCsvBase64?: string | null): string {
+export function createCursor(uploadId: string, offset: number): string {
   return JSON.stringify({
     uploadId,
     offset,
-    ...(inlineCsvBase64 ? { inlineCsvBase64 } : {}),
   })
 }
 
@@ -248,9 +246,6 @@ export function parseCursor(value: string | null | undefined): SyncExcelCursor |
     return {
       uploadId: parsed.uploadId,
       offset: parsed.offset,
-      inlineCsvBase64: typeof parsed.inlineCsvBase64 === 'string' && parsed.inlineCsvBase64.length > 0
-        ? parsed.inlineCsvBase64
-        : null,
     }
   } catch {
     return null
@@ -499,7 +494,8 @@ async function upsertPrimaryAddress(params: {
   if (!hasAddressValues(params.addressValues)) return
   if (!params.addressValues.addressLine1) return
 
-  const [existingPrimaryAddress] = await params.em.find(
+  const [existingPrimaryAddress] = await findWithDecryption(
+    params.em,
     CustomerAddress,
     {
       entity: params.entityId,
@@ -513,6 +509,7 @@ async function upsertPrimaryAddress(params: {
       },
       limit: 1,
     },
+    params.scope,
   )
 
   if (existingPrimaryAddress) {
@@ -553,12 +550,18 @@ async function upsertPrimaryAddress(params: {
 }
 
 async function loadStoredMapping(em: EntityManager, entityType: string, scope: TenantScope): Promise<DataMapping> {
-  const stored = await em.findOne(SyncMapping, {
-    integrationId: 'sync_excel',
-    entityType,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-  })
+  const stored = await findOneWithDecryption(
+    em,
+    SyncMapping,
+    {
+      integrationId: 'sync_excel',
+      entityType,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    },
+    undefined,
+    scope,
+  )
 
   if (stored?.mapping && typeof stored.mapping === 'object') {
     return stored.mapping as unknown as DataMapping
@@ -573,20 +576,32 @@ async function loadStoredMapping(em: EntityManager, entityType: string, scope: T
 
 async function resolveUpload(em: EntityManager, runId: string | undefined, cursor: SyncExcelCursor | null, scope: TenantScope): Promise<SyncExcelUpload | null> {
   if (runId) {
-    const uploadByRun = await em.findOne(SyncExcelUpload, {
-      syncRunId: runId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-    })
+    const uploadByRun = await findOneWithDecryption(
+      em,
+      SyncExcelUpload,
+      {
+        syncRunId: runId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+      undefined,
+      scope,
+    )
     if (uploadByRun) return uploadByRun
   }
 
   if (cursor?.uploadId) {
-    return em.findOne(SyncExcelUpload, {
-      id: cursor.uploadId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-    })
+    return findOneWithDecryption(
+      em,
+      SyncExcelUpload,
+      {
+        id: cursor.uploadId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+      undefined,
+      scope,
+    )
   }
 
   return null
@@ -774,6 +789,7 @@ async function processRow(params: {
 
 export const syncExcelCustomersAdapter: DataSyncAdapter = {
   providerKey: 'excel',
+  operationalTelemetry: true,
   direction: 'import',
   supportedEntities: ['customers.person'],
 
@@ -806,19 +822,23 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
     await em.flush()
 
     try {
-      const attachment = await em.findOne(Attachment, {
-        id: upload.attachmentId,
-        organizationId: input.scope.organizationId,
-        tenantId: input.scope.tenantId,
-      })
+      const attachment = await findOneWithDecryption(
+        em,
+        Attachment,
+        {
+          id: upload.attachmentId,
+          organizationId: input.scope.organizationId,
+          tenantId: input.scope.tenantId,
+        },
+        undefined,
+        input.scope,
+      )
 
       if (!attachment) {
         throw new Error('CSV upload attachment could not be found.')
       }
 
-      const fileBuffer = cursor?.inlineCsvBase64
-        ? Buffer.from(cursor.inlineCsvBase64, 'base64')
-        : await readSyncExcelUploadBuffer(attachment)
+      const fileBuffer = await readSyncExcelUploadBuffer(attachment)
       const document = parseCsvDocument(fileBuffer)
       const startOffset = cursor?.uploadId === upload.id ? cursor.offset : 0
       const commandContext = buildCommandContext(container, input.scope)
@@ -843,7 +863,7 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         const nextOffset = offset + batchRows.length
         yield {
           items,
-          cursor: createCursor(upload.id, nextOffset, cursor?.inlineCsvBase64 ?? fileBuffer.toString('base64')),
+          cursor: createCursor(upload.id, nextOffset),
           hasMore: nextOffset < document.rows.length,
           totalEstimate: document.totalRows,
           processedCount: batchRows.length,

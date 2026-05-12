@@ -94,6 +94,7 @@ describe('data sync engine forwards run context to adapters', () => {
 
     const adapter: DataSyncAdapter = {
       providerKey: 'excel',
+      operationalTelemetry: true,
       direction: 'import',
       supportedEntities: ['customers.person'],
       getMapping: jest.fn(async () => ({
@@ -190,6 +191,62 @@ describe('data sync engine forwards run context to adapters', () => {
         operationalStatus: 'completed',
       }),
     }), createScope())
+  })
+
+  it('does not write operational telemetry for adapters that do not opt in', async () => {
+    const streamImport = jest.fn(async function* () {
+      yield {
+        items: [],
+        cursor: 'cursor-1',
+        hasMore: false,
+        batchIndex: 0,
+      }
+    })
+
+    const adapter: DataSyncAdapter = {
+      providerKey: 'generic',
+      direction: 'import',
+      supportedEntities: ['generic.entity'],
+      getMapping: jest.fn(async () => ({
+        entityType: 'generic.entity',
+        matchStrategy: 'custom',
+        fields: [],
+      })),
+      streamImport,
+    }
+
+    mockGetDataSyncAdapter.mockReturnValue(adapter)
+    mockGetIntegration.mockReturnValue({ providerKey: 'generic' })
+    const integrationLogService = {
+      write: jest.fn(async () => undefined),
+    } as unknown as IntegrationLogService
+    const integrationStateService = {
+      upsert: jest.fn(async () => undefined),
+    }
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService: createSyncRunService({
+        id: 'run-import-generic',
+        integrationId: 'generic',
+        entityType: 'generic.entity',
+        direction: 'import',
+        status: 'pending',
+        cursor: null,
+        progressJobId: null,
+      }),
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({})),
+      } as unknown as CredentialsService,
+      integrationLogService,
+      integrationStateService: integrationStateService as any,
+      progressService: createProgressService(),
+    })
+
+    await engine.runImport('run-import-generic', 100, createScope())
+
+    expect(integrationStateService.upsert).not.toHaveBeenCalled()
+    expect((integrationLogService as any).write).not.toHaveBeenCalled()
   })
 
   it('passes runId to export adapters', async () => {

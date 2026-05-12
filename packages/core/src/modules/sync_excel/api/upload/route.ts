@@ -9,6 +9,7 @@ import { SyncExcelUpload } from '../../data/entities'
 import { buildSuggestedMapping } from '../../lib/mapping'
 import { parseCsvPreview } from '../../lib/parser'
 import { createSyncExcelUploadAttachment } from '../../lib/upload-storage'
+import { isMultipartRequestWithinUploadLimit, resolveDefaultAttachmentMaxUploadBytes } from '../../../attachments/lib/upload-limits'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sync_excel.run'] },
@@ -37,6 +38,7 @@ export const openApi = {
       errors: [
         { status: 400, description: 'Invalid multipart payload', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 413, description: 'CSV upload exceeds the maximum upload size', schema: errorSchema },
         { status: 422, description: 'Unsupported entity type or file type', schema: errorSchema },
       ],
     },
@@ -52,6 +54,9 @@ export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+  }
+  if (!isMultipartRequestWithinUploadLimit(request.headers.get('content-length'))) {
+    return NextResponse.json({ error: 'CSV upload exceeds the maximum upload size.' }, { status: 413 })
   }
 
   const formData = await request.formData()
@@ -74,6 +79,11 @@ export async function POST(request: Request) {
 
   if (!isCsvByMime && !isCsvByName) {
     return NextResponse.json({ error: 'Only CSV uploads are supported in this foundation slice.' }, { status: 422 })
+  }
+
+  const maxUploadBytes = resolveDefaultAttachmentMaxUploadBytes()
+  if (file.size > maxUploadBytes) {
+    return NextResponse.json({ error: 'CSV upload exceeds the maximum upload size.' }, { status: 413 })
   }
 
   const fileBuffer = Buffer.from(await file.arrayBuffer())

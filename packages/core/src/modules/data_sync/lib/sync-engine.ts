@@ -21,7 +21,7 @@ type EngineDeps = {
   syncRunService: SyncRunService
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
-  integrationStateService: IntegrationStateService
+  integrationStateService?: IntegrationStateService
   progressService: ProgressService
 }
 
@@ -155,8 +155,11 @@ export function createSyncEngine(deps: EngineDeps) {
     level: 'info' | 'warn' | 'error'
     message: string
     scope: SyncScope
+    enabled: boolean
     payload?: Record<string, unknown>
   }): Promise<void> {
+    if (!params.enabled) return
+
     await integrationLogService.write(
       {
         integrationId: params.integrationId,
@@ -173,7 +176,10 @@ export function createSyncEngine(deps: EngineDeps) {
     integrationId: string
     status: 'healthy' | 'degraded' | 'unhealthy'
     scope: SyncScope
+    enabled: boolean
   }): Promise<void> {
+    if (!params.enabled || !integrationStateService) return
+
     await integrationStateService.upsert(
       params.integrationId,
       {
@@ -184,7 +190,13 @@ export function createSyncEngine(deps: EngineDeps) {
     )
   }
 
-  async function finalizeRun(runId: string, status: 'completed' | 'failed' | 'cancelled', scope: SyncScope, error?: string): Promise<void> {
+  async function finalizeRun(
+    runId: string,
+    status: 'completed' | 'failed' | 'cancelled',
+    scope: SyncScope,
+    error?: string,
+    operationalTelemetry = false,
+  ): Promise<void> {
     const existingRun = await syncRunService.getRun(runId, scope)
     const alreadyFinalizedWithSameStatus = existingRun?.status === status
       && (status === 'completed' || status === 'failed' || status === 'cancelled')
@@ -244,6 +256,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         status: 'healthy',
         scope,
+        enabled: operationalTelemetry,
       })
       await writeOperationalLog({
         integrationId: run.integrationId,
@@ -251,6 +264,7 @@ export function createSyncEngine(deps: EngineDeps) {
         level: 'info',
         message: 'Sync run completed',
         scope,
+        enabled: operationalTelemetry,
         payload: {
           operationalStatus: 'completed',
           summary: `Sync completed with ${run.createdCount} created, ${run.updatedCount} updated, ${run.failedCount} failed.`,
@@ -266,6 +280,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         status: 'degraded',
         scope,
+        enabled: operationalTelemetry,
       })
       await writeOperationalLog({
         integrationId: run.integrationId,
@@ -273,6 +288,7 @@ export function createSyncEngine(deps: EngineDeps) {
         level: 'warn',
         message: 'Sync run cancelled',
         scope,
+        enabled: operationalTelemetry,
         payload: {
           operationalStatus: 'cancelled',
           summary: 'The sync run was cancelled before completion.',
@@ -283,6 +299,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         status: 'unhealthy',
         scope,
+        enabled: operationalTelemetry,
       })
       await writeOperationalLog({
         integrationId: run.integrationId,
@@ -290,6 +307,7 @@ export function createSyncEngine(deps: EngineDeps) {
         level: 'error',
         message: error ?? 'Sync run failed',
         scope,
+        enabled: operationalTelemetry,
         payload: {
           operationalStatus: 'failed',
           summary: error ?? 'The sync run failed.',
@@ -355,6 +373,7 @@ export function createSyncEngine(deps: EngineDeps) {
       if (!adapter?.streamImport) {
         throw new Error(`No import adapter registered for provider ${providerKey}`)
       }
+      const operationalTelemetry = adapter.operationalTelemetry === true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -377,6 +396,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         status: 'degraded',
         scope,
+        enabled: operationalTelemetry,
       })
       await writeOperationalLog({
         integrationId: run.integrationId,
@@ -384,6 +404,7 @@ export function createSyncEngine(deps: EngineDeps) {
         level: 'info',
         message: 'Sync run started',
         scope,
+        enabled: operationalTelemetry,
         payload: {
           operationalStatus: 'running',
           summary: `Import run started for ${run.entityType}.`,
@@ -415,7 +436,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
-            await finalizeRun(run.id, 'cancelled', scope)
+            await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
           }
 
@@ -446,6 +467,7 @@ export function createSyncEngine(deps: EngineDeps) {
               ? batch.message.trim()
               : `Processed import batch ${batch.batchIndex}`,
             scope,
+            enabled: operationalTelemetry,
             payload: {
               operationalStatus: 'running',
               summary: `Processed ${processedCount}${totalCount ? ` of ${totalCount}` : ''} rows so far.`,
@@ -467,11 +489,11 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        await finalizeRun(run.id, 'failed', scope, message)
+        await finalizeRun(run.id, 'failed', scope, message, operationalTelemetry)
         return
       }
 
-      await finalizeRun(run.id, 'completed', scope)
+      await finalizeRun(run.id, 'completed', scope, undefined, operationalTelemetry)
     },
 
     async runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
@@ -496,6 +518,7 @@ export function createSyncEngine(deps: EngineDeps) {
       if (!adapter?.streamExport) {
         throw new Error(`No export adapter registered for provider ${providerKey}`)
       }
+      const operationalTelemetry = adapter.operationalTelemetry === true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -518,6 +541,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         status: 'degraded',
         scope,
+        enabled: operationalTelemetry,
       })
       await writeOperationalLog({
         integrationId: run.integrationId,
@@ -525,6 +549,7 @@ export function createSyncEngine(deps: EngineDeps) {
         level: 'info',
         message: 'Sync run started',
         scope,
+        enabled: operationalTelemetry,
         payload: {
           operationalStatus: 'running',
           summary: `Export run started for ${run.entityType}.`,
@@ -555,7 +580,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
-            await finalizeRun(run.id, 'cancelled', scope)
+            await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
           }
 
@@ -583,6 +608,7 @@ export function createSyncEngine(deps: EngineDeps) {
             level: 'info',
             message: `Processed export batch ${batch.batchIndex}`,
             scope,
+            enabled: operationalTelemetry,
             payload: {
               operationalStatus: 'running',
               summary: `Processed ${processedCount} export items so far.`,
@@ -603,11 +629,11 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        await finalizeRun(run.id, 'failed', scope, message)
+        await finalizeRun(run.id, 'failed', scope, message, operationalTelemetry)
         return
       }
 
-      await finalizeRun(run.id, 'completed', scope)
+      await finalizeRun(run.id, 'completed', scope, undefined, operationalTelemetry)
     },
   }
 }

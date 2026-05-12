@@ -300,7 +300,9 @@ function writePersistedSessionSnapshot(
       return
     }
     window.sessionStorage.setItem(key, JSON.stringify(snapshot))
-  } catch {}
+  } catch {
+    // sessionStorage can be unavailable in private/locked-down browser contexts; persistence is best-effort.
+  }
 }
 
 export default function SyncExcelUploadConfigWidget({

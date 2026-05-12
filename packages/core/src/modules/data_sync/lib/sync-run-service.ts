@@ -103,7 +103,11 @@ export function createSyncRunService(em: EntityManager) {
           },
         )
         if (updated === 0) return null
-        return this.getRun(runId, scope)
+        const row = await this.getRun(runId, scope)
+        if (row && typeof em.refresh === 'function') {
+          await em.refresh(row)
+        }
+        return row
       }
 
       const row = await this.getRun(runId, scope)
