@@ -28,6 +28,8 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [TimePicker](#timepicker)
 - [Alert](#alert)
 - [Notification](#notification)
+- [Accordion](#accordion)
+- [LogList](#loglist)
 - [Common patterns](#common-patterns)
 
 ---
@@ -1598,6 +1600,207 @@ The wrapper has `pointer-events-none` so it does not block clicks on the page un
 - Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
 - For user-driven notifications, pass `avatar={<Avatar name="..." />}` so the leading visual matches the rest of the product's identity treatment.
 - Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
+
+---
+
+## Accordion
+
+```typescript
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+  type AccordionTriggerIcon,
+  type AccordionIconPosition,
+} from '@open-mercato/ui/primitives/accordion'
+```
+
+Collapsible-section primitive built on `@radix-ui/react-accordion`. Matches Figma `210:4022` — a card with three visual states: white card + soft border + x-small shadow when closed (idle), `bg-muted` + no border + no shadow on hover or when open. The Figma `Flip Icon` toggle is exposed as `iconPosition` (`'end'` default / `'start'`) and the indicator style is selectable through `triggerIcon` (`'plus-minus'` default / `'chevron'` / `'none'`).
+
+### Basic usage
+
+```tsx
+<Accordion type="single" collapsible>
+  <AccordionItem value="payment">
+    <AccordionTrigger>What payment methods are accepted?</AccordionTrigger>
+    <AccordionContent>
+      Major credit and debit cards (Visa, MasterCard, AmEx), plus PayPal and Apple Pay.
+    </AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="refund">
+    <AccordionTrigger>How do I get a refund?</AccordionTrigger>
+    <AccordionContent>
+      Go to Orders → select the order → Request refund. Refunds are processed within 5 business days.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+`type="single" collapsible` is the FAQ pattern from Figma `2878:905`. Use `type="multiple"` when several panels should stay open at once (onboarding checklists, settings groups).
+
+### Leading icon
+
+```tsx
+import { BankCard, Repeat2, MapPinTime, Lock } from 'lucide-react'
+
+<Accordion type="single" collapsible>
+  <AccordionItem value="payment">
+    <AccordionTrigger leftIcon={<BankCard />}>What payment methods are accepted?</AccordionTrigger>
+    <AccordionContent>…</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+When `leftIcon` is set and `iconPosition="end"`, the parent `AccordionItem` auto-promotes its `--accordion-indent` CSS variable from 14 px to 44 px so `AccordionContent`'s left and right inner padding aligns the body with the title text (Figma `210:4064` column layout). This happens via a Tailwind v4 `has-[…trigger-left-icon]:` variant — no React state, no hydration flash.
+
+### Indicator variants
+
+```tsx
+// Plus / Minus (default — matches Figma 210:4019 add-line / 210:4069 subtract-line)
+<AccordionTrigger triggerIcon="plus-minus">…</AccordionTrigger>
+
+// Rotating chevron (shadcn-style)
+<AccordionTrigger triggerIcon="chevron">…</AccordionTrigger>
+
+// No indicator — pair with a custom `indicator` node if needed
+<AccordionTrigger triggerIcon="none" indicator={<Badge>New</Badge>}>…</AccordionTrigger>
+```
+
+### Flip-icon layout (`iconPosition="start"`)
+
+```tsx
+<AccordionTrigger iconPosition="start" triggerIcon="plus-minus">
+  Customize your store-front
+</AccordionTrigger>
+```
+
+Matches Figma `Flip Icon = On`. The open/close indicator becomes the leading affordance; any `leftIcon` is suppressed because the indicator owns the leading slot. Pair this with a status icon embedded inside the trigger children or with a custom `indicator` carrying both states (e.g. a `loader-2-line` for in-progress steps).
+
+### Variants
+
+```tsx
+// Default — card with border + x-small shadow on closed state
+<AccordionItem variant="card" value="a">…</AccordionItem>
+
+// Borderless — for embedded use on a coloured surface or nav-style lists
+<AccordionItem variant="borderless" value="b">…</AccordionItem>
+```
+
+### Props
+
+`Accordion` (Radix `Root`) accepts the full `@radix-ui/react-accordion` API: `type='single' | 'multiple'`, `collapsible`, `value`, `defaultValue`, `onValueChange`, `disabled`, `dir`, `orientation`.
+
+`AccordionItem`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `variant` | `'card' \| 'borderless'` | `'card'` | Card variant matches Figma states; borderless drops chrome for embedded use. |
+| `value` | `string` | — | Required by Radix; identifies the item for `value` / `defaultValue` / `onValueChange`. |
+| `disabled` | `boolean` | `false` | Disables the trigger and locks the closed state. |
+
+`AccordionTrigger`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `leftIcon` | `ReactNode` | — | 20×20 decorative glyph before the label. Auto-indents `AccordionContent` when `iconPosition="end"`. |
+| `triggerIcon` | `'plus-minus' \| 'chevron' \| 'none'` | `'plus-minus'` | Default matches Figma add-line / subtract-line; chevron rotates 180° via `data-state=open`. |
+| `iconPosition` | `'end' \| 'start'` | `'end'` | Mirrors Figma `Flip Icon` toggle. With `'start'`, `leftIcon` is suppressed. |
+| `indicator` | `ReactNode` | — | Custom override for the indicator slot (overrides `triggerIcon`). |
+| `headerClassName` | `string` | — | Extra classes for the internal `AccordionPrimitive.Header` (`<h3>`) wrapper. Use when the trigger row shares its line with sibling action buttons (e.g. a `RowActions` kebab next to a settings row) — set `headerClassName="min-w-0 flex-1"` so the header grows while the sibling keeps its natural size. |
+
+`AccordionContent` forwards every `@radix-ui/react-accordion` Content prop and animates open/close via `tw-animate-css` (`animate-accordion-down` / `animate-accordion-up`) keyed off `--radix-accordion-content-height`.
+
+### MUST rules
+
+- Always set `value` on every `AccordionItem` — Radix requires it for controlled/uncontrolled state.
+- For FAQ surfaces use `type="single" collapsible`. For onboarding / multi-section configurations use `type="multiple"`.
+- Pass translatable trigger labels through `useT()` — the primitive ships no English defaults.
+- When customising `triggerIcon="none"` keep the trigger reachable: either provide a meaningful `indicator` or rely on the trigger's text + `aria-expanded` for screen-reader feedback.
+- Do not nest interactive elements inside `AccordionTrigger` — it is already a `<button>`. Put links and buttons inside `AccordionContent` only. If the row needs sibling actions, place them as a sibling of `AccordionTrigger` inside `AccordionItem` and grow the header with `headerClassName="min-w-0 flex-1"` (see `PipelineSettings` for the canonical example).
+
+---
+
+## LogList
+
+```typescript
+import {
+  LogList,
+  LogLevelBadge,
+  type LogListEntry,
+  type LogListLevel,
+} from '@open-mercato/ui/backend/LogList'
+```
+
+Unified `Accordion`-driven list for admin "logs" tabs (integrations, data sync runs, payment gateway transactions, …). Replaces the per-module `<table>` + `expandedLogId` row-expand pattern with a Figma-aligned card list that uses the DS `Accordion` primitive under the hood. Each row shows time + level badge + message in the trigger; the consumer controls the expanded body content (metadata grid, JSON payload, etc.).
+
+### Basic usage
+
+```tsx
+<LogList
+  entries={logs.map((log) => ({
+    id: log.id,
+    time: new Date(log.createdAt).toLocaleString(),
+    level: log.level,
+    message: log.message,
+    body: (
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
+        {JSON.stringify(log.payload, null, 2)}
+      </pre>
+    ),
+  }))}
+  emptyMessage={t('logs.empty')}
+/>
+```
+
+`LogList` uses `Accordion type='single' collapsible` internally — matches the previous "one expanded row at a time" behaviour. For multi-open admin views, drop `LogList` and compose `Accordion` directly.
+
+### Level palette
+
+The built-in `LogLevelBadge` maps `info` → blue, `warn` / `warning` → amber, `error` → red, `debug` → zinc. Unknown levels fall through to the default `Badge` neutral palette. Pass `levelLabel` to override the badge text (e.g. translated level names):
+
+```tsx
+{
+  id: log.id,
+  level: log.level,
+  levelLabel: t(`payment_gateways.transactions.level.${log.level}`, log.level),
+  // …
+}
+```
+
+### Body slot (rich expanded content)
+
+The `body` prop accepts any React node. Use it for metadata grids, inline / nested JSON via `JsonDisplay`, summary text, etc. The DS deployment in [`integrations/[id]/page.tsx`](../packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx) builds a two-column body with a metadata grid + nested `JsonDisplay`; [`data_sync/runs/[id]/page.tsx`](../packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx) renders a single `<pre>` JSON block.
+
+### Props
+
+`LogList`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `entries` | `LogListEntry[]` | — | Each entry maps to one `AccordionItem`. Pass an empty array to trigger the empty state. |
+| `emptyMessage` | `ReactNode` | — | Rendered when `entries` is empty. Omit to render nothing. |
+| `className` | `string` | — | Applied to the `<Accordion>` root. |
+
+`LogListEntry`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `string` | Required; used as the Radix Accordion item value and forwarded as `data-log-entry-id`. |
+| `time` | `ReactNode` | Pre-formatted timestamp — `new Date(...).toLocaleString()` or `formatDateTime(...)`. |
+| `level` | `LogListLevel` | Any string; recognized values drive the badge palette. |
+| `levelLabel` | `ReactNode` | Optional translated label override; falls back to `level` verbatim. |
+| `message` | `ReactNode` | One-liner shown in the trigger row (truncates). |
+| `body` | `ReactNode` | Mounted lazily by Radix when the entry expands. Build the metadata grid + payload here. |
+
+`LogLevelBadge` exposes the same level mapping for standalone use outside `LogList` (e.g. a level pill inside a detail summary card).
+
+### MUST rules
+
+- Pass `id` that is stable across re-renders — Radix uses it as the accordion item value, so a changing id will collapse the open row.
+- Pre-format `time` in the consumer (the primitive ships no `formatDateTime`); pair with the same locale used elsewhere on the page for consistency.
+- Build `body` content with the same translation keys as the legacy table headers (`<dt>` labels remain the existing `t(...)` keys, so PL / EN translations stay in sync).
+- Keep `body` heavyweight (large `JsonDisplay`, fetch-on-expand) — it mounts lazily, so the closed state stays cheap regardless of payload size.
 
 ---
 
