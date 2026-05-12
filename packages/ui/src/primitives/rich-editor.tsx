@@ -489,17 +489,17 @@ export const RichEditor = React.memo(function RichEditor({
     onChange(sanitized)
   }, [onChange])
 
-  const toolbarContent = variant === 'custom'
-    ? null
-    : <RichEditorPresetItems
-        variant={variant}
-        labels={labels}
-        onComment={onComment}
-        onMention={onMention}
-        moreMenu={moreMenu}
-        onFullscreen={onFullscreen}
-        onImageInsert={onImageInsert}
-      />
+  const presetItems = usePresetToolbarItems({
+    variant,
+    labels,
+    onComment,
+    onMention,
+    onFullscreen,
+    onImageInsert,
+    exec,
+    selection,
+    requestUrlPrompt,
+  })
 
   const plaintextLength = React.useMemo(() => {
     if (!maxLength) return 0
@@ -522,7 +522,7 @@ export const RichEditor = React.memo(function RichEditor({
             ? children
             : (
               <>
-                <RichEditorToolbar>{toolbarContent}</RichEditorToolbar>
+                <RichEditorAutoToolbar items={presetItems} labels={labels} moreMenu={moreMenu} />
                 <div className="relative">
                   <RichEditorContent
                     ref={editorRef}
@@ -804,10 +804,12 @@ export type RichEditorDropdownButtonProps = Omit<ToolbarButtonBaseProps, 'type' 
   icon: React.ReactNode
   ariaLabel: string
   menu: React.ReactNode
+  /** When false, the trailing chevron is omitted (e.g. for the `⋮ More` overflow button). */
+  showChevron?: boolean
 }
 
 export const RichEditorDropdownButton = React.forwardRef<HTMLButtonElement, RichEditorDropdownButtonProps>(
-  ({ icon, ariaLabel, menu, ...props }, ref) => {
+  ({ icon, ariaLabel, menu, showChevron, ...props }, ref) => {
     const { disabled } = useRichEditorContext('RichEditorDropdownButton')
     return (
       <Popover>
@@ -822,7 +824,9 @@ export const RichEditorDropdownButton = React.forwardRef<HTMLButtonElement, Rich
             <span data-slot="rich-editor-item-icon" aria-hidden="true">
               {icon}
             </span>
-            <ChevronDown className="opacity-60 transition-transform group-data-[state=open]/rich-editor-item:rotate-180" aria-hidden="true" />
+            {showChevron === false ? null : (
+              <ChevronDown className="opacity-60 transition-transform group-data-[state=open]/rich-editor-item:rotate-180" aria-hidden="true" />
+            )}
           </RichEditorButton>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-44 p-1">
@@ -1083,24 +1087,121 @@ RichEditorContent.displayName = 'RichEditorContent'
 
 // ── Preset toolbar ────────────────────────────────────────────────────────
 
-function RichEditorPresetItems({
+type ToolbarItem =
+  | { kind: 'divider'; key: string }
+  | {
+      kind: 'iconButton'
+      key: string
+      icon: React.ReactNode
+      ariaLabel: string
+      tooltipLabel?: string
+      active?: boolean
+      command?: string
+      commandArg?: string
+      onActivate?: () => void
+    }
+  | {
+      kind: 'textDropdown'
+      key: string
+      ariaLabel: string
+      label: React.ReactNode
+      menu: React.ReactNode
+    }
+  | {
+      kind: 'dropdownButton'
+      key: string
+      icon: React.ReactNode
+      ariaLabel: string
+      menu: React.ReactNode
+      showChevron?: boolean
+    }
+  | {
+      kind: 'colorButton'
+      key: string
+      ariaLabel: string
+      colorLabels: Record<RichEditorColorKey, string>
+    }
+
+function renderToolbarItem(item: ToolbarItem): React.ReactNode {
+  switch (item.kind) {
+    case 'divider':
+      return <RichEditorDivider key={item.key} />
+    case 'iconButton':
+      return (
+        <RichEditorIconButton
+          key={item.key}
+          icon={item.icon}
+          ariaLabel={item.ariaLabel}
+          tooltipLabel={item.tooltipLabel}
+          active={item.active}
+          command={item.command}
+          commandArg={item.commandArg}
+          onActivate={item.onActivate}
+        />
+      )
+    case 'textDropdown':
+      return (
+        <RichEditorTextDropdown
+          key={item.key}
+          ariaLabel={item.ariaLabel}
+          label={item.label}
+          menu={item.menu}
+        />
+      )
+    case 'dropdownButton':
+      return (
+        <RichEditorDropdownButton
+          key={item.key}
+          icon={item.icon}
+          ariaLabel={item.ariaLabel}
+          menu={item.menu}
+          showChevron={item.showChevron}
+        />
+      )
+    case 'colorButton':
+      return (
+        <RichEditorColorButton
+          key={item.key}
+          ariaLabel={item.ariaLabel}
+          colorLabels={item.colorLabels}
+        />
+      )
+  }
+}
+
+function trimTrailingDividers(items: ToolbarItem[]): ToolbarItem[] {
+  let end = items.length
+  while (end > 0 && items[end - 1].kind === 'divider') end -= 1
+  return items.slice(0, end)
+}
+
+function trimLeadingDividers(items: ToolbarItem[]): ToolbarItem[] {
+  let start = 0
+  while (start < items.length && items[start].kind === 'divider') start += 1
+  return items.slice(start)
+}
+
+function usePresetToolbarItems({
   variant,
   labels,
   onComment,
   onMention,
-  moreMenu,
   onFullscreen,
   onImageInsert,
+  exec,
+  selection,
+  requestUrlPrompt,
 }: {
-  variant: Exclude<RichEditorVariant, 'custom'>
+  variant: RichEditorVariant
   labels: RichEditorLabels
   onComment?: () => void
   onMention?: () => void
-  moreMenu?: React.ReactNode
   onFullscreen?: () => void
   onImageInsert?: () => void
-}) {
-  const { exec, selection, requestUrlPrompt } = useRichEditorContext('RichEditorPresetItems')
+  exec: RichEditorContextValue['exec']
+  selection: RichEditorContextValue['selection']
+  requestUrlPrompt: RichEditorContextValue['requestUrlPrompt']
+}): ToolbarItem[] {
   const onLink = React.useCallback(() => {
     requestUrlPrompt({
       kind: 'link',
@@ -1167,7 +1268,6 @@ function RichEditorPresetItems({
   const commentHandler = onComment ?? (() => exec('insertText', '[comment: ]'))
   const showMention = variant === 'full'
   const mentionHandler = onMention ?? (() => exec('insertText', '@'))
-  const showMore = variant === 'full' && moreMenu !== undefined
   const showLink = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showLists = variant !== 'minimal'
   const showHelp = variant === 'full'
@@ -1301,139 +1401,177 @@ function RichEditorPresetItems({
 
   const AlignActiveIcon = ALIGN_ICONS[selection.align]
 
+  if (variant === 'custom') return []
+
+  const items: ToolbarItem[] = []
+  if (showHeading) {
+    items.push({ kind: 'textDropdown', key: 'heading', ariaLabel: labels.heading, label: headingLabel, menu: headingMenu })
+    items.push({ kind: 'divider', key: 'd-heading' })
+  }
+  if (showFontSize) {
+    items.push({ kind: 'textDropdown', key: 'fontSize', ariaLabel: labels.fontSize, label: '14px', menu: fontSizeMenu })
+    items.push({ kind: 'divider', key: 'd-fontSize' })
+  }
+  if (showColor) {
+    items.push({ kind: 'colorButton', key: 'color', ariaLabel: labels.color, colorLabels: labels.colors })
+    items.push({ kind: 'divider', key: 'd-color' })
+  }
+  items.push({ kind: 'iconButton', key: 'bold', icon: <Bold />, command: 'bold', ariaLabel: labels.bold, tooltipLabel: labels.bold, active: selection.bold })
+  items.push({ kind: 'iconButton', key: 'italic', icon: <Italic />, command: 'italic', ariaLabel: labels.italic, tooltipLabel: labels.italic, active: selection.italic })
+  items.push({ kind: 'iconButton', key: 'underline', icon: <Underline />, command: 'underline', ariaLabel: labels.underline, tooltipLabel: labels.underline, active: selection.underline })
+  if (showStrike) {
+    items.push({ kind: 'iconButton', key: 'strike', icon: <Strikethrough />, command: 'strikeThrough', ariaLabel: labels.strikethrough, tooltipLabel: labels.strikethrough, active: selection.strikethrough })
+  }
+  if (showLists) {
+    items.push({ kind: 'divider', key: 'd-lists' })
+    items.push({ kind: 'iconButton', key: 'ul', icon: <List />, command: 'insertUnorderedList', ariaLabel: labels.unorderedList, tooltipLabel: labels.unorderedList, active: selection.unorderedList })
+    if (showOrdered) {
+      items.push({ kind: 'iconButton', key: 'ol', icon: <ListOrdered />, command: 'insertOrderedList', ariaLabel: labels.orderedList, tooltipLabel: labels.orderedList, active: selection.orderedList })
+    }
+  }
+  if (showHr || showQuoteAndCode) {
+    items.push({ kind: 'divider', key: 'd-structure' })
+    if (showHr) {
+      items.push({ kind: 'iconButton', key: 'hr', icon: <Minus />, ariaLabel: labels.horizontalRule, tooltipLabel: labels.horizontalRule, onActivate: () => exec('insertHorizontalRule') })
+    }
+    if (showQuoteAndCode) {
+      items.push({ kind: 'iconButton', key: 'quote', icon: <Quote />, ariaLabel: labels.blockquote, tooltipLabel: labels.blockquote, active: selection.blockquote, onActivate: () => exec('formatBlock', selection.blockquote ? '<p>' : '<blockquote>') })
+      items.push({ kind: 'iconButton', key: 'inlineCode', icon: <Code />, ariaLabel: labels.inlineCode, tooltipLabel: labels.inlineCode, onActivate: onInsertInlineCode })
+      items.push({ kind: 'iconButton', key: 'codeBlock', icon: <FileCode />, ariaLabel: labels.codeBlock, tooltipLabel: labels.codeBlock, active: selection.code, onActivate: () => exec('formatBlock', selection.code ? '<p>' : '<pre>') })
+    }
+  }
+  if (showImageTable) {
+    items.push({ kind: 'divider', key: 'd-media' })
+    items.push({ kind: 'iconButton', key: 'image', icon: <ImageIcon />, ariaLabel: labels.image, tooltipLabel: labels.image, onActivate: onImage })
+    items.push({ kind: 'iconButton', key: 'table', icon: <TableIcon />, ariaLabel: labels.table, tooltipLabel: labels.table, onActivate: onInsertTable })
+  }
+  if (showChecklist) {
+    items.push({ kind: 'iconButton', key: 'checklist', icon: <ListChecks />, ariaLabel: labels.checklist, tooltipLabel: labels.checklist, onActivate: onInsertChecklist })
+  }
+  if (showAlign) {
+    items.push({ kind: 'divider', key: 'd-align' })
+    items.push({ kind: 'dropdownButton', key: 'align', icon: <AlignActiveIcon />, ariaLabel: labels.align, menu: alignMenu })
+  }
+  if (showLink || showComment || showMention) {
+    items.push({ kind: 'divider', key: 'd-anchors' })
+  }
+  if (showComment) {
+    items.push({ kind: 'iconButton', key: 'comment', icon: <MessageCircle />, ariaLabel: labels.comment, tooltipLabel: labels.comment, onActivate: commentHandler })
+  }
+  if (showLink) {
+    items.push({ kind: 'iconButton', key: 'link', icon: <Link />, ariaLabel: labels.link, tooltipLabel: labels.link, onActivate: onLink })
+  }
+  if (showMention) {
+    items.push({ kind: 'iconButton', key: 'mention', icon: <AtSign />, ariaLabel: labels.mention, tooltipLabel: labels.mention, onActivate: mentionHandler })
+  }
+  if (showHelp || showFullscreen) {
+    items.push({ kind: 'divider', key: 'd-trailing' })
+    if (showHelp) {
+      items.push({ kind: 'dropdownButton', key: 'help', icon: <HelpCircle />, ariaLabel: labels.help, menu: keyboardShortcutsHelp, showChevron: false })
+    }
+    if (showFullscreen && onFullscreen) {
+      items.push({ kind: 'iconButton', key: 'fullscreen', icon: <Maximize2 />, ariaLabel: labels.fullscreen, tooltipLabel: labels.fullscreen, onActivate: onFullscreen })
+    }
+  }
+
+  return trimTrailingDividers(items)
+}
+
+function RichEditorAutoToolbar({
+  items,
+  labels,
+  moreMenu,
+}: {
+  items: ToolbarItem[]
+  labels: RichEditorLabels
+  moreMenu?: React.ReactNode
+}) {
+  const measureRef = React.useRef<HTMLDivElement>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [firstHidden, setFirstHidden] = React.useState<number | null>(null)
+
+  React.useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+    if (typeof ResizeObserver === 'undefined') return
+    const container = containerRef.current
+    const measureEl = measureRef.current
+    if (!container || !measureEl) return
+
+    const measure = () => {
+      const containerWidth = container.clientWidth
+      if (containerWidth === 0) return
+
+      const allEls = Array.from(measureEl.children) as HTMLElement[]
+      if (allEls.length === 0) return
+      // Last child is the reserved ⋮ placeholder for budget calculations.
+      const moreEl = allEls[allEls.length - 1]
+      const itemEls = allEls.slice(0, -1)
+      const moreReserved = moreEl.offsetWidth + 4
+      const containerPadding = 4 // p-0.5 left + right
+
+      let totalWidth = 0
+      for (const el of itemEls) totalWidth += el.offsetWidth + 2
+
+      if (totalWidth + containerPadding <= containerWidth + 2) {
+        setFirstHidden(null)
+        return
+      }
+
+      let accumulated = 0
+      for (let i = 0; i < itemEls.length; i++) {
+        accumulated += itemEls[i].offsetWidth + 2
+        if (accumulated > containerWidth - moreReserved - containerPadding) {
+          setFirstHidden(i)
+          return
+        }
+      }
+      setFirstHidden(null)
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [items])
+
+  const visibleItems = firstHidden === null ? items : trimTrailingDividers(items.slice(0, firstHidden))
+  const hiddenItems = firstHidden === null ? [] : trimLeadingDividers(items.slice(firstHidden))
+
+  const hasOverflow = hiddenItems.length > 0
+  const showMoreButton = hasOverflow || !!moreMenu
+
   return (
-    <>
-      {showHeading ? (
-        <>
-          <RichEditorTextDropdown ariaLabel={labels.heading} label={headingLabel} menu={headingMenu} />
-          <RichEditorDivider />
-        </>
-      ) : null}
-      {showFontSize ? (
-        <>
-          <RichEditorTextDropdown ariaLabel={labels.fontSize} label="14px" menu={fontSizeMenu} />
-          <RichEditorDivider />
-        </>
-      ) : null}
-      {showColor ? (
-        <>
-          <RichEditorColorButton ariaLabel={labels.color} colorLabels={labels.colors} />
-          <RichEditorDivider />
-        </>
-      ) : null}
-      <RichEditorIconButton icon={<Bold />} command="bold" ariaLabel={labels.bold} tooltipLabel={labels.bold} active={selection.bold} />
-      <RichEditorIconButton icon={<Italic />} command="italic" ariaLabel={labels.italic} tooltipLabel={labels.italic} active={selection.italic} />
-      <RichEditorIconButton icon={<Underline />} command="underline" ariaLabel={labels.underline} tooltipLabel={labels.underline} active={selection.underline} />
-      {showStrike ? (
-        <RichEditorIconButton icon={<Strikethrough />} command="strikeThrough" ariaLabel={labels.strikethrough} tooltipLabel={labels.strikethrough} active={selection.strikethrough} />
-      ) : null}
-      {showLists ? (
-        <>
-          <RichEditorDivider />
-          <RichEditorIconButton icon={<List />} command="insertUnorderedList" ariaLabel={labels.unorderedList} tooltipLabel={labels.unorderedList} active={selection.unorderedList} />
-          {showOrdered ? (
-            <RichEditorIconButton icon={<ListOrdered />} command="insertOrderedList" ariaLabel={labels.orderedList} tooltipLabel={labels.orderedList} active={selection.orderedList} />
-          ) : null}
-        </>
-      ) : null}
-      {showHr || showQuoteAndCode ? (
-        <>
-          <RichEditorDivider />
-          {showHr ? (
-            <RichEditorIconButton
-              icon={<Minus />}
-              ariaLabel={labels.horizontalRule}
-              tooltipLabel={labels.horizontalRule}
-              onActivate={() => exec('insertHorizontalRule')}
-            />
-          ) : null}
-          {showQuoteAndCode ? (
-            <>
-              <RichEditorIconButton
-                icon={<Quote />}
-                ariaLabel={labels.blockquote}
-                tooltipLabel={labels.blockquote}
-                active={selection.blockquote}
-                onActivate={() => exec('formatBlock', selection.blockquote ? '<p>' : '<blockquote>')}
-              />
-              <RichEditorIconButton
-                icon={<Code />}
-                ariaLabel={labels.inlineCode}
-                tooltipLabel={labels.inlineCode}
-                onActivate={onInsertInlineCode}
-              />
-              <RichEditorIconButton
-                icon={<FileCode />}
-                ariaLabel={labels.codeBlock}
-                tooltipLabel={labels.codeBlock}
-                active={selection.code}
-                onActivate={() => exec('formatBlock', selection.code ? '<p>' : '<pre>')}
-              />
-            </>
-          ) : null}
-        </>
-      ) : null}
-      {showImageTable ? (
-        <>
-          <RichEditorDivider />
-          <RichEditorIconButton
-            icon={<ImageIcon />}
-            ariaLabel={labels.image}
-            tooltipLabel={labels.image}
-            onActivate={onImage}
+    <div className="relative w-full">
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
+      >
+        {items.map(renderToolbarItem)}
+        <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />
+      </div>
+      <RichEditorToolbar ref={containerRef} className="w-full flex-nowrap overflow-hidden">
+        {visibleItems.map(renderToolbarItem)}
+        {showMoreButton ? (
+          <RichEditorDropdownButton
+            icon={<MoreVertical />}
+            ariaLabel={labels.more}
+            showChevron={false}
+            menu={
+              <div className="flex max-w-[320px] flex-row flex-wrap items-center gap-0.5 p-1">
+                {moreMenu ? (
+                  <>
+                    <div className="w-full">{moreMenu}</div>
+                    {hiddenItems.length > 0 ? <div className="my-1 h-px w-full bg-border" /> : null}
+                  </>
+                ) : null}
+                {hiddenItems.map(renderToolbarItem)}
+              </div>
+            }
           />
-          <RichEditorIconButton
-            icon={<TableIcon />}
-            ariaLabel={labels.table}
-            tooltipLabel={labels.table}
-            onActivate={onInsertTable}
-          />
-        </>
-      ) : null}
-      {showChecklist ? (
-        <RichEditorIconButton
-          icon={<ListChecks />}
-          ariaLabel={labels.checklist}
-          tooltipLabel={labels.checklist}
-          onActivate={onInsertChecklist}
-        />
-      ) : null}
-      {showAlign ? (
-        <>
-          <RichEditorDivider />
-          <RichEditorDropdownButton icon={<AlignActiveIcon />} ariaLabel={labels.align} menu={alignMenu} />
-        </>
-      ) : null}
-      {(showLink || showComment || showMention) ? <RichEditorDivider /> : null}
-      {showComment ? (
-        <RichEditorIconButton icon={<MessageCircle />} ariaLabel={labels.comment} tooltipLabel={labels.comment} onActivate={commentHandler} />
-      ) : null}
-      {showLink ? (
-        <RichEditorIconButton icon={<Link />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
-      ) : null}
-      {showMention ? (
-        <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={mentionHandler} />
-      ) : null}
-      {showHelp || showMore || showFullscreen ? (
-        <>
-          <RichEditorDivider />
-          {showHelp ? (
-            <RichEditorDropdownButton icon={<HelpCircle />} ariaLabel={labels.help} menu={keyboardShortcutsHelp} />
-          ) : null}
-          {showMore ? (
-            <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} menu={moreMenu} />
-          ) : null}
-          {showFullscreen ? (
-            <RichEditorIconButton
-              icon={<Maximize2 />}
-              ariaLabel={labels.fullscreen}
-              tooltipLabel={labels.fullscreen}
-              onActivate={onFullscreen}
-            />
-          ) : null}
-        </>
-      ) : null}
-    </>
+        ) : null}
+      </RichEditorToolbar>
+    </div>
   )
 }
 
