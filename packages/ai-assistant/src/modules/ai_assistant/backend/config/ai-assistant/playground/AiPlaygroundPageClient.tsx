@@ -110,7 +110,10 @@ function PlaygroundNoAgents() {
 function AgentDetails({ agent }: { agent: PlaygroundAgent }) {
   const t = useT()
   return (
-    <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
+    <div
+      className="rounded-md border border-border bg-muted/30 p-3 text-sm"
+      data-ai-playground-agent={agent.id}
+    >
       <div className="font-semibold">{agent.label}</div>
       <p className="mt-1 text-xs text-muted-foreground">{agent.description}</p>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -208,6 +211,7 @@ function ModelResolutionPanel({ agentId }: { agentId: string }) {
     <dl
       className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 p-3 text-xs sm:grid-cols-4"
       data-ai-playground-model-resolution={agentId}
+      data-ai-playground-resolution-panel={agentId}
     >
       <div>
         <dt className="font-medium text-muted-foreground">
