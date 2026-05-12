@@ -16,6 +16,9 @@ module.exports = {
   },
   moduleNameMapper: {
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/queue$': '<rootDir>/../queue/src/index.ts',
+    '^@open-mercato/queue/worker$': '<rootDir>/../queue/src/worker/runner.ts',
+    '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
   },
   transformIgnorePatterns: [
     'node_modules/(?!(@mikro-orm)/)',

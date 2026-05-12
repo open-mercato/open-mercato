@@ -66,6 +66,7 @@ import {
   CustomerPersonProfile,
 } from "../../customers/data/entities";
 import {
+  enforceReturnAdjustmentSign,
   quoteCreateSchema,
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
@@ -6299,18 +6300,22 @@ const quoteLineDeleteSchema = z.object({
   quoteId: z.string().uuid(),
 });
 
-const orderAdjustmentUpsertSchema = orderAdjustmentCreateSchema.extend({
-  id: z.string().uuid().optional(),
-});
+const orderAdjustmentUpsertSchema = orderAdjustmentCreateSchema
+  .extend({
+    id: z.string().uuid().optional(),
+  })
+  .superRefine(enforceReturnAdjustmentSign);
 
 const orderAdjustmentDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
 });
 
-const quoteAdjustmentUpsertSchema = quoteAdjustmentCreateSchema.extend({
-  id: z.string().uuid().optional(),
-});
+const quoteAdjustmentUpsertSchema = quoteAdjustmentCreateSchema
+  .extend({
+    id: z.string().uuid().optional(),
+  })
+  .superRefine(enforceReturnAdjustmentSign);
 
 const quoteAdjustmentDeleteSchema = z.object({
   id: z.string().uuid(),

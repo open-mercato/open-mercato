@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -44,7 +44,7 @@ async function fillCombobox(
 }
 
 async function selectEntityForRecordPicker(
-  page: Page,
+  page: import('@playwright/test').Page,
   entityType: string,
 ) {
   const recordInput = page.getByPlaceholder('Search records...')
@@ -64,26 +64,64 @@ async function selectEntityForRecordPicker(
   await expect(recordInput).toBeEnabled({ timeout: 10_000 })
 }
 
-async function waitForTranslationField(root: Locator, preferredPlaceholder?: string): Promise<Locator> {
-  const fieldLocator = root.locator('table').locator('input, textarea')
-  await expect.poll(async () => fieldLocator.count(), {
-    message: 'Expected at least one translation input to be available',
-    timeout: 45_000,
-  }).toBeGreaterThan(0)
+async function fillTranslationInput(locator: import('@playwright/test').Locator, value: string) {
+  await expect(locator).toBeEditable({ timeout: 10_000 })
+  await locator.fill(value)
+  await locator.evaluate((element, nextValue) => {
+    const input = element as HTMLInputElement | HTMLTextAreaElement
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+    valueSetter?.call(input, nextValue)
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }, value)
+  await expect(locator).toHaveValue(value)
+  await locator.press('Tab')
+  await expect(locator).toHaveValue(value)
+}
 
-  const firstEditableField = fieldLocator.first()
-  await expect(firstEditableField).toBeVisible()
-  await expect(firstEditableField).toBeEnabled()
-
+async function getTranslationField(
+  managerCard: import('@playwright/test').Locator,
+  preferredPlaceholder?: string,
+) {
   const normalizedPlaceholder = preferredPlaceholder?.trim()
-  if (!normalizedPlaceholder) return firstEditableField
-
-  const preferredField = root.getByPlaceholder(normalizedPlaceholder).first()
-  if (await preferredField.count()) {
-    if (await preferredField.isVisible()) return preferredField
+  if (normalizedPlaceholder) {
+    const preferredField = managerCard.getByPlaceholder(normalizedPlaceholder).first()
+    if (await preferredField.count()) {
+      await expect(preferredField).toBeEditable({ timeout: 10_000 })
+      return preferredField
+    }
   }
 
-  return firstEditableField
+  const firstField = managerCard.locator('table').locator('input, textarea').first()
+  await expect(firstField).toBeEditable({ timeout: 10_000 })
+  return firstField
+}
+
+async function saveTranslations(
+  page: import('@playwright/test').Page,
+  managerCard: import('@playwright/test').Locator,
+  entityType: string,
+  entityId: string,
+) {
+  const encodedEntityType = encodeURIComponent(entityType)
+  const encodedEntityId = encodeURIComponent(entityId)
+  const isSaveResponse = (response: import('@playwright/test').Response) => {
+    const request = response.request()
+    const url = response.url()
+    return (
+      request.method() === 'PUT' &&
+      url.includes('/api/translations/') &&
+      (url.includes(encodedEntityType) || url.includes(entityType)) &&
+      (url.includes(encodedEntityId) || url.includes(entityId))
+    )
+  }
+  const saveButton = managerCard.getByRole('button', { name: 'Save translations' })
+  await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+  const responsePromise = page.waitForResponse((response) => isSaveResponse(response), { timeout: 10_000 })
+  await saveButton.click()
+  const response = await responsePromise
+  expect(response.ok()).toBeTruthy()
 }
 
 /**
@@ -143,19 +181,10 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      const titleInput = await waitForTranslationField(managerCard, 'Deutscher Titel QA')
-      await titleInput.click()
-      await page.keyboard.type('Deutscher Titel QA')
-      await expect.poll(async () => titleInput.inputValue()).toBe('Deutscher Titel QA')
-      await titleInput.press('Tab')
+      const titleInput = await getTranslationField(managerCard, productTitle)
+      await fillTranslationInput(titleInput, 'Deutscher Titel QA')
 
-      const saveResponsePromise = page.waitForResponse((response) =>
-        response.request().method() === 'PUT'
-        && response.url().includes(`/api/translations/${encodeURIComponent(ENTITY_TYPE)}/${productId}`),
-      )
-      await page.getByRole('button', { name: 'Save translations' }).click()
-      const saveResponse = await saveResponsePromise
-      expect(saveResponse.ok()).toBeTruthy()
+      await saveTranslations(page, managerCard, ENTITY_TYPE, productId!)
       await expect(page.getByText('Translations saved').first()).toBeVisible()
       await expect.poll(async () => {
         const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
@@ -205,8 +234,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      const titleInput = await waitForTranslationField(managerCard, 'Persistenter Titel')
-      await expect(titleInput).toHaveValue('Persistenter Titel')
+      await expect(await getTranslationField(managerCard, productTitle)).toHaveValue('Persistenter Titel')
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
