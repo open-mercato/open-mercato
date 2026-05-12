@@ -76,6 +76,8 @@ Even when users do figure out a working Railway setup, "re-run the same flow on 
 
 ## Proposed Solution
 
+> The proposed solution is organized as five sections — **Command surface**, **Architecture**, **Data Models**, **API Contracts**, and **End-to-end flow**. The canonical `.ai/specs/AGENTS.md` headings (Architecture, Data Models, API Contracts) are explicit anchors below so a reviewer can map this spec onto the standard structure; their content lives in the named subsections referenced from each anchor.
+
 ### Command surface
 
 A single new top-level command on the `mercato` CLI (the existing `packages/cli` bin):
@@ -130,10 +132,19 @@ The token is never logged. `--verbose` redacts it to `Bearer ****` in any echoed
 
 The CLI persists Railway resource identifiers in **two** locations:
 
-- `.mercato/railway.json` (committed by default, opt-out via `.gitignore`) records: `projectId`, `environmentId`, `serviceId`, `workerServiceId` (when `--worker`), `pluginIds` (postgres + redis), `domainId`, `lastDeployId`, and the CLI version that wrote them. Includes a `schemaVersion` so future CLI versions can migrate the file safely.
+- `.mercato/railway.json` (committed by default — see gitignore note below) records: `projectId`, `environmentId`, `serviceId`, `workerServiceId` (when `--worker`), `pluginIds` (postgres + redis), `domainId`, `lastDeployId`, and the CLI version that wrote them. Includes a `schemaVersion` so future CLI versions can migrate the file safely.
 - `~/.config/open-mercato/railway.json` (per-user, not committed) records only the auth token.
 
-Whether `.mercato/railway.json` should be committed is a real call. Recommended default: **commit it**. Reasons: it contains no secrets, only opaque Railway IDs; committing it lets the next teammate run `mercato deploy railway` and update the *same* project rather than create a duplicate. Add an explicit `--no-track` flag for users who prefer to keep it untracked. The spec implementer MUST add a section to the user docs explaining the tradeoff.
+**Important — template `.gitignore` interaction.** `packages/create-app/template/gitignore` (and the legacy `apps/mercato/.gitignore`) already contains a blanket `.mercato/` rule that hides the entire directory from git. To make committing `.mercato/railway.json` actually work, the scaffolded template MUST include an allowlist entry alongside the existing rule:
+
+```gitignore
+.mercato/
+!.mercato/railway.json
+```
+
+The implementation PR MUST update `packages/create-app/template/gitignore` accordingly. Without the allowlist line, `.mercato/railway.json` would be silently untracked and re-runs from a fresh clone would create a duplicate Railway project — exactly the failure mode this state file is meant to prevent.
+
+Whether to commit `.mercato/railway.json` at all is a real call. Recommended default: **commit it**. Reasons: it contains no secrets, only opaque Railway IDs; committing it lets the next teammate run `mercato deploy railway` and update the *same* project rather than create a duplicate. Add an explicit `--no-track` CLI flag for users who prefer to keep it untracked (it tells the CLI to skip the allowlist line and write a `.mercato/railway.json.local` instead). The spec implementer MUST add a section to the user docs explaining the tradeoff.
 
 On every run, the CLI:
 
@@ -146,9 +157,17 @@ On every run, the CLI:
 
 By default the deploy uses the PAT owner's **personal Railway account** as the workspace. A future flag `--workspace <id>` (out of scope here) will allow team workspaces. The implementer MUST confirm the API surface for listing workspaces and use the personal workspace as default. `// VERIFY` Railway workspace API shape.
 
-## Railway integration approach
+## Architecture
 
-### Endpoint and auth
+The architecture spans two concerns: (1) how the CLI talks to Railway's API, and (2) what the deployed Railway project graph looks like. Both are detailed below, and the spec's per-flow state machine is documented under **End-to-end flow**.
+
+- **CLI → Railway integration** — see *Railway integration approach* immediately below.
+- **Deployed project graph** — see *Railway template & project structure*.
+- **Per-step state machine and resumability** — see *End-to-end flow*.
+
+### Railway integration approach
+
+#### Endpoint and auth
 
 - Base URL: `https://backboard.railway.com/graphql/v2`
 - Auth header: `Authorization: Bearer <RAILWAY_TOKEN>`
@@ -162,7 +181,7 @@ The CLI maintains a thin typed GraphQL client (single file) that:
 - Retries idempotent reads (introspection, lookups) with exponential backoff on 5xx and on Railway-side `INTERNAL_ERROR`.
 - Never retries mutations automatically. Mutation failures bubble up; idempotency is recovered by the per-step state file, not by blind retry.
 
-### Operations used
+#### Operations used
 
 The list below is the **target set**. Each is `// VERIFY` and the implementer must confirm each operation name, argument shape, and return shape against a current Railway introspection before writing the wire format. We deliberately do not paste long inline GraphQL strings into this spec since they will drift.
 
@@ -186,7 +205,7 @@ The list below is the **target set**. Each is `// VERIFY` and the implementer mu
 | Custom domain | mutation | `customDomainCreate(input: { serviceId, environmentId, domain })` | When `--domain` is set. |
 | Cleanup | mutation | `projectDelete(input: { id })` | `--cleanup` flag. |
 
-### When the API is insufficient: `railway` CLI fallback
+#### When the API is insufficient: `railway` CLI fallback
 
 If `// VERIFY` confirms that the Railway public API cannot accept a local-source tarball for build (i.e., `serviceCreate` / `serviceInstanceDeploy` both require a connected git source), the implementation MUST take **one** of two paths and document which it chose:
 
@@ -274,7 +293,7 @@ restartPolicyMaxRetries = 3
 startCommand = "./scripts/railway-start.sh"
 ```
 
-The worker service (when `--worker`) uses the same Dockerfile but a different start command: `./scripts/railway-worker.sh` (runs `yarn mercato queue worker` or equivalent — `// VERIFY` the actual queue worker entry point in the current `packages/queue` AGENTS.md).
+The worker service (when `--worker`) uses the same Dockerfile but a different start command: `./scripts/railway-worker.sh`. The script runs the queue worker via the `mercato` CLI. As of this spec, the current command is `yarn mercato queue worker --all` (verified against `packages/cli/src/mercato.ts`); the lazy auto-spawn supervisor introduced by the recent queue-supervisor work (`packages/cli/src/lib/queue-worker-supervisor.ts`) is a candidate replacement when `OM_AUTO_SPAWN_WORKERS_LAZY=true`. The implementation PR MUST pick one (see Decision E) and `// VERIFY` against the current `packages/queue/AGENTS.md` before shipping.
 
 ### Start scripts
 
@@ -283,7 +302,7 @@ Two scripts ship in the template:
 - `scripts/railway-start.sh` (app service):
   1. `yarn db:migrate` — apply pending migrations on every boot. Idempotent.
   2. `if [ ! -d ".mercato/generated" ]; then yarn generate; fi` — re-run module generation if missing (e.g., first cold boot after a fresh image).
-  3. `exec node apps/mercato/.next/standalone/server.js` (or equivalent for the scaffolded app's Next.js standalone output).
+  3. Start the Next.js server. The repo's current `apps/mercato/next.config.ts` does NOT set `output: 'standalone'` (verified at spec time), so the default start command is `exec yarn workspace @open-mercato/app start` (which calls `next start`). The implementation PR SHOULD add `output: 'standalone'` to the scaffolded template's `next.config.ts` to shrink deploy images — when it does, the start line changes to `exec node apps/mercato/.next/standalone/server.js`. Pick one and document the choice; do not assume standalone output exists.
 
 - `scripts/railway-worker.sh` (worker service): runs the queue worker entry point. The exact command must match the worker contract declared in `packages/queue/AGENTS.md`.
 
@@ -316,6 +335,24 @@ The legacy doc at `apps/docs/docs/installation/railway.mdx` mentions a `/app/app
 - **Make it opt-in** — `--volume` flag, off by default.
 
 **Recommendation:** opt-in (`--volume <mountPath>`). Users who do not yet have attachment-heavy workflows shouldn't pay for storage they don't use. The CLI prints a clear warning when running without a volume: "Attachments uploaded to this deployment will be lost on redeploy. Re-run with `--volume /app/storage` to enable persistent storage."
+
+## Data Models
+
+**No DB schema, no MikroORM entities, no migration files.** This feature is a CLI tool that talks to an external service; it does not persist any application-level data in the Open Mercato database.
+
+Two local-filesystem state files are introduced, documented in detail elsewhere in this spec:
+
+- `.mercato/railway.json` — per-repo Railway resource identifiers (`projectId`, `environmentId`, `serviceId`, `workerServiceId`, `pluginIds`, `domainId`, `lastDeployId`, `schemaVersion`, CLI version). See *Proposed Solution → Idempotency contract*. Committed by default via an allowlist line in `packages/create-app/template/gitignore`.
+- `~/.config/open-mercato/railway.json` — per-user Railway PAT (`{ "token": "..." }`). Mode `0600`. See *Security & secrets → Token storage*.
+
+Both files use a `schemaVersion` integer so future CLI versions can detect and migrate older shapes. The implementation PR MUST define `schemaVersion: 1` in the first release and document the migration policy.
+
+## API Contracts
+
+This spec exposes no new HTTP API routes inside the Open Mercato app — the CLI is a pure outbound caller against Railway's public API.
+
+- **Outbound (Railway public GraphQL):** the full list of operations the CLI calls is enumerated under *Architecture → Railway integration approach → Operations used*. Every operation is marked `// VERIFY` against current Railway introspection.
+- **New healthcheck route added by the implementation PR:** `GET /api/healthz` — see *Railway template & project structure → Healthcheck endpoint* for the response contract. Returns `200 { status: "ok", db, redis, ts }` or `503 { status: "degraded", ... }`. No auth, no tenant scoping. Used by Railway's healthcheck and by future ops dashboards.
 
 ## End-to-end flow
 
