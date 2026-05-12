@@ -90,24 +90,46 @@ See [AI Agents](./agents) for the full declaration guide and the end-to-end exam
 
 The shared `createModelFactory(container)` picks one model per agent run. Highest precedence first:
 
-1. `callerOverride` — `runAiAgentText({ modelOverride })`.
-2. `OM_AI_<MODULE>_MODEL` env var.
-3. `agentDefaultModel` — usually `AiAgentDefinition.defaultModel`.
-4. `OM_AI_MODEL` env var (legacy `OPENCODE_MODEL` as BC fallback).
-5. Provider default.
+| Step | Source | How to set |
+|------|--------|-----------|
+| 1 | **Runtime override** — model sent by the browser `<ModelPicker>` via `?provider=&model=` query params | User selects in the chat composer; stored in `localStorage` per agent, forwarded by `<AiChat>` |
+| 2 | **Tenant settings override** — `(provider, model)` row in `ai_settings` scoped to the tenant | Admin saves at `/backend/config/ai-assistant/settings` → Global Override form |
+| 3 | **Per-agent tenant settings override** — `(provider, model)` row in `ai_settings` scoped to a specific `agentId` | Admin saves at `/backend/config/ai-assistant/settings` → Per-Agent Overrides table |
+| 4 | **`OM_AI_<MODULE>_MODEL` env var** (legacy `<MODULE>_AI_MODEL` fallback) | `OM_AI_CATALOG_MODEL=gpt-4o` in `.env`; uppercased from `moduleId` |
+| 5 | **`AiAgentDefinition.defaultModel`** | `defaultModel: 'claude-haiku-4-5'` in `ai-agents.ts` |
+| 6 | **`OM_AI_MODEL` env var** (legacy `OPENCODE_MODEL` fallback) | Process-wide fallback, plain or slash-qualified (`openai/gpt-5-mini`) |
+| 7 | **Provider default** | Hard-coded per provider (e.g. `claude-haiku-4-5-20251001` for Anthropic) |
+
+Steps 1–3 are only active when `allowRuntimeModelOverride` is `true` for the agent (default: `true`). The runtime skips tenant/runtime overrides when the field is `false`, so agents that need strict model pinning can opt out.
 
 The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. Phase 1 generalizes the seed walk so every model-axis source contributes a slash hint and plain-provider sources sit between them (highest priority first):
 
-1. Slash-prefix from `callerOverride` (Phase 1).
-2. `providerOverride` — request-time override on `runAiAgentText` / `runAiAgentObject` (Phase 1).
-3. Slash-prefix from `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL`) (Phase 1).
-4. `OM_AI_<MODULE>_PROVIDER` env (legacy `<MODULE>_AI_PROVIDER`) (Phase 1).
-5. Slash-prefix from `agentDefaultModel` (Phase 1).
-6. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider` (Phase 1).
-7. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL`) (Phase 0).
-8. `OM_AI_PROVIDER` (legacy `OPENCODE_PROVIDER`) env (Phase 0).
+1. Provider from runtime/tenant override (steps 1–3 above), including any slash-prefix on the override's model id.
+2. Slash-prefix from `callerOverride` (Phase 1).
+3. `providerOverride` — request-time override on `runAiAgentText` / `runAiAgentObject` (Phase 1).
+4. Slash-prefix from `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL` BC fallback).
+5. `OM_AI_<MODULE>_PROVIDER` env (legacy `<MODULE>_AI_PROVIDER` BC fallback).
+6. Slash-prefix from `agentDefaultModel`.
+7. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider`.
+8. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL` BC fallback).
+9. `OM_AI_PROVIDER` env (legacy `OPENCODE_PROVIDER` BC fallback).
 
 The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
+
+#### Example: full resolution trace
+
+```
+Agent: catalog.merchandising_assistant  (moduleId: catalog)
+Env:   ANTHROPIC_API_KEY set, OM_AI_PROVIDER=anthropic
+
+Browser sends ?provider=openai&model=gpt-4o  ← Step 1 wins → uses openai/gpt-4o
+Browser sends nothing, tenant has override (openai, gpt-5-mini) ← Step 2 wins
+Tenant has per-agent override for catalog.merch (google, gemini-3-pro) ← Step 3 wins
+No runtime/tenant override, OM_AI_CATALOG_MODEL=gpt-4o-mini ← Step 4 wins
+No env, agent declares defaultModel: 'claude-haiku-4-5' ← Step 5 wins
+No agent default, OM_AI_MODEL=openai/gpt-5-mini ← Step 6 wins
+No OM_AI_MODEL, Anthropic key present ← Step 7: anthropic/claude-haiku-4-5-20251001
+```
 
 :::caution Do not re-introduce ad-hoc provider lookups
 Route every model creation through `createModelFactory(container).resolveModel({...})`. Inline `createAnthropic` / `createOpenAI` / `createGoogleGenerativeAI` calls in new modules will be rejected in review.
