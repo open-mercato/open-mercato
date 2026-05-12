@@ -114,16 +114,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.96",
-    "@ai-sdk/cohere": "^3.0.30",
-    "@ai-sdk/google": "^3.0.64",
-    "@ai-sdk/mistral": "^3.0.30",
-    "@ai-sdk/openai": "^3.0.53",
-    "ai": "^6.0.168",
+    "@ai-sdk/amazon-bedrock": "^4.0.103",
+    "@ai-sdk/cohere": "^3.0.35",
+    "@ai-sdk/google": "^3.0.71",
+    "@ai-sdk/mistral": "^3.0.36",
+    "@ai-sdk/openai": "^3.0.63",
+    "ai": "^6.0.177",
     "ai-sdk-ollama": "3.8.3",
-    "meilisearch": "^0.57.0",
+    "meilisearch": "^0.58.0",
     "pg": "8.20.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@open-mercato/core": "workspace:*",
@@ -132,7 +132,7 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {
