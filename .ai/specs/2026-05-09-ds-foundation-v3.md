@@ -712,6 +712,103 @@ Legacy shim:
 - `backend/inputs/TimePicker` with `showClearButton` renders "Clear" that fires onChange(null).
 - `minuteStep={5}` produces slots in 5-minute increments.
 
+### 12. `Alert` (+ Toast / Notification compositions, Figma `169:2358`)
+
+**Figma:** [`169:2358`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=169-2358).
+
+Per the Figma guidelines, **Alert / Notification / Toast share a single
+primitive** — they differ only in layout, lifetime, and consumer
+wrapper. The primitive lives at
+`packages/ui/src/primitives/alert.tsx` and exposes a 5 × 4 × 3 matrix
+(5 statuses × 4 styles × 3 sizes) plus an optional dismiss button and
+inline action slot.
+
+**Phase 1 — Alert primitive extension (this commit):**
+
+API:
+
+```ts
+type AlertStatus = 'error' | 'warning' | 'success' | 'information' | 'feature'
+type AlertStyle = 'filled' | 'stroke' | 'light' | 'lighter'
+type AlertSize = 'xs' | 'sm' | 'default'
+
+type AlertProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'role'> & {
+  status?: AlertStatus                                  // default 'information'
+  style?: AlertStyle                                    // default 'light' (tinted bg with border)
+  size?: AlertSize                                      // default 'sm' (`min-h-9`, grows for multi-line)
+  showIcon?: boolean                                    // default true
+  icon?: React.ReactNode                                // override the per-status default
+  dismissible?: boolean                                 // render trailing X
+  onDismiss?: () => void
+  dismissAriaLabel?: string                             // default English 'Dismiss'
+  action?: React.ReactNode                              // inline action slot (link buttons)
+  /** @deprecated Use `status` + `style` instead. Kept for BC. */
+  variant?: 'default' | 'destructive' | 'success' | 'warning' | 'info'
+}
+```
+
+All five statuses map onto existing
+`--status-{error,warning,success,info,neutral}-{bg,text,border,icon}`
+token families. The Figma `state/{x}/*` variables align cleanly with
+the codebase tokens:
+
+| Figma variable | Codebase token | Hex (light theme) |
+|---|---|---|
+| `state/{x}/base` | `status-{x}-icon` | `#dc2626` (error), `#d97706` (warning), `#16a34a` (success), `#4f46e5` (information), `#7b7b7b` (feature → neutral) |
+| `state/{x}/light` | `status-{x}-border` | `#fecaca` (error), `#fde68a` (warning), `#bbf7d0` (success), `#c7d2fe` (information), `#ebebeb` (feature → neutral) |
+| `state/{x}/lighter` | `status-{x}-bg` | `#fef2f2` (error), `#fffbeb` (warning), `#f0fdf4` (success), `#eef2ff` (information), `#f5f5f5` (feature → neutral) |
+| `stroke/soft-200` | `border-border` | `#ebebeb` |
+| `regular-shadow/medium` | `shadow-lg` | drop `(0, 16, 32, -12)` `#0E121B1A` |
+
+The Figma "feature" status corresponds to `state/faded/*` (neutral
+gray) in the variables — **not** brand-violet. The Alert primitive
+respects this mapping (feature uses `status-neutral-*`).
+
+Style × wrapper composition (per Figma):
+
+| Style | Wrapper bg | Wrapper text | Wrapper border | Icon |
+|---|---|---|---|---|
+| `filled` | `bg-status-{x}-icon` | `text-white` | transparent | Plain white icon (no badge wrap) |
+| `light` (default) | `bg-status-{x}-border` | `text-status-{x}-text` | transparent | Rounded badge: `bg-status-{x}-icon` + white icon |
+| `lighter` | `bg-status-{x}-bg` | `text-status-{x}-text` | transparent | Rounded badge: `bg-status-{x}-icon` + white icon |
+| `stroke` | `bg-background` | `text-foreground` | `border-border` + `shadow-lg` | Rounded badge: `bg-status-{x}-icon` + white icon |
+
+The legacy `variant` prop is preserved and mapped onto `status` — it
+picks up the new `'light'` + `'sm'` defaults, which together match
+the pre-Figma look (tinted bg with border) at the new compact `sm`
+density. `min-h-9` keeps multi-line content (`AlertTitle` +
+`AlertDescription` paragraphs) growing vertically so the ~20 existing
+Alert consumers (`PerspectiveSidebar`, `VersionHistoryPanel`,
+`AiChat`, portal pages, etc.) keep working without migration.
+
+**Phase 2 — Toast wrapper (separate commit / phase):** `flash()` global
+helper in `packages/ui/src/backend/FlashMessages.tsx` migrates to
+render the `Alert` primitive with `size='sm'` + `dismissible` + the
+DS-wide defaults (`status` mapped from the `FlashKind`, `style='light'`,
+`size='sm'`). A `shadow-md` className gives the toast its floating
+treatment. The public `flash(message, type)` API stays unchanged —
+~220 consumers across `packages/` and `apps/` are untouched.
+
+**Phase 3 — Notification wrapper (separate commit / phase):** Card
+composition for the persistent in-app notification panel will render
+`Alert` with avatar + title + description + action slot in the
+default `light` style.
+
+**Tests (Phase 1):**
+- Default props render `status='information'` + `style='light'` + `size='default'`.
+- Each of the 5 statuses applies its `--status-{x}-*` token family (plus brand-violet for `feature`).
+- `style='filled'` uses `--status-{x}-icon` bg + `text-white` + transparent border.
+- `style='stroke'` uses `--background` bg + `--status-{x}-text` text + `--status-{x}-border` border.
+- `style='lighter'` softens the bg to `/50` and drops the border.
+- `size='xs' | 'sm' | 'default'` maps to `h-8` / `h-9` / no fixed height.
+- Default per-status Lucide icon renders when `showIcon` is true; suppressed when false.
+- Custom `icon` prop overrides the default per-status icon.
+- `dismissible` renders the X button, `onDismiss` fires on click, `dismissAriaLabel` is honored.
+- `action` slot renders to the right of the body.
+- `AlertTitle` and `AlertDescription` compose inside the body slot unchanged.
+- Legacy `variant` BC: `destructive` → `status='error'`, `info` → `status='information'`, etc., with implicit `style='light'`.
+- Explicit `status` overrides any legacy `variant` prop.
+
 ---
 
 ## Migration & Backward Compatibility
@@ -857,3 +954,5 @@ To be filled in after all 14 commits land and before opening the PR. Sections:
 | 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `InlineInput` primitive (§8) landed. Thin `Input` wrapper: `border-transparent bg-transparent shadow-none` baseline, optional `hover:border-input + hover:bg-muted/40` via `showBorderOnHover` (default `true`), and `focus-within:border-foreground` + focus shadow inherited from the underlying `Input` wrapper for keyboard accessibility. Sizes `sm` (h-8, default) and `default` (h-9) match the rest of the form-density tier. 12 unit tests. Real deployment in `packages/ui/src/backend/JsonBuilder.tsx` — the JSON key renamer was a hand-rolled `<input>` with `border-b border-transparent hover:border-gray-300 focus-visible:border-ring bg-transparent` styling; swapped to `<InlineInput inputClassName="text-right text-xs font-mono pr-1">`. `InlineTextEditor` from `@open-mercato/ui/backend/detail/InlineEditors` (the high-level click-to-edit composition with save / cancel buttons, validation, draft state) intentionally stays a separate primitive — `InlineInput` is the low-level atom for cases where consumers wire their own state machine. |
 | 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `InlineSelect` primitive (§10) landed. Mirror of `InlineInput` for select-typed editors — thin `SelectTrigger` wrapper with `border-transparent bg-transparent shadow-none` baseline, `showBorderOnHover` (default `true`) for the hover affordance, and focus styling inherited from the underlying `SelectTrigger` for keyboard accessibility. Sizes `sm` (h-8, default) and `default` (h-9). Re-exports the rest of the `Select` API (`Select`, `SelectContent`, `SelectGroup`, `SelectItem`, `SelectLabel`, `SelectSeparator`, `SelectValue`) so consumers import the whole composition from one path. 9 unit tests. No real consumer migration in this PR — the existing inline-select usages live inside `InlineSelectEditor` (high-level click-to-edit with draft/save), which intentionally stays a separate primitive; `InlineSelectTrigger` is the low-level atom for follow-up modules that need an always-live borderless select (e.g. inline kanban card stage selectors, detail-page status changers). |
 | 2026-05-12 | SCOPE PROGRESS (COMMITTED) | `DigitInput` (OTP) primitive (§7) landed. `length`-cell composition (`<input maxLength={1}>` per cell, default `length=6`) with auto-focus on type, focus-previous on Backspace from empty cell, ArrowLeft/Right navigation, paste distribution across cells, and `onComplete` callback when the assembled value reaches `length`. `inputMode='numeric'` (default) filters out non-digit characters both on typing and on paste; `inputMode='text'` accepts any character. `mask=true` swaps `type='text'` for `type='password'` so digits display as bullets, paired with `autoComplete='one-time-code'` so native OTP autofill flows still work. `aria-invalid` propagates to the group wrapper and every cell. `id` / `name` forwarded to the first cell only so consumers can label the entire group via `<label htmlFor>`. 18 unit tests. No real consumer migration in this PR — no native OTP/2FA flow exists in the current codebase (the customer-portal `/verify` route is token-from-URL based, not user-entered code). Primitive is available in the library for future 2FA / SMS verification / PIN entry flows. |
+| 2026-05-12 | DESIGN-TOKEN REFRESH (COMMITTED) | Pixel-perfect alignment of the semantic status tokens with the Figma `169:2358` color palette. `globals.css` light-mode `--status-{error,warning,success,info,neutral}-{bg,border,icon,text}` values now match the Tailwind v4 palette OKLCH (which Figma uses verbatim) — `error` is Tailwind red, `warning` is amber, `success` is green, `info` is indigo, `neutral` is achromatic. Dark-mode counterparts updated to the matching Tailwind `*-950 / *-300 / *-800 / *-500` rungs. The Alert primitive renders pixel-perfect against Figma `state/{x}/*` variables (`#dc2626` / `#fecaca` / `#fef2f2` for error, `#d97706` / `#fde68a` / `#fffbeb` for warning, `#16a34a` / `#bbf7d0` / `#f0fdf4` for success, `#4f46e5` / `#c7d2fe` / `#eef2ff` for information, `#7b7b7b` / `#ebebeb` / `#f5f5f5` for feature → neutral). Downstream consumers of `status-*` tokens (Tag success/error/warning variants, StatusBadge, EmptyState, alert-shaped FlashMessages, etc.) inherit the same Figma palette automatically — visual shift is subtle (more saturated tints, slightly different hue) and aligns the whole DS with the Figma reference. 722/722 ui unit tests pass after the swap (assertions reference Tailwind class names, not the underlying CSS variable values). |
+| 2026-05-12 | SCOPE EXTENSION (COMMITTED) | `Alert` primitive (§12) extended per Figma `169:2358` — Phase 1 of the unified Alert / Notification / Toast composition. The pre-Figma-169:2358 API had a single `variant` prop with 5 values (default / destructive / success / warning / info) and one fixed style. The new API replaces it with a **pixel-perfect Figma 5 × 4 × 3 matrix**: `status` ∈ {error, warning, success, information, **feature** (NEW — maps to neutral gray `state/faded/*`, NOT brand-violet)} × `style` ∈ {`filled`, `light` (default — Figma `state/{x}/light` saturated tint), `lighter` (very light Figma `state/{x}/lighter` tint), `stroke` (white bg + soft border + `shadow-lg` drop shadow)} × `size` ∈ {`xs` (`min-h-8`), `sm` (default, `min-h-9` — grows for multi-line), `default` (`rounded-xl`)}. Non-filled styles render a **rounded icon badge** (`bg-status-{x}-icon` + white icon) per Figma reference; `filled` style uses a plain white icon over the saturated bg. `min-h-{x}` instead of fixed `h-{x}` on `xs`/`sm` so multi-line content still grows the container. Plus `showIcon` toggle, `icon` override, `dismissible` + `onDismiss` + `dismissAriaLabel`, and an inline `action` slot. The legacy `variant` prop is **deprecated** but preserved — it maps to `status` and picks up the new `light` + `sm` defaults; the ~20 existing Alert consumers (`PerspectiveSidebar`, `VersionHistoryPanel`, portal pages, AiChat parts, etc.) keep working unchanged with the Figma-faithful look. 26 unit tests cover default props, the status × style matrix corners (filled / light / lighter / stroke per status), feature → neutral-token mapping, size variants asserting `min-h-{x}` + `rounded-{md,md,xl}`, icon badge rendering on non-filled styles, plain icon on filled, action slot, dismiss button + custom aria label, AlertTitle / AlertDescription composition, and the legacy `variant` BC mapping. Phase 2 (FlashMessages internals → `Alert size='sm'` + DS-wide defaults, preserves the global `flash()` API for ~220 consumers untouched) and Phase 3 (Notification card composition for the persistent in-app panel) follow as separate commits / scope-progress entries below. |
