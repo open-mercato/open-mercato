@@ -482,20 +482,23 @@ export const RichEditorToolbar = React.forwardRef<HTMLDivElement, RichEditorTool
 RichEditorToolbar.displayName = 'RichEditorToolbar'
 
 const richEditorItemVariants = cva(
-  // Figma Rich Editor Items: 28×h, rounded-6, white default, weak-50 on hover/active.
-  // No border, no shadow per item — the surrounding toolbar card carries the chrome.
-  'inline-flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-md bg-transparent text-sm font-medium leading-5 tracking-tight text-foreground/80 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground',
+  // Figma Rich Editor Items (166251 family): 28×h, rounded-6, bg-white default,
+  // bg-weak-50 (= bg-muted token) on hover/active. text/icon colours use the
+  // sub-600 token (= text-muted-foreground, #5c5c5c) per Figma reference, with
+  // a darker text-foreground swap on the active state. No border, no shadow
+  // per item — the surrounding toolbar card carries the chrome.
+  'inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-transparent text-sm font-medium leading-5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground',
   {
     variants: {
       type: {
-        // Figma 166251:2698 — pl-[10px] pr-[4px] for the text label.
-        text: 'min-w-0 px-2.5 pr-1 [&>svg]:size-5',
-        // Figma 166251:2700 — square icon button.
+        // Figma 166251:2698 — pl-[10px] pr-[4px] py-[4px], gap-[2px].
+        text: 'min-w-0 gap-0.5 pl-2.5 pr-1 py-1 tracking-[-0.084px] [&>svg]:size-5',
+        // Figma 166251:2700 — square icon button p-[4px].
         icon: 'aspect-square p-1 [&>svg]:size-5',
-        // Figma 166251:3337 — icon + caret.
-        dropdown: 'px-1 [&>svg]:size-5',
-        // Figma 166331:4437 — color swatch + caret.
-        color: 'pl-2 pr-1 [&>svg]:size-5',
+        // Figma 166251:3337 — icon + caret p-[4px] gap-[2px].
+        dropdown: 'gap-0.5 p-1 [&>svg]:size-5',
+        // Figma 166331:4437 — color swatch + caret pl-[8px] pr-[4px] py-[4px].
+        color: 'gap-0.5 pl-2 pr-1 py-1 [&>svg]:size-5',
       },
     },
     defaultVariants: { type: 'icon' },
@@ -759,7 +762,10 @@ export function RichEditorDivider({ className }: { className?: string }) {
     <span
       role="separator"
       aria-orientation="vertical"
-      className={cn('mx-1 inline-block h-4 w-px shrink-0 bg-border', className)}
+      // Figma 166416:52475 — 4×16 container, 1px line. Toolbar `gap-0.5`
+      // already provides the surrounding 2px gap on each side, so the divider
+      // itself only carries the 1px line + 1.5px horizontal padding (mx-px).
+      className={cn('mx-px inline-block h-4 w-px shrink-0 bg-border', className)}
       data-slot="rich-editor-divider"
     />
   )
