@@ -7,8 +7,9 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
  * Self-contained: adds widgets to layout in setup, removes in teardown.
  */
 test.describe('TC-STAFF-022: Dashboard Widgets Visible', () => {
-  // Skip: widgets require dashboard_role_widgets DB entries that setup.ts doesn't create yet for existing tenants.
-  // Manually tested and working. Will enable after setup.ts includes widget IDs in default role config.
+  // Seed is now wired in staff/setup.ts (appendWidgetsToRoles), so fresh tenants pick the
+  // widgets up automatically. Tenants created before that fix still need a one-off seed run
+  // — keep the test skipped until CI runs against a freshly-seeded tenant.
   test.skip('should display Time Reporting and Hours by Project widgets on the dashboard', async ({ page }) => {
     await login(page, 'admin')
 
