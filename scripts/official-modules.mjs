@@ -8,6 +8,9 @@
 //   yarn official-modules remove <m...>   Deactivate one or more modules.
 //   yarn official-modules set <m...>      Replace the activation set (no args clears it).
 //   yarn official-modules sync            Re-init the submodule and regenerate, no changes.
+//   yarn official-modules promote <id>    Move an in-repo module into the official-modules
+//                                         submodule (dry run; add --apply). See
+//                                         scripts/promote-to-official-module.mjs.
 //
 // Flags:
 //   --local   Write to official-modules.local.json (personal, gitignored) instead of
@@ -96,6 +99,22 @@ function applyChange(kind, modules, useLocal) {
 }
 
 const args = process.argv.slice(2)
+
+// `promote` is a thin pass-through to scripts/promote-to-official-module.mjs so its
+// own flags (--apply, --as=, --keep-source, --committed) reach it untouched.
+if (args[0] === 'promote') {
+  const promoteArgs = args.slice(1)
+  try {
+    execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'promote-to-official-module.mjs'), ...promoteArgs], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    })
+  } catch (error) {
+    process.exit(typeof error?.status === 'number' ? error.status : 1)
+  }
+  process.exit(0)
+}
+
 const useLocal = args.includes('--local')
 const positional = args.filter((arg) => arg !== '--local')
 const command = positional[0]
