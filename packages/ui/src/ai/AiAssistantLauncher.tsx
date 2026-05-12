@@ -131,6 +131,7 @@ const DEFAULT_AGENTS_ENDPOINT = '/api/ai_assistant/ai/agents'
 const DEFAULT_HEALTH_ENDPOINT = '/api/ai_assistant/health'
 const AI_ASSISTANT_DOCS_URL = 'https://docs.openmercato.com/framework/ai-assistant/overview'
 const AI_ASSISTANT_SETTINGS_DOCS_URL = 'https://docs.openmercato.com/framework/ai-assistant/settings'
+export const AI_ASSISTANT_LAUNCHER_OPEN_EVENT = 'om:open-ai-assistant-launcher'
 
 function isMutationCapable(policy: string | null | undefined): boolean {
   return policy === 'confirm-required' || policy === 'destructive-confirm-required'
@@ -318,6 +319,13 @@ export function AiAssistantLauncher({
     setHighlight(0)
     setPickerOpen(true)
   }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const listener = () => openPicker()
+    window.addEventListener(AI_ASSISTANT_LAUNCHER_OPEN_EVENT, listener)
+    return () => window.removeEventListener(AI_ASSISTANT_LAUNCHER_OPEN_EVENT, listener)
+  }, [openPicker])
 
   const handleSelectAgent = React.useCallback((agent: AiAssistantLauncherAgent) => {
     if (dock.state.assistant?.agent === agent.id) {

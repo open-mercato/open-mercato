@@ -197,6 +197,39 @@ describe('PUT /api/ai_assistant/settings', () => {
     )
   })
 
+  it('saves per-agent chat override allowlist with inherited providers and no provider override', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      allowedOverrideProviders: null,
+      allowedOverrideModelsByProvider: {},
+      updatedAt: new Date('2026-05-08T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', {
+        agentId: 'catalog.catalog_assistant',
+        allowedOverrideProviders: null,
+        allowedOverrideModelsByProvider: {},
+      }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'catalog.catalog_assistant',
+        allowedOverrideProviders: null,
+        allowedOverrideModelsByProvider: {},
+      }),
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }),
+    )
+  })
+
   it('requires agentId when saving per-agent chat override allowlist', async () => {
     const response = await PUT(
       buildRequest('PUT', { allowedOverrideProviders: ['openai'] }) as any,
@@ -263,6 +296,8 @@ describe('GET /api/ai_assistant/settings', () => {
   it('does not run LM Studio slashy model ids through the legacy OpenCode model parser', async () => {
     process.env.OM_AI_PROVIDER = 'lm_studio'
     process.env.OM_AI_MODEL = 'qwen/qwen3.5-9b'
+    process.env.OM_AI_AVAILABLE_PROVIDERS = 'openai,lm_studio'
+    process.env.OM_AI_AVAILABLE_MODELS_LM_STUDIO = 'qwen/qwen3.5-9b'
     process.env.LM_STUDIO_API_KEY = 'lm-studio'
 
     const provider = {
@@ -288,6 +323,10 @@ describe('GET /api/ai_assistant/settings', () => {
     expect(json.provider.id).toBe('lm-studio')
     expect(json.provider.model).toBe('lm-studio/qwen/qwen3.5-9b')
     expect(json.allowlistProviders[0].id).toBe('lm-studio')
+    expect(json.allowlistProviders[0].defaultModel).toBe('qwen/qwen3.5-9b')
+    expect(json.allowlistProviders[0].defaultModels).toEqual([
+      { id: 'qwen/qwen3.5-9b', name: 'qwen/qwen3.5-9b' },
+    ])
   })
 })
 

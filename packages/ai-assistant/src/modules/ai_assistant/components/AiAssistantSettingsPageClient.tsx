@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight, Server, Wrench, Eye, EyeOff, Database, Link2, Settings, Key, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { AI_ASSISTANT_LAUNCHER_OPEN_EVENT } from '@open-mercato/ui/ai/AiAssistantLauncher'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -401,7 +402,7 @@ function AiAssistantSettingsContent() {
   const { isEnabled, toggleEnabled, isLoaded } = useAiAssistantVisibility()
 
   const openAiAssistant = () => {
-    window.dispatchEvent(new CustomEvent('om:open-ai-chat'))
+    window.dispatchEvent(new CustomEvent(AI_ASSISTANT_LAUNCHER_OPEN_EVENT))
   }
 
   const healthQuery = useQuery({

@@ -90,26 +90,47 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
     }
   }, [settingsQuery.data])
 
+  const pageHeader = (
+    <div className="space-y-1">
+      <h1 className="flex items-center gap-2 text-2xl font-bold">
+        <Shield className="size-6" />
+        {t('ai_assistant.allowlist.title', 'AI provider & model allowlist')}
+      </h1>
+      <p className="text-muted-foreground">
+        {t(
+          'ai_assistant.allowlist.subtitle',
+          'Limit which providers and models the runtime, settings, and chat picker may use for this tenant. The env allowlist is the outer constraint — tenant picks narrow it further.',
+        )}
+      </p>
+    </div>
+  )
+
   if (settingsQuery.isLoading) {
     return (
-      <div className="flex items-center gap-2 py-8 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t('ai_assistant.allowlist.loading', 'Loading allowlist…')}
+      <div className="flex max-w-3xl flex-col gap-4">
+        {pageHeader}
+        <div className="flex w-fit items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground" role="status">
+          <Loader2 className="size-4 animate-spin" />
+          {t('ai_assistant.allowlist.loading', 'Loading allowlist…')}
+        </div>
       </div>
     )
   }
 
   if (settingsQuery.isError || !settingsQuery.data) {
     return (
-      <Alert variant="destructive">
-        <AlertCircle className="h-4 w-4" />
-        <AlertTitle>{t('ai_assistant.allowlist.loadError.title', 'Failed to load allowlist')}</AlertTitle>
-        <AlertDescription>
-          {settingsQuery.error instanceof Error
-            ? settingsQuery.error.message
-            : t('ai_assistant.allowlist.loadError.body', 'Try refreshing the page.')}
-        </AlertDescription>
-      </Alert>
+      <div className="flex max-w-3xl flex-col gap-4">
+        {pageHeader}
+        <Alert variant="destructive">
+          <AlertCircle className="size-4" />
+          <AlertTitle>{t('ai_assistant.allowlist.loadError.title', 'Failed to load allowlist')}</AlertTitle>
+          <AlertDescription>
+            {settingsQuery.error instanceof Error
+              ? settingsQuery.error.message
+              : t('ai_assistant.allowlist.loadError.body', 'Try refreshing the page.')}
+          </AlertDescription>
+        </Alert>
+      </div>
     )
   }
 
@@ -264,18 +285,7 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Shield className="h-6 w-6" />
-          {t('ai_assistant.allowlist.title', 'AI provider & model allowlist')}
-        </h1>
-        <p className="text-muted-foreground">
-          {t(
-            'ai_assistant.allowlist.subtitle',
-            'Limit which providers and models the runtime, settings, and chat picker may use for this tenant. The env allowlist is the outer constraint — tenant picks narrow it further.',
-          )}
-        </p>
-      </div>
+      {pageHeader}
 
       {envBanner}
 
@@ -378,7 +388,7 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
                               />
                               <span className="font-mono text-xs">{model.id}</span>
                               {model.id === provider.defaultModel ? (
-                                <Badge variant="outline" className="text-[10px]">
+                                <Badge variant="outline" className="text-xs">
                                   {t('ai_assistant.allowlist.models.default', 'default')}
                                 </Badge>
                               ) : null}

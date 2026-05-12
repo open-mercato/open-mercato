@@ -46,8 +46,8 @@ function agentOverrideModelsVarName(agentId: string, providerId: string): string
   return `OM_AI_AGENT_${envSafeId(agentId)}_AVAILABLE_MODELS_${envSafeId(providerId)}`
 }
 
-export function normalizeProviderId(value: string): string {
-  return value.trim().toLowerCase().replace(/_/g, '-')
+export function normalizeProviderId(value: string | null | undefined): string {
+  return value?.trim().toLowerCase().replace(/_/g, '-') ?? ''
 }
 
 export function providerIdAliases(providerId: string): string[] {

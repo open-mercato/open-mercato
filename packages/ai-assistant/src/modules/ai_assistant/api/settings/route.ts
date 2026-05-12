@@ -36,6 +36,14 @@ import {
   type TenantAllowlistSnapshot,
 } from '../../lib/model-allowlist'
 
+function modelCatalogWithAllowlistFallback(
+  models: ReadonlyArray<{ id: string; name: string; contextWindow?: number | null; tags?: readonly string[] }>,
+  allowlistModelIds: string[] | undefined,
+): ReadonlyArray<{ id: string; name: string; contextWindow?: number | null; tags?: readonly string[] }> {
+  if (models.length > 0) return models
+  return (allowlistModelIds ?? []).map((id) => ({ id, name: id }))
+}
+
 const runtimeOverrideUpsertSchema = z.object({
   providerId: z.string().min(1).max(64).nullable().optional(),
   modelId: z.string().min(1).max(256).nullable().optional(),
@@ -380,14 +388,18 @@ export async function GET(req: NextRequest) {
       .filter((p) => isProviderAllowedInEffective(effectiveAllowlist, p.id))
       .map((p) => {
         const effectiveModelsList = effectiveAllowlist.modelsByProvider[p.id]
+        const catalogModels = modelCatalogWithAllowlistFallback(
+          p.defaultModels,
+          effectiveModelsList,
+        )
         const clippedDefaults = effectiveModelsList !== undefined
-          ? p.defaultModels.filter((m) => effectiveModelsList.includes(m.id))
-          : p.defaultModels
+          ? catalogModels.filter((m) => effectiveModelsList.includes(m.id))
+          : catalogModels
         return {
           ...p,
           defaultModel: effectiveModelsList && !effectiveModelsList.includes(p.defaultModel)
             ? (effectiveModelsList[0] ?? p.defaultModel)
-            : p.defaultModel,
+            : p.defaultModel || clippedDefaults[0]?.id || '',
           defaultModels: clippedDefaults,
         }
       })
@@ -396,14 +408,18 @@ export async function GET(req: NextRequest) {
       .filter((p) => isProviderAllowed(env, p.id))
       .map((p) => {
         const envModelsList = allowlistConfig.modelsByProvider[p.id]
+        const catalogModels = modelCatalogWithAllowlistFallback(
+          p.defaultModels,
+          envModelsList,
+        )
         const envClippedDefaults = envModelsList !== undefined
-          ? p.defaultModels.filter((m) => envModelsList.includes(m.id))
-          : p.defaultModels
+          ? catalogModels.filter((m) => envModelsList.includes(m.id))
+          : catalogModels
         return {
           ...p,
           defaultModel: envModelsList && !envModelsList.includes(p.defaultModel)
             ? (envModelsList[0] ?? p.defaultModel)
-            : p.defaultModel,
+            : p.defaultModel || envClippedDefaults[0]?.id || '',
           defaultModels: envClippedDefaults,
         }
       })
@@ -548,7 +564,7 @@ export async function PUT(req: NextRequest) {
       putEffectiveAllowlist = null
     }
 
-    if (putEffectiveAllowlist) {
+    if (providerId && putEffectiveAllowlist) {
       if (!isProviderAllowedInEffective(putEffectiveAllowlist, providerId)) {
         const source = putEffectiveAllowlist.tenantOverridesActive
           ? 'the effective allowlist (env ∩ tenant)'
@@ -561,10 +577,7 @@ export async function PUT(req: NextRequest) {
           { status: 400 },
         )
       }
-      if (
-        modelId
-        && !isProviderModelAllowedInEffective(putEffectiveAllowlist, providerId, modelId)
-      ) {
+      if (modelId && !isProviderModelAllowedInEffective(putEffectiveAllowlist, providerId, modelId)) {
         const source = putEffectiveAllowlist.tenantOverridesActive
           ? `the effective allowlist (env ∩ tenant) for "${providerId}"`
           : modelAllowlistEnvVarName(providerId)
@@ -576,7 +589,7 @@ export async function PUT(req: NextRequest) {
           { status: 400 },
         )
       }
-    } else {
+    } else if (providerId) {
       if (!isProviderAllowed(process.env, providerId)) {
         return NextResponse.json(
           {

@@ -2,10 +2,10 @@
 Date: 2026-05-12
 
 --- Hardcoded Status Colors ---
-  Count: 625 (target: 0)
+  Count: 624 (target: 0)
 
 --- Arbitrary Text Sizes ---
-  Count: 41 (target: 1)
+  Count: 40 (target: 1)
 
 --- Deprecated Notice Usage ---
   Notice imports: 1 (target: 0)
@@ -24,6 +24,6 @@ Date: 2026-05-12
   Pages with loading state: 89 / 151 (58%)
 
 --- Semantic Token Adoption ---
-  Semantic token usages: 467
+  Semantic token usages: 470
 
 === END REPORT ===

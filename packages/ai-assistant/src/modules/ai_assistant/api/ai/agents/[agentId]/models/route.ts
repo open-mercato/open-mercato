@@ -21,6 +21,14 @@ import {
 import { AiTenantModelAllowlistRepository } from '../../../../../data/repositories/AiTenantModelAllowlistRepository'
 import { AiAgentRuntimeOverrideRepository } from '../../../../../data/repositories/AiAgentRuntimeOverrideRepository'
 
+function modelsForPicker(
+  provider: ReturnType<typeof llmProviderRegistry.list>[number],
+  allowedModelIds: string[] | undefined,
+): ReadonlyArray<{ id: string; name: string; contextWindow?: number | null; tags?: readonly string[] }> {
+  if (provider.defaultModels.length > 0) return provider.defaultModels
+  return (allowedModelIds ?? []).map((id) => ({ id, name: id }))
+}
+
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
 const agentIdParamSchema = z.object({
@@ -118,6 +126,11 @@ export async function GET(
     // and admin-edited tenant constraints (Phase 1780-6).
     let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
     let agentRuntimeOverrideAllowlist: TenantAllowlistSnapshot | null = null
+    let tenantRuntimeOverride: {
+      providerId: string | null
+      modelId: string | null
+      baseURL: string | null
+    } | null = null
     if (auth.tenantId) {
       try {
         const em = container.resolve<EntityManager>('em')
@@ -127,6 +140,18 @@ export async function GET(
           organizationId: auth.orgId ?? null,
         })
         const runtimeOverrideRepo = new AiAgentRuntimeOverrideRepository(em)
+        const runtimeOverrideDefaultRow = await runtimeOverrideRepo.getDefault({
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+          agentId,
+        })
+        tenantRuntimeOverride = runtimeOverrideDefaultRow
+          ? {
+              providerId: runtimeOverrideDefaultRow.providerId ?? null,
+              modelId: runtimeOverrideDefaultRow.modelId ?? null,
+              baseURL: runtimeOverrideDefaultRow.baseUrl ?? null,
+            }
+          : null
         const runtimeOverrideRow = await runtimeOverrideRepo.getExact({
           tenantId: auth.tenantId,
           organizationId: auth.orgId ?? null,
@@ -154,6 +179,7 @@ export async function GET(
       agentDefaultProvider: agent.defaultProvider,
       agentDefaultBaseUrl: agent.defaultBaseUrl,
       allowRuntimeModelOverride,
+      tenantOverride: tenantRuntimeOverride ?? undefined,
       tenantAllowlist: tenantAllowlistSnapshot,
     })
     const defaultProviderId = defaultResolution.providerId
@@ -184,7 +210,8 @@ export async function GET(
           .filter((provider) => provider.isConfigured())
           .filter((provider) => isProviderAllowedInEffective(effectiveAllowlist, provider.id))
           .map((provider) => {
-            const filteredModels = provider.defaultModels.filter((model) =>
+            const allowedModelIds = effectiveAllowlist.modelsByProvider[provider.id]
+            const filteredModels = modelsForPicker(provider, allowedModelIds).filter((model) =>
               isModelAllowedForProviderInEffective(effectiveAllowlist, provider.id, model.id),
             )
             return {
