@@ -7,6 +7,7 @@ import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
+import { SearchInput } from '../primitives/search-input'
 import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
@@ -674,24 +675,12 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           </div>
         )}
         {!compact && !hideSearch && (
-          <Input
-            type="text"
+          <SearchInput
             value={navQuery}
-            onChange={(e) => setNavQuery(e.target.value)}
+            onChange={setNavQuery}
             placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
             aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            leftIcon={<Search aria-hidden />}
-            rightIcon={navQueryActive ? (
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => setNavQuery('')}
-                aria-label={t('appShell.searchNavClear', 'Clear search')}
-              >
-                <X className="size-3.5" aria-hidden />
-              </IconButton>
-            ) : undefined}
+            clearLabel={t('appShell.searchNavClear', 'Clear search')}
             className="mb-2"
           />
         )}
@@ -891,24 +880,12 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           />
         ) : null}
         {!compact && (
-          <Input
-            type="text"
+          <SearchInput
             value={navQuery}
-            onChange={(e) => setNavQuery(e.target.value)}
+            onChange={setNavQuery}
             placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
             aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            leftIcon={<Search aria-hidden />}
-            rightIcon={navQueryActive ? (
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => setNavQuery('')}
-                aria-label={t('appShell.searchNavClear', 'Clear search')}
-              >
-                <X className="size-3.5" aria-hidden />
-              </IconButton>
-            ) : undefined}
+            clearLabel={t('appShell.searchNavClear', 'Clear search')}
             className="mb-2"
           />
         )}
