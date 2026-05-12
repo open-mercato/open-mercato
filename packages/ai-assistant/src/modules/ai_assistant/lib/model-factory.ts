@@ -62,10 +62,11 @@ import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-pro
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
-  isModelAllowedForProvider,
-  isProviderAllowed,
-  readAllowedModels,
-  readAllowedProviders,
+  intersectAllowlists,
+  isModelAllowedForProviderInEffective,
+  isProviderAllowedInEffective,
+  type EffectiveAllowlist,
+  type TenantAllowlistSnapshot,
 } from './model-allowlist'
 
 /**
@@ -104,7 +105,7 @@ export interface AiModelFactoryInput {
    * Agent-level default provider, typically `AiAgentDefinition.defaultProvider`.
    * Named provider id; falls through transparently when the named provider is
    * registered-but-unconfigured. Sits between `OM_AI_<MODULE>_PROVIDER`
-   * (step 4) and the global `OM_AI_PROVIDER` (step 8) in the resolution chain.
+   * and the global `OM_AI_PROVIDER` in the provider-axis seed list above.
    *
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -182,6 +183,18 @@ export interface AiModelFactoryInput {
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
   allowRuntimeModelOverride?: boolean
+  /**
+   * Optional tenant allowlist snapshot (Phase 1780-6). When supplied, the
+   * factory clips the resolved (provider, model) to the intersection of the
+   * env allowlist (`OM_AI_AVAILABLE_*`) and this tenant allowlist. Pass `null`
+   * or omit to fall back to env-only enforcement.
+   *
+   * The settings PUT route validates writes against the env allowlist before
+   * persisting, so the snapshot here is trusted to be a subset of env. The
+   * factory still defends against drift (env tightened after write) by
+   * intersecting at resolution time.
+   */
+  tenantAllowlist?: TenantAllowlistSnapshot | null
 }
 
 /**
@@ -284,6 +297,14 @@ export interface AiModelFactoryRegistry {
    * behavior).
    */
   get?(id: string): LlmProvider | null
+  /**
+   * Optional registry enumeration used by the Phase 1780-6 allowlist
+   * intersection so the env model lists are pre-loaded for every provider
+   * (and not just the resolved one). Test doubles MAY omit this — the
+   * factory still defends correctly by also seeding the resolved provider's
+   * id directly into `intersectAllowlists(...)`.
+   */
+  list?(): readonly LlmProvider[]
 }
 
 /**
@@ -555,18 +576,33 @@ export function createModelFactory(
         ?? normalizeOverride(input.agentDefaultBaseUrl)
         ?? undefined
 
-      // --- Env-driven allowlist enforcement (Phase 1780-5) -----------------
+      // --- Allowlist enforcement (Phase 1780-5 + 1780-6) -------------------
       // OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER> clip
-      // the resolution to a operator-approved set. If the resolved pair
-      // isn't allowed, fall back to a safe (provider, model) — never throw,
-      // so a stale tenant override or chat picker can't take the runtime
-      // down. The fallback is logged so the operator can see what happened.
+      // the resolution to an operator-approved set. The optional tenant
+      // allowlist snapshot narrows the env outer constraint further. If the
+      // resolved pair isn't allowed, fall back to a safe (provider, model)
+      // — never throw, so a stale tenant override or chat picker can't take
+      // the runtime down. The fallback is logged so the operator can see
+      // what happened.
+      const registryProviderIds = registry.list?.()?.map((p) => p.id) ?? []
+      const tenantProviderIds = input.tenantAllowlist
+        ? Object.keys(input.tenantAllowlist.allowedModelsByProvider ?? {})
+        : []
+      const knownProviderIds = Array.from(
+        new Set([provider.id, ...registryProviderIds, ...tenantProviderIds]),
+      )
+      const effectiveAllowlist = intersectAllowlists(
+        env,
+        knownProviderIds,
+        input.tenantAllowlist ?? null,
+      )
       const allowlistResult = enforceAllowlist({
         env,
         registry,
         resolved: { provider, modelId },
         agentDefaultProvider: agentDefaultProviderRaw,
         agentDefaultModel: agentModelParsed?.modelId ?? agentModelRaw,
+        effective: effectiveAllowlist,
       })
 
       const finalProvider = allowlistResult.provider
@@ -613,6 +649,7 @@ interface EnforceAllowlistInput {
   resolved: { provider: LlmProvider; modelId: string }
   agentDefaultProvider: string | null
   agentDefaultModel: string | null
+  effective: EffectiveAllowlist
 }
 
 interface EnforceAllowlistResult {
@@ -623,7 +660,8 @@ interface EnforceAllowlistResult {
 }
 
 /**
- * Clips a resolved `(provider, model)` to what the env allowlist permits.
+ * Clips a resolved `(provider, model)` to what the effective allowlist
+ * permits (env intersected with optional tenant allowlist).
  *
  * Order of fallback when the resolved provider is not allowed:
  *  1. The agent's `defaultProvider` (if allowed and configured).
@@ -632,32 +670,34 @@ interface EnforceAllowlistResult {
  * Order of fallback when the model is not allowed for the resolved provider:
  *  1. The agent's `defaultModel` (if allowed for that provider).
  *  2. The provider's `defaultModel` (if allowed).
- *  3. The first model from `OM_AI_AVAILABLE_MODELS_<PROVIDER>`.
+ *  3. The first model from the effective allowlist for that provider.
  *
  * Both fall-back paths emit a `console.warn` so the operator can see why the
  * runtime did not honor the requested combination. The function never throws.
  */
 function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult {
-  const { env, registry, resolved, agentDefaultProvider, agentDefaultModel } = input
-  const allowedProviders = readAllowedProviders(env)
+  const { registry, resolved, agentDefaultProvider, agentDefaultModel, effective } = input
   let provider = resolved.provider
   let modelId = resolved.modelId
   let fallback: string | null = null
 
-  if (allowedProviders !== null && !isProviderAllowed(env, provider.id)) {
+  if (effective.providers !== null && !isProviderAllowedInEffective(effective, provider.id)) {
     const replacement = pickAllowedProvider({
-      env,
       registry,
       agentDefaultProvider,
+      effective,
     })
     if (replacement) {
-      fallback = `Provider "${provider.id}" is not in OM_AI_AVAILABLE_PROVIDERS; using "${replacement.id}" instead.`
+      const source = effective.tenantOverridesActive
+        ? 'the effective allowlist (env ∩ tenant)'
+        : 'OM_AI_AVAILABLE_PROVIDERS'
+      fallback = `Provider "${provider.id}" is not in ${source}; using "${replacement.id}" instead.`
       console.warn(`[AI Model Factory] ${fallback}`)
       provider = replacement
       modelId = pickAllowedModel({
-        env,
         provider,
         preferred: agentDefaultModel,
+        effective,
       })
     }
     // If no replacement is configured we keep the resolved provider — the
@@ -665,14 +705,17 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
     // operator instead of silently masking it.
   }
 
-  if (!isModelAllowedForProvider(env, provider.id, modelId)) {
+  if (!isModelAllowedForProviderInEffective(effective, provider.id, modelId)) {
     const replacementModel = pickAllowedModel({
-      env,
       provider,
       preferred: agentDefaultModel,
+      effective,
     })
     if (replacementModel !== modelId) {
-      const reason = `Model "${modelId}" is not in ${`OM_AI_AVAILABLE_MODELS_${provider.id.toUpperCase()}`}; using "${replacementModel}" instead.`
+      const source = effective.tenantOverridesActive
+        ? `the effective allowlist (env ∩ tenant) for "${provider.id}"`
+        : `OM_AI_AVAILABLE_MODELS_${provider.id.toUpperCase()}`
+      const reason = `Model "${modelId}" is not in ${source}; using "${replacementModel}" instead.`
       console.warn(`[AI Model Factory] ${reason}`)
       fallback = fallback ? `${fallback} ${reason}` : reason
       modelId = replacementModel
@@ -683,37 +726,37 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
 }
 
 function pickAllowedProvider(input: {
-  env: EnvLookup
   registry: AiModelFactoryRegistry
   agentDefaultProvider: string | null
+  effective: EffectiveAllowlist
 }): LlmProvider | null {
-  const { env, registry, agentDefaultProvider } = input
+  const { registry, agentDefaultProvider, effective } = input
   if (agentDefaultProvider) {
-    if (isProviderAllowed(env, agentDefaultProvider)) {
+    if (isProviderAllowedInEffective(effective, agentDefaultProvider)) {
       const provider = registry.get?.(agentDefaultProvider)
-      if (provider && provider.isConfigured(env)) return provider
+      if (provider && provider.isConfigured(process.env as EnvLookup)) return provider
     }
   }
-  const allowed = readAllowedProviders(env)
+  const allowed = effective.providers
   if (!allowed) return null
   for (const id of allowed) {
     const provider = registry.get?.(id)
-    if (provider && provider.isConfigured(env)) return provider
+    if (provider && provider.isConfigured(process.env as EnvLookup)) return provider
   }
   return null
 }
 
 function pickAllowedModel(input: {
-  env: EnvLookup
   provider: LlmProvider
   preferred: string | null
+  effective: EffectiveAllowlist
 }): string {
-  const { env, provider, preferred } = input
-  const allowed = readAllowedModels(env, provider.id)
-  if (allowed === null) {
+  const { provider, preferred, effective } = input
+  const allowed = effective.modelsByProvider[provider.id]
+  if (allowed === undefined) {
     return preferred && preferred.length > 0 ? preferred : provider.defaultModel
   }
   if (preferred && allowed.includes(preferred)) return preferred
   if (allowed.includes(provider.defaultModel)) return provider.defaultModel
-  return allowed[0]!
+  return allowed[0] ?? provider.defaultModel
 }

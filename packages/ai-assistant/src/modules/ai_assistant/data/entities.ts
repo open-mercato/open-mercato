@@ -310,6 +310,75 @@ export class AiAgentRuntimeOverride {
  * < `confirm-required`. The route never allows an override to widen the
  * code-declared policy.
  */
+/**
+ * Tenant-scoped allowlist clipping which providers and models the runtime is
+ * permitted to use within the env-driven allowlist (Phase 1780-6 of spec
+ * `2026-04-27-ai-agents-provider-model-baseurl-overrides`).
+ *
+ * Effective constraint chain (outer → inner): `OM_AI_AVAILABLE_*` env vars →
+ * this tenant allowlist → per-tenant runtime overrides → per-request overrides.
+ * The tenant allowlist may NEVER widen the env allowlist; the runtime
+ * intersects the two and surfaces the intersection through the settings GET
+ * response so the UI never offers a value the runtime would refuse.
+ *
+ * `allowedProviders === null` means "inherit env" (no tenant-level restriction
+ * beyond what the env imposes). `allowedModelsByProvider` keys are provider
+ * ids; a missing key means "inherit env" for that provider; an empty array
+ * means "no models permitted for this provider" (effectively disabling it).
+ */
+@Entity({ tableName: 'ai_tenant_model_allowlists' })
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_org_uq',
+  expression:
+    'create unique index "ai_tenant_model_allowlists_tenant_org_uq" on "ai_tenant_model_allowlists" ("tenant_id", "organization_id") where "deleted_at" is null and "organization_id" is not null',
+})
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_null_org_uq',
+  expression:
+    'create unique index "ai_tenant_model_allowlists_tenant_null_org_uq" on "ai_tenant_model_allowlists" ("tenant_id") where "deleted_at" is null and "organization_id" is null',
+})
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_idx',
+  properties: ['tenantId'],
+})
+export class AiTenantModelAllowlist {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'allowedProviders'
+    | 'allowedModelsByProvider'
+    | 'updatedByUserId'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'allowed_providers', type: 'jsonb', nullable: true })
+  allowedProviders?: string[] | null
+
+  @Property({ name: 'allowed_models_by_provider', type: 'jsonb', default: '{}' })
+  allowedModelsByProvider: Record<string, string[]> = {}
+
+  @Property({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
+  updatedByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'ai_agent_mutation_policy_overrides' })
 @Index({
   name: 'ai_agent_mutation_policy_overrides_tenant_org_agent_uq',

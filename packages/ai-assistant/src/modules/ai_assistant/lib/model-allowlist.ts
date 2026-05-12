@@ -153,3 +153,140 @@ export function modelAllowlistEnvVarName(providerId: string): string {
 export function providerAllowlistEnvVarName(): string {
   return envProvidersVarName()
 }
+
+/**
+ * Tenant-scoped allowlist snapshot (Phase 1780-6). Persisted by the
+ * `ai_tenant_model_allowlists` table and edited from the AI assistant
+ * settings page. The runtime intersects this with the env allowlist before
+ * picking which provider/model is permitted.
+ *
+ * `allowedProviders === null` means "inherit env" (no tenant-level provider
+ * restriction). For `allowedModelsByProvider`, a missing key means "inherit
+ * env" for that provider; an empty array means "no models permitted for this
+ * provider" — the runtime will refuse all picks for that provider.
+ */
+export interface TenantAllowlistSnapshot {
+  allowedProviders: string[] | null
+  allowedModelsByProvider: Record<string, string[]>
+}
+
+/**
+ * Effective allowlist after intersecting env with tenant. Both axes are
+ * `null` when neither side imposes a restriction — semantically equivalent to
+ * `readAllowlistConfig` with no tenant snapshot.
+ */
+export interface EffectiveAllowlist {
+  providers: string[] | null
+  modelsByProvider: Record<string, string[]>
+  hasRestrictions: boolean
+  /**
+   * `true` when the tenant snapshot contributes any narrowing on top of the
+   * env allowlist. Useful for telling the UI "this tenant has its own picks"
+   * vs "we are showing env-only restrictions".
+   */
+  tenantOverridesActive: boolean
+}
+
+function intersectIdLists(
+  outer: string[] | null,
+  inner: string[] | null,
+  caseInsensitive: boolean,
+): string[] | null {
+  if (outer === null && inner === null) return null
+  if (outer === null) return inner
+  if (inner === null) return outer
+  const outerSet = new Set(
+    caseInsensitive ? outer.map((id) => id.toLowerCase()) : outer,
+  )
+  const result: string[] = []
+  for (const id of inner) {
+    const needle = caseInsensitive ? id.toLowerCase() : id
+    if (outerSet.has(needle)) result.push(id)
+  }
+  return result
+}
+
+/**
+ * Intersects the env-driven allowlist with an optional tenant snapshot. The
+ * tenant allowlist may NEVER widen the env allowlist; values outside the env
+ * are silently dropped. Returns the effective shape the settings UI and
+ * model-factory should clip against.
+ */
+export function intersectAllowlists(
+  env: EnvLookup,
+  knownProviderIds: string[],
+  tenant: TenantAllowlistSnapshot | null,
+): EffectiveAllowlist {
+  const envProviders = readAllowedProviders(env)
+  const envModelsByProvider: Record<string, string[]> = {}
+  for (const providerId of knownProviderIds) {
+    const list = readAllowedModels(env, providerId)
+    if (list !== null) envModelsByProvider[providerId] = list
+  }
+
+  const tenantProviders = tenant?.allowedProviders ?? null
+  const tenantModelsByProvider = tenant?.allowedModelsByProvider ?? {}
+
+  const providers = intersectIdLists(envProviders, tenantProviders, true)
+
+  const modelsByProvider: Record<string, string[]> = { ...envModelsByProvider }
+  for (const providerId of Object.keys(tenantModelsByProvider)) {
+    const tenantList = tenantModelsByProvider[providerId] ?? []
+    const envList = modelsByProvider[providerId] ?? null
+    const intersection = intersectIdLists(envList, tenantList, false)
+    if (intersection !== null) {
+      modelsByProvider[providerId] = intersection
+    }
+  }
+
+  const tenantOverridesActive =
+    tenantProviders !== null || Object.keys(tenantModelsByProvider).length > 0
+
+  return {
+    providers,
+    modelsByProvider,
+    hasRestrictions:
+      providers !== null || Object.keys(modelsByProvider).length > 0,
+    tenantOverridesActive,
+  }
+}
+
+/**
+ * Effective-allowlist version of `isProviderAllowed`.
+ */
+export function isProviderAllowedInEffective(
+  effective: EffectiveAllowlist,
+  providerId: string,
+): boolean {
+  if (effective.providers === null) return true
+  const needle = providerId.toLowerCase()
+  return effective.providers.some((id) => id.toLowerCase() === needle)
+}
+
+/**
+ * Effective-allowlist version of `isModelAllowedForProvider`.
+ */
+export function isModelAllowedForProviderInEffective(
+  effective: EffectiveAllowlist,
+  providerId: string,
+  modelId: string,
+): boolean {
+  const list = effective.modelsByProvider[providerId]
+  if (list === undefined) return true
+  return list.includes(modelId)
+}
+
+/**
+ * Returns `true` when the (provider, model) pair satisfies the effective
+ * allowlist (both env and tenant constraints).
+ */
+export function isProviderModelAllowedInEffective(
+  effective: EffectiveAllowlist,
+  providerId: string,
+  modelId: string,
+): boolean {
+  return (
+    isProviderAllowedInEffective(effective, providerId) &&
+    isModelAllowedForProviderInEffective(effective, providerId, modelId)
+  )
+}

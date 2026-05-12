@@ -72,10 +72,12 @@ export interface AiAgentDefinition {
   defaultModel?: string
   /**
    * Optional base URL this agent prefers for its chosen provider.
-   * Sits between `<MODULE>_AI_BASE_URL` (step 6) and the preset env override
-   * (`baseURLEnvKeys`) in the resolution chain. Only honoured by adapters that
-   * support baseURL (Anthropic Messages-protocol relays, all OpenAI-compatible
-   * adapters, Google via @ai-sdk/google ≥3.0).
+   * Sits between the `<MODULE>_AI_BASE_URL` env (step 2 of the public 5-step
+   * baseURL hierarchy) and the preset env override (`baseURLEnvKeys`, step 4).
+   * Only honoured by adapters that support baseURL (Anthropic Messages-
+   * protocol relays, all OpenAI-compatible adapters, Google via
+   * @ai-sdk/google ≥3.0). See `packages/ai-assistant/AGENTS.md` →
+   * "baseURL override hierarchy" for the full numbered chain.
    *
    * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */

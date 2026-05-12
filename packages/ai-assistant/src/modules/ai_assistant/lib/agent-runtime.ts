@@ -31,6 +31,8 @@ import {
 import { AiAgentPromptOverrideRepository } from '../data/repositories/AiAgentPromptOverrideRepository'
 import { AiAgentMutationPolicyOverrideRepository } from '../data/repositories/AiAgentMutationPolicyOverrideRepository'
 import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRuntimeOverrideRepository'
+import { AiTenantModelAllowlistRepository } from '../data/repositories/AiTenantModelAllowlistRepository'
+import type { TenantAllowlistSnapshot } from './model-allowlist'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
@@ -126,6 +128,7 @@ function resolveAgentModel(
   baseUrlOverride?: string,
   tenantOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
   requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
+  tenantAllowlist?: TenantAllowlistSnapshot | null,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
   const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
@@ -140,11 +143,40 @@ function resolveAgentModel(
     allowRuntimeModelOverride,
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
+    tenantAllowlist: tenantAllowlist ?? null,
   })
   return {
     model: resolution.model as LanguageModel,
     modelId: resolution.modelId,
     providerId: resolution.providerId,
+  }
+}
+
+async function resolveTenantAllowlistSnapshot(
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<TenantAllowlistSnapshot | null> {
+  if (!tenantId || !container) return null
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return null
+  try {
+    const repo = new AiTenantModelAllowlistRepository(em)
+    return await repo.getSnapshot({
+      tenantId,
+      organizationId: organizationId ?? null,
+    })
+  } catch (error) {
+    console.warn(
+      '[AI Agents] Tenant allowlist lookup failed; falling back to env-only enforcement.',
+      error,
+    )
+    return null
   }
 }
 
@@ -552,7 +584,7 @@ function appendRuntimeMutationPolicy(
  * invariant #7 still holds.
  */
 export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Response> {
-  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+  const [mutationPolicyOverride, tenantRuntimeOverride, tenantAllowlistSnapshot] = await Promise.all([
     resolveMutationPolicyOverride(
       input.agentId,
       input.container,
@@ -561,6 +593,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     ),
     resolveRuntimeModelOverride(
       input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveTenantAllowlistSnapshot(
       input.container,
       input.authContext.tenantId,
       input.authContext.organizationId,
@@ -604,6 +641,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.baseUrlOverride,
     tenantRuntimeOverride,
     input.requestOverride,
+    tenantAllowlistSnapshot,
   )
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
@@ -778,7 +816,7 @@ function resolveStructuredOutput<TSchema>(
 export async function runAiAgentObject<TSchema = unknown>(
   input: RunAiAgentObjectInput<TSchema>,
 ): Promise<RunAiAgentObjectResult<TSchema>> {
-  const [mutationPolicyOverride, tenantRuntimeOverride] = await Promise.all([
+  const [mutationPolicyOverride, tenantRuntimeOverride, tenantAllowlistSnapshot] = await Promise.all([
     resolveMutationPolicyOverride(
       input.agentId,
       input.container,
@@ -787,6 +825,11 @@ export async function runAiAgentObject<TSchema = unknown>(
     ),
     resolveRuntimeModelOverride(
       input.agentId,
+      input.container,
+      input.authContext.tenantId,
+      input.authContext.organizationId,
+    ),
+    resolveTenantAllowlistSnapshot(
       input.container,
       input.authContext.tenantId,
       input.authContext.organizationId,
@@ -832,6 +875,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.baseUrlOverride,
     tenantRuntimeOverride,
     input.requestOverride,
+    tenantAllowlistSnapshot,
   )
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(

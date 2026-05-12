@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -8,7 +9,13 @@ import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-re
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { createModelFactory } from '../../../../../lib/model-factory'
-import { isProviderAllowed, readAllowedModels } from '../../../../../lib/model-allowlist'
+import {
+  intersectAllowlists,
+  isModelAllowedForProviderInEffective,
+  isProviderAllowedInEffective,
+  type TenantAllowlistSnapshot,
+} from '../../../../../lib/model-allowlist'
+import { AiTenantModelAllowlistRepository } from '../../../../../data/repositories/AiTenantModelAllowlistRepository'
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -103,6 +110,22 @@ export async function GET(
 
     const allowRuntimeModelOverride = agent.allowRuntimeModelOverride !== false
 
+    // Load the per-tenant allowlist snapshot so the picker reflects both env
+    // and admin-edited tenant constraints (Phase 1780-6).
+    let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
+    if (auth.tenantId) {
+      try {
+        const em = container.resolve<EntityManager>('em')
+        const allowlistRepo = new AiTenantModelAllowlistRepository(em)
+        tenantAllowlistSnapshot = await allowlistRepo.getSnapshot({
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+        })
+      } catch (snapshotError) {
+        console.warn('[AI Agents Models] Failed to load tenant allowlist:', snapshotError)
+      }
+    }
+
     // Resolve the agent's current default provider/model for the "(default)" badge
     const factory = createModelFactory(container)
     const defaultResolution = factory.resolveModel({
@@ -111,24 +134,29 @@ export async function GET(
       agentDefaultProvider: agent.defaultProvider,
       agentDefaultBaseUrl: agent.defaultBaseUrl,
       allowRuntimeModelOverride,
+      tenantAllowlist: tenantAllowlistSnapshot,
     })
     const defaultProviderId = defaultResolution.providerId
     const defaultModelId = defaultResolution.modelId
 
     // Build provider list — only configured providers, with curated model
-    // catalogs, then clip to the env-driven allowlist
-    // (OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>) so the
+    // catalogs, clipped to the EFFECTIVE allowlist (env ∩ tenant) so the
     // chat-UI picker can never offer a value the runtime would refuse.
     const env = process.env as Record<string, string | undefined>
+    const knownProviderIds = llmProviderRegistry.list().map((p) => p.id)
+    const effectiveAllowlist = intersectAllowlists(
+      env,
+      knownProviderIds,
+      tenantAllowlistSnapshot,
+    )
     const providers = allowRuntimeModelOverride
       ? llmProviderRegistry.list()
           .filter((provider) => provider.isConfigured())
-          .filter((provider) => isProviderAllowed(env, provider.id))
+          .filter((provider) => isProviderAllowedInEffective(effectiveAllowlist, provider.id))
           .map((provider) => {
-            const allowedModels = readAllowedModels(env, provider.id)
-            const filteredModels = allowedModels
-              ? provider.defaultModels.filter((model) => allowedModels.includes(model.id))
-              : provider.defaultModels
+            const filteredModels = provider.defaultModels.filter((model) =>
+              isModelAllowedForProviderInEffective(effectiveAllowlist, provider.id, model.id),
+            )
             return {
               id: provider.id,
               name: provider.id,

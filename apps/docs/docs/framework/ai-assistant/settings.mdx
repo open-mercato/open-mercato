@@ -22,13 +22,25 @@ The page has three sections:
 
 Shows which provider keys are configured via environment variables and whether each provider is connected. This is a read-only display — keys are set via `.env`, not via the UI.
 
-The list of providers shown here is the intersection of (a) the providers that have an API key in the current environment and (b) the operator-defined allowlist `OM_AI_AVAILABLE_PROVIDERS` from the env (when set). Per-provider model dropdowns are similarly clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` when that env var is set. The env allowlist is the ULTIMATE constraint — the settings UI never offers a value the runtime would refuse to honor. See the [Provider/model allowlist row](./overview#environment-variables) in the overview for the full env contract.
+The list of providers shown here is the intersection of (a) the providers that have an API key in the current environment, (b) the operator-defined allowlist `OM_AI_AVAILABLE_PROVIDERS` from the env (when set), and (c) the per-tenant allowlist persisted in `ai_tenant_model_allowlists` (Phase 1780-6). Per-provider model dropdowns are similarly clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` ∩ tenant allowlist for that provider. The env allowlist is the OUTER constraint; the tenant allowlist narrows it further. The settings UI never offers a value the runtime would refuse to honor. See the [Provider/model allowlist row](./overview#environment-variables) in the overview for the full env contract and the **Tenant allowlist editor** section below for the admin-side controls.
 
 ### Default provider and model override
 
 A form with two dropdowns — **Provider** and **Model** — populated from the server's `llmProviderRegistry` and clipped to the env-driven allowlist. Saving a selection creates or updates a row in `ai_settings` scoped to the tenant with `agentId = null`. This row sits at **Step 2** in the [model resolution order](./overview#model-resolution-order) (above per-agent env vars, below runtime `<ModelPicker>` selections).
 
-The settings `PUT /api/ai_assistant/settings` endpoint rejects out-of-allowlist values up-front with typed 400 codes — `provider_not_allowlisted` when the selected provider is missing from `OM_AI_AVAILABLE_PROVIDERS`, and `model_not_allowlisted` when the selected model is missing from `OM_AI_AVAILABLE_MODELS_<PROVIDER>` — so a stale or hand-crafted PUT can never persist a setting that the runtime would only ever swap out at request time.
+The settings `PUT /api/ai_assistant/settings` endpoint rejects out-of-allowlist values up-front with typed 400 codes — `provider_not_allowlisted` when the selected provider is missing from the **effective** allowlist (env ∩ tenant), and `model_not_allowlisted` when the selected model is missing — so a stale or hand-crafted PUT can never persist a setting that the runtime would only ever swap out at request time.
+
+### Tenant allowlist editor (Phase 1780-6)
+
+The route `/backend/config/ai-assistant/allowlist` ships a dedicated editor for the per-tenant provider/model allowlist. Admins with `ai_assistant.settings.manage` see one provider section per env-allowed provider with a **provider checkbox** and a list of **model checkboxes** drawn from each provider's curated catalog (clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` when the env var is set). Saving issues a `PUT /api/ai_assistant/settings/allowlist` which:
+
+- validates that each tenant-picked provider is in `OM_AI_AVAILABLE_PROVIDERS` (rejects with `provider_not_in_env_allowlist` 400 otherwise);
+- validates that each tenant-picked model is in `OM_AI_AVAILABLE_MODELS_<PROVIDER>` for the matching provider (rejects with `model_not_in_env_allowlist` 400 otherwise);
+- writes the snapshot to `ai_tenant_model_allowlists` (one row per tenant/org).
+
+The runtime intersects the env allowlist with the tenant snapshot at every resolution call — the settings page, the chat-UI `<ModelPicker>`, the chat dispatcher, the runtime override PUT, and the model-factory all clip identically. Untick **all** providers in the editor and the runtime falls through to the env-only behaviour for that tenant. Click **Clear stored allowlist** to delete the row entirely (idempotent — `{ cleared: false }` when no row exists).
+
+Tenant snapshots may NEVER widen the env allowlist: the PUT validator and the model-factory both intersect at write time and at resolution time. Tightening `OM_AI_AVAILABLE_*` after a tenant has saved a snapshot is therefore safe — the runtime continues to enforce the (now smaller) env outer constraint without re-validating stored snapshots.
 
 To clear the override and return to the env-based defaults, click **Clear override**. This deletes the `ai_settings` row for the tenant.
 

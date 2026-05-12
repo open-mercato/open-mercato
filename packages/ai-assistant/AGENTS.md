@@ -364,6 +364,20 @@ When a higher-priority override (request, caller, tenant, module env, agent defa
 
 The resolution returns `source: 'allowlist_fallback'` and an `allowlistFallback` field describing the rejected pair so logs and UI can surface why the requested combination wasn't honored. The settings PUT endpoint rejects out-of-allowlist values up-front with `provider_not_allowlisted` / `model_not_allowlisted` 400 codes — that way persistent overrides can never end up in a state the runtime would only ever swap out at request time.
 
+Tenant-editable allowlist (Phase 1780-6) — the runtime intersects the env allowlist above with an optional per-tenant snapshot stored in `ai_tenant_model_allowlists`. Admins with `ai_assistant.settings.manage` edit the allowlist from `/backend/config/ai-assistant/allowlist`. The constraint chain is **outer → inner**: `OM_AI_AVAILABLE_*` env → tenant allowlist → tenant runtime override → per-request override.
+
+| Surface | Behaviour |
+|---------|-----------|
+| `GET /api/ai_assistant/settings` | Adds `tenantAllowlist` (raw snapshot, `null` when unset) and `effectiveAllowlist` (intersection). `availableProviders` is clipped to the effective allowlist so the UI never offers a value the runtime would refuse. |
+| `PUT /api/ai_assistant/settings/allowlist` | Persists the tenant snapshot. Body validates against env first — out-of-env entries are rejected with `provider_not_in_env_allowlist` / `model_not_in_env_allowlist` 400 codes. Tenant allowlist may NEVER widen the env allowlist. |
+| `DELETE /api/ai_assistant/settings/allowlist` | Soft-deletes the row; runtime falls back to env-only enforcement. Idempotent — `{ cleared: false }` when no active row exists. |
+| `PUT /api/ai_assistant/settings` (runtime override) | Re-validates against the **effective** allowlist when an `org_id`/tenant snapshot is available, so admins can't store an override that the tenant allowlist would later reject. |
+| `GET /api/ai_assistant/ai/agents/:id/models` | Picker response is clipped to the effective allowlist. The `<ModelPicker>` therefore only offers tenant-permitted values out of the box. |
+| `POST /api/ai_assistant/ai/chat?provider=&model=` | Chat dispatcher rejects out-of-effective-allowlist query params with the same `provider_not_allowlisted` / `model_not_allowlisted` codes. The error message names "the effective allowlist (env ∩ tenant)" when the tenant snapshot contributes a narrowing. |
+| `createModelFactory(...).resolveModel({ tenantAllowlist })` | The factory accepts an optional snapshot and intersects it with env at resolution time, so a stale tenant override or higher-priority source can never escape the effective set. Falls back via `allowlist_fallback` (same telemetry shape as Phase 1780-5). |
+
+The new table `ai_tenant_model_allowlists` ships in `Migration20260512090000_ai_tenant_model_allowlist`. It is additive — existing tenants resolve to "env-only" until an admin saves a snapshot.
+
 ## Architecture Constraints
 
 When modifying this stack, follow these constraints:
