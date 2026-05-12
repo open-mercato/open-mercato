@@ -95,8 +95,9 @@ The bulk of the work. One large markdown file under `.ai/specs/` following `.ai/
 - [x] 3.3 Self code-review + BC self-review — e8f3b3d06
 - [x] 3.4 Open PR with labels — PR #1898
 - [x] 3.5 Run auto-review-pr autofix pass — aa0e383ed (addressed A.1 .gitignore contradiction, A.2 worker command, A.3 next standalone, plus canonical heading bridges)
-- [ ] 3.6 Post comprehensive summary comment
+- [x] 3.6 Post comprehensive summary comment — PR #1898 (final summary posted; PR body Status flipped to complete)
 
 ## Changelog
 
 - 2026-05-12 — Plan created (`auto-create-pr` skill, slug `railway-one-command-deploy`).
+- 2026-05-12 — Run completed. Status: **complete**. PR #1898 opened against `develop`, autofix applied at `aa0e383ed` (Medium: `.mercato/` gitignore allowlist; Low: precise worker command; Low: Next.js standalone assumption; canonical heading bridges for `.ai/specs/AGENTS.md` compliance). Final labels: `merge-queue`, `feature`, `documentation`, `skip-qa`. In-progress lock released.
