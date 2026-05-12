@@ -46,7 +46,13 @@ describe('model-allowlist', () => {
       ).toEqual(['gpt-5-mini', 'gpt-5'])
     })
 
-    it('handles compound provider ids (e.g. lm_studio)', () => {
+    it('handles compound provider ids (e.g. lm-studio)', () => {
+      expect(
+        readAllowedModels({ OM_AI_AVAILABLE_MODELS_LM_STUDIO: 'qwen-32b' }, 'lm-studio'),
+      ).toEqual(['qwen-32b'])
+    })
+
+    it('uses the same underscore env variable for underscore aliases', () => {
       expect(
         readAllowedModels({ OM_AI_AVAILABLE_MODELS_LM_STUDIO: 'qwen-32b' }, 'lm_studio'),
       ).toEqual(['qwen-32b'])
@@ -61,6 +67,13 @@ describe('model-allowlist', () => {
     it('is case-insensitive for the provider id', () => {
       expect(isProviderAllowed({ OM_AI_AVAILABLE_PROVIDERS: 'OpenAI' }, 'openai')).toBe(true)
       expect(isProviderAllowed({ OM_AI_AVAILABLE_PROVIDERS: 'openai' }, 'OPENAI')).toBe(true)
+    })
+
+    it('treats hyphen and underscore provider spellings as aliases', () => {
+      expect(isProviderAllowed({ OM_AI_AVAILABLE_PROVIDERS: 'lm_studio' }, 'lm-studio'))
+        .toBe(true)
+      expect(isProviderAllowed({ OM_AI_AVAILABLE_PROVIDERS: 'lm-studio' }, 'lm_studio'))
+        .toBe(true)
     })
 
     it('returns false when the provider is not in the list', () => {
@@ -120,6 +133,7 @@ describe('model-allowlist', () => {
     it('exposes the canonical env var names for docs/UI hints', () => {
       expect(providerAllowlistEnvVarName()).toBe('OM_AI_AVAILABLE_PROVIDERS')
       expect(modelAllowlistEnvVarName('openai')).toBe('OM_AI_AVAILABLE_MODELS_OPENAI')
+      expect(modelAllowlistEnvVarName('lm-studio')).toBe('OM_AI_AVAILABLE_MODELS_LM_STUDIO')
     })
   })
 
@@ -210,6 +224,27 @@ describe('model-allowlist', () => {
       expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-5-mini')).toBe(true)
       expect(isProviderModelAllowedInEffective(effective, 'openai', 'gpt-4o')).toBe(false)
       expect(isProviderModelAllowedInEffective(effective, 'anthropic', 'claude-haiku-4-5')).toBe(false)
+    })
+
+    it('canonicalizes hyphen and underscore provider aliases for tenant intersections', () => {
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'lm_studio',
+        OM_AI_AVAILABLE_MODELS_LM_STUDIO: 'qwen/qwen3.5-9b',
+      }
+      const tenant = {
+        allowedProviders: ['lm-studio'],
+        allowedModelsByProvider: {
+          lm_studio: ['qwen/qwen3.5-9b'],
+        },
+      }
+      const effective = intersectAllowlists(env, ['lm-studio'], tenant)
+
+      expect(effective.providers).toEqual(['lm-studio'])
+      expect(effective.modelsByProvider['lm-studio']).toEqual(['qwen/qwen3.5-9b'])
+      expect(isProviderModelAllowedInEffective(effective, 'lm_studio', 'qwen/qwen3.5-9b'))
+        .toBe(true)
+      expect(isProviderModelAllowedInEffective(effective, 'lm-studio', 'qwen/qwen3.5-9b'))
+        .toBe(true)
     })
   })
 })

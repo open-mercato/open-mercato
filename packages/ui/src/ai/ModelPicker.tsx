@@ -33,6 +33,7 @@ export interface ModelPickerProps {
   onChange: (value: ModelPickerValue | null) => void
   availableProviders: ModelPickerProvider[]
   disabled?: boolean
+  compact?: boolean
   className?: string
 }
 
@@ -54,6 +55,7 @@ export function ModelPicker({
   onChange,
   availableProviders,
   disabled,
+  compact = false,
   className,
 }: ModelPickerProps) {
   const t = useT()
@@ -129,15 +131,19 @@ export function ModelPicker({
         aria-label={t('ai_assistant.modelPicker.triggerAriaLabel', 'Select AI model')}
         title={selectedLabel}
         data-ai-model-picker-trigger
-        className="w-8 gap-0 px-0 font-normal sm:w-auto sm:gap-1.5 sm:px-2.5"
+        className={cn(
+          'font-normal',
+          compact ? 'w-8 gap-0 px-0' : 'gap-1.5 px-2.5',
+        )}
       >
         <Cpu className="size-3.5 shrink-0" aria-hidden />
-        <span className="hidden max-w-[140px] truncate text-xs sm:inline">
-          {selectedLabel}
-        </span>
+        {!compact ? (
+          <span className="max-w-[140px] truncate text-xs">{selectedLabel}</span>
+        ) : null}
         <ChevronDown
           className={cn(
-            'hidden size-3 shrink-0 transition-transform sm:block',
+            'size-3 shrink-0 transition-transform',
+            compact && 'hidden',
             open && 'rotate-180',
           )}
           aria-hidden

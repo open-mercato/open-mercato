@@ -11,8 +11,6 @@ import {
   OPEN_CODE_PROVIDERS,
   getOpenCodeProviderConfiguredEnvKey,
   isOpenCodeProviderConfigured,
-  resolveAiProviderIdFromEnv,
-  resolveOpenCodeModel,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
@@ -20,11 +18,13 @@ import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-al
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory } from '../../lib/model-factory'
 import {
+  canonicalProviderId,
   intersectAllowlists,
   isProviderAllowed,
   isProviderAllowedInEffective,
   isProviderModelAllowed,
   isProviderModelAllowedInEffective,
+  modelAllowlistEnvVarName,
   readAllowedModels,
   readAllowedProviders,
   readAllowlistConfig,
@@ -113,21 +113,35 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Read provider config from environment. `OM_AI_PROVIDER` is the new
-    // canonical variable; `OPENCODE_PROVIDER` is kept as a BC fallback by
-    // `resolveAiProviderIdFromEnv`. Falls back to the unified default
-    // (`openai`) when neither is set.
-    const providerId = resolveAiProviderIdFromEnv(process.env)
-    const providerInfo = OPEN_CODE_PROVIDERS[providerId]
+    const env = process.env as Record<string, string | undefined>
+    const configuredProviderHint = env.OM_AI_PROVIDER?.trim() || env.OPENCODE_PROVIDER?.trim() || null
+    const registryProviders = llmProviderRegistry.list()
+    const registryProviderId = configuredProviderHint
+      ? canonicalProviderId(configuredProviderHint, registryProviders.map((provider) => provider.id))
+      : null
+    const registryProvider = registryProviderId ? llmProviderRegistry.get(registryProviderId) : null
+    const fallbackOpenCodeProviderId = (
+      (configuredProviderHint
+        ? canonicalProviderId(configuredProviderHint, OPEN_CODE_PROVIDER_IDS as readonly string[])
+        : null) ?? 'openai'
+    ) as keyof typeof OPEN_CODE_PROVIDERS
+    const fallbackOpenCodeProvider = OPEN_CODE_PROVIDERS[fallbackOpenCodeProviderId]
 
-    // Check if the provider's API key is configured (supports multiple fallback keys)
-    const apiKeyConfigured = isOpenCodeProviderConfigured(providerId)
-
-    // Get model (custom or default)
-    const resolvedModel = resolveOpenCodeModel(providerId)
-
-    // Show the env key that's configured, or the first one as instruction
-    const displayEnvKey = getOpenCodeProviderConfiguredEnvKey(providerId)
+    const providerId = registryProvider?.id ?? fallbackOpenCodeProviderId
+    const providerName = registryProvider?.name ?? fallbackOpenCodeProvider?.name ?? providerId
+    const defaultProviderModel = registryProvider?.defaultModel ?? fallbackOpenCodeProvider?.defaultModel ?? ''
+    const configuredModelHint = env.OM_AI_MODEL?.trim() || env.OPENCODE_MODEL?.trim() || defaultProviderModel
+    const fallbackModelWithProvider = `${providerId}/${configuredModelHint}`
+    const apiKeyConfigured = registryProvider
+      ? registryProvider.isConfigured(env)
+      : fallbackOpenCodeProvider
+        ? isOpenCodeProviderConfigured(fallbackOpenCodeProviderId)
+        : false
+    const displayEnvKey = registryProvider
+      ? registryProvider.getConfiguredEnvKey(env)
+      : fallbackOpenCodeProvider
+        ? getOpenCodeProviderConfiguredEnvKey(fallbackOpenCodeProviderId)
+        : null
 
     // Check if MCP_SERVER_API_KEY is configured (required for MCP authentication)
     const mcpKeyConfigured = !!process.env.MCP_SERVER_API_KEY?.trim()
@@ -145,6 +159,14 @@ export async function GET(req: NextRequest) {
       agentId: string
       moduleId: string
       allowRuntimeModelOverride: boolean
+      codeDefaultProviderId: string | null
+      codeDefaultModelId: string | null
+      override: {
+        providerId: string | null
+        modelId: string | null
+        baseURL: string | null
+        updatedAt: string
+      } | null
       providerId: string
       modelId: string
       baseURL: string | null
@@ -227,6 +249,16 @@ export async function GET(req: NextRequest) {
             agentId: agent.id,
             moduleId: agent.moduleId,
             allowRuntimeModelOverride: agent.allowRuntimeModelOverride !== false,
+            codeDefaultProviderId: agent.defaultProvider ?? null,
+            codeDefaultModelId: agent.defaultModel ?? null,
+            override: agentOverrideRow
+              ? {
+                  providerId: agentOverrideRow.providerId ?? null,
+                  modelId: agentOverrideRow.modelId ?? null,
+                  baseURL: agentOverrideRow.baseUrl ?? null,
+                  updatedAt: agentOverrideRow.updatedAt.toISOString(),
+                }
+              : null,
             providerId: agentResolution.providerId,
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,
@@ -245,7 +277,6 @@ export async function GET(req: NextRequest) {
     // The env allowlist is the OUTER constraint; the tenant allowlist (Phase
     // 1780-6) narrows it further. The settings UI must never offer a value
     // the runtime would refuse to honor.
-    const env = process.env as Record<string, string | undefined>
     const knownProviderIdsForAllowlist: string[] = [
       ...OPEN_CODE_PROVIDER_IDS,
       ...llmProviderRegistry
@@ -278,7 +309,7 @@ export async function GET(req: NextRequest) {
         .filter((p) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(p.id))
         .map((p) => ({
           id: p.id,
-          name: p.id,
+          name: p.name,
           defaultModel: p.defaultModels[0]?.id ?? '',
           envKey: null,
           configured: p.isConfigured(),
@@ -302,16 +333,37 @@ export async function GET(req: NextRequest) {
         }
       })
 
+    const allowlistProviders = allRawProviders
+      .filter((p) => isProviderAllowed(env, p.id))
+      .map((p) => {
+        const envModelsList = allowlistConfig.modelsByProvider[p.id]
+        const envClippedDefaults = envModelsList !== undefined
+          ? p.defaultModels.filter((m) => envModelsList.includes(m.id))
+          : p.defaultModels
+        return {
+          ...p,
+          defaultModel: envModelsList && !envModelsList.includes(p.defaultModel)
+            ? (envModelsList[0] ?? p.defaultModel)
+            : p.defaultModel,
+          defaultModels: envClippedDefaults,
+        }
+      })
+
     return NextResponse.json({
       provider: {
         id: providerId,
-        name: providerInfo.name,
-        model: resolvedModel.modelWithProvider,
-        defaultModel: providerInfo.defaultModel,
+        name: providerName,
+        model: resolvedDefault
+          ? `${resolvedDefault.providerId}/${resolvedDefault.modelId}`
+          : fallbackModelWithProvider,
+        defaultModel: defaultProviderModel,
         envKey: displayEnvKey,
         configured: apiKeyConfigured,
       },
       availableProviders,
+      // Editable universe for the tenant allowlist page. This is clipped only
+      // by env so tenant-hidden models remain visible and can be re-enabled.
+      allowlistProviders,
       // Snapshot of the env-driven allowlist so the UI can render hints like
       // "limited to: openai, anthropic" without re-implementing the parser.
       allowlist: allowlistConfig,
@@ -362,7 +414,11 @@ export async function PUT(req: NextRequest) {
     )
   }
 
-  const { providerId, modelId, baseURL, agentId } = bodyResult.data
+  const { providerId: requestedProviderId, modelId, baseURL, agentId } = bodyResult.data
+  const knownProviderIdsForRequest = llmProviderRegistry.list().map((p) => p.id)
+  const providerId = requestedProviderId
+    ? canonicalProviderId(requestedProviderId, knownProviderIdsForRequest) ?? requestedProviderId
+    : requestedProviderId
 
   if (baseURL && baseURL.trim().length > 0) {
     const allowlist = readBaseurlAllowlist()
@@ -436,7 +492,7 @@ export async function PUT(req: NextRequest) {
       ) {
         const source = putEffectiveAllowlist.tenantOverridesActive
           ? `the effective allowlist (env ∩ tenant) for "${providerId}"`
-          : `OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}`
+          : modelAllowlistEnvVarName(providerId)
         return NextResponse.json(
           {
             error: `Model "${modelId}" is not in ${source}.`,
@@ -449,7 +505,7 @@ export async function PUT(req: NextRequest) {
       if (!isProviderAllowed(process.env, providerId)) {
         return NextResponse.json(
           {
-            error: `Provider "${providerId}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
+            error: `Provider "${requestedProviderId}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
             code: 'provider_not_allowlisted',
           },
           { status: 400 },
@@ -458,7 +514,7 @@ export async function PUT(req: NextRequest) {
       if (modelId && !isProviderModelAllowed(process.env, providerId, modelId)) {
         return NextResponse.json(
           {
-            error: `Model "${modelId}" is not in OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}.`,
+            error: `Model "${modelId}" is not in ${modelAllowlistEnvVarName(providerId)}.`,
             code: 'model_not_allowlisted',
           },
           { status: 400 },

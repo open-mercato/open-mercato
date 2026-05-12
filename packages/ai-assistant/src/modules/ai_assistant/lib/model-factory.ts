@@ -60,11 +60,12 @@
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
   intersectAllowlists,
+  canonicalProviderId,
   isModelAllowedForProviderInEffective,
   isProviderAllowedInEffective,
+  providerIdAliases,
   type EffectiveAllowlist,
   type TenantAllowlistSnapshot,
 } from './model-allowlist'
@@ -334,14 +335,19 @@ function normalizeOverride(value: string | undefined): string | null {
  * `OPENCODE_PROVIDER` resolves to a known provider — in that case the
  * registry falls back to its default registration walk.
  */
-function readGlobalProviderFromEnv(env: EnvLookup): string | null {
-  const raw = normalizeOverride(env.OM_AI_PROVIDER) ?? normalizeOverride(env.OPENCODE_PROVIDER)
-  if (!raw) return null
-  // Reuse the shared resolver so unknown ids fall back through both keys.
-  // When the raw value is unknown the resolver returns the default; passing
-  // that through as an explicit hint is still safe because the registry
-  // only honors registered + configured providers.
-  return resolveAiProviderIdFromEnv(env)
+function readGlobalProviderFromEnv(
+  env: EnvLookup,
+  registry: Pick<AiModelFactoryRegistry, 'get'>,
+): string | null {
+  const candidates = [normalizeOverride(env.OM_AI_PROVIDER), normalizeOverride(env.OPENCODE_PROVIDER)]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (!registry.get) return providerIdAliases(candidate)[0] ?? candidate
+    for (const alias of providerIdAliases(candidate)) {
+      if (registry.get(alias)) return alias
+    }
+  }
+  return null
 }
 
 /**
@@ -390,6 +396,18 @@ function readModuleProviderEnvOverride(env: EnvLookup, moduleId: string): string
     normalizeOverride(env[moduleProviderEnvVarName(moduleId)]) ??
     normalizeOverride(env[legacyModuleProviderEnvVarName(moduleId)])
   )
+}
+
+function normalizeProviderHint(
+  providerId: string | null,
+  registry: AiModelFactoryRegistry,
+): string | null {
+  if (!providerId) return null
+  const knownProviderIds = registry.list?.().map((provider) => provider.id) ?? []
+  if (knownProviderIds.length > 0) {
+    return canonicalProviderId(providerId, knownProviderIds)
+  }
+  return providerIdAliases(providerId)[0] ?? providerId
 }
 
 function moduleBaseUrlEnvVarName(moduleId: string): string {
@@ -499,21 +517,21 @@ export function createModelFactory(
       const agentDefaultProviderRaw = normalizeOverride(input.agentDefaultProvider)
       // OM_AI_PROVIDER is canonical; the legacy OPENCODE_PROVIDER is read as
       // a backward-compatibility fallback through readGlobalProviderFromEnv.
-      const globalProviderRaw = readGlobalProviderFromEnv(env)
+      const globalProviderRaw = readGlobalProviderFromEnv(env, registry)
 
       // Walk the provider-axis seed list: slash hint beats plain provider at
       // the same step. We keep only the first (highest-priority) non-null hint.
       const providerHintCandidates: Array<string | null> = [
         requestModelParsed?.providerHint ?? null,
-        requestProviderRaw,
+        normalizeProviderHint(requestProviderRaw, registry),
         callerParsed?.providerHint ?? null,
-        providerOverrideRaw,
+        normalizeProviderHint(providerOverrideRaw, registry),
         tenantModelParsed?.providerHint ?? null,
-        tenantProviderRaw,
+        normalizeProviderHint(tenantProviderRaw, registry),
         moduleModelParsed?.providerHint ?? null,
-        moduleProviderRaw,
+        normalizeProviderHint(moduleProviderRaw, registry),
         agentModelParsed?.providerHint ?? null,
-        agentDefaultProviderRaw,
+        normalizeProviderHint(agentDefaultProviderRaw, registry),
         globalModelParsed?.providerHint ?? null,
         globalProviderRaw,
       ]

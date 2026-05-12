@@ -78,7 +78,8 @@ jest.mock('../../../lib/model-factory', () => ({
   })),
 }))
 
-import { PUT, DELETE } from '../route'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { GET, PUT, DELETE } from '../route'
 
 function buildRequest(method: 'PUT' | 'DELETE', body: unknown): Request {
   return new Request('http://localhost/api/ai_assistant/settings', {
@@ -192,6 +193,54 @@ describe('PUT /api/ai_assistant/settings', () => {
     const response = await PUT(buildRequest('PUT', { providerId: 'openai' }) as any)
 
     expect(response.status).toBe(200)
+  })
+})
+
+describe('GET /api/ai_assistant/settings', () => {
+  let consoleWarnSpy: jest.SpyInstance
+  let originalEnv: NodeJS.ProcessEnv
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    originalEnv = { ...process.env }
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    authMock.mockResolvedValue({ sub: 'user-1', tenantId: null, orgId: null })
+    createRequestContainerMock.mockResolvedValue({ resolve: () => null })
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('does not run LM Studio slashy model ids through the legacy OpenCode model parser', async () => {
+    process.env.OM_AI_PROVIDER = 'lm_studio'
+    process.env.OM_AI_MODEL = 'qwen/qwen3.5-9b'
+    process.env.LM_STUDIO_API_KEY = 'lm-studio'
+
+    const provider = {
+      id: 'lm-studio',
+      name: 'LM Studio (local)',
+      defaultModel: '',
+      defaultModels: [],
+      isConfigured: jest.fn(() => true),
+      resolveApiKey: jest.fn(() => 'lm-studio'),
+      getConfiguredEnvKey: jest.fn(() => 'LM_STUDIO_API_KEY'),
+      createModel: jest.fn(),
+      envKeys: ['LM_STUDIO_API_KEY'],
+    }
+    ;(llmProviderRegistry.list as jest.Mock).mockReturnValue([provider])
+    ;(llmProviderRegistry.get as jest.Mock).mockImplementation((id: string) =>
+      id === 'lm-studio' ? provider : null,
+    )
+
+    const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as any)
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.provider.id).toBe('lm-studio')
+    expect(json.provider.model).toBe('lm-studio/qwen/qwen3.5-9b')
+    expect(json.allowlistProviders[0].id).toBe('lm-studio')
   })
 })
 

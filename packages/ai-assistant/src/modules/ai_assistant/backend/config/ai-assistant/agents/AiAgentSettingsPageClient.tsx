@@ -26,6 +26,13 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -57,6 +64,10 @@ type AgentSettings = {
   description: string
   systemPrompt: string
   executionMode: 'chat' | 'object'
+  defaultProvider: string | null
+  defaultModel: string | null
+  defaultBaseUrl: string | null
+  allowRuntimeModelOverride: boolean
   mutationPolicy: string
   readOnly: boolean
   maxSteps: number | null
@@ -70,6 +81,37 @@ type AgentSettings = {
 type AgentsResponse = {
   agents: AgentSettings[]
   total: number
+}
+
+type ProviderConfig = {
+  id: string
+  name: string
+  defaultModel: string
+  configured: boolean
+  defaultModels: Array<{ id: string; name: string }>
+}
+
+type AgentResolution = {
+  agentId: string
+  moduleId: string
+  allowRuntimeModelOverride: boolean
+  codeDefaultProviderId: string | null
+  codeDefaultModelId: string | null
+  override: {
+    providerId: string | null
+    modelId: string | null
+    baseURL: string | null
+    updatedAt: string
+  } | null
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
+}
+
+type RuntimeSettingsResponse = {
+  availableProviders: ProviderConfig[]
+  agents: AgentResolution[]
 }
 
 const PROMPT_SECTION_IDS = [
@@ -109,6 +151,16 @@ async function fetchAgents(): Promise<AgentsResponse> {
     { errorMessage: 'Failed to load agents' },
   )
   if (!result) throw new Error(`Failed to load agents (${status})`)
+  return result
+}
+
+async function fetchRuntimeSettings(): Promise<RuntimeSettingsResponse> {
+  const { result, status } = await apiCallOrThrow<RuntimeSettingsResponse>(
+    '/api/ai_assistant/settings',
+    { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load runtime settings' },
+  )
+  if (!result) throw new Error(`Failed to load runtime settings (${status})`)
   return result
 }
 
@@ -787,6 +839,316 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
   )
 }
 
+function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const settingsQuery = useQuery<RuntimeSettingsResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+    queryFn: fetchRuntimeSettings,
+    retry: false,
+  })
+
+  const agentResolution = settingsQuery.data?.agents.find((entry) => entry.agentId === agent.id) ?? null
+  const configuredProviders = React.useMemo(
+    () => (settingsQuery.data?.availableProviders ?? []).filter((provider) => provider.configured),
+    [settingsQuery.data?.availableProviders],
+  )
+
+  const [selectedProviderId, setSelectedProviderId] = React.useState('')
+  const [selectedModelId, setSelectedModelId] = React.useState('')
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isClearing, setIsClearing] = React.useState(false)
+  const [state, setState] = React.useState<
+    | { kind: 'idle' }
+    | { kind: 'success'; message: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' })
+
+  React.useEffect(() => {
+    const override = agentResolution?.override
+    setSelectedProviderId(override?.providerId ?? '')
+    setSelectedModelId(override?.modelId ?? '')
+    setState({ kind: 'idle' })
+  }, [agent.id, agentResolution?.override?.modelId, agentResolution?.override?.providerId])
+
+  const selectedProvider = configuredProviders.find((provider) => provider.id === selectedProviderId)
+  const hasChange =
+    selectedProviderId.length > 0 &&
+    selectedModelId.length > 0 &&
+    (
+      selectedProviderId !== (agentResolution?.override?.providerId ?? '') ||
+      selectedModelId !== (agentResolution?.override?.modelId ?? '')
+    )
+
+  const save = React.useCallback(async () => {
+    if (isSaving || !selectedProviderId || !selectedModelId) return
+    setIsSaving(true)
+    setState({ kind: 'idle' })
+    try {
+      const { ok, status, result } = await apiCall<{ error?: string; code?: string }>(
+        '/api/ai_assistant/settings',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            agentId: agent.id,
+            providerId: selectedProviderId,
+            modelId: selectedModelId,
+          }),
+        },
+      )
+      if (!ok) {
+        setState({
+          kind: 'error',
+          message: result?.error ?? `Failed to save model override (${status}).`,
+        })
+        return
+      }
+      setState({
+        kind: 'success',
+        message: t('ai_assistant.agents.model_override.saved', 'Model override saved.'),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [agent.id, isSaving, queryClient, selectedModelId, selectedProviderId, t])
+
+  const clear = React.useCallback(async () => {
+    if (isClearing) return
+    setIsClearing(true)
+    setState({ kind: 'idle' })
+    try {
+      const { ok, status, result } = await apiCall<{ error?: string }>(
+        '/api/ai_assistant/settings',
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ agentId: agent.id }),
+        },
+      )
+      if (!ok) {
+        setState({
+          kind: 'error',
+          message: result?.error ?? `Failed to clear model override (${status}).`,
+        })
+        return
+      }
+      setSelectedProviderId('')
+      setSelectedModelId('')
+      setState({
+        kind: 'success',
+        message: t(
+          'ai_assistant.agents.model_override.cleared',
+          'Model override cleared; the agent is using the normal resolution chain.',
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } finally {
+      setIsClearing(false)
+    }
+  }, [agent.id, isClearing, queryClient, t])
+
+  const busy = isSaving || isClearing
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-background p-4"
+      data-ai-agent-model-override={agent.id}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <Bot className="size-4 text-muted-foreground" aria-hidden />
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t('ai_assistant.agents.model_override.title', 'Provider and model')}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.model_override.subtitle',
+                'Override the default provider and model for this tenant and agent.',
+              )}
+            </p>
+          </div>
+        </div>
+        {agentResolution ? (
+          <StatusBadge variant="info" dot data-ai-agent-model-override-effective>
+            {agentResolution.providerId} / {agentResolution.modelId}
+          </StatusBadge>
+        ) : null}
+      </header>
+
+      <div className="mt-3 flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.model_override.codeDefault', 'Code-declared default')}
+            </span>
+            <p className="mt-1 font-mono text-xs">
+              {agent.defaultProvider ?? t('ai_assistant.agents.model_override.anyProvider', 'first configured')}
+              {' / '}
+              {agent.defaultModel ?? t('ai_assistant.agents.model_override.providerDefault', 'provider default')}
+            </p>
+          </div>
+          <div>
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.model_override.tenantOverride', 'Tenant override')}
+            </span>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {agentResolution?.override
+                ? `${agentResolution.override.providerId ?? '—'} / ${agentResolution.override.modelId ?? '—'}`
+                : t('ai_assistant.agents.model_override.noOverride', 'No per-agent override')}
+            </p>
+          </div>
+        </div>
+
+        {settingsQuery.isLoading ? (
+          <SettingsLoading
+            message={t(
+              'ai_assistant.agents.model_override.loading',
+              'Loading provider catalog...',
+            )}
+          />
+        ) : settingsQuery.isError ? (
+          <Alert variant="destructive" data-ai-agent-model-override-load-error>
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>
+              {t(
+                'ai_assistant.agents.model_override.loadErrorTitle',
+                'Failed to load provider catalog',
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {settingsQuery.error instanceof Error
+                ? settingsQuery.error.message
+                : String(settingsQuery.error)}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`ai-agent-model-provider-${agent.id}`} className="text-xs">
+                {t('ai_assistant.agents.model_override.provider', 'Provider')}
+              </Label>
+              <Select
+                value={selectedProviderId}
+                onValueChange={(value) => {
+                  setSelectedProviderId(value)
+                  setSelectedModelId('')
+                  setState({ kind: 'idle' })
+                }}
+                disabled={busy || configuredProviders.length === 0}
+              >
+                <SelectTrigger
+                  id={`ai-agent-model-provider-${agent.id}`}
+                  data-ai-agent-model-provider-select
+                >
+                  <SelectValue
+                    placeholder={t(
+                      'ai_assistant.agents.model_override.selectProvider',
+                      'Select provider',
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {configuredProviders.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`ai-agent-model-model-${agent.id}`} className="text-xs">
+                {t('ai_assistant.agents.model_override.model', 'Model')}
+              </Label>
+              <Select
+                value={selectedModelId}
+                onValueChange={(value) => {
+                  setSelectedModelId(value)
+                  setState({ kind: 'idle' })
+                }}
+                disabled={busy || !selectedProvider}
+              >
+                <SelectTrigger
+                  id={`ai-agent-model-model-${agent.id}`}
+                  data-ai-agent-model-select
+                >
+                  <SelectValue
+                    placeholder={t(
+                      'ai_assistant.agents.model_override.selectModel',
+                      'Select model',
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedProvider?.defaultModels ?? []).map((model) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      {model.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {state.kind === 'success' ? (
+          <Alert variant="success" data-ai-agent-model-override-state="success">
+            <CheckCircle2 className="size-4" aria-hidden />
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {state.kind === 'error' ? (
+          <Alert variant="destructive" data-ai-agent-model-override-state="error">
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void clear()}
+            disabled={busy || !agentResolution?.override}
+            data-ai-agent-model-clear
+          >
+            {isClearing ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.model_override.clear', 'Clear override')}</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void save()}
+            disabled={busy || !hasChange}
+            data-ai-agent-model-save
+          >
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.model_override.save', 'Save override')}</span>
+          </Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -1031,6 +1393,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </div>
         </dl>
       </section>
+
+      <AgentModelOverrideSection agent={agent} />
 
       <MutationPolicySection agent={agent} />
 

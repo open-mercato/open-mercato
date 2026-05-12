@@ -12,9 +12,11 @@ import { runAiAgentText } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
+  canonicalProviderId,
   intersectAllowlists,
   isModelAllowedForProviderInEffective,
   isProviderAllowedInEffective,
+  modelAllowlistEnvVarName,
   type TenantAllowlistSnapshot,
 } from '../../../lib/model-allowlist'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
@@ -267,8 +269,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       tenantAllowlistSnapshot,
     )
 
+    const normalizedProvider = rawProvider && rawProvider.trim().length > 0
+      ? canonicalProviderId(rawProvider.trim(), llmProviderRegistry.list().map((p) => p.id))
+      : null
+
     if (rawProvider && rawProvider.trim().length > 0) {
-      const providerEntry = llmProviderRegistry.get(rawProvider.trim())
+      const providerEntry = normalizedProvider ? llmProviderRegistry.get(normalizedProvider) : null
       if (!providerEntry) {
         return jsonError(
           400,
@@ -283,7 +289,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           'provider_not_configured',
         )
       }
-      if (!isProviderAllowedInEffective(effectiveAllowlist, rawProvider.trim())) {
+      if (!isProviderAllowedInEffective(effectiveAllowlist, normalizedProvider!)) {
         const source = effectiveAllowlist.tenantOverridesActive
           ? 'the effective allowlist (env ∩ tenant)'
           : 'OM_AI_AVAILABLE_PROVIDERS'
@@ -298,13 +304,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         && rawModel.trim().length > 0
         && !isModelAllowedForProviderInEffective(
           effectiveAllowlist,
-          rawProvider.trim(),
+          normalizedProvider!,
           rawModel.trim(),
         )
       ) {
         const source = effectiveAllowlist.tenantOverridesActive
-          ? `the effective allowlist (env ∩ tenant) for "${rawProvider.trim()}"`
-          : `OM_AI_AVAILABLE_MODELS_${rawProvider.trim().toUpperCase()}`
+          ? `the effective allowlist (env ∩ tenant) for "${normalizedProvider}"`
+          : modelAllowlistEnvVarName(normalizedProvider!)
         return jsonError(
           400,
           `Model "${rawModel}" is not in ${source}.`,
@@ -328,7 +334,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     const requestOverride =
       hasRuntimeOverride
         ? {
-            providerId: rawProvider && rawProvider.trim().length > 0 ? rawProvider.trim() : null,
+            providerId: normalizedProvider,
             modelId: rawModel && rawModel.trim().length > 0 ? rawModel.trim() : null,
             baseURL: rawBaseUrl && rawBaseUrl.trim().length > 0 ? rawBaseUrl.trim() : null,
           }

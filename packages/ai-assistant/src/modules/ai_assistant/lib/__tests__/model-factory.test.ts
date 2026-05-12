@@ -432,6 +432,48 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('env_default')
     })
 
+    it('preserves slashy LM Studio model ids while honoring underscored provider env aliases', () => {
+      const lmStudio = makeProvider({ id: 'lm-studio' })
+      const openai = makeProvider({ id: 'openai' })
+      const { registry, spy } = makeMultiProviderRegistry([openai, lmStudio])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          OM_AI_PROVIDER: 'lm_studio',
+          OM_AI_MODEL: 'qwen/qwen3.5-9b',
+        },
+      })
+      const resolution = factory.resolveModel({})
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['lm-studio'] }),
+      )
+      expect(resolution.providerId).toBe('lm-studio')
+      expect(resolution.modelId).toBe('qwen/qwen3.5-9b')
+      expect(resolution.source).toBe('env_default')
+    })
+
+    it('honors underscore aliases for module and agent provider defaults', () => {
+      const lmStudio = makeProvider({ id: 'lm-studio' })
+      const openai = makeProvider({ id: 'openai' })
+      const { registry, spy } = makeMultiProviderRegistry([openai, lmStudio])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          OM_AI_CATALOG_PROVIDER: 'lm_studio',
+        },
+      })
+      const resolution = factory.resolveModel({
+        moduleId: 'catalog',
+        agentDefaultProvider: 'openai',
+        agentDefaultModel: 'agent-model',
+      })
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ order: ['lm-studio'] }),
+      )
+      expect(resolution.providerId).toBe('lm-studio')
+      expect(resolution.modelId).toBe('agent-model')
+    })
+
     it('agent_default still beats env_default at lower priority', () => {
       const anthropic = makeProvider({ id: 'anthropic' })
       const { registry } = makeMultiProviderRegistry([anthropic])
@@ -765,6 +807,10 @@ describe('parseSlashShorthand', () => {
     expect(parseSlashShorthand('meta-llama/Llama-3.3-70B', registry)).toEqual({
       providerHint: null,
       modelId: 'meta-llama/Llama-3.3-70B',
+    })
+    expect(parseSlashShorthand('qwen/qwen3.5-9b', registry)).toEqual({
+      providerHint: null,
+      modelId: 'qwen/qwen3.5-9b',
     })
   })
 

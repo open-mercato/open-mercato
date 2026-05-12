@@ -336,7 +336,7 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
 | `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
 `OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
@@ -364,7 +364,9 @@ When a higher-priority override (request, caller, tenant, module env, agent defa
 
 The resolution returns `source: 'allowlist_fallback'` and an `allowlistFallback` field describing the rejected pair so logs and UI can surface why the requested combination wasn't honored. The settings PUT endpoint rejects out-of-allowlist values up-front with `provider_not_allowlisted` / `model_not_allowlisted` 400 codes — that way persistent overrides can never end up in a state the runtime would only ever swap out at request time.
 
-Tenant-editable allowlist (Phase 1780-6) — the runtime intersects the env allowlist above with an optional per-tenant snapshot stored in `ai_tenant_model_allowlists`. Admins with `ai_assistant.settings.manage` edit the allowlist from `/backend/config/ai-assistant/allowlist`. The constraint chain is **outer → inner**: `OM_AI_AVAILABLE_*` env → tenant allowlist → tenant runtime override → per-request override.
+Tenant-editable allowlist (Phase 1780-6) — the runtime intersects the env allowlist above with an optional per-tenant snapshot stored in `ai_tenant_model_allowlists`. Admins with `ai_assistant.settings.manage` edit the allowlist from `/backend/config/ai-assistant/allowlist`. The editor renders the env-clipped provider/model universe, not the tenant-clipped result, so deselected models remain visible and can be re-enabled. The constraint chain is **outer → inner**: `OM_AI_AVAILABLE_*` env → tenant allowlist → tenant runtime override → per-request override.
+
+Per-agent provider/model overrides are edited from `/backend/config/ai-assistant/agents` in the selected agent's **Provider and model** section. They write `ai_agent_runtime_overrides` rows scoped to the agent id and sit above tenant-wide defaults in the resolution chain. The chat `<ModelPicker>` self-heals stale localStorage selections after allowlist changes by swapping to the first still-allowed model returned by the `/models` endpoint.
 
 | Surface | Behaviour |
 |---------|-----------|

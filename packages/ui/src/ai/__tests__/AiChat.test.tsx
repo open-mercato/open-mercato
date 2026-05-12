@@ -57,7 +57,32 @@ jest.mock('../../backend/utils/apiCall', () => ({
 }))
 
 import { apiFetch } from '../../backend/utils/api'
+import { apiCall } from '../../backend/utils/apiCall'
 import { AiChat } from '../AiChat'
+
+let lastResizeObserver: MockResizeObserver | null = null
+
+class MockResizeObserver {
+  observe = jest.fn()
+  disconnect = jest.fn()
+
+  constructor(
+    private readonly callback: ResizeObserverCallback,
+  ) {
+    lastResizeObserver = this
+  }
+
+  trigger(width: number) {
+    this.callback(
+      [
+        {
+          contentRect: { width },
+        } as ResizeObserverEntry,
+      ],
+      this as unknown as ResizeObserver,
+    )
+  }
+}
 
 const dict = {
   'ai_assistant.chat.assistantRoleLabel': 'Assistant',
@@ -128,6 +153,7 @@ describe('<AiChat>', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     window.localStorage.clear()
+    lastResizeObserver = null
   })
 
   it('renders the composer with the i18n placeholder and region labels', () => {
@@ -138,6 +164,140 @@ describe('<AiChat>', () => {
     expect(screen.getByRole('log', { name: 'Chat transcript' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'AI chat' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+  })
+
+  it('replaces a stale stored model picker value with the first available model', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: true,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            isDefault: true,
+            models: [
+              {
+                id: 'gpt-5-mini',
+                name: 'GPT-5 Mini',
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    window.localStorage.setItem(
+      'om-ai-model-picker:customers.account_assistant',
+      JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' }),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveAttribute(
+        'title',
+        'OpenAI / GPT-5 Mini',
+      )
+    })
+    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBe(
+      JSON.stringify({ providerId: 'openai', modelId: 'gpt-5-mini' }),
+    )
+  })
+
+  it('renders a compact footer before a constrained host is measured', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: true,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            isDefault: true,
+            models: [
+              {
+                id: 'gpt-5-mini',
+                name: 'GPT-5 Mini',
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" defaultCompactFooter />, { dict })
+
+    const footer = document.querySelector('[data-ai-chat-footer=""]')
+    expect(footer).toHaveAttribute('data-ai-chat-footer-compact', 'true')
+    expect(screen.getByText('Press Cmd/Ctrl+Enter to send, Escape to cancel.')).toHaveClass('hidden')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveClass('w-8')
+    })
+    expect(screen.getByRole('button', { name: 'Send message' })).toHaveClass('w-8')
+  })
+
+  it('lets a default compact footer expand after resize measurement', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: true,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            isDefault: true,
+            models: [
+              {
+                id: 'gpt-5-mini',
+                name: 'GPT-5 Mini',
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    const originalResizeObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+
+    try {
+      renderWithProviders(<AiChat agent="customers.account_assistant" defaultCompactFooter />, { dict })
+
+      const footer = document.querySelector('[data-ai-chat-footer=""]')
+      expect(footer).toHaveAttribute('data-ai-chat-footer-compact', 'true')
+
+      await act(async () => {
+        lastResizeObserver?.trigger(720)
+      })
+
+      await waitFor(() => {
+        expect(footer).toHaveAttribute('data-ai-chat-footer-compact', 'false')
+      })
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Select AI model' })).not.toHaveClass('w-8')
+      })
+      expect(screen.getByRole('button', { name: 'Send message' })).not.toHaveClass('w-8')
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+    }
   })
 
   it('submits the message on Cmd+Enter and streams assistant text into the transcript', async () => {

@@ -30,7 +30,43 @@ function envProvidersVarName(): string {
 }
 
 function envModelsVarName(providerId: string): string {
-  return `OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}`
+  const envSafeProviderId = providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+  return `OM_AI_AVAILABLE_MODELS_${envSafeProviderId}`
+}
+
+export function normalizeProviderId(value: string): string {
+  return value.trim().toLowerCase().replace(/_/g, '-')
+}
+
+export function providerIdAliases(providerId: string): string[] {
+  const normalized = normalizeProviderId(providerId)
+  if (!normalized) return []
+  return Array.from(new Set([normalized, normalized.replace(/-/g, '_')]))
+}
+
+export function canonicalProviderId(
+  providerId: string,
+  knownProviderIds: readonly string[],
+): string | null {
+  const normalized = normalizeProviderId(providerId)
+  return knownProviderIds.find((id) => normalizeProviderId(id) === normalized) ?? null
+}
+
+function canonicalizeProviderList(
+  providerIds: string[] | null,
+  knownProviderIds: readonly string[],
+): string[] | null {
+  if (providerIds === null) return null
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const providerId of providerIds) {
+    const canonical = canonicalProviderId(providerId, knownProviderIds) ?? normalizeProviderId(providerId)
+    const key = normalizeProviderId(canonical)
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(canonical)
+  }
+  return result
 }
 
 function parseList(raw: string | undefined): string[] | null {
@@ -107,8 +143,8 @@ export function isProviderAllowed(
 ): boolean {
   const allowed = readAllowedProviders(env)
   if (allowed === null) return true
-  const needle = providerId.toLowerCase()
-  return allowed.some((id) => id.toLowerCase() === needle)
+  const needle = normalizeProviderId(providerId)
+  return allowed.some((id) => normalizeProviderId(id) === needle)
 }
 
 /**
@@ -196,11 +232,11 @@ function intersectIdLists(
   if (outer === null) return inner
   if (inner === null) return outer
   const outerSet = new Set(
-    caseInsensitive ? outer.map((id) => id.toLowerCase()) : outer,
+    caseInsensitive ? outer.map((id) => normalizeProviderId(id)) : outer,
   )
   const result: string[] = []
   for (const id of inner) {
-    const needle = caseInsensitive ? id.toLowerCase() : id
+    const needle = caseInsensitive ? normalizeProviderId(id) : id
     if (outerSet.has(needle)) result.push(id)
   }
   return result
@@ -217,21 +253,22 @@ export function intersectAllowlists(
   knownProviderIds: string[],
   tenant: TenantAllowlistSnapshot | null,
 ): EffectiveAllowlist {
-  const envProviders = readAllowedProviders(env)
+  const envProviders = canonicalizeProviderList(readAllowedProviders(env), knownProviderIds)
   const envModelsByProvider: Record<string, string[]> = {}
   for (const providerId of knownProviderIds) {
     const list = readAllowedModels(env, providerId)
     if (list !== null) envModelsByProvider[providerId] = list
   }
 
-  const tenantProviders = tenant?.allowedProviders ?? null
+  const tenantProviders = canonicalizeProviderList(tenant?.allowedProviders ?? null, knownProviderIds)
   const tenantModelsByProvider = tenant?.allowedModelsByProvider ?? {}
 
   const providers = intersectIdLists(envProviders, tenantProviders, true)
 
   const modelsByProvider: Record<string, string[]> = { ...envModelsByProvider }
-  for (const providerId of Object.keys(tenantModelsByProvider)) {
-    const tenantList = tenantModelsByProvider[providerId] ?? []
+  for (const rawProviderId of Object.keys(tenantModelsByProvider)) {
+    const providerId = canonicalProviderId(rawProviderId, knownProviderIds) ?? normalizeProviderId(rawProviderId)
+    const tenantList = tenantModelsByProvider[rawProviderId] ?? []
     const envList = modelsByProvider[providerId] ?? null
     const intersection = intersectIdLists(envList, tenantList, false)
     if (intersection !== null) {
@@ -259,8 +296,8 @@ export function isProviderAllowedInEffective(
   providerId: string,
 ): boolean {
   if (effective.providers === null) return true
-  const needle = providerId.toLowerCase()
-  return effective.providers.some((id) => id.toLowerCase() === needle)
+  const needle = normalizeProviderId(providerId)
+  return effective.providers.some((id) => normalizeProviderId(id) === needle)
 }
 
 /**
@@ -271,7 +308,7 @@ export function isModelAllowedForProviderInEffective(
   providerId: string,
   modelId: string,
 ): boolean {
-  const list = effective.modelsByProvider[providerId]
+  const list = effective.modelsByProvider[providerId] ?? effective.modelsByProvider[normalizeProviderId(providerId)]
   if (list === undefined) return true
   return list.includes(modelId)
 }

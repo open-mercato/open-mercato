@@ -109,7 +109,7 @@ When `false`, the runtime also rejects `?provider=` and `?model=` query paramete
 
 ### Runtime model picker (`<ModelPicker>`)
 
-The `<AiChat>` component automatically renders a `<ModelPicker>` dropdown in the composer toolbar for every agent where `allowRuntimeModelOverride !== false`. The dropdown is populated by `GET /api/ai_assistant/ai/agents/:agentId/models` and shows all providers and models configured on the server side. The user's selection is persisted to `localStorage` under the key `om-ai-model-picker:<agentId>` and forwarded to the chat dispatcher as `?provider=&model=` query parameters.
+The `<AiChat>` component automatically renders a `<ModelPicker>` dropdown in the composer toolbar for every agent where `allowRuntimeModelOverride !== false`. The dropdown is populated by `GET /api/ai_assistant/ai/agents/:agentId/models` and shows all providers and models configured on the server side. The user's selection is persisted to `localStorage` under the key `om-ai-model-picker:<agentId>` and forwarded to the chat dispatcher as `?provider=&model=` query parameters. If the tenant allowlist later hides the stored model, `<AiChat>` replaces the stale selection with the first still-allowed model from the server response so the dispatcher never receives a now-forbidden picker value.
 
 The picker is stateless on the server — it never stores the user's selection in the database or the session. When the component unmounts or the agent is changed, the selection reverts to the default. This is by design (R6 mitigation): the picker exposes only models from the curated registry; free-form baseURL input is intentionally absent.
 

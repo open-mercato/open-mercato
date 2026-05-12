@@ -5,10 +5,13 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
 import {
+  canonicalProviderId,
   isModelAllowedForProvider,
   isProviderAllowed,
+  modelAllowlistEnvVarName,
 } from '../../../lib/model-allowlist'
 
 const allowlistUpsertSchema = z.object({
@@ -90,10 +93,18 @@ export async function PUT(req: NextRequest) {
   }
 
   const env = process.env as Record<string, string | undefined>
+  const knownProviderIds = llmProviderRegistry.list().map((provider) => provider.id)
+  const canonicalize = (providerId: string) =>
+    canonicalProviderId(providerId, knownProviderIds) ?? providerId
   const allowedProviders = bodyResult.data.allowedProviders === undefined
     ? null
-    : bodyResult.data.allowedProviders
-  const allowedModelsByProvider = bodyResult.data.allowedModelsByProvider ?? {}
+    : bodyResult.data.allowedProviders?.map(canonicalize) ?? null
+  const allowedModelsByProvider = Object.fromEntries(
+    Object.entries(bodyResult.data.allowedModelsByProvider ?? {}).map(([providerId, models]) => [
+      canonicalize(providerId),
+      models,
+    ]),
+  )
 
   // Reject tenant entries that escape the env allowlist. The runtime would
   // intersect them away anyway; failing fast at write time keeps stored
@@ -125,7 +136,7 @@ export async function PUT(req: NextRequest) {
       if (!isModelAllowedForProvider(env, providerId, modelId)) {
         return NextResponse.json(
           {
-            error: `Model "${modelId}" is not in OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}; tenant allowlist may not widen the env allowlist.`,
+            error: `Model "${modelId}" is not in ${modelAllowlistEnvVarName(providerId)}; tenant allowlist may not widen the env allowlist.`,
             code: 'model_not_in_env_allowlist',
           },
           { status: 400 },

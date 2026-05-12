@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { canonicalProviderId } from '../../lib/model-allowlist'
 import { AiAgentRuntimeOverride } from '../entities'
 
 export interface AiAgentRuntimeOverrideContext {
@@ -91,8 +92,11 @@ export class AiAgentRuntimeOverrideRepository {
       throw new Error('AiAgentRuntimeOverrideRepository.upsertDefault requires tenantId')
     }
 
+    const normalizedProviderId = input.providerId
+      ? canonicalProviderId(input.providerId, llmProviderRegistry.list().map((p) => p.id))
+      : null
     if (input.providerId) {
-      const knownProvider = llmProviderRegistry.get(input.providerId)
+      const knownProvider = normalizedProviderId ? llmProviderRegistry.get(normalizedProviderId) : null
       if (!knownProvider) {
         throw new AiAgentRuntimeOverrideValidationError(
           `Unknown provider id "${input.providerId}". Registered provider ids: ${llmProviderRegistry.list().map((p) => p.id).join(', ')}.`,
@@ -112,7 +116,7 @@ export class AiAgentRuntimeOverrideRepository {
       } as any)
 
       if (existing) {
-        existing.providerId = input.providerId ?? null
+        existing.providerId = normalizedProviderId
         existing.modelId = input.modelId ?? null
         existing.baseUrl = input.baseURL ?? null
         existing.updatedByUserId = ctx.userId ?? null
@@ -125,7 +129,7 @@ export class AiAgentRuntimeOverrideRepository {
         tenantId: ctx.tenantId,
         organizationId: orgFilter,
         agentId: agentIdFilter,
-        providerId: input.providerId ?? null,
+        providerId: normalizedProviderId,
         modelId: input.modelId ?? null,
         baseUrl: input.baseURL ?? null,
         updatedByUserId: ctx.userId ?? null,

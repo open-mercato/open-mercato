@@ -54,6 +54,7 @@ import { useAiShortcuts } from './useAiShortcuts'
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
+const COMPACT_FOOTER_MAX_WIDTH = 640
 
 const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
 
@@ -103,20 +104,50 @@ interface ModelsApiResponse {
 function useAgentModels(agent: string): {
   providers: ModelPickerProvider[]
   allowRuntimeModelOverride: boolean
+  loaded: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeModelOverride, setAllowRuntimeModelOverride] = React.useState(false)
+  const [loaded, setLoaded] = React.useState(false)
 
   React.useEffect(() => {
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
+    setLoaded(false)
     void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
-      if (!result.ok || !result.result) return
+      if (!result.ok || !result.result) {
+        setLoaded(true)
+        return
+      }
       setAllowRuntimeModelOverride(result.result.allowRuntimeModelOverride)
       setProviders(result.result.providers)
+      setLoaded(true)
     })
   }, [agent])
 
-  return { providers, allowRuntimeModelOverride }
+  return { providers, allowRuntimeModelOverride, loaded }
+}
+
+function firstAvailableModelPickerValue(
+  providers: ModelPickerProvider[],
+): ModelPickerValue | null {
+  for (const provider of providers) {
+    const model = provider.models[0]
+    if (model) {
+      return { providerId: provider.id, modelId: model.id }
+    }
+  }
+  return null
+}
+
+function isModelPickerValueAvailable(
+  value: ModelPickerValue,
+  providers: ModelPickerProvider[],
+): boolean {
+  return providers.some(
+    (provider) =>
+      provider.id === value.providerId &&
+      provider.models.some((model) => model.id === value.modelId),
+  )
 }
 
 async function readFileAsDataUrl(file: File): Promise<string | undefined> {
@@ -228,6 +259,8 @@ export interface AiChatProps {
   welcomeTitle?: string
   /** Welcome description shown below the heading. */
   welcomeDescription?: string
+  /** Initial compact composer state used before the footer has been measured. */
+  defaultCompactFooter?: boolean
 }
 
 interface ServerEmittedUiPartRef {
@@ -788,6 +821,7 @@ export function AiChat({
   contextItems,
   welcomeTitle,
   welcomeDescription,
+  defaultCompactFooter = false,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -810,6 +844,26 @@ export function AiChat({
   const [pendingFiles, setPendingFiles] = React.useState<PendingAttachment[]>([])
   const upload = useAiChatUpload()
   const isUploading = upload.busy
+  const footerRef = React.useRef<HTMLDivElement | null>(null)
+  const [isCompactFooter, setIsCompactFooter] = React.useState(defaultCompactFooter)
+
+  React.useEffect(() => {
+    const element = footerRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+
+    const updateCompactState = (width: number) => {
+      setIsCompactFooter(width < COMPACT_FOOTER_MAX_WIDTH)
+    }
+
+    updateCompactState(element.getBoundingClientRect().width)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      updateCompactState(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const uploadedAttachmentIds = React.useMemo(
     () =>
@@ -824,11 +878,41 @@ export function AiChat({
     [attachmentIds, uploadedAttachmentIds],
   )
 
-  const { providers: modelProviders, allowRuntimeModelOverride } = useAgentModels(agent)
+  const {
+    providers: modelProviders,
+    allowRuntimeModelOverride,
+    loaded: modelProvidersLoaded,
+  } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
     readModelPickerValue(agent),
   )
+
+  React.useEffect(() => {
+    setModelPickerValue(readModelPickerValue(agent))
+  }, [agent])
+
+  React.useEffect(() => {
+    if (!modelProvidersLoaded) return
+    if (!allowRuntimeModelOverride || modelProviders.length === 0) {
+      if (modelPickerValue !== null) {
+        setModelPickerValue(null)
+        writeModelPickerValue(agent, null)
+      }
+      return
+    }
+    if (modelPickerValue && !isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      const fallback = firstAvailableModelPickerValue(modelProviders)
+      setModelPickerValue(fallback)
+      writeModelPickerValue(agent, fallback)
+    }
+  }, [
+    agent,
+    allowRuntimeModelOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
 
   const handleModelPickerChange = React.useCallback(
     (value: ModelPickerValue | null) => {
@@ -1151,15 +1235,15 @@ export function AiChat({
   return (
     <section
       className={cn(
-        'flex h-full min-h-[320px] flex-col gap-3 rounded-lg border border-border bg-background p-3',
+        'flex h-full min-h-[320px] min-w-0 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-background p-3',
         className,
       )}
       aria-label={t('ai_assistant.chat.regionLabel', 'AI chat')}
       data-ai-chat-agent={agent}
       data-ai-chat-conversation-id={chat.conversationId}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
-        <div className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
           {contextItems && contextItems.length > 0 ? (
             <ContextItemsPill items={contextItems} />
           ) : (
@@ -1186,7 +1270,7 @@ export function AiChat({
         role="log"
         aria-live="polite"
         aria-label={t('ai_assistant.chat.transcriptLabel', 'Chat transcript')}
-        className="flex-1 space-y-2 overflow-y-auto pr-1"
+        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1"
       >
         {chat.messages.length === 0 ? (
           <WelcomeState
@@ -1239,7 +1323,7 @@ export function AiChat({
       ) : null}
 
       <form
-        className="flex flex-col gap-2"
+        className="flex min-w-0 flex-col gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           handleSubmit()
@@ -1289,7 +1373,7 @@ export function AiChat({
           onKeyDown={handleKeyDown}
           rows={3}
           aria-label={t('ai_assistant.chat.composerLabel', 'Message composer')}
-          className="resize-none"
+          className="min-w-0 resize-none"
         />
         <input
           ref={fileInputRef}
@@ -1300,8 +1384,13 @@ export function AiChat({
           onChange={handleFileSelect}
           data-ai-chat-file-input=""
         />
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+        <div
+          ref={footerRef}
+          className="flex min-w-0 items-center justify-between gap-2"
+          data-ai-chat-footer=""
+          data-ai-chat-footer-compact={isCompactFooter ? 'true' : 'false'}
+        >
+          <div className="flex min-w-0 items-center gap-2">
             <IconButton
               type="button"
               variant="ghost"
@@ -1319,9 +1408,11 @@ export function AiChat({
                 onChange={handleModelPickerChange}
                 availableProviders={modelProviders}
                 disabled={isBusy}
+                compact={isCompactFooter}
+                className="shrink-0"
               />
             ) : null}
-            <p className="hidden text-xs text-muted-foreground sm:block">
+            <p className={cn('text-xs text-muted-foreground', isCompactFooter && 'hidden')}>
               {hasUploadingFiles || isUploading
                 ? t(
                     'ai_assistant.chat.uploadingHint',
@@ -1333,7 +1424,7 @@ export function AiChat({
                   )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {isStreaming ? (
               <IconButton
                 type="button"
@@ -1364,9 +1455,12 @@ export function AiChat({
                   ? t('ai_assistant.chat.sendWaitingForUpload', 'Waiting for upload to finish…')
                   : undefined
               }
+              className={cn(isCompactFooter && 'w-8 px-0')}
             >
               <Send className="size-4" aria-hidden />
-              <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              {!isCompactFooter ? (
+                <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              ) : null}
             </Button>
           </div>
         </div>

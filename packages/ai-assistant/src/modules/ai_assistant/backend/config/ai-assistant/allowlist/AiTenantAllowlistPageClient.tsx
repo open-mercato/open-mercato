@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Save, Shield, Trash2, Info, AlertCircle } from 'lucide-react'
+import { Loader2, Save, Shield, Trash2, Info, AlertCircle, ShieldCheck } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -40,6 +40,7 @@ type ProviderEntry = {
 
 type SettingsResponse = {
   availableProviders: ProviderEntry[]
+  allowlistProviders?: ProviderEntry[]
   allowlist: EnvAllowlistConfig
   tenantAllowlist: TenantAllowlist | null
   effectiveAllowlist: EffectiveAllowlist
@@ -117,7 +118,8 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
   const envModelsByProvider = settings.allowlist.modelsByProvider
 
   // Provider universe to render: env-allowed providers (or all configured if env unset).
-  const candidateProviders = settings.availableProviders.filter((p) => {
+  const editableProviders = settings.allowlistProviders ?? settings.availableProviders
+  const candidateProviders = editableProviders.filter((p) => {
     if (envAllowedProviders === null) return true
     return envAllowedProviders.some((id) => id.toLowerCase() === p.id.toLowerCase())
   })
@@ -295,11 +297,30 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
               )}
             </p>
           </div>
-          <Badge variant={settings.effectiveAllowlist.tenantOverridesActive ? 'default' : 'outline'}>
-            {settings.effectiveAllowlist.tenantOverridesActive
-              ? t('ai_assistant.allowlist.badge.active', 'Tenant rules active')
-              : t('ai_assistant.allowlist.badge.envOnly', 'Env-only')}
-          </Badge>
+          <span
+            className={
+              settings.effectiveAllowlist.tenantOverridesActive
+                ? 'inline-flex size-8 items-center justify-center rounded-md text-status-success-icon'
+                : 'inline-flex size-8 items-center justify-center rounded-md text-status-warning-icon'
+            }
+            role="img"
+            aria-label={
+              settings.effectiveAllowlist.tenantOverridesActive
+                ? t('ai_assistant.allowlist.badge.active', 'Tenant rules active')
+                : t('ai_assistant.allowlist.badge.envOnly', 'Env-only')
+            }
+            title={
+              settings.effectiveAllowlist.tenantOverridesActive
+                ? t('ai_assistant.allowlist.badge.active', 'Tenant rules active')
+                : t('ai_assistant.allowlist.badge.envOnly', 'Env-only')
+            }
+          >
+            {settings.effectiveAllowlist.tenantOverridesActive ? (
+              <ShieldCheck className="size-5" aria-hidden />
+            ) : (
+              <Shield className="size-5" aria-hidden />
+            )}
+          </span>
         </div>
 
         {candidateProviders.length === 0 ? (
