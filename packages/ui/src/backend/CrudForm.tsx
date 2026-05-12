@@ -3636,7 +3636,7 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     linkUrlPrompt: t('ui.forms.richtext.linkUrlPrompt'),
     placeholder: t('ui.forms.richtext.placeholder'),
   }), [t])
-  return <RichEditor value={value} onChange={onChange} variant="standard" labels={labels} />
+  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.

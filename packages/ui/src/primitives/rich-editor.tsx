@@ -1159,7 +1159,11 @@ function RichEditorPresetItems({
   const showOrdered = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showAlign = variant === 'full'
   const showComment = variant === 'full' && (onComment !== undefined)
-  const showMention = variant === 'full' && (onMention !== undefined)
+  // Mention is always available in the `full` variant — when the consumer
+  // doesn't wire a custom `@`-picker we fall back to inserting an `@` literal
+  // at the caret so the user can keep typing without a no-op button.
+  const showMention = variant === 'full'
+  const mentionHandler = onMention ?? (() => exec('insertText', '@'))
   const showMore = variant === 'full' && moreMenu !== undefined
   const showLink = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showLists = variant !== 'minimal'
@@ -1405,7 +1409,7 @@ function RichEditorPresetItems({
         <RichEditorIconButton icon={<Link />} ariaLabel={labels.link} tooltipLabel={labels.link} onActivate={onLink} />
       ) : null}
       {showMention ? (
-        <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={onMention} />
+        <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={mentionHandler} />
       ) : null}
       {showHelp || showMore || showFullscreen ? (
         <>

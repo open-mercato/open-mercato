@@ -79,29 +79,42 @@ describe('RichEditor — variant presets', () => {
     expect(screen.getByRole('button', { name: 'Align' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument()
-    // Comment / Mention / More / Fullscreen are opt-in via handler/menu props.
+    // Mention is always rendered in `full` (default handler inserts an `@`
+    // literal). Comment / More / Fullscreen stay opt-in via handler/menu props.
+    expect(screen.getByRole('button', { name: 'Mention' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add comment' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Mention' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Toggle fullscreen' })).toBeNull()
   })
 
-  it('full opts in Comment / Mention / More / Fullscreen when handlers + menu are provided', () => {
+  it('full opts in Comment / More / Fullscreen when handlers + menu are provided', () => {
     render(
       <RichEditor
         value=""
         onChange={jest.fn()}
         variant="full"
         onComment={() => {}}
-        onMention={() => {}}
         onFullscreen={() => {}}
         moreMenu={<div>menu</div>}
       />,
     )
     expect(screen.getByRole('button', { name: 'Add comment' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mention' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Toggle fullscreen' })).toBeInTheDocument()
+  })
+
+  it('clicking Mention without a custom onMention handler inserts an "@" via execCommand', () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mention' }))
+    expect(execMock).toHaveBeenCalledWith('insertText', false, '@')
+  })
+
+  it('custom onMention overrides the default "@" insertion', () => {
+    const onMention = jest.fn()
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" onMention={onMention} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mention' }))
+    expect(onMention).toHaveBeenCalledTimes(1)
+    expect(execMock).not.toHaveBeenCalledWith('insertText', false, '@')
   })
 
   it("clicking Link does NOT call window.prompt (DS Dialog handles it instead)", () => {
